@@ -1,0 +1,8 @@
+{
+  "name": "@gridforge/api",
+  "private": true,
+  "scripts": {
+    "dev": "uv run uvicorn gridforge_api.main:app --reload --port 8000",
+    "build": "uv sync"
+  }
+}

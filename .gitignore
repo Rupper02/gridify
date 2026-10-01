@@ -206,3 +206,14 @@ __marimo__/
 warehouse/
 .tmp_dagster_home*/
 .dg/
+*.duckdb
+
+# --- Node / monorepo ---
+node_modules/
+.next/
+.turbo/
+out/
+dist/
+*.tsbuildinfo
+.env*.local
+public/maplibre/

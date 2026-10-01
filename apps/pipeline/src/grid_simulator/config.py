@@ -30,6 +30,7 @@ EXTRACTION_SYSTEM_PROMPT = (
     "technology = one of solar/battery/wind/load if stated, else null. "
     "rating_mw = capacity in MW (convert kW to MW; 4,500 kW = 4.5), else null. "
     "voltage_kv = voltage in kV if stated, else null. "
+    "applicant = the applicant or company name if stated, else null. "
     "confidence = your 0.0-1.0 confidence in this extraction."
 )
 
@@ -45,9 +46,10 @@ EXTRACTION_RESPONSE_FORMAT = {
                 "technology": {"type": ["string", "null"]},
                 "rating_mw": {"type": ["number", "null"]},
                 "voltage_kv": {"type": ["number", "null"]},
+                "applicant": {"type": ["string", "null"]},
                 "confidence": {"type": "number"},
             },
-            "required": ["bus_id", "technology", "rating_mw", "voltage_kv", "confidence"],
+            "required": ["bus_id", "technology", "rating_mw", "voltage_kv", "applicant", "confidence"],
             "additionalProperties": False,
         },
     },

@@ -14,6 +14,7 @@ def served_model(
     canonical_buses: pd.DataFrame,
     canonical_lines: pd.DataFrame,
     canonical_transformers: pd.DataFrame,
+    canonical_loads: pd.DataFrame,
 ) -> dg.MaterializeResult:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -21,6 +22,7 @@ def served_model(
         "buses": canonical_buses,
         "lines": canonical_lines,
         "transformers": canonical_transformers,
+        "loads": canonical_loads,
     }
 
     # a content fingerprint of the whole model = the "versioned source of truth" id

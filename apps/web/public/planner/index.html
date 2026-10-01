@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="./gridforge-api.js"></script>
+<style>
+html,body{margin:0;padding:0;height:100%;background:#f3f4f6;color:#111827;-webkit-font-smoothing:antialiased}
+a{color:#2563eb;text-decoration:none}a:hover{color:#1d4ed8;text-decoration:underline}
+input[type=range]{accent-color:#111827}
+*{box-sizing:border-box}
+.maplibregl-ctrl-attrib{font-size:10px}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib.maplibregl-compact-show{max-width:min(420px, calc(100vw - 48px))}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:#d1d5db;border-radius:4px}
+</style>
+</helmet>
+<div style="height:100vh; min-height:780px; display:grid; grid-template-rows:auto minmax(0,1fr); font-family:'Geist', ui-sans-serif, system-ui, sans-serif; font-size:13px; color:#111827; background:#f3f4f6">
+
+  <header style="display:flex; align-items:center; gap:18px; flex-wrap:wrap; padding:10px 16px; background:#ffffff; border-bottom:1px solid #e5e7eb">
+    <div style="display:flex; align-items:center; gap:10px">
+      <div style="width:30px; height:30px; border-radius:7px; background:#111827; display:grid; place-items:center; color:#ffffff; font-family:'Geist Mono', monospace; font-size:11px; font-weight:600; letter-spacing:0.02em">GF</div>
+      <div style="display:flex; flex-direction:column; line-height:1.15">
+        <span style="font-size:15px; font-weight:600; letter-spacing:-0.01em">GridForge</span>
+        <span style="font-size:11.5px; color:#6b7280">Connection queue planner</span>
+      </div>
+    </div>
+    <div style="width:1px; height:28px; background:#e5e7eb"></div>
+    <div style="display:flex; flex-direction:column; line-height:1.3">
+      <span style="font-size:12px; font-weight:500; color:#374151">Ortenau 20 kV network</span>
+      <span style="font-family:'Geist Mono', monospace; font-size:10.5px; color:#9ca3af">{{ netMeta }}</span>
+    </div>
+    <div style="flex:1"></div>
+
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:nowrap; padding:5px 6px 5px 12px; border:1px solid #e5e7eb; border-radius:9px; background:#f9fafb">
+      <div style="display:flex; flex-direction:column; gap:2px">
+        <span style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">Demand forecast</span>
+        <sc-if value="{{ hasForecasts }}" hint-placeholder-val="{{ false }}"><select value="{{ forecastId }}" onChange="{{ onForecast }}" style="font-family:inherit; font-size:12.5px; font-weight:500; color:#111827; border:none; background:transparent; padding:0; outline:none; cursor:pointer; max-width:220px">
+          <sc-for list="{{ forecastOpts }}" as="o" hint-placeholder-count="4">
+            <option value="{{ o.id }}" selected="{{ o.selected }}">{{ o.label }}</option>
+          </sc-for>
+        </select></sc-if>
+      </div>
+      <div style="width:1px; height:28px; background:#e5e7eb"></div>
+      <label style="display:flex; flex-direction:column; gap:3px; width:132px">
+        <span style="display:flex; justify-content:space-between; font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af"><span>2030 growth</span><span style="font-family:'Geist Mono', monospace; color:#111827; letter-spacing:0">{{ g30Text }}</span></span>
+        <input type="range" min="1" max="1.5" step="0.01" value="{{ g30 }}" onChange="{{ onG30 }}" style="width:100%; margin:0; height:14px">
+      </label>
+      <label style="display:flex; flex-direction:column; gap:3px; width:132px">
+        <span style="display:flex; justify-content:space-between; font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af"><span>2035 growth</span><span style="font-family:'Geist Mono', monospace; color:#111827; letter-spacing:0">{{ g35Text }}</span></span>
+        <input type="range" min="1" max="1.6" step="0.01" value="{{ g35 }}" onChange="{{ onG35 }}" style="width:100%; margin:0; height:14px">
+      </label>
+      <button onClick="{{ run }}" disabled="{{ running }}" style="display:flex; align-items:center; gap:8px; height:34px; padding:0 14px; border:none; border-radius:7px; background:{{ runBg }}; color:{{ runFg }}; font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap" style-hover="filter:brightness(0.94)">
+        <sc-if value="{{ stale }}" hint-placeholder-val="{{ false }}"><span style="width:7px; height:7px; border-radius:50%; background:#fbbf24"></span></sc-if>
+        {{ runLabel }}
+      </button>
+    </div>
+    <button onClick="{{ openDrawer }}" style="height:34px; padding:0 14px; border:1px solid #d1d5db; border-radius:7px; background:#ffffff; color:#111827; font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap" style-hover="background:#f9fafb; border-color:#9ca3af">+ Add project</button>
+  </header>
+
+  <div style="display:grid; grid-template-columns:minmax(0,1fr) clamp(380px, 34vw, 472px); gap:12px; padding:12px; min-height:0">
+
+    <div style="display:grid; grid-template-rows:minmax(0,1fr) auto; gap:12px; min-height:0; min-width:0">
+
+      <div style="position:relative; min-height:360px; overflow:hidden; border-radius:10px; border:1px solid #e5e7eb; background:#eceef1">
+        <div ref="{{ mapRef }}" style="position:absolute; inset:0"></div>
+        <div style="position:absolute; inset:0; pointer-events:none; overflow:hidden">
+          <sc-for list="{{ mapLabels }}" as="t" hint-placeholder-count="0">
+            <div style="position:absolute; left:{{ t.sx }}px; top:{{ t.sy }}px; transform:translateY(-50%); white-space:nowrap; font-family:{{ t.font }}; font-size:{{ t.fs }}px; font-weight:{{ t.fw }}; color:{{ t.color }}; line-height:1.2; text-shadow:0 0 2px #fbfbfa, 0 0 3px #fbfbfa, 0 0 4px #fbfbfa">
+              <div>{{ t.text }}</div>
+              <sc-if value="{{ t.hasSub }}" hint-placeholder-val="{{ false }}"><div style="font-family:'Geist Mono', monospace; font-size:9.5px; font-weight:400; color:#6b7280">{{ t.sub }}</div></sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <div style="position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:8px; pointer-events:none">
+          <div style="display:flex; align-items:center; gap:10px; pointer-events:auto">
+            <div style="display:flex; padding:3px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 1px 2px rgba(17,24,39,0.05)">
+              <button onClick="{{ setPhase30 }}" style="padding:5px 12px; border:none; border-radius:6px; background:{{ ph30Bg }}; color:{{ ph30Fg }}; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap">2030 · Phase 1</button>
+              <button onClick="{{ setPhase35 }}" style="padding:5px 12px; border:none; border-radius:6px; background:{{ ph35Bg }}; color:{{ ph35Fg }}; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap">2035 · Phase 2</button>
+            </div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px 14px; padding:7px 11px; background:rgba(255,255,255,0.92); border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; color:#4b5563; pointer-events:auto">
+            <span style="white-space:nowrap">Demand <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseGrowth }}</b></span>
+            <span style="white-space:nowrap">Connected <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseMw }}</b></span>
+            <span style="white-space:nowrap">Worst line <b style="font-family:'Geist Mono', monospace; font-weight:600; color:{{ worstColor }}">{{ phaseWorst }}</b></span>
+            <span style="white-space:nowrap">Voltage <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseV }}</b></span>
+          </div>
+        </div>
+
+        <sc-if value="{{ pickMode }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:10px; padding:8px 8px 8px 14px; background:#1d4ed8; color:#ffffff; border-radius:8px; font-size:12.5px; font-weight:500; box-shadow:0 4px 14px rgba(29,78,216,0.3)">
+            Click a bus to set the point of connection
+            <button onClick="{{ cancelPick }}" style="padding:4px 10px; border:none; border-radius:5px; background:rgba(255,255,255,0.18); color:#ffffff; font-family:inherit; font-size:12px; cursor:pointer">Cancel</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ hasDetail }}" hint-placeholder-val="{{ false }}">
+          <div onMouseDown="{{ stop }}" style="position:absolute; top:12px; right:12px; width:300px; max-height:calc(100% - 24px); overflow:auto; background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; box-shadow:0 8px 24px rgba(17,24,39,0.10); padding:14px; cursor:default">
+            <div style="display:flex; align-items:flex-start; gap:8px">
+              <div style="flex:1; min-width:0">
+                <div style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">{{ detail.kind }}</div>
+                <div style="font-family:'Geist Mono', monospace; font-size:15px; font-weight:600; margin-top:2px">{{ detail.title }}</div>
+                <div style="font-size:12px; color:#6b7280; margin-top:1px">{{ detail.subtitle }}</div>
+              </div>
+              <button onClick="{{ clearSel }}" style="width:24px; height:24px; border:none; border-radius:5px; background:#f3f4f6; color:#6b7280; font-size:15px; line-height:1; cursor:pointer">×</button>
+            </div>
+            <sc-if value="{{ detail.hasChip }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:10px"><span style="display:inline-block; padding:3px 8px; border-radius:5px; background:{{ detail.chipBg }}; color:{{ detail.chipFg }}; font-size:11.5px; font-weight:600">{{ detail.chip }}</span></div>
+            </sc-if>
+            <div style="display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin-top:12px; font-size:12px">
+              <sc-for list="{{ detail.rows }}" as="row" hint-placeholder-count="3">
+                <span style="color:#6b7280">{{ row.k }}</span>
+                <span style="font-family:'Geist Mono', monospace; text-align:right; color:{{ row.color }}">{{ row.v }}</span>
+              </sc-for>
+            </div>
+            <sc-if value="{{ detail.hasNote }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:12px; padding:9px 10px; border-radius:7px; background:{{ detail.noteBg }}; border:1px solid {{ detail.noteBd }}">
+                <div style="font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:{{ detail.noteLabelFg }}">{{ detail.noteLabel }}</div>
+                <div style="font-size:12.5px; color:{{ detail.noteFg }}; margin-top:3px; text-wrap:pretty">{{ detail.note }}</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ detail.hasAction }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ detail.onAction }}" style="margin-top:10px; width:100%; height:30px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:12px; font-weight:600; color:#111827; cursor:pointer" style-hover="background:#f9fafb">{{ detail.action }}</button>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ legendClosed }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ toggleLegend }}" style="position:absolute; left:12px; bottom:12px; padding:6px 10px; background:#ffffff; border:1px solid #e5e7eb; border-radius:7px; font-family:inherit; font-size:11.5px; font-weight:600; color:#374151; cursor:pointer">Legend</button>
+        </sc-if>
+        <sc-if value="{{ legendOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="position:absolute; left:12px; bottom:12px; display:flex; flex-direction:column; gap:5px; padding:8px 12px 10px; background:rgba(255,255,255,0.94); border:1px solid #e5e7eb; border-radius:8px; font-size:11px; color:#4b5563">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px"><span style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">Legend</span><button onClick="{{ toggleLegend }}" style="border:none; background:transparent; padding:0 2px; font-size:14px; line-height:1; color:#9ca3af; cursor:pointer">×</button></div>
+          <div style="display:grid; grid-template-columns:auto auto; gap:5px 14px; align-items:center">
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#374151"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff"></line></svg>Solar PV</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><polygon points="3,5 13,5 8,13" fill="#a8a29e"></polygon></svg>Load (sized by MW)</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#374151"></circle><line x1="8" y1="8" x2="8" y2="3.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line><line x1="8" y1="8" x2="11.9" y2="10.3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line><line x1="8" y1="8" x2="4.1" y2="10.3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line></svg>Wind</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="4" fill="#fff" stroke="#111827" stroke-width="1.6"></circle><circle cx="8" cy="10.5" r="4" fill="#fff" fill-opacity="0.6" stroke="#111827" stroke-width="1.6"></circle></svg>Transformer 110/20 kV</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="14" y="6" width="1.6" height="4" fill="#374151"></rect><rect x="1" y="4" width="13" height="8" rx="1.5" fill="#374151"></rect><line x1="5.3" y1="5.5" x2="5.3" y2="10.5" stroke="#fff" stroke-width="1.2"></line><line x1="9.6" y1="5.5" x2="9.6" y2="10.5" stroke="#fff" stroke-width="1.2"></line></svg>Battery</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#94a3b8" stroke-width="3"></line><circle cx="3" cy="8" r="2.2" fill="#64748b" stroke="#fff"></circle><circle cx="13" cy="8" r="2.2" fill="#64748b" stroke="#fff"></circle></svg>Line · bus</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#dc2626" stroke-width="4"></line></svg>Overloaded line</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="2 2"></line><rect x="5" y="5" width="6" height="6" fill="#fff" stroke="#94a3b8" stroke-width="1.2"></rect></svg>Open point</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#d97706" stroke-width="3.4" stroke-dasharray="4 2.5"></line></svg>Binding constraint</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="rgba(220,38,38,0.1)" stroke="#dc2626" stroke-width="1.8"></circle><circle cx="8" cy="8" r="2" fill="#64748b"></circle></svg>Voltage breach</div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:4px 12px; padding-top:6px; margin-top:2px; border-top:1px solid #f3f4f6">
+            <span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#16a34a;"></span>Phase 1</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#2563eb;"></span>Phase 2</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#fef3c7; border:1.5px dashed #d97706;"></span>Deferred</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#f3f4f6; border:1px dashed #9ca3af;"></span>Rejected</span>
+          </div>
+        </div>
+        </sc-if>
+
+        <div style="position:absolute; right:12px; bottom:30px; display:flex; align-items:flex-end; gap:8px">
+          <div style="display:flex; flex-direction:column; gap:4px; padding:4px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px">
+            <button onClick="{{ toggleLoading }}" style="padding:5px 9px; border:none; border-radius:5px; background:{{ loadingBg }}; color:{{ loadingFg }}; font-family:inherit; font-size:11.5px; font-weight:500; cursor:pointer; text-align:left">Loading heat</button>
+            <button onClick="{{ toggleLoads }}" style="padding:5px 9px; border:none; border-radius:5px; background:{{ loadsBg }}; color:{{ loadsFg }}; font-family:inherit; font-size:11.5px; font-weight:500; cursor:pointer; text-align:left">Loads</button>
+            <button onClick="{{ toggleLabels }}" style="padding:5px 9px; border:none; border-radius:5px; background:{{ labelsBg }}; color:{{ labelsFg }}; font-family:inherit; font-size:11.5px; font-weight:500; cursor:pointer; text-align:left">Bus labels</button>
+          </div>
+          <div style="display:flex; flex-direction:column; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; overflow:hidden">
+            <button onClick="{{ zoomIn }}" style="width:32px; height:30px; border:none; border-bottom:1px solid #e5e7eb; background:#ffffff; font-size:16px; color:#374151; cursor:pointer" style-hover="background:#f9fafb">+</button>
+            <button onClick="{{ zoomOut }}" style="width:32px; height:30px; border:none; border-bottom:1px solid #e5e7eb; background:#ffffff; font-size:16px; color:#374151; cursor:pointer" style-hover="background:#f9fafb">−</button>
+            <button onClick="{{ zoomFit }}" style="width:32px; height:30px; border:none; background:#ffffff; font-size:10px; font-weight:600; color:#374151; cursor:pointer; font-family:inherit" style-hover="background:#f9fafb">FIT</button>
+          </div>
+        </div>
+
+        <sc-if value="{{ hasTip }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; left:{{ tip.x }}px; top:{{ tip.y }}px; min-width:170px; padding:8px 10px; background:#111827; color:#f9fafb; border-radius:7px; font-size:11.5px; pointer-events:none; box-shadow:0 6px 16px rgba(0,0,0,0.18)">
+            <div style="font-family:'Geist Mono', monospace; font-weight:600; font-size:12px">{{ tip.title }}</div>
+            <div style="display:grid; grid-template-columns:auto auto; gap:2px 14px; margin-top:5px">
+              <sc-for list="{{ tip.rows }}" as="row" hint-placeholder-count="2">
+                <span style="color:#9ca3af">{{ row.k }}</span>
+                <span style="font-family:'Geist Mono', monospace; text-align:right; color:{{ row.color }}">{{ row.v }}</span>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ running }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute; inset:0; background:rgba(251,251,250,0.72); display:grid; place-items:center; cursor:progress">
+            <div style="width:320px; padding:18px 20px; background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 12px 32px rgba(17,24,39,0.12)">
+              <div style="font-size:14px; font-weight:600">Computing power flow</div>
+              <div style="font-size:12px; color:#6b7280; margin-top:2px">{{ runScenarioText }}</div>
+              <div style="height:4px; background:#f3f4f6; border-radius:2px; margin-top:12px; overflow:hidden">
+                <div style="height:100%; width:{{ runPct }}%; background:#111827; border-radius:2px; transition:width 260ms ease"></div>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:7px; margin-top:14px">
+                <sc-for list="{{ runSteps }}" as="st" hint-placeholder-count="5">
+                  <div style="display:flex; align-items:center; gap:9px; font-size:12px; color:{{ st.fg }}">
+                    <span style="width:14px; height:14px; border-radius:50%; display:grid; place-items:center; font-size:9px; color:#ffffff; background:{{ st.dotBg }}; border:1.5px solid {{ st.dotBd }}">{{ st.mark }}</span>
+                    {{ st.label }}
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px 14px">
+        <div style="display:flex; align-items:baseline; gap:12px; flex-wrap:wrap">
+          <span style="font-size:13px; font-weight:600">Connection roadmap</span>
+          <span style="font-size:11.5px; color:#6b7280">{{ tlSummary }}</span>
+        </div>
+        <div style="display:grid; grid-template-columns:150px minmax(0,1.2fr) minmax(0,1fr) minmax(0,1fr); gap:0; margin-top:12px">
+          <div style="padding-right:12px">
+            <div style="display:flex; align-items:center; gap:6px; border-top:2px solid #d1d5db; padding-top:0; position:relative">
+              <span style="position:absolute; top:-6px; left:0; width:10px; height:10px; border-radius:50%; background:#ffffff; border:2px solid #6b7280"></span>
+            </div>
+            <div style="margin-top:12px; font-size:12px; font-weight:600">Now · {{ nowLabel }}</div>
+            <div style="font-size:11.5px; color:#6b7280; margin-top:3px; line-height:1.45">{{ nowText }}</div>
+          </div>
+          <div style="padding-right:12px">
+            <div style="border-top:2px solid #16a34a; position:relative"><span style="position:absolute; top:-6px; left:0; width:10px; height:10px; border-radius:50%; background:#16a34a; border:2px solid #ffffff; box-shadow:0 0 0 1px #16a34a"></span></div>
+            <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:12px"><span style="font-weight:600; color:#166534">By 2030 · Phase 1</span><span style="font-family:'Geist Mono', monospace; color:#6b7280">{{ tlP1Mw }}</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; max-height:92px; overflow:auto">
+              <sc-for list="{{ tlP1 }}" as="c" hint-placeholder-count="4">
+                <div onClick="{{ c.onClick }}" style="padding:5px 8px; border-radius:6px; background:#f0fdf4; border:1px solid {{ c.bd }}; cursor:pointer; line-height:1.25" style-hover="border-color:#16a34a">
+                  <div style="font-family:'Geist Mono', monospace; font-size:11.5px; font-weight:600; color:#166534">{{ c.id }}</div>
+                  <div style="display:flex; align-items:center; gap:4px; font-size:10.5px; color:#4b5563; white-space:nowrap"><sc-if value="{{ c.isSolar }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#6b7280"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff" stroke-width="1.4"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><sc-if value="{{ c.isWind }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><circle cx="8" cy="8" r="7" fill="#6b7280"></circle><line x1="8" y1="8" x2="8" y2="3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="12.3" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="3.7" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line></svg></sc-if><sc-if value="{{ c.isBattery }}" hint-placeholder-val="{{ false }}"><svg width="13" height="11" viewBox="0 0 18 16" style="flex:none"><rect x="15" y="5.5" width="2.5" height="5" fill="#6b7280"></rect><rect x="1" y="3" width="14" height="10" rx="1.5" fill="#6b7280"></rect><line x1="5.7" y1="5" x2="5.7" y2="11" stroke="#fff" stroke-width="1.4"></line><line x1="10.3" y1="5" x2="10.3" y2="11" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><span>{{ c.sub }}</span></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="padding-right:12px">
+            <div style="border-top:2px solid #2563eb; position:relative"><span style="position:absolute; top:-6px; left:0; width:10px; height:10px; border-radius:50%; background:#2563eb; border:2px solid #ffffff; box-shadow:0 0 0 1px #2563eb"></span></div>
+            <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:12px"><span style="font-weight:600; color:#1e40af">By 2035 · Phase 2</span><span style="font-family:'Geist Mono', monospace; color:#6b7280">{{ tlP2Mw }}</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; max-height:92px; overflow:auto">
+              <sc-for list="{{ tlP2 }}" as="c" hint-placeholder-count="2">
+                <div onClick="{{ c.onClick }}" style="padding:5px 8px; border-radius:6px; background:#eff6ff; border:1px solid {{ c.bd }}; cursor:pointer; line-height:1.25" style-hover="border-color:#2563eb">
+                  <div style="font-family:'Geist Mono', monospace; font-size:11.5px; font-weight:600; color:#1e40af">{{ c.id }}</div>
+                  <div style="display:flex; align-items:center; gap:4px; font-size:10.5px; color:#4b5563; white-space:nowrap"><sc-if value="{{ c.isSolar }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#6b7280"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff" stroke-width="1.4"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><sc-if value="{{ c.isWind }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><circle cx="8" cy="8" r="7" fill="#6b7280"></circle><line x1="8" y1="8" x2="8" y2="3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="12.3" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="3.7" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line></svg></sc-if><sc-if value="{{ c.isBattery }}" hint-placeholder-val="{{ false }}"><svg width="13" height="11" viewBox="0 0 18 16" style="flex:none"><rect x="15" y="5.5" width="2.5" height="5" fill="#6b7280"></rect><rect x="1" y="3" width="14" height="10" rx="1.5" fill="#6b7280"></rect><line x1="5.7" y1="5" x2="5.7" y2="11" stroke="#fff" stroke-width="1.4"></line><line x1="10.3" y1="5" x2="10.3" y2="11" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><span>{{ c.sub }}</span></div>
+                </div>
+              </sc-for>
+              <sc-if value="{{ tlP2Empty }}" hint-placeholder-val="{{ false }}"><span style="font-size:11.5px; color:#9ca3af">No projects in Phase 2</span></sc-if>
+            </div>
+          </div>
+          <div>
+            <div style="border-top:2px dashed #d97706; position:relative"><span style="position:absolute; top:-6px; left:0; width:10px; height:10px; border-radius:50%; background:#fef3c7; border:2px solid #d97706"></span></div>
+            <div style="display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:12px"><span style="font-weight:600; color:#92400e">Deferred · not scheduled</span><span style="font-family:'Geist Mono', monospace; color:#6b7280">{{ tlDefMw }}</span></div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; max-height:92px; overflow:auto">
+              <sc-for list="{{ tlDef }}" as="c" hint-placeholder-count="3">
+                <div onClick="{{ c.onClick }}" title="{{ c.reason }}" style="padding:5px 8px; border-radius:6px; background:#fffbeb; border:1px dashed {{ c.bd }}; cursor:pointer; line-height:1.25; max-width:100%" style-hover="border-color:#b45309">
+                  <div style="display:flex; align-items:center; gap:5px; font-family:'Geist Mono', monospace; font-size:11.5px; font-weight:600; color:#92400e; white-space:nowrap">{{ c.id }} <sc-if value="{{ c.isSolar }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#6b7280"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff" stroke-width="1.4"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><sc-if value="{{ c.isWind }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><circle cx="8" cy="8" r="7" fill="#6b7280"></circle><line x1="8" y1="8" x2="8" y2="3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="12.3" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="3.7" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line></svg></sc-if><sc-if value="{{ c.isBattery }}" hint-placeholder-val="{{ false }}"><svg width="13" height="11" viewBox="0 0 18 16" style="flex:none"><rect x="15" y="5.5" width="2.5" height="5" fill="#6b7280"></rect><rect x="1" y="3" width="14" height="10" rx="1.5" fill="#6b7280"></rect><line x1="5.7" y1="5" x2="5.7" y2="11" stroke="#fff" stroke-width="1.4"></line><line x1="10.3" y1="5" x2="10.3" y2="11" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><span style="font-family:'Geist', sans-serif; font-weight:400; color:#4b5563; font-size:10.5px">{{ c.sub }}</span></div>
+                  <div style="font-size:10.5px; color:#b45309; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:190px">{{ c.reasonShort }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="position:relative; min-height:0; display:grid; grid-template-rows:auto auto minmax(0,1fr); background:#ffffff; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden">
+      <div style="display:grid; grid-template-columns:repeat(5, minmax(0,1fr)); gap:6px; padding:12px 12px 10px">
+        <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="5">
+          <button onClick="{{ t.onClick }}" style="display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:8px 9px; border-radius:8px; border:1px solid {{ t.bd }}; background:{{ t.bg }}; font-family:inherit; cursor:pointer; text-align:left; min-width:0" style-hover="border-color:#9ca3af">
+            <span style="display:flex; align-items:center; gap:5px; font-size:10.5px; font-weight:600; color:#4b5563; white-space:nowrap"><span style="width:8px; height:8px; border-radius:2px; background:{{ t.color }}"></span>{{ t.label }}</span>
+            <span style="font-size:19px; font-weight:600; color:#111827; letter-spacing:-0.02em; line-height:1.1">{{ t.count }}</span>
+            <span style="font-family:'Geist Mono', monospace; font-size:10.5px; color:#6b7280; white-space:nowrap">{{ t.mw }}</span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="display:flex; align-items:flex-end; gap:18px; padding:0 14px; border-bottom:1px solid #e5e7eb">
+        <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3">
+          <button onClick="{{ t.onClick }}" style="display:flex; align-items:center; gap:6px; padding:8px 0 9px; border:none; border-bottom:2px solid {{ t.bd }}; margin-bottom:-1px; background:transparent; font-family:inherit; font-size:12.5px; font-weight:600; color:{{ t.fg }}; cursor:pointer">
+            {{ t.label }}
+            <sc-if value="{{ t.hasBadge }}" hint-placeholder-val="{{ false }}"><span style="min-width:18px; padding:1px 5px; border-radius:9px; background:{{ t.badgeBg }}; color:#ffffff; font-size:10.5px; font-weight:600; text-align:center">{{ t.badge }}</span></sc-if>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="min-height:0; overflow-y:auto; overflow-x:hidden">
+        <sc-if value="{{ tabQueue }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; position:sticky; top:0; background:#ffffff; z-index:2">
+            <input value="{{ query }}" onChange="{{ onQuery }}" placeholder="Search ID, applicant, bus…" style="flex:1; min-width:0; height:30px; padding:0 10px; border:1px solid #e5e7eb; border-radius:6px; font-family:inherit; font-size:12.5px; outline:none; background:#f9fafb">
+            <button onClick="{{ toggleGroup }}" style="height:30px; padding:0 10px; border:1px solid {{ groupBd }}; border-radius:6px; background:{{ groupBg }}; font-family:inherit; font-size:12px; font-weight:500; color:#374151; cursor:pointer; white-space:nowrap">Group by status</button>
+          </div>
+          <div style="display:grid; grid-template-columns:30px minmax(0,1fr) 50px 66px 92px; column-gap:10px; padding:6px 14px; border-top:1px solid #e5e7eb; border-bottom:1px solid #e5e7eb; background:#f9fafb; font-size:10.5px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; color:#6b7280; position:sticky; top:50px; z-index:2">
+            <sc-for list="{{ cols }}" as="c" hint-placeholder-count="5">
+              <button onClick="{{ c.onClick }}" style="display:flex; gap:3px; justify-content:{{ c.justify }}; border:none; background:transparent; padding:0; font:inherit; letter-spacing:inherit; text-transform:inherit; color:{{ c.fg }}; cursor:pointer">{{ c.label }}<span style="color:#111827">{{ c.arrow }}</span></button>
+            </sc-for>
+          </div>
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="1">
+            <sc-if value="{{ g.header }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; align-items:center; gap:7px; padding:9px 14px 5px; font-size:11px; font-weight:600; color:{{ g.fg }}; text-transform:uppercase; letter-spacing:0.05em">
+                <span style="width:8px; height:8px; border-radius:2px; background:{{ g.color }}"></span>{{ g.label }}<span style="color:#9ca3af; font-weight:500; letter-spacing:0">{{ g.meta }}</span>
+              </div>
+            </sc-if>
+            <sc-for list="{{ g.rows }}" as="row" hint-placeholder-count="8">
+              <div onClick="{{ row.onClick }}" style="display:grid; grid-template-columns:30px minmax(0,1fr) 50px 66px 92px; column-gap:10px; row-gap:6px; align-items:start; padding:9px 14px; border-bottom:1px solid #f3f4f6; background:{{ row.bg }}; cursor:pointer; box-shadow:{{ row.shadow }}" style-hover="background:#f9fafb">
+                <span style="font-family:'Geist Mono', monospace; font-size:12px; color:#9ca3af; padding-top:1px">{{ row.rank }}</span>
+                <div style="min-width:0">
+                  <div style="display:flex; align-items:center; gap:6px">
+                    <span style="font-family:'Geist Mono', monospace; font-size:12.5px; font-weight:600">{{ row.id }}</span>
+                    <sc-if value="{{ row.manual }}" hint-placeholder-val="{{ false }}"><span style="padding:0 5px; border-radius:4px; background:#111827; color:#ffffff; font-size:9.5px; font-weight:600; letter-spacing:0.04em">NEW</span></sc-if>
+                    <sc-if value="{{ row.changed }}" hint-placeholder-val="{{ false }}"><span style="font-size:10.5px; color:#6b7280">{{ row.changedText }}</span></sc-if>
+                  </div>
+                  <div style="font-size:12px; color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ row.applicant }}</div>
+                  <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:#9ca3af"><sc-if value="{{ row.isSolar }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#6b7280"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff" stroke-width="1.4"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><sc-if value="{{ row.isWind }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><circle cx="8" cy="8" r="7" fill="#6b7280"></circle><line x1="8" y1="8" x2="8" y2="3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="12.3" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="3.7" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line></svg></sc-if><sc-if value="{{ row.isBattery }}" hint-placeholder-val="{{ false }}"><svg width="13" height="11" viewBox="0 0 18 16" style="flex:none"><rect x="15" y="5.5" width="2.5" height="5" fill="#6b7280"></rect><rect x="1" y="3" width="14" height="10" rx="1.5" fill="#6b7280"></rect><line x1="5.7" y1="5" x2="5.7" y2="11" stroke="#fff" stroke-width="1.4"></line><line x1="10.3" y1="5" x2="10.3" y2="11" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><span>{{ row.meta }}</span></div>
+                </div>
+                <span style="font-family:'Geist Mono', monospace; font-size:12.5px; text-align:right; padding-top:1px">{{ row.mw }}</span>
+                <div style="display:flex; flex-direction:column; gap:4px; padding-top:2px">
+                  <span style="font-family:'Geist Mono', monospace; font-size:12px">{{ row.ready }}</span>
+                  <div style="height:4px; background:#f3f4f6; border-radius:2px; overflow:hidden"><div style="height:100%; width:{{ row.readyPct }}%; background:{{ row.readyColor }}"></div></div>
+                </div>
+                <div style="display:flex; justify-content:flex-end"><span style="padding:3px 7px; border-radius:5px; background:{{ row.chipBg }}; color:{{ row.chipFg }}; font-size:11px; font-weight:600; white-space:nowrap">{{ row.chip }}</span></div>
+                <sc-if value="{{ row.isGrid }}" hint-placeholder-val="{{ false }}">
+                  <div style="grid-column:2 / -1; display:flex; align-items:baseline; gap:8px; padding:6px 9px; border-radius:6px; background:#fffbeb; border:1px solid #fde68a">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.07em; color:#b45309; white-space:nowrap">BINDING</span>
+                    <span style="font-size:12px; color:#92400e; font-weight:500">{{ row.reason }}</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ row.isReadiness }}" hint-placeholder-val="{{ false }}">
+                  <div style="grid-column:2 / -1; display:flex; align-items:baseline; gap:8px; font-size:12px; color:#92400e">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.07em; color:#b45309">NOT READY</span>{{ row.reason }}
+                  </div>
+                </sc-if>
+                <sc-if value="{{ row.isPhased }}" hint-placeholder-val="{{ false }}">
+                  <div style="grid-column:2 / -1; display:flex; align-items:baseline; gap:8px; font-size:12px; color:#1e40af">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.07em; color:#2563eb; white-space:nowrap">HELD TO 2035</span>{{ row.reason }}
+                  </div>
+                </sc-if>
+                <sc-if value="{{ row.isIntake }}" hint-placeholder-val="{{ false }}">
+                  <div style="grid-column:2 / -1; display:flex; align-items:baseline; gap:8px; font-size:12px; color:#6b7280">
+                    <span style="font-size:9.5px; font-weight:700; letter-spacing:0.07em; color:#9ca3af">INTAKE</span>{{ row.reason }}
+                  </div>
+                </sc-if>
+                <sc-if value="{{ row.manual }}" hint-placeholder-val="{{ false }}">
+                  <div style="grid-column:2 / -1"><button onClick="{{ row.onRemove }}" style="border:none; background:transparent; padding:0; font-family:inherit; font-size:11px; color:#6b7280; text-decoration:underline; cursor:pointer">Withdraw application</button></div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </sc-for>
+          <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:28px 14px; text-align:center; color:#9ca3af; font-size:12.5px">No projects match this filter.</div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ tabAlerts }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:6px 0 14px">
+            <sc-for list="{{ alertGroups }}" as="g" hint-placeholder-count="3">
+              <div style="display:flex; align-items:center; gap:7px; padding:12px 14px 6px; font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:{{ g.fg }}">
+                <span style="width:8px; height:8px; border-radius:2px; background:{{ g.color }}"></span>{{ g.label }}<span style="color:#9ca3af; font-weight:500; letter-spacing:0">{{ g.count }}</span>
+              </div>
+              <sc-for list="{{ g.items }}" as="a" hint-placeholder-count="2">
+                <div onClick="{{ a.onClick }}" style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; margin:0 8px; padding:9px 10px; border-radius:7px; background:{{ a.bg }}; cursor:pointer" style-hover="background:#f3f4f6">
+                  <span style="font-size:12.5px; font-weight:600; color:{{ a.fg }}">{{ a.title }}</span>
+                  <span style="font-family:'Geist Mono', monospace; font-size:10.5px; color:#6b7280; padding:1px 6px; border-radius:4px; background:#f3f4f6; align-self:start">{{ a.tag }}</span>
+                  <span style="grid-column:1 / -1; font-size:11.5px; color:#6b7280">{{ a.meta }}</span>
+                </div>
+              </sc-for>
+            </sc-for>
+            <sc-if value="{{ noAlerts }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:28px 14px; text-align:center; color:#9ca3af; font-size:12.5px">No violations in this plan.</div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ tabBrief }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:14px 16px 18px">
+            <div style="display:flex; align-items:center; gap:8px">
+              <div style="flex:1">
+                <div style="font-size:14px; font-weight:600">Committee briefing</div>
+                <div style="font-size:11.5px; color:#6b7280; margin-top:2px">{{ briefMeta }}</div>
+              </div>
+              <button onClick="{{ copyBrief }}" style="height:28px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:11.5px; font-weight:600; color:#374151; cursor:pointer">{{ copyLabel }}</button>
+            </div>
+            <p style="margin:14px 0 0; font-size:13px; line-height:1.6; color:#1f2937; text-wrap:pretty">{{ briefSummary }}</p>
+            <div style="margin-top:18px; font-size:10.5px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">Decision notes</div>
+            <div style="display:flex; flex-direction:column; margin-top:6px">
+              <sc-for list="{{ briefNotes }}" as="n" hint-placeholder-count="6">
+                <div onClick="{{ n.onClick }}" style="display:grid; grid-template-columns:80px minmax(0,1fr); gap:10px; padding:9px 0; border-top:1px solid #f3f4f6; cursor:pointer">
+                  <div style="display:flex; flex-direction:column; gap:4px; align-items:flex-start">
+                    <span style="font-family:'Geist Mono', monospace; font-size:12px; font-weight:600">{{ n.id }}</span>
+                    <span style="padding:2px 6px; border-radius:4px; background:{{ n.chipBg }}; color:{{ n.chipFg }}; font-size:10.5px; font-weight:600; white-space:nowrap">{{ n.chip }}</span>
+                  </div>
+                  <span style="font-size:12.5px; line-height:1.5; color:#374151; text-wrap:pretty">{{ n.text }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ drawer }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute; inset:0; z-index:20; background:#ffffff; display:grid; grid-template-rows:auto minmax(0,1fr) auto">
+          <div style="display:flex; align-items:flex-start; gap:10px; padding:14px 16px; border-bottom:1px solid #e5e7eb">
+            <div style="flex:1">
+              <div style="font-size:14px; font-weight:600">New connection application</div>
+              <div style="font-size:11.5px; color:#6b7280; margin-top:2px">Joins the queue as {{ nextId }} and is ranked on the next run.</div>
+            </div>
+            <button onClick="{{ closeDrawer }}" style="width:26px; height:26px; border:none; border-radius:6px; background:#f3f4f6; color:#6b7280; font-size:16px; line-height:1; cursor:pointer">×</button>
+          </div>
+          <div style="overflow:auto; padding:16px; display:flex; flex-direction:column; gap:16px">
+            <label style="display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:11.5px; font-weight:600; color:#374151">Project / applicant</span>
+              <input value="{{ form.name }}" onChange="{{ onFormName }}" placeholder="e.g. Offenburg Solarpark Nord" style="height:34px; padding:0 10px; border:1px solid #d1d5db; border-radius:7px; font-family:inherit; font-size:13px; outline:none">
+            </label>
+            <div style="display:flex; flex-direction:column; gap:5px">
+              <span style="font-size:11.5px; font-weight:600; color:#374151">Technology</span>
+              <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:6px">
+                <sc-for list="{{ techOpts }}" as="t" hint-placeholder-count="3">
+                  <button onClick="{{ t.onClick }}" style="height:34px; border:1px solid {{ t.bd }}; border-radius:7px; background:{{ t.bg }}; color:{{ t.fg }}; font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer">{{ t.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px">
+              <label style="display:flex; flex-direction:column; gap:5px">
+                <span style="font-size:11.5px; font-weight:600; color:#374151">Capacity (MW)</span>
+                <input type="number" min="0.1" step="0.5" value="{{ form.mw }}" onChange="{{ onFormMw }}" style="height:34px; padding:0 10px; border:1px solid {{ mwBd }}; border-radius:7px; font-family:'Geist Mono', monospace; font-size:13px; outline:none">
+              </label>
+              <div style="display:flex; flex-direction:column; gap:5px">
+                <span style="font-size:11.5px; font-weight:600; color:#374151">Point of connection</span>
+                <div style="display:flex; gap:6px">
+                  <select value="{{ form.bus }}" onChange="{{ onFormBus }}" style="flex:1; min-width:0; height:34px; padding:0 6px; border:1px solid #d1d5db; border-radius:7px; font-family:'Geist Mono', monospace; font-size:12.5px; background:#ffffff">
+                    <option value="">Bus…</option>
+                    <sc-for list="{{ busOpts }}" as="o" hint-placeholder-count="0">
+                      <option value="{{ o.value }}">{{ o.label }}</option>
+                    </sc-for>
+                  </select>
+                  <button onClick="{{ startPick }}" title="Pick a bus on the network" style="height:34px; padding:0 9px; border:1px solid {{ pickBd }}; border-radius:7px; background:{{ pickBg }}; color:{{ pickFg }}; font-family:inherit; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap">Map</button>
+                </div>
+              </div>
+            </div>
+            <sc-if value="{{ mwWarn }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:-8px; font-size:11.5px; color:#b91c1c">{{ mwWarnText }}</div>
+            </sc-if>
+            <sc-if value="{{ hasHosting }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:11px 12px; border-radius:8px; background:{{ host.bg }}; border:1px solid {{ host.bd }}">
+                <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
+                  <span style="font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:{{ host.labelFg }}">Indicative headroom · bus {{ form.bus }} · 2035</span>
+                  <span style="font-family:'Geist Mono', monospace; font-size:15px; font-weight:600; color:{{ host.fg }}">{{ host.mw }}</span>
+                </div>
+                <div style="height:6px; margin-top:8px; background:#ffffff; border-radius:3px; position:relative; overflow:hidden; border:1px solid {{ host.bd }}">
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:{{ host.capPct }}%; background:{{ host.capColor }}; opacity:0.35"></div>
+                  <div style="position:absolute; left:0; top:0; bottom:0; width:{{ host.reqPct }}%; background:{{ host.reqColor }}"></div>
+                </div>
+                <div style="font-size:12px; color:{{ host.fg }}; margin-top:7px; text-wrap:pretty">{{ host.text }}</div>
+              </div>
+            </sc-if>
+            <div style="display:flex; flex-direction:column; gap:6px">
+              <div style="display:flex; justify-content:space-between; align-items:baseline">
+                <span style="font-size:11.5px; font-weight:600; color:#374151">Readiness evidence</span>
+                <span style="font-family:'Geist Mono', monospace; font-size:13px; font-weight:600; color:{{ readyFg }}">{{ readyText }}</span>
+              </div>
+              <sc-for list="{{ evidence }}" as="e" hint-placeholder-count="3">
+                <button onClick="{{ e.onClick }}" style="display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid {{ e.bd }}; border-radius:7px; background:{{ e.bg }}; font-family:inherit; text-align:left; cursor:pointer">
+                  <span style="width:16px; height:16px; border-radius:4px; border:1.5px solid {{ e.boxBd }}; background:{{ e.boxBg }}; color:#ffffff; font-size:11px; display:grid; place-items:center; line-height:1">{{ e.mark }}</span>
+                  <span style="flex:1; font-size:12.5px; color:#111827">{{ e.label }}</span>
+                  <span style="font-family:'Geist Mono', monospace; font-size:11px; color:#9ca3af">{{ e.w }}</span>
+                </button>
+              </sc-for>
+              <input type="range" min="0" max="1" step="0.01" value="{{ form.readiness }}" onChange="{{ onFormReady }}" style="width:100%; margin-top:4px">
+              <div style="display:flex; justify-content:space-between; font-size:10.5px; color:#9ca3af"><span>Speculative</span><span>Phase 2 ≥ 35%</span><span>Phase 1 ≥ 60%</span><span>Shovel-ready</span></div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; padding:12px 16px; border-top:1px solid #e5e7eb; background:#f9fafb">
+            <button onClick="{{ closeDrawer }}" style="height:36px; padding:0 14px; border:1px solid #d1d5db; border-radius:7px; background:#ffffff; font-family:inherit; font-size:12.5px; font-weight:600; color:#374151; cursor:pointer">Cancel</button>
+            <div style="flex:1"></div>
+            <button onClick="{{ submitOnly }}" disabled="{{ formInvalid }}" style="height:36px; padding:0 14px; border:1px solid #d1d5db; border-radius:7px; background:#ffffff; font-family:inherit; font-size:12.5px; font-weight:600; color:{{ submitFg2 }}; cursor:pointer; white-space:nowrap">Add to queue</button>
+            <button onClick="{{ submitRun }}" disabled="{{ formInvalid }}" style="height:36px; padding:0 16px; border:none; border-radius:7px; background:{{ submitBg }}; font-family:inherit; font-size:12.5px; font-weight:600; color:#ffffff; cursor:pointer">Add &amp; re-run</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute; left:12px; right:12px; bottom:12px; z-index:30; padding:10px 12px; border-radius:8px; background:#111827; color:#f9fafb; font-size:12.5px; box-shadow:0 8px 20px rgba(0,0,0,0.2)">{{ toast }}</div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;simLatencyMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1400,&quot;min&quot;:200,&quot;max&quot;:4000,&quot;step&quot;:100,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;autoRerunOnAdd&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;defaultPhase&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;2030&quot;,&quot;2035&quot;],&quot;default&quot;:&quot;2035&quot;,&quot;tsType&quot;:&quot;'2030' | '2035'&quot;,&quot;section&quot;:&quot;Network view&quot;},&quot;lineWeightByRating&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Network view&quot;},&quot;basemap&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;openfreemap&quot;,&quot;osm&quot;,&quot;carto-light&quot;],&quot;default&quot;:&quot;openfreemap&quot;,&quot;tsType&quot;:&quot;'openfreemap' | 'osm' | 'carto-light'&quot;,&quot;section&quot;:&quot;Network view&quot;}}">
+const ST = {
+  Phase1: { label: 'Phase 1 · 2030', short: 'Phase 1', c: '#16a34a', bg: '#dcfce7', fg: '#166534', soft: '#f0fdf4', bd: '#bbf7d0' },
+  Phase2: { label: 'Phase 2 · 2035', short: 'Phase 2', c: '#2563eb', bg: '#dbeafe', fg: '#1e40af', soft: '#eff6ff', bd: '#bfdbfe' },
+  Deferred: { label: 'Deferred', short: 'Deferred', c: '#d97706', bg: '#fef3c7', fg: '#92400e', soft: '#fffbeb', bd: '#fde68a' },
+  Rejected: { label: 'Rejected', short: 'Rejected', c: '#9ca3af', bg: '#e5e7eb', fg: '#4b5563', soft: '#f9fafb', bd: '#e5e7eb' },
+};
+const ORDER = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
+const TECH = { solar: 'Solar PV', wind: 'Wind', battery: 'Battery' };
+const EVID = [{ k: 'land', label: 'Land rights secured', w: 0.3 }, { k: 'planning', label: 'Planning consent granted', w: 0.35 }, { k: 'finance', label: 'Financing committed', w: 0.25 }];
+const fmtMw = (x) => (x == null ? '—' : (Math.round(x * 10) / 10).toString());
+const mix = (a, b, t) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const A = p(a), B = p(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
+const readyFromForm = (f) => +(0.1 + (f.land ? 0.3 : 0) + (f.planning ? 0.35 : 0) + (f.finance ? 0.25 : 0)).toFixed(2);
+
+class Component extends DCLogic {
+  state = {
+    model: null, cands: [], forecasts: [], forecastId: 'st', g30: 1.1, g35: 1.25,
+    result: null, prevStatus: {}, lastParams: null, lastRun: null, running: false, step: 0,
+    phase: null, tab: 'queue', filter: 'All', sortKey: 'rank', sortDir: 1, grouped: false, query: '',
+    hover: null, mouse: { x: 0, y: 0 }, sel: null, view: { k: 1, x: 0, y: 0 }, size: { w: 0, h: 0 },
+    loadingMode: false, showLabels: false, drawer: false, pickMode: false, toast: null, copied: false,
+    form: { name: '', tech: 'solar', mw: '5', bus: '', land: true, planning: false, finance: false, readiness: 0.4 },
+  };
+  mapRef = React.createRef();
+
+  componentDidMount() {
+    const el = this.mapRef.current;
+    if (el) {
+      this._ro = new ResizeObserver((es) => { const r = es[0].contentRect; this.setState({ size: { w: Math.round(r.width), h: Math.round(r.height) } }); this.map && this.map.resize(); });
+      this._ro.observe(el);
+    }
+    this.boot();
+    this.initMap();
+  }
+  componentDidUpdate() { this.syncMap(); }
+  componentWillUnmount() {
+    this._ro && this._ro.disconnect();
+    clearInterval(this._stepT); clearTimeout(this._toastT);
+    if (this.map) { this.map.remove(); this.map = null; }
+  }
+  async boot() {
+    let n = 0; while (!window.GridForgeAPI && n++ < 200) await new Promise((r) => setTimeout(r, 50));
+    const A = (this.A = window.GridForgeAPI); if (!A) return;
+    const [model, cands, forecasts] = await Promise.all([A.getModel(), A.getCandidates(), A.getForecasts()]);
+    this.setState({ model, cands, forecasts }, () => this.run());
+  }
+
+  run = async () => {
+    const A = this.A; if (!A || this.state.running) return;
+    A.config.latencyMs = this.props.simLatencyMs ?? 1400;
+    const prev = this.state.result;
+    const prevStatus = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
+    const params = { g30: this.state.g30, g35: this.state.g35, n: this.state.cands.length };
+    this.setState({ running: true, step: 0, hover: null });
+    const t0 = performance.now();
+    clearInterval(this._stepT);
+    this._stepT = setInterval(() => this.setState((s) => ({ step: Math.min(s.step + 1, 4) })), A.config.latencyMs / 5);
+    const res = await A.optimize({ growth_2030: params.g30, growth_2035: params.g35, with_justification: true });
+    clearInterval(this._stepT);
+    const cands = await A.getCandidates();
+    this.setState((st) => ({ runId: (st.runId || 0) + 1 }));
+    this.setState({ result: res, cands, prevStatus, running: false, step: 5, lastParams: params, lastRun: { at: new Date(), ms: Math.round(performance.now() - t0) } });
+  };
+
+  toastMsg(t) { clearTimeout(this._toastT); this.setState({ toast: t }); this._toastT = setTimeout(() => this.setState({ toast: null }), 3200); }
+
+  // ---- MapLibre map
+  async initMap() {
+    let n = 0; while (!window.maplibregl && n++ < 300) await new Promise((r) => setTimeout(r, 50));
+    const ml = window.maplibregl, el = this.mapRef.current; if (!ml || !el || this.map) return;
+    const map = (this.map = new ml.Map({
+      container: el, attributionControl: false, preserveDrawingBuffer: true, dragRotate: false, pitchWithRotate: false, center: [7.84, 48.4], zoom: 10.5, maxZoom: 18,
+      style: this.basemapStyle(),
+    }));
+    map.addControl(new ml.AttributionControl({ compact: true }), 'bottom-right');
+    this.collapseAttrib();
+    map.touchZoomRotate.disableRotation();
+    map.resize(); window.__gfMap = map; window.__gf = this;
+    map.on('load', () => this.onMapLoad());
+    map.on('move', () => { if (!this._raf) this._raf = requestAnimationFrame(() => { this._raf = null; this.setState((st) => ({ mapTick: (st.mapTick || 0) + 1 })); }); });
+    map.on('mousemove', (e) => this.onMapMove(e));
+    map.on('mouseout', () => this.state.hover && this.setState({ hover: null }));
+    map.on('click', (e) => this.onMapClick(e));
+  }
+  basemapStyle() {
+    const b = this.props.basemap ?? 'openfreemap';
+    if (b === 'openfreemap') return 'https://tiles.openfreemap.org/styles/positron';
+    return { version: 8, sources: { osm: this.basemapSource() },
+      layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#eceef1' } }, { id: 'osm', type: 'raster', source: 'osm', paint: this.basemapPaint() }] };
+  }
+  basemapSource() {
+    const osm = this.props.basemap === 'osm';
+    return osm
+      ? { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors' }
+      : { type: 'raster', tiles: ['a', 'b', 'c', 'd'].map((sd) => 'https://' + sd + '.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'), tileSize: 256, maxzoom: 19, attribution: '© OpenStreetMap contributors © CARTO' };
+  }
+  basemapPaint() {
+    return this.props.basemap === 'osm' ? { 'raster-saturation': -0.85, 'raster-contrast': -0.15, 'raster-brightness-min': 0.1, 'raster-opacity': 0.92 } : { 'raster-saturation': -0.3, 'raster-opacity': 1 };
+  }
+  collapseAttrib() {
+    const a = this.map && this.map.getContainer().querySelector('.maplibregl-ctrl-attrib');
+    if (a) { a.classList.remove('maplibregl-compact-show'); a.removeAttribute('open'); }
+  }
+  onMapLoad() {
+    this.collapseAttrib(); setTimeout(() => this.collapseAttrib(), 50);
+    if (this._mapReady && this.map.getSource('lines')) return;
+    (this.map.getStyle().layers || []).forEach((l) => {
+      if (l.type === 'symbol') { this.map.setPaintProperty(l.id, 'text-opacity', 0.55); this.map.setPaintProperty(l.id, 'icon-opacity', 0.4); }
+    });
+    this.map.resize(); this.addIcons(); this.addLayers(); this._mapReady = true; this.fit(false); this.syncMap(true); this.setState((st) => ({ mapTick: (st.mapTick || 0) + 1 }));
+  }
+  fit(anim) {
+    const map = this.map, m = this.state.model; if (!map || !m) return;
+    const b = new window.maplibregl.LngLatBounds(); m.buses.forEach((x) => b.extend([x.lon, x.lat]));
+    const opts = { padding: { top: 96, bottom: 40, left: 60, right: 60 } };
+    const cam = map.cameraForBounds(b, opts); if (cam) this._fitZoom = cam.zoom;
+    map.fitBounds(b, { ...opts, duration: anim ? 600 : 0 });
+  }
+  icon(name, w, h, draw) {
+    const pr = 2, c = document.createElement('canvas'); c.width = w * pr; c.height = h * pr;
+    const ctx = c.getContext('2d'); ctx.scale(pr, pr); draw(ctx);
+    if (this.map.hasImage(name)) this.map.removeImage(name);
+    this.map.addImage(name, ctx.getImageData(0, 0, w * pr, h * pr), { pixelRatio: pr });
+  }
+  addIcons() {
+    const V = { p1: { fill: '#16a34a', stroke: '#ffffff', glyph: '#ffffff', dash: [] }, p2: { fill: '#2563eb', stroke: '#ffffff', glyph: '#ffffff', dash: [] },
+      ghost: { fill: 'rgba(219,234,254,0.9)', stroke: '#2563eb', glyph: '#2563eb', dash: [3, 2] }, def: { fill: 'rgba(254,243,199,0.95)', stroke: '#d97706', glyph: '#b45309', dash: [4, 2.5] },
+      rej: { fill: '#f3f4f6', stroke: '#9ca3af', glyph: '#9ca3af', dash: [2, 2] } };
+    const S = 36, C = S / 2;
+    const rr = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); };
+    for (const [vk, v] of Object.entries(V)) {
+      const body = (ctx, path) => { ctx.fillStyle = v.fill; path(); ctx.fill(); ctx.setLineDash(v.dash); ctx.lineWidth = vk === 'p1' || vk === 'p2' ? 2.5 : 2; ctx.strokeStyle = v.stroke; path(); ctx.stroke(); ctx.setLineDash([]); };
+      this.icon(`solar-${vk}`, S, S, (ctx) => { body(ctx, () => rr(ctx, 5, 5, 26, 26, 3)); ctx.strokeStyle = v.glyph; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(6, C); ctx.lineTo(30, C); ctx.moveTo(C, 6); ctx.lineTo(C, 30); ctx.stroke(); });
+      this.icon(`wind-${vk}`, S, S, (ctx) => { body(ctx, () => { ctx.beginPath(); ctx.arc(C, C, 14, 0, Math.PI * 2); }); ctx.strokeStyle = v.glyph; ctx.lineWidth = 2.6; ctx.lineCap = 'round';
+        [-Math.PI / 2, Math.PI / 6, (5 * Math.PI) / 6].forEach((a) => { ctx.beginPath(); ctx.moveTo(C, C); ctx.lineTo(C + Math.cos(a) * 9, C + Math.sin(a) * 9); ctx.stroke(); }); });
+      this.icon(`battery-${vk}`, S, S, (ctx) => { ctx.fillStyle = vk === 'p1' || vk === 'p2' ? v.fill : v.stroke; ctx.fillRect(30, 14, 4, 8); body(ctx, () => rr(ctx, 3, 8, 27, 20, 3));
+        ctx.strokeStyle = v.glyph; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(12, 12); ctx.lineTo(12, 24); ctx.moveTo(21, 12); ctx.lineTo(21, 24); ctx.stroke(); });
+    }
+    this.icon('trafo', 30, 30, (ctx) => { ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.beginPath(); ctx.arc(15, 15, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.lineWidth = 2.4; ctx.strokeStyle = '#111827'; [10.5, 19.5].forEach((y, i) => { ctx.fillStyle = i ? 'rgba(255,255,255,0.6)' : '#ffffff'; ctx.beginPath(); ctx.arc(15, y, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }); });
+    [['load', '#a8a29e'], ['load-h', '#57534e']].forEach(([n, c]) => this.icon(n, 20, 26, (ctx) => { ctx.strokeStyle = c; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(10, 10); ctx.stroke();
+      ctx.fillStyle = c; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(3, 10); ctx.lineTo(17, 10); ctx.lineTo(10, 22); ctx.closePath(); ctx.fill(); ctx.stroke(); }));
+    this.icon('openpt', 12, 12, (ctx) => { ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#64748b'; ctx.lineWidth = 1.5; ctx.fillRect(2, 2, 8, 8); ctx.strokeRect(2, 2, 8, 8); });
+  }
+  addLayers() {
+    const map = this.map, empty = { type: 'FeatureCollection', features: [] };
+    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'projects'].forEach((id) => map.addSource(id, { type: 'geojson', data: empty }));
+    const zw = (f) => ['interpolate', ['linear'], ['zoom'], 9, ['*', ['get', 'w'], 0.6 * f], 12, ['*', ['get', 'w'], 1 * f], 16, ['*', ['get', 'w'], 1.8 * f]];
+    map.addLayer({ id: 'lines-halo', type: 'line', source: 'lines', filter: ['==', ['get', 'halo'], 1], layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'haloColor'], 'line-width': 14, 'line-opacity': 0.22, 'line-blur': 2 } });
+    map.addLayer({ id: 'lines-casing', type: 'line', source: 'lines', filter: ['!=', ['get', 'kind'], 'tie'], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['+', zw(1), 2], 'line-opacity': 0.8 } });
+    map.addLayer({ id: 'lines-solid', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'solid'], layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': zw(1) } });
+    map.addLayer({ id: 'lines-tie', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'tie'], paint: { 'line-color': '#94a3b8', 'line-width': zw(1), 'line-dasharray': [2, 2] } });
+    map.addLayer({ id: 'lines-bind', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'bind'], paint: { 'line-color': '#d97706', 'line-width': zw(1), 'line-dasharray': [2.2, 1.4] } });
+    map.addLayer({ id: 'lines-over', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'over'], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#dc2626', 'line-width': zw(1) } });
+    map.addLayer({ id: 'lines-hit', type: 'line', source: 'lines', paint: { 'line-color': '#000', 'line-width': 12, 'line-opacity': 0 } });
+    map.addLayer({ id: 'openpts', type: 'symbol', source: 'openpts', layout: { 'icon-image': 'openpt', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
+    map.addLayer({ id: 'loads', type: 'symbol', source: 'loads', layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['get', 'size'], 'icon-anchor': 'top', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
+    const zr = (key, f) => ['interpolate', ['linear'], ['zoom'], 9, ['*', ['get', key], 0.7 * f], 12, ['*', ['get', key], f], 16, ['*', ['get', key], 1.8 * f]];
+    map.addLayer({ id: 'bus-ring', type: 'circle', source: 'buses', filter: ['==', ['get', 'hasRing'], 1], paint: { 'circle-radius': zr('ringR', 1), 'circle-color': ['get', 'ringFill'], 'circle-stroke-color': ['get', 'ring'], 'circle-stroke-width': 2 } });
+    map.addLayer({ id: 'buses', type: 'circle', source: 'buses', paint: { 'circle-radius': zr('r', 1), 'circle-color': ['get', 'fill'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1 } });
+    map.addLayer({ id: 'buses-hit', type: 'circle', source: 'buses', paint: { 'circle-radius': ['get', 'hitR'], 'circle-color': '#000', 'circle-opacity': 0 } });
+    map.addLayer({ id: 'trafos', type: 'symbol', source: 'trafos', layout: { 'icon-image': 'trafo', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
+    map.addLayer({ id: 'proj-sel', type: 'circle', source: 'projects', filter: ['==', ['get', 'sel'], 1], paint: { 'circle-radius': ['+', ['*', ['get', 'size'], 18], 5], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#111827', 'circle-stroke-width': 2 } });
+    map.addLayer({ id: 'proj-icons', type: 'symbol', source: 'projects', layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['get', 'size'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['get', 'sort'] } });
+    this._hit = [['proj-icons', 'project'], ['trafos', 'trafo'], ['buses-hit', 'bus'], ['loads', 'load'], ['lines-hit', 'line']];
+  }
+  hitAt(point) {
+    if (!this._mapReady) return null;
+    const fs = this.map.queryRenderedFeatures(point, { layers: this._hit.map((h) => h[0]) });
+    for (const [layer, kind] of this._hit) { const f = fs.find((x) => x.layer.id === layer); if (f) return { kind, id: f.properties.id }; }
+    return null;
+  }
+  onMapMove(e) {
+    const h = this.hitAt(e.point), cur = this.state.hover;
+    this.map.getCanvas().style.cursor = this.state.pickMode ? (h && h.kind === 'bus' ? 'pointer' : 'crosshair') : h && h.kind !== 'load' ? 'pointer' : '';
+    if (!h && !cur) return;
+    this.setState({ hover: h, mouse: { x: e.point.x, y: e.point.y } });
+  }
+  onMapClick(e) {
+    const h = this.hitAt(e.point);
+    if (!h) { if (!this.state.pickMode) this.setState({ sel: null }); return; }
+    this.pick(h.kind, h.id);
+  }
+  hoverOut = () => this.setState({ hover: null });
+  pick(kind, id) {
+    if (this.state.pickMode) { if (kind === 'bus') { this.setForm({ bus: String(id) }); this.setState({ pickMode: false }); } return; }
+    if (kind === 'load') return;
+    if (kind === 'project') return this.selectProject(id);
+    this.setState({ sel: { kind, id } });
+  }
+  zoomBy(d) { this.map && this.map.easeTo({ zoom: this.map.getZoom() + d, duration: 250 }); }
+  focusOn(ll, kMin) {
+    if (!ll || !this.map) return;
+    const z = Math.max(this.map.getZoom(), (this._fitZoom || 11) + Math.log2(kMin || 1));
+    this.map.easeTo({ center: ll, zoom: z, duration: 650 });
+  }
+  zoomedIn() { return this.map && this.map.getZoom() > (this._fitZoom || 11) + 0.3; }
+  elementPt(t) {
+    const m = this.state.model; if (!m || !t) return null;
+    if (t.kind === 'bus') { const b = m.buses.find((x) => x.bus_id === t.id); return b ? [b.lon, b.lat] : null; }
+    if (t.kind === 'line') { const l = m.lines.find((x) => x.line_id === t.id); return l ? [(l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2] : null; }
+    if (t.kind === 'project') { const q = this.state.result && this.state.result.queue.find((x) => x.request_id === t.id); return q && q.lon != null ? [q.lon, q.lat] : null; }
+    return null;
+  }
+  selectProject(id, zoom) {
+    this.setState({ sel: { kind: 'project', id } });
+    const q = this.state.result && this.state.result.queue.find((x) => x.request_id === id);
+    if (zoom) { const el = q && q.reason && q.reason.element; this.focusOn(this.elementPt(el ? (el.line_id != null ? { kind: 'line', id: el.line_id } : { kind: 'bus', id: el.bus_id }) : { kind: 'project', id }), 2.6); }
+    else if (this.zoomedIn()) this.focusOn(this.elementPt({ kind: 'project', id }));
+  }
+  syncMap(force) {
+    if (!this._mapReady || !this._geo) return;
+    if (!force && this._syncedKey === this._geoKey) return;
+    this._syncedKey = this._geoKey; const g = this._geo;
+    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'projects'].forEach((k) => this.map.getSource(k).setData(g[k]));
+    this.map.setLayoutProperty('loads', 'visibility', g.showLoads ? 'visible' : 'none');
+  }
+
+  // ---- form
+  setForm(patch) {
+    this.setState((s) => {
+      const f = { ...s.form, ...patch };
+      if (('land' in patch || 'planning' in patch || 'finance' in patch)) f.readiness = readyFromForm(f);
+      return { form: f };
+    });
+  }
+  async submit(andRun) {
+    const f = this.state.form, A = this.A; if (!A || this.formInvalid()) return;
+    const row = await A.addCandidate({ applicant: f.name.trim() || 'Manual application', bus_id: +f.bus, technology: f.tech, rating_mw: +f.mw, readiness_score: f.readiness, readiness_rationale: EVID.filter((e) => f[e.k]).map((e) => e.label).join('; ') || 'No evidence supplied', manual: true });
+    const cands = await A.getCandidates();
+    this.setState({ cands, drawer: false, pickMode: false, form: { ...this.state.form, name: '', bus: '' } });
+    const auto = andRun || (this.props.autoRerunOnAdd ?? false);
+    this.toastMsg(`${row.request_id} added to the queue${auto ? ' — re-running power flow…' : '. Run the simulation to rank it.'}`);
+    if (auto) { await this.run(); this.selectProject(row.request_id); }
+  }
+  formInvalid() { const f = this.state.form; return !f.bus || !(+f.mw > 0); }
+
+  renderVals() {
+    const s = this.state, r = s.result;
+    const phase = s.phase || this.props.defaultPhase || '2035';
+    const ph = r ? r.phases[phase] : null;
+    const q = r ? r.queue : [];
+    const qById = Object.fromEntries(q.map((x) => [x.request_id, x]));
+    const sel = s.sel, hov = s.hover;
+    const manualIds = new Set(s.cands.filter((c) => c.manual).map((c) => c.request_id));
+    const selQ = sel && sel.kind === 'project' ? qById[sel.id] : null;
+    const selEl = selQ && selQ.reason ? selQ.reason.element || selQ.reason.grid : null;
+
+    const bindLines = new Set(), bindBuses = new Set();
+    q.forEach((x) => { const el = x.status === 'Deferred' && x.reason && x.reason.element; if (el) { if (el.line_id != null) bindLines.add(el.line_id); if (el.bus_id != null) bindBuses.add(el.bus_id); } });
+    const over = new Set(ph ? ph.overloaded_line_ids : []);
+    const ll = (ph && ph.line_loading) || {};
+    const vv = new Set((ph && ph.voltage_violation_bus_ids) || []);
+    const wBy = this.props.lineWeightByRating ?? true;
+    const busProjects = {}; q.forEach((x) => { if (x.bus_id != null) (busProjects[x.bus_id] = busProjects[x.bus_id] || []).push(x); });
+
+    // ---- map data → GeoJSON for MapLibre (rebuilt only when inputs change)
+    const showLoads = s.showLoads ?? true;
+    const geoKey = [s.runId || 0, !!s.model, phase, JSON.stringify(sel), JSON.stringify(hov), s.pickMode, s.loadingMode, s.drawer ? s.form.bus : '', wBy, showLoads].join('|');
+    const FC = (features) => ({ type: 'FeatureCollection', features });
+    const pt = (lo, la, props) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [lo, la] }, properties: props });
+    const projList = r ? q.filter((x) => x.lon != null && x.rating_mw != null && x.rating_mw <= 40).map((x) => {
+      const variant = x.status === 'Phase1' ? 'p1' : x.status === 'Phase2' ? (phase === '2030' ? 'ghost' : 'p2') : x.status === 'Deferred' ? 'def' : 'rej';
+      const size = x.status === 'Rejected' ? 0.55 : 0.6 + (Math.sqrt(x.rating_mw) / Math.sqrt(18)) * 0.5;
+      const label = variant === 'ghost' ? `${x.request_id} · 2035` : x.status === 'Deferred' ? `${x.request_id} · deferred` : x.status === 'Rejected' ? `${x.request_id} · rejected` : `${x.request_id} · ${fmtMw(x.rating_mw)} MW`;
+      return { x, variant, size, label, fg: variant === 'ghost' ? '#1e40af' : ST[x.status].fg };
+    }) : [];
+    if (s.model && geoKey !== this._geoKey) {
+      const m = s.model;
+      const lines = m.lines.map((l) => {
+        const id = l.line_id, isOver = over.has(id), isBind = bindLines.has(id), isTie = l.in_service === false;
+        const isSel = (sel && sel.kind === 'line' && sel.id === id) || (selEl && selEl.line_id === id), isHov = hov && hov.kind === 'line' && hov.id === id;
+        let color = '#64748b', w = wBy ? (l.rating_a >= 645 ? 3.6 : l.rating_a >= 421 ? 2.7 : 2) : 2.4;
+        if (s.loadingMode && ll[id] != null) { const t = Math.min(1, ll[id] / 100); color = mix('#cbd5e1', '#0f172a', Math.pow(t, 1.3)); w = 1.6 + t * 3.6; }
+        if (isTie) w = 1.6; if (isBind) w = 3.6; if (isOver) w = 4.6;
+        if (isSel || isHov) { w += 1.4; if (!isOver && !isBind) color = '#111827'; }
+        return { type: 'Feature', geometry: { type: 'LineString', coordinates: [[l.from_lon, l.from_lat], [l.to_lon, l.to_lat]] },
+          properties: { id, color, w, kind: isOver ? 'over' : isBind ? 'bind' : isTie ? 'tie' : 'solid', halo: isSel || isOver ? 1 : 0, haloColor: isOver ? '#dc2626' : isBind ? '#d97706' : '#111827' } };
+      });
+      const buses = m.buses.filter((b) => b.vn_kv <= 20).map((b) => {
+        const id = b.bus_id, isV = vv.has(id), isB = bindBuses.has(id);
+        const isSel = (sel && sel.kind === 'bus' && sel.id === id) || (selEl && selEl.bus_id === id) || (s.drawer && String(id) === s.form.bus);
+        const isHov = hov && hov.kind === 'bus' && hov.id === id, pk = s.pickMode;
+        const ring = isV ? '#dc2626' : isB ? '#d97706' : isSel ? '#111827' : null;
+        return pt(b.lon, b.lat, { id, r: pk ? (isHov ? 5.5 : 3.6) : isHov || isSel ? 3.8 : 2.6, fill: pk ? (isHov ? '#1d4ed8' : '#3b82f6') : isSel ? '#111827' : '#475569',
+          hasRing: ring ? 1 : 0, ring: ring || '#000', ringR: isV || isB ? 8 : 6.5, ringFill: isV ? 'rgba(220,38,38,0.12)' : isB ? 'rgba(217,119,6,0.14)' : 'rgba(0,0,0,0)', hitR: pk ? 10 : 7 });
+      });
+      const maxLoad = m.loads && m.loads.length ? Math.max(...m.loads.map((l) => l.p_mw)) : 1;
+      const loads = (m.loads || []).map((l) => pt(l.lon, l.lat, { id: l.load_id, icon: hov && hov.kind === 'load' && hov.id === l.load_id ? 'load-h' : 'load', size: 0.5 + (l.p_mw / maxLoad) * 0.5 }));
+      const openpts = m.lines.filter((l) => l.in_service === false).map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
+      const trafos = m.transformers.map((t) => pt(t.hv_lon, t.hv_lat, { id: t.trafo_id }));
+      const projects = projList.map((p, i) => pt(p.x.lon, p.x.lat, { id: p.x.request_id, icon: `${p.x.technology || 'solar'}-${p.variant}`, size: p.size, sort: ORDER[p.x.status] === 3 ? -1 : p.size * 10,
+        sel: sel && sel.kind === 'project' && sel.id === p.x.request_id ? 1 : 0 }));
+      this._geoKey = geoKey;
+      this._geo = { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), projects: FC(projects), showLoads };
+    }
+
+    // ---- HTML label overlay (screen space via map.project, simple collision avoidance)
+    const mapLabels = [];
+    if (this.map && this._mapReady && s.model) {
+      const toS = (lo, la) => { const p = this.map.project([lo, la]); return [p.x, p.y]; };
+      const cv = this.map.getContainer(), boxes = [], W = cv.clientWidth, H = cv.clientHeight;
+      const place = (lab, w, h) => {
+        if (lab.sx < -50 || lab.sy < -20 || lab.sx > W + 10 || lab.sy > H + 20) return;
+        for (let i = 0; i < 4; i++) {
+          const y = lab.sy + i * (h + 1) * (i % 2 ? 1 : -1) * Math.ceil(i / 2);
+          const b = [lab.sx, y - h / 2, lab.sx + w, y + h / 2];
+          if (!boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1])) { boxes.push(b); mapLabels.push({ ...lab, sy: y }); return; }
+        }
+      };
+      projList.forEach((p) => { const [sx, sy] = toS(p.x.lon, p.x.lat), R = p.size * 17; boxes.push([sx - R, sy - R, sx + R, sy + R]); });
+      s.model.transformers.forEach((t, i) => { const [sx, sy] = toS(t.hv_lon, t.hv_lat);
+        place({ key: 't' + i, sx: sx + 17, sy, text: t.name.replace('Trafo ', '').replace(' 110/20', '') + ' primary', sub: '110/20 kV · 25 MVA', hasSub: true, font: "'Geist', sans-serif", fs: 11.5, fw: 600, color: '#111827' }, 120, 28); });
+      [...projList].sort((a, b) => ORDER[a.x.status] - ORDER[b.x.status] || b.x.rating_mw - a.x.rating_mw).forEach((p) => { const [sx, sy] = toS(p.x.lon, p.x.lat), R = p.size * 17;
+        place({ key: 'p' + p.x.request_id, sx: sx + R + 4, sy, text: p.label, sub: '', hasSub: false, font: "'Geist Mono', monospace", fs: 10.5, fw: 600, color: p.fg }, p.label.length * 6.4, 13); });
+      if (s.showLabels || this.map.getZoom() >= (this._fitZoom || 11) + 2) s.model.buses.forEach((b) => { if (b.vn_kv > 20) return; const [sx, sy] = toS(b.lon, b.lat); const t = String(b.bus_id);
+        place({ key: 'b' + b.bus_id, sx: sx + 5, sy: sy - 7, text: t, sub: '', hasSub: false, font: "'Geist Mono', monospace", fs: 9, fw: 400, color: '#475569' }, t.length * 5.6, 10); });
+    }
+
+    // ---- tooltip
+    const lineInfo = (id) => s.model && s.model.lines.find((l) => l.line_id === id);
+    const loadPct = (p, id) => (r && r.phases[p].line_loading && r.phases[p].line_loading[id] != null ? r.phases[p].line_loading[id] : null);
+    const vmAt = (p, id) => (r && r.phases[p].bus_vm && r.phases[p].bus_vm[id] != null ? r.phases[p].bus_vm[id] : null);
+    const pctColor = (v) => (v == null ? '#9ca3af' : v > 100 ? '#f87171' : v > 90 ? '#fbbf24' : '#f9fafb');
+    const vColor = (v) => (v == null ? '#9ca3af' : v > 1.1 || v < 0.9 ? '#f87171' : '#f9fafb');
+    let tip = null;
+    if (hov && !s.running) {
+      let title = '', rows = [];
+      if (hov.kind === 'line') { const l = lineInfo(hov.id); if (l) { const mva = (Math.sqrt(3) * 20 * l.rating_a / 1000).toFixed(1);
+        title = l.line_name; rows = [{ k: 'Rating', v: `${l.rating_a} A · ${mva} MVA` }, { k: 'Length', v: `${l.length_km != null ? l.length_km.toFixed(2) : '—'} km` }];
+        if (l.in_service === false) rows.push({ k: 'State', v: 'Open point' });
+        else ['2030', '2035'].forEach((p) => { const v = loadPct(p, l.line_id); rows.push({ k: `Loading ${p}`, v: v == null ? '—' : `${v.toFixed(0)}%`, color: pctColor(v) }); });
+        if (bindLines.has(l.line_id)) rows.push({ k: 'Binds', v: q.filter((x) => x.reason && x.reason.element && x.reason.element.line_id === l.line_id).map((x) => x.request_id).join(', '), color: '#fbbf24' }); } }
+      if (hov.kind === 'bus') { const ps = busProjects[hov.id] || [];
+        title = `Bus ${hov.id}`; rows = [{ k: 'Voltage level', v: '20 kV' }];
+        ['2030', '2035'].forEach((p) => { const v = vmAt(p, hov.id); rows.push({ k: `V ${p}`, v: v == null ? '—' : `${v.toFixed(3)} pu`, color: vColor(v) }); });
+        if (ps.length) rows.push({ k: 'Projects', v: ps.map((x) => x.request_id).join(', ') });
+        if (s.pickMode) rows.push({ k: '', v: 'Click to select', color: '#93c5fd' }); }
+      if (hov.kind === 'project') { const x = qById[hov.id]; if (x) { title = x.request_id; rows = [{ k: 'Applicant', v: x.applicant || '—' }, { k: 'Status', v: ST[x.status].label, color: { Phase1: '#86efac', Phase2: '#93c5fd', Deferred: '#fcd34d', Rejected: '#d1d5db' }[x.status] }, { k: 'Capacity', v: `${TECH[x.technology] || '—'} · ${fmtMw(x.rating_mw)} MW` }, { k: 'Bus', v: String(x.bus_id) }];
+        if (x.reason) rows.push({ k: 'Reason', v: x.reason.message.length > 34 ? x.reason.message.slice(0, 33) + '…' : x.reason.message, color: '#fcd34d' }); } }
+      if (hov.kind === 'load') { const l = s.model.loads.find((x) => x.load_id === hov.id); if (l) { title = `Load at bus ${l.bus_id}`; rows = [{ k: 'Base demand', v: `${l.p_mw.toFixed(2)} MW` }, { k: '2030', v: `${(l.p_mw * s.g30).toFixed(2)} MW` }, { k: '2035', v: `${(l.p_mw * s.g35).toFixed(2)} MW` }]; } }
+      if (hov.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === hov.id); if (t) { title = t.name; rows = [{ k: 'Rating', v: `${t.sn_mva || 25} MVA` }, { k: 'Ratio', v: '110 / 20 kV' }, { k: 'Setpoint', v: '1.020 pu' }]; } }
+      if (title) { rows.forEach((x) => (x.color = x.color || '#f9fafb')); const tx = s.mouse.x > s.size.w - 240 ? s.mouse.x - 226 : s.mouse.x + 14; tip = { x: tx, y: Math.min(s.mouse.y + 14, s.size.h - 150), title, rows }; }
+    }
+
+    // ---- detail card
+    let detail = null;
+    const gens = ph ? ph.generators : [];
+    const growth = phase === '2030' ? s.g30 : s.g35;
+    if (sel && r) {
+      if (sel.kind === 'project' && selQ) {
+        const x = selQ, m = ST[x.status];
+        detail = { kind: 'Connection application', title: x.request_id, subtitle: x.applicant || '', hasChip: true, chip: m.label, chipBg: m.bg, chipFg: m.fg,
+          rows: [{ k: 'Technology', v: TECH[x.technology] || '—' }, { k: 'Capacity', v: `${fmtMw(x.rating_mw)} MW` }, { k: 'Point of connection', v: x.bus_id != null ? `Bus ${x.bus_id}` : '—' },
+            { k: 'Queue rank', v: x.rank != null ? `#${x.rank}` : '—' }, { k: 'Readiness', v: `${Math.round(x.readiness_score * 100)}%` }, { k: 'Grid need', v: x.grid_need ? x.grid_need.toFixed(2) : '—' }, { k: 'Rank score', v: x.rank_score != null ? x.rank_score.toFixed(3) : '—' }] };
+        if (x.reason) {
+          const t = x.reason.type, grid = t === 'line_overload' || t === 'voltage_high' || t === 'voltage_low';
+          Object.assign(detail, { hasNote: true, note: x.reason.message,
+            noteLabel: grid ? 'Ready — but the grid here can’t take it yet' : t === 'readiness' ? 'Not yet ready' : t === 'phased' ? 'Held to 2035' : 'Rejected at intake',
+            noteBg: t === 'phased' ? '#eff6ff' : t === 'intake' ? '#f9fafb' : '#fffbeb', noteBd: t === 'phased' ? '#bfdbfe' : t === 'intake' ? '#e5e7eb' : '#fde68a',
+            noteFg: t === 'phased' ? '#1e40af' : t === 'intake' ? '#4b5563' : '#92400e', noteLabelFg: t === 'phased' ? '#2563eb' : t === 'intake' ? '#6b7280' : '#b45309' });
+          if (x.reason.element) Object.assign(detail, { hasAction: true, action: 'Zoom to binding constraint', onAction: () => this.selectProject(x.request_id, true) });
+        } else if (x.status === 'Phase1' || x.status === 'Phase2') Object.assign(detail, { hasNote: true, note: x.status === 'Phase1' ? 'Clears thermal and voltage limits under both 2030 and 2035 demand.' : 'Clears network limits under 2035 demand; readiness supports 2035 delivery.', noteLabel: 'No binding constraint', noteBg: m.soft, noteBd: m.bd, noteFg: m.fg, noteLabelFg: m.c });
+      }
+      if (sel.kind === 'line') { const l = lineInfo(sel.id); if (l) { const binds = q.filter((x) => x.reason && x.reason.element && x.reason.element.line_id === l.line_id);
+        const v30 = loadPct('2030', l.line_id), v35 = loadPct('2035', l.line_id), isO = over.has(l.line_id);
+        detail = { kind: 'Line', title: l.line_name, subtitle: l.in_service === false ? 'Normally-open point' : '20 kV feeder section', hasChip: isO || binds.length > 0, chip: isO ? `Overloaded · ${phase}` : 'Binding constraint', chipBg: isO ? '#fee2e2' : '#fef3c7', chipFg: isO ? '#991b1b' : '#92400e',
+          rows: [{ k: 'Thermal rating', v: `${l.rating_a} A` }, { k: 'Capacity', v: `${(Math.sqrt(3) * 20 * l.rating_a / 1000).toFixed(1)} MVA` }, { k: 'Length', v: `${(l.length_km || 0).toFixed(2)} km` },
+            { k: 'Loading 2030', v: v30 == null ? '—' : `${v30.toFixed(1)}%`, color: v30 > 100 ? '#dc2626' : '#111827' }, { k: 'Loading 2035', v: v35 == null ? '—' : `${v35.toFixed(1)}%`, color: v35 > 100 ? '#dc2626' : '#111827' }] };
+        if (binds.length) Object.assign(detail, { hasNote: true, noteLabel: 'Holding back', note: binds.map((x) => `${x.request_id} (${fmtMw(x.rating_mw)} MW) — ${x.reason.message}`).join(' · '), noteBg: '#fffbeb', noteBd: '#fde68a', noteFg: '#92400e', noteLabelFg: '#b45309' });
+        else if (isO) Object.assign(detail, { hasNote: true, noteLabel: 'Demand-driven overload', note: `Load growth to ×${growth.toFixed(2)} pushes this section past its rating. Local generation or reinforcement would relieve it.`, noteBg: '#fef2f2', noteBd: '#fecaca', noteFg: '#991b1b', noteLabelFg: '#dc2626' }); } }
+      if (sel.kind === 'bus') { const ps = busProjects[sel.id] || [];
+        const hc = this.A && this.A.hostingCapacity ? this.A.hostingCapacity(sel.id, gens, growth) : null;
+        const v30 = vmAt('2030', sel.id), v35 = vmAt('2035', sel.id);
+        detail = { kind: 'Bus', title: `Bus ${sel.id}`, subtitle: '20 kV node', hasChip: vv.has(sel.id), chip: 'Voltage breach', chipBg: '#fee2e2', chipFg: '#991b1b',
+          rows: [{ k: 'Voltage 2030', v: v30 == null ? '—' : `${v30.toFixed(3)} pu` }, { k: 'Voltage 2035', v: v35 == null ? '—' : `${v35.toFixed(3)} pu` }, { k: 'Projects here', v: ps.length ? ps.map((x) => x.request_id).join(', ') : 'None' },
+            { k: `Headroom ${phase}`, v: hc ? (hc.capped ? '≥ 20 MW' : `${hc.mw} MW`) : '—', color: hc && hc.mw < 3 ? '#b45309' : '#111827' }],
+          hasNote: !!(hc && hc.binding), noteLabel: 'Headroom limited by', note: hc && hc.binding ? hc.binding.message.replace(/ overloaded \d+%/, ' thermal rating').replace(/ [\d.]+ pu at/, ' limit (1.10 pu) at') : '', noteBg: '#f9fafb', noteBd: '#e5e7eb', noteFg: '#374151', noteLabelFg: '#6b7280',
+          hasAction: true, action: 'New application at this bus', onAction: () => { this.setForm({ bus: String(sel.id) }); this.setState({ drawer: true }); } }; }
+      if (sel.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === sel.id); if (t) detail = { kind: 'Primary substation', title: t.name, subtitle: `HV bus ${t.hv_bus} → LV bus ${t.lv_bus}`, rows: [{ k: 'Rating', v: `${t.sn_mva || 25} MVA` }, { k: 'Ratio', v: '110 / 20 kV' }, { k: 'Voltage setpoint', v: '1.020 pu' }] }; }
+      if (detail) { detail.rows.forEach((x) => (x.color = x.color || '#111827')); detail = { hasChip: false, hasNote: false, hasAction: false, ...detail }; }
+    }
+
+    // ---- queue
+    const filtered = q.filter((x) => (s.filter === 'All' || x.status === s.filter) && (!s.query || `${x.request_id} ${x.applicant || ''} bus ${x.bus_id} ${x.technology}`.toLowerCase().includes(s.query.toLowerCase())));
+    const keyFn = { rank: (x) => (x.rank == null ? 999 : x.rank), id: (x) => x.request_id, mw: (x) => x.rating_mw ?? -1, ready: (x) => x.readiness_score, status: (x) => ORDER[x.status] * 1000 + (x.rank || 999) }[s.sortKey];
+    const sorted = [...filtered].sort((a, b) => { const A = keyFn(a), B = keyFn(b); return (A < B ? -1 : A > B ? 1 : 0) * s.sortDir; });
+    const toRow = (x) => {
+      const m = ST[x.status], t = x.reason ? x.reason.type : null, isSel = sel && sel.kind === 'project' && sel.id === x.request_id;
+      const was = s.prevStatus[x.request_id];
+      return { key: x.request_id, id: x.request_id, isSolar: x.technology === 'solar', isWind: x.technology === 'wind', isBattery: x.technology === 'battery', applicant: x.applicant || '—', meta: `${TECH[x.technology] || 'Unknown tech'} · bus ${x.bus_id ?? '—'}`, rank: x.rank ?? '—', mw: fmtMw(x.rating_mw),
+        ready: `${Math.round(x.readiness_score * 100)}%`, readyPct: Math.round(x.readiness_score * 100), readyColor: x.readiness_score >= 0.6 ? '#374151' : x.readiness_score >= 0.35 ? '#9ca3af' : '#d1d5db',
+        chip: m.short, chipBg: m.bg, chipFg: m.fg, reason: x.reason ? x.reason.message.replace(/^Held to 2035 — /, '') : '',
+        isGrid: t === 'line_overload' || t === 'voltage_high' || t === 'voltage_low', isReadiness: t === 'readiness', isPhased: t === 'phased', isIntake: t === 'intake',
+        changed: !!was && was !== x.status, changedText: was ? `was ${ST[was].short}` : '', manual: manualIds.has(x.request_id),
+        bg: isSel ? '#f3f4f6' : '#ffffff', shadow: isSel ? 'inset 3px 0 0 #111827' : 'none',
+        onClick: () => this.selectProject(x.request_id), onRemove: async (e) => { e.stopPropagation(); await this.A.removeCandidate(x.request_id); this.setState({ cands: await this.A.getCandidates() }); this.toastMsg(`${x.request_id} withdrawn — re-run to update the plan.`); } };
+    };
+    const groups = s.grouped
+      ? ['Phase1', 'Phase2', 'Deferred', 'Rejected'].map((st) => { const rows = sorted.filter((x) => x.status === st); const m = ST[st]; return { key: st, header: true, label: m.label, color: m.c, fg: m.fg, meta: `${rows.length} · ${fmtMw(rows.reduce((a, b) => a + (b.rating_mw || 0), 0))} MW`, rows: rows.map(toRow) }; }).filter((g) => g.rows.length)
+      : [{ key: 'all', header: false, rows: sorted.map(toRow) }];
+    const cols = [['rank', '#', 'flex-start'], ['id', 'Project', 'flex-start'], ['mw', 'MW', 'flex-end'], ['ready', 'Ready', 'flex-start'], ['status', 'Status', 'flex-end']].map(([key, label, justify]) => ({
+      key, label, justify, arrow: s.sortKey === key ? (s.sortDir > 0 ? '↑' : '↓') : '', fg: s.sortKey === key ? '#111827' : '#6b7280',
+      onClick: () => this.setState((st) => ({ sortKey: key, sortDir: st.sortKey === key ? -st.sortDir : key === 'mw' || key === 'ready' ? -1 : 1 })) }));
+
+    const sumMw = (xs) => xs.reduce((a, b) => a + (b.rating_mw || 0), 0);
+    const by = (st) => q.filter((x) => x.status === st);
+    const tiles = [['All', 'All', '#111827'], ['Phase1', 'Phase 1', ST.Phase1.c], ['Phase2', 'Phase 2', ST.Phase2.c], ['Deferred', 'Deferred', ST.Deferred.c], ['Rejected', 'Rejected', ST.Rejected.c]].map(([key, label, color]) => {
+      const xs = key === 'All' ? q : by(key), act = s.filter === key;
+      return { key, label, color, count: r ? xs.length : '—', mw: r ? `${fmtMw(sumMw(xs.filter((x) => x.rating_mw <= 40)))} MW` : '', bd: act ? color : '#e5e7eb', bg: act ? (key === 'All' ? '#f3f4f6' : ST[key].soft) : '#ffffff',
+        onClick: () => this.setState({ filter: key, tab: 'queue' }) };
+    });
+
+    // ---- alerts
+    const alertGroups = [];
+    if (r) {
+      const viol = [];
+      ['2030', '2035'].forEach((p) => {
+        const P2 = r.phases[p], g = p === '2030' ? s.g30 : s.g35;
+        P2.overloaded_line_ids.forEach((id) => viol.push({ key: `o${p}${id}`, title: `Line ${id} overloaded · ${(P2.line_loading && P2.line_loading[id] != null ? P2.line_loading[id].toFixed(0) : '>100')}%`, meta: `Demand ×${g.toFixed(2)} exceeds thermal rating with the ${p} plan connected`, tag: p, fg: '#991b1b', target: { kind: 'line', id }, phase: p }));
+        (P2.voltage_violation_bus_ids || []).forEach((id) => viol.push({ key: `v${p}${id}`, title: `Voltage breach at bus ${id}`, meta: `${P2.bus_vm ? P2.bus_vm[id].toFixed(3) : ''} pu outside 0.90–1.10`, tag: p, fg: '#991b1b', target: { kind: 'bus', id }, phase: p }));
+      });
+      if (viol.length) alertGroups.push({ key: 'viol', label: 'Network violations', color: '#dc2626', fg: '#991b1b', items: viol });
+      const dg = by('Deferred').filter((x) => x.reason && x.reason.element).map((x) => ({ key: x.request_id, title: `${x.request_id} deferred — ${x.reason.message}`, meta: `${x.applicant} · ${TECH[x.technology]} ${fmtMw(x.rating_mw)} MW · readiness ${Math.round(x.readiness_score * 100)}%`, tag: `bus ${x.bus_id}`, fg: '#92400e', project: x.request_id }));
+      if (dg.length) alertGroups.push({ key: 'dg', label: 'Deferred by grid constraint', color: '#d97706', fg: '#92400e', items: dg });
+      const watch = [];
+      ['2030', '2035'].forEach((p) => { const L = r.phases[p].line_loading || {}; Object.entries(L).filter(([, v]) => v > 88 && v <= 100).sort((a, b) => b[1] - a[1]).slice(0, 2).forEach(([id, v]) => watch.push({ key: `w${p}${id}`, title: `Line ${id} at ${v.toFixed(0)}%`, meta: 'Within 12% of thermal rating — little headroom left', tag: p, fg: '#374151', target: { kind: 'line', id: +id }, phase: p })); });
+      if (watch.length) alertGroups.push({ key: 'watch', label: 'Approaching limits', color: '#6b7280', fg: '#374151', items: watch });
+      const dr = by('Deferred').filter((x) => x.reason && x.reason.type === 'readiness').map((x) => ({ key: x.request_id, title: `${x.request_id} deferred — not ready`, meta: x.reason.message, tag: `bus ${x.bus_id}`, fg: '#92400e', project: x.request_id }));
+      if (dr.length) alertGroups.push({ key: 'dr', label: 'Deferred on readiness', color: '#fcd34d', fg: '#92400e', items: dr });
+      const rj = by('Rejected').map((x) => ({ key: x.request_id, title: `${x.request_id} rejected at intake`, meta: x.reason.message, tag: 'intake', fg: '#4b5563', project: x.request_id }));
+      if (rj.length) alertGroups.push({ key: 'rj', label: 'Intake rejections', color: '#9ca3af', fg: '#4b5563', items: rj });
+      alertGroups.forEach((g) => { g.count = g.items.length; g.items.forEach((a) => {
+        const isSel = sel && ((a.project && sel.kind === 'project' && sel.id === a.project) || (a.target && sel.kind === a.target.kind && sel.id === a.target.id));
+        a.bg = isSel ? '#f3f4f6' : 'transparent';
+        a.onClick = () => { if (a.project) return this.selectProject(a.project, true); this.setState({ sel: a.target, phase: a.phase }); this.focusOn(this.elementPt(a.target), 2.8); };
+      }); });
+    }
+    const violCount = alertGroups.filter((g) => g.key === 'viol' || g.key === 'dg').reduce((a, g) => a + g.count, 0);
+
+    // ---- briefing
+    const [briefSummary, notesRaw] = r && r.justification ? [r.justification.split('\n\n')[0], (r.justification.split('\n\n')[1] || '').split('\n').filter(Boolean)] : ['Run the simulation to generate a briefing.', []];
+    const briefNotes = notesRaw.map((line) => { const id = (line.match(/^(CR-\d+)/) || [])[1]; const x = qById[id]; const m = x ? ST[x.status] : ST.Rejected;
+      return { key: id || line, id: id || '', chip: m.short, chipBg: m.bg, chipFg: m.fg, text: line.replace(/^CR-\d+\s*/, '').replace(/^\(([^)]*)\)\s*—\s*/, '$1 — '), onClick: () => id && this.selectProject(id) }; });
+
+    // ---- timeline
+    const tlCard = (x) => ({ key: x.request_id, id: x.request_id, isSolar: x.technology === 'solar', isWind: x.technology === 'wind', isBattery: x.technology === 'battery', sub: `${TECH[x.technology]} · ${fmtMw(x.rating_mw)} MW`, bd: sel && sel.id === x.request_id ? ST[x.status].c : ST[x.status].bd,
+      reason: x.reason ? x.reason.message : '', reasonShort: x.reason ? x.reason.message.replace('overloaded', '→') : '', onClick: () => this.selectProject(x.request_id) });
+    const p1 = by('Phase1'), p2 = by('Phase2'), def = by('Deferred');
+    const valid = q.filter((x) => x.status !== 'Rejected');
+
+    // ---- form
+    const f = s.form, mwN = +f.mw;
+    let host = null;
+    if (s.drawer && f.bus && this.A && r) {
+      const hc = this.A.hostingCapacity(+f.bus, r.phases['2035'].generators, s.g35);
+      if (hc) {
+        const fits = mwN <= hc.mw, scale = Math.max(20, mwN, hc.mw);
+        const lim = hc.binding ? hc.binding.message.replace(/ overloaded \d+%/, ' thermal rating').replace(/Voltage [\d.]+ pu at bus (\d+)/, 'voltage rise at bus $1') : '';
+        host = { mw: hc.capped ? '≥ 20 MW' : `${hc.mw} MW`, capPct: (hc.mw / scale) * 100, reqPct: Math.min(100, (mwN / scale) * 100),
+          capColor: fits ? '#16a34a' : '#d97706', reqColor: fits ? '#16a34a' : '#d97706', bg: fits ? '#f0fdf4' : '#fffbeb', bd: fits ? '#bbf7d0' : '#fde68a', fg: fits ? '#166534' : '#92400e', labelFg: fits ? '#16a34a' : '#b45309',
+          text: fits ? `${fmtMw(mwN)} MW fits alongside the current plan${lim ? ` — next limit: ${lim}` : ''}.` : `${fmtMw(mwN)} MW exceeds headroom — likely deferred, bound by ${lim}.` };
+      }
+    }
+    const fReady = f.readiness;
+    const nextId = `CR-${2056 + s.cands.filter((c) => c.manual).length}`;
+    const busOpts = s.model ? s.model.buses.filter((b) => b.vn_kv <= 20).sort((a, b) => a.bus_id - b.bus_id).map((b) => ({ key: b.bus_id, value: String(b.bus_id), label: `Bus ${b.bus_id}` })) : [];
+
+    // ---- run overlay
+    const stepLabels = [`Validating ${s.cands.length} applications`, 'Ranking: readiness · grid need · strategic fit', `Power flow · 2030 demand ×${s.g30.toFixed(2)}`, `Power flow · 2035 demand ×${s.g35.toFixed(2)}`, 'Drafting committee briefing'];
+    const runSteps = stepLabels.map((label, i) => { const done = i < s.step, cur = i === s.step;
+      return { key: i, label, mark: done ? '✓' : '', fg: done ? '#374151' : cur ? '#111827' : '#9ca3af', dotBg: done ? '#111827' : '#ffffff', dotBd: done ? '#111827' : cur ? '#111827' : '#d1d5db' }; });
+
+    const lp = s.lastParams;
+    const stale = !!lp && (lp.g30 !== s.g30 || lp.g35 !== s.g35 || lp.n !== s.cands.length);
+    const fc = s.forecasts.find((x) => x.id === s.forecastId);
+    const tabs = [['queue', 'Queue', q.length, '#6b7280'], ['alerts', 'Alerts', violCount, violCount ? '#dc2626' : '#9ca3af'], ['brief', 'Briefing', 0, '']].map(([key, label, badge, badgeBg]) => ({
+      key, label, badge, badgeBg, hasBadge: key !== 'brief' && !!r, fg: s.tab === key ? '#111827' : '#6b7280', bd: s.tab === key ? '#111827' : 'transparent', onClick: () => this.setState({ tab: key }) }));
+    const mwTot = (p) => (ph && r ? sumMw(r.phases[p].generators) : 0);
+
+    return {
+      netMeta: s.model ? `mv_oberrhein · ${s.model.buses.length} buses · ${s.model.lines.length} lines · ${s.model.transformers.length} transformers` : 'loading model…',
+      forecastId: s.forecastId, hasForecasts: s.forecasts.length > 0, forecastOpts: [...s.forecasts.map((x) => ({ key: x.id, id: x.id, selected: x.id === s.forecastId, label: `DFES · ${x.label}` })), { key: 'custom', id: 'custom', selected: s.forecastId === 'custom', label: 'Custom (manual)' }],
+      onForecast: (e) => { const v = e.target.value, x = s.forecasts.find((y) => y.id === v); this.setState(x ? { forecastId: v, g30: x.growth_2030, g35: x.growth_2035 } : { forecastId: v }); },
+      g30: s.g30, g35: s.g35, g30Text: `×${s.g30.toFixed(2)}`, g35Text: `×${s.g35.toFixed(2)}`,
+      onG30: (e) => this.setState({ g30: +e.target.value, forecastId: 'custom' }), onG35: (e) => this.setState({ g35: +e.target.value, forecastId: 'custom' }),
+      run: this.run, running: s.running, stale,
+      runLabel: s.running ? 'Computing power flow…' : stale ? 'Re-run simulation' : 'Run simulation',
+      runBg: s.running ? '#e5e7eb' : '#2563eb', runFg: s.running ? '#6b7280' : '#ffffff',
+      openDrawer: () => this.setState({ drawer: true }), closeDrawer: () => this.setState({ drawer: false, pickMode: false }),
+
+      mapRef: this.mapRef, stop: (e) => e.stopPropagation(),
+      legendOpen: !s.legendHidden, legendClosed: !!s.legendHidden, toggleLegend: () => this.setState({ legendHidden: !s.legendHidden }),
+      toggleLoads: () => this.setState({ showLoads: !showLoads }), loadsBg: showLoads ? '#111827' : 'transparent', loadsFg: showLoads ? '#ffffff' : '#374151',
+      mapLabels,
+      clearSel: () => this.setState({ sel: null }),
+      setPhase30: () => this.setState({ phase: '2030' }), setPhase35: () => this.setState({ phase: '2035' }),
+      ph30Bg: phase === '2030' ? '#16a34a' : 'transparent', ph30Fg: phase === '2030' ? '#ffffff' : '#4b5563',
+      ph35Bg: phase === '2035' ? '#2563eb' : 'transparent', ph35Fg: phase === '2035' ? '#ffffff' : '#4b5563',
+      phaseGrowth: `×${growth.toFixed(2)}`, phaseMw: ph ? `${fmtMw(mwTot(phase))} MW` : '—',
+      phaseWorst: ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : '—', worstColor: ph && ph.worst_line_loading_pct > 100 ? '#dc2626' : '#111827',
+      phaseV: ph ? `${ph.min_vm_pu.toFixed(3)}–${ph.max_vm_pu.toFixed(3)} pu` : '—',
+      pickMode: s.pickMode, cancelPick: () => this.setState({ pickMode: false }),
+      hasDetail: !!detail, detail: detail || { rows: [] },
+      hasTip: !!tip, tip: tip || { rows: [] },
+      toggleLoading: () => this.setState({ loadingMode: !s.loadingMode }), toggleLabels: () => this.setState({ showLabels: !s.showLabels }),
+      loadingBg: s.loadingMode ? '#111827' : 'transparent', loadingFg: s.loadingMode ? '#ffffff' : '#374151',
+      labelsBg: s.showLabels ? '#111827' : 'transparent', labelsFg: s.showLabels ? '#ffffff' : '#374151',
+      zoomIn: () => this.zoomBy(1), zoomOut: () => this.zoomBy(-1), zoomFit: () => this.fit(true),
+      runScenarioText: `${fc ? 'DFES · ' + fc.label : 'Custom scenario'} · ${s.cands.length} applications`, runPct: Math.min(100, (s.step + 0.5) * 20), runSteps,
+
+      tlSummary: r ? `${fmtMw(sumMw(p1))} MW by 2030 · ${fmtMw(sumMw(p1) + sumMw(p2))} MW cumulative by 2035 · ${def.length} deferred (${fmtMw(sumMw(def))} MW waiting on grid or readiness)` : 'Run the simulation to build the roadmap.',
+      nowLabel: 'Sep 2026', nowText: r ? `${valid.length} valid applications, ${fmtMw(sumMw(valid))} MW requested. ${by('Rejected').length} rejected at intake.` : '—',
+      tlP1: p1.map(tlCard), tlP2: p2.map(tlCard), tlDef: def.map(tlCard), tlP2Empty: !!r && p2.length === 0,
+      tlP1Mw: `${fmtMw(sumMw(p1))} MW`, tlP2Mw: `+${fmtMw(sumMw(p2))} MW`, tlDefMw: `${fmtMw(sumMw(def))} MW`,
+
+      tiles, tabs, tabQueue: s.tab === 'queue', tabAlerts: s.tab === 'alerts', tabBrief: s.tab === 'brief',
+      query: s.query, onQuery: (e) => this.setState({ query: e.target.value }),
+      toggleGroup: () => this.setState({ grouped: !s.grouped }), groupBg: s.grouped ? '#f3f4f6' : '#ffffff', groupBd: s.grouped ? '#9ca3af' : '#e5e7eb',
+      cols, groups, noRows: !!r && sorted.length === 0,
+      alertGroups, noAlerts: !!r && alertGroups.length === 0,
+      briefMeta: r && s.lastRun ? `Run at ${s.lastRun.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${fc ? 'DFES ' + fc.label : 'custom scenario'} (×${(lp || s).g30.toFixed(2)} / ×${(lp || s).g35.toFixed(2)})` : '',
+      briefSummary, briefNotes, copyLabel: s.copied ? 'Copied' : 'Copy text',
+      copyBrief: () => { if (r && navigator.clipboard) navigator.clipboard.writeText(r.justification).catch(() => {}); this.setState({ copied: true }); setTimeout(() => this.setState({ copied: false }), 1500); },
+
+      drawer: s.drawer, nextId, form: f,
+      onFormName: (e) => this.setForm({ name: e.target.value }), onFormMw: (e) => this.setForm({ mw: e.target.value }), onFormBus: (e) => this.setForm({ bus: e.target.value }),
+      onFormReady: (e) => this.setForm({ readiness: +e.target.value }),
+      techOpts: ['solar', 'wind', 'battery'].map((t) => ({ key: t, label: TECH[t], bg: f.tech === t ? '#111827' : '#ffffff', fg: f.tech === t ? '#ffffff' : '#374151', bd: f.tech === t ? '#111827' : '#d1d5db', onClick: () => this.setForm({ tech: t }) })),
+      busOpts, startPick: () => this.setState({ pickMode: !s.pickMode, sel: null }),
+      pickBg: s.pickMode ? '#1d4ed8' : '#ffffff', pickFg: s.pickMode ? '#ffffff' : '#374151', pickBd: s.pickMode ? '#1d4ed8' : '#d1d5db',
+      mwBd: mwN > 20 ? '#f87171' : '#d1d5db', mwWarn: mwN > 20, mwWarnText: 'Above the 20 MW plausibility cap for this 20 kV feeder — will be rejected at intake.',
+      hasHosting: !!host, host: host || {},
+      evidence: EVID.map((e) => ({ key: e.k, label: e.label, w: `+${Math.round(e.w * 100)}%`, mark: f[e.k] ? '✓' : '', boxBg: f[e.k] ? '#111827' : '#ffffff', boxBd: f[e.k] ? '#111827' : '#d1d5db', bg: f[e.k] ? '#f9fafb' : '#ffffff', bd: f[e.k] ? '#9ca3af' : '#e5e7eb', onClick: () => this.setForm({ [e.k]: !f[e.k] }) })),
+      readyText: `${Math.round(fReady * 100)}%`, readyFg: fReady >= 0.6 ? '#166534' : fReady >= 0.35 ? '#1e40af' : '#92400e',
+      formInvalid: this.formInvalid(), submitBg: this.formInvalid() ? '#9ca3af' : '#2563eb', submitFg2: this.formInvalid() ? '#9ca3af' : '#111827',
+      submitOnly: () => this.submit(false), submitRun: () => this.submit(true),
+      hasToast: !!s.toast, toast: s.toast || '',
+    };
+  }
+}
+</script>
+</body>
+</html>

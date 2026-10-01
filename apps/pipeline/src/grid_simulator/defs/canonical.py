@@ -70,3 +70,20 @@ def canonical_transformers(
                      "lv_bus", "sn_mva", "vn_hv_kv", "vn_lv_kv"]]
     context.add_output_metadata({'transformers': len(trafos)})
     return trafos
+
+
+@dg.asset
+def canonical_loads(
+    context: dg.AssetExecutionContext,
+    raw_network: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    # aggregate demand (MW) per bus from the pandapower load table
+    loads = raw_network["load"]
+    agg = (
+        loads.groupby("bus", as_index=False)["p_mw"].sum()
+        .rename(columns={"bus": "bus_id"})
+    )
+    agg["p_mw"] = agg["p_mw"].round(4)
+    context.add_output_metadata(
+        {"load_buses": len(agg), "total_demand_mw": round(float(agg["p_mw"].sum()), 1)})
+    return agg
