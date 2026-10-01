@@ -1,5 +1,5 @@
-// GridForge API client — mock implementation matching the FastAPI shapes.
-// To go live: set GridForgeAPI.config.mock = false (base = http://localhost:8000).
+// GridForge API client. Runs LIVE against the FastAPI backend by default
+// (config.mock = false, base = http://localhost:8000); set mock = true for the built-in offline model.
 (function () {
   const config = { mock: false, base: "http://localhost:8000", latencyMs: 900 };
   const V_MIN = 0.9, V_MAX = 1.1, LINE_MAX = 100, MAX_MW = 20;
@@ -7,7 +7,8 @@
   const READY_P1 = 0.6, READY_P2 = 0.35;
   const R_OHM_KM = 0.26, V_SET = 1.02;
 
-  const CANDIDATES = [
+  // Offline fallback only — overwritten by _loadCandidates() from ./data/candidates.json (NGED).
+  let CANDIDATES = [
     { request_id: "CR-2041", applicant: "Rheintal Solar GmbH", bus_id: 120, technology: "solar", rating_mw: 4.5, readiness_score: 0.46, strategic_fit: 0.7, status: "valid", review_reasons: "", readiness_rationale: "Initial enquiry; no consent or land agreement referenced." },
     { request_id: "CR-2042", applicant: "Unnamed BESS developer", bus_id: 250, technology: "battery", rating_mw: 2, readiness_score: 0.5, strategic_fit: 0.8, status: "rejected", review_reasons: "Point of connection bus 250 does not exist in the network model", readiness_rationale: "Commissioning date given, but no consent evidence." },
     { request_id: "CR-2043", applicant: "Ettenheim depot enquiry", bus_id: null, technology: "solar", rating_mw: null, readiness_score: 0.1, strategic_fit: 0.6, status: "rejected", review_reasons: "Missing capacity and point of connection", readiness_rationale: "Size and connection point unconfirmed." },
@@ -168,6 +169,153 @@
     return { queue: out, phases: { "2030": phase(A30, g30), "2035": phase(A35, g35) } };
   }
 
+  // consequence diff of two runOptimizer() results — mirrors packages/optimizer/diff.py
+  const DIFF_HORIZON = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
+  const DIFF_CONNECTED = new Set(["Phase1", "Phase2"]);
+  const DIFF_CHANGE_ORDER = { accelerated: 0, slipped: 1, dropped: 2, added: 3, moved_up: 4, moved_down: 5, unchanged: 6 };
+  const ratingsOf = (q) => Object.fromEntries(q.map((x) => [x.request_id, x.rating_mw || 0]));
+  const mwConnected = (ph, r) => (ph ? +ph.accepted.reduce((s, id) => s + (r[id] || 0), 0).toFixed(1) : 0);
+  function diffClassify(b, h) {
+    if (!b) return "added";
+    if (!h) return "dropped";
+    const hb = DIFF_HORIZON[b.status], hh = DIFF_HORIZON[h.status];
+    if (hh < hb) return "accelerated";
+    if (hh > hb) return "slipped";
+    if (b.rank != null && h.rank != null) { if (h.rank < b.rank) return "moved_up"; if (h.rank > b.rank) return "moved_down"; }
+    return "unchanged";
+  }
+  function diffCrossed(bp, hp, delta) {
+    const bo = bp != null && bp > LINE_MAX, ho = hp != null && hp > LINE_MAX;
+    if (ho && !bo) return "newly_overloaded";
+    if (bo && !ho) return "cleared";
+    if (delta > 0.1) return "worsened";
+    if (delta < -0.1) return "eased";
+    return "unchanged";
+  }
+  function diffResults(base, head) {
+    const bById = Object.fromEntries(base.queue.map((q) => [q.request_id, q]));
+    const hById = Object.fromEntries(head.queue.map((q) => [q.request_id, q]));
+    const ids = new Set([...Object.keys(bById), ...Object.keys(hById)]);
+    const projects = [...ids].map((id) => {
+      const b = bById[id], h = hById[id], ident = h || b;
+      const rankDelta = b && h && b.rank != null && h.rank != null ? h.rank - b.rank : null;
+      return { request_id: id, technology: ident.technology, rating_mw: ident.rating_mw, bus_id: ident.bus_id,
+        base_status: b ? b.status : null, head_status: h ? h.status : null, base_rank: b ? b.rank : null,
+        head_rank: h ? h.rank : null, rank_delta: rankDelta, change: diffClassify(b, h), head_reason: h ? h.reason : null };
+    });
+    projects.sort((a, b) => (DIFF_CHANGE_ORDER[a.change] - DIFF_CHANGE_ORDER[b.change]) ||
+      (Math.abs(b.rank_delta || 0) - Math.abs(a.rank_delta || 0)) || (a.request_id < b.request_id ? -1 : 1));
+    const bR = ratingsOf(base.queue), hR = ratingsOf(head.queue);
+    const phases = ["2030", "2035"].filter((k) => base.phases[k] && head.phases[k]).map((k) => {
+      const bp = base.phases[k], hp = head.phases[k];
+      const bo = new Set(bp.overloaded_line_ids), ho = new Set(hp.overloaded_line_ids);
+      const lids = new Set([...Object.keys(bp.line_loading), ...Object.keys(hp.line_loading)]);
+      const top = [...lids].map((key) => {
+        const bpp = bp.line_loading[key], hpp = hp.line_loading[key];
+        const delta = +(((hpp || 0) - (bpp || 0)).toFixed(1));
+        return { line_id: +key, base_pct: bpp ?? null, head_pct: hpp ?? null, delta, crossed: diffCrossed(bpp, hpp, delta) };
+      }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 10);
+      const mwB = mwConnected(bp, bR), mwH = mwConnected(hp, hR);
+      return { phase: k, worst_line_delta: +(hp.worst_line_loading_pct - bp.worst_line_loading_pct).toFixed(1),
+        worst_trafo_delta: +(((hp.worst_trafo_loading_pct || 0) - (bp.worst_trafo_loading_pct || 0))).toFixed(1),
+        min_vm_delta: +(hp.min_vm_pu - bp.min_vm_pu).toFixed(4), max_vm_delta: +(hp.max_vm_pu - bp.max_vm_pu).toFixed(4),
+        newly_overloaded_line_ids: [...ho].filter((x) => !bo.has(x)).sort((a, b) => a - b),
+        cleared_line_ids: [...bo].filter((x) => !ho.has(x)).sort((a, b) => a - b),
+        top_line_deltas: top, mw_connected_base: mwB, mw_connected_head: mwH, mw_connected_delta: +(mwH - mwB).toFixed(1) };
+    });
+    const nStatus = (q, set) => q.filter((x) => set.has(x.status)).length;
+    const cnt = (c) => projects.filter((p) => p.change === c).length;
+    const m2030b = mwConnected(base.phases["2030"], bR), m2030h = mwConnected(head.phases["2030"], hR);
+    const m2035b = mwConnected(base.phases["2035"], bR), m2035h = mwConnected(head.phases["2035"], hR);
+    const headline = { mw_2030_base: m2030b, mw_2030_head: m2030h, mw_2030_delta: +(m2030h - m2030b).toFixed(1),
+      mw_2035_base: m2035b, mw_2035_head: m2035h, mw_2035_delta: +(m2035h - m2035b).toFixed(1),
+      n_connected_base: nStatus(base.queue, DIFF_CONNECTED), n_connected_head: nStatus(head.queue, DIFF_CONNECTED),
+      n_deferred_base: nStatus(base.queue, new Set(["Deferred"])), n_deferred_head: nStatus(head.queue, new Set(["Deferred"])),
+      n_accelerated: cnt("accelerated"), n_slipped: cnt("slipped"), n_added: cnt("added"), n_dropped: cnt("dropped") };
+    return { base_label: "baseline", head_label: "proposed", headline, projects, phases };
+  }
+
+  // Normalize a deferral/rejection reason (live {type,element_id,value,message} OR mock
+  // {type:'line_overload'|…,element,message}) into a single shape the UI renders everywhere:
+  // { kind, element:{line_id|bus_id}, short, why (plain English), action (what to do next) }.
+  function _normReason(reason, item) {
+    if (!reason) return reason;
+    const it = item || {};
+    const t = reason.type;
+    const val = typeof reason.value === "number" ? reason.value : null;
+    const msg = reason.message || "";
+    const eid = reason.element_id != null
+      ? reason.element_id
+      : (reason.element ? (reason.element.line_id != null ? reason.element.line_id : reason.element.bus_id) : null);
+    const pct = val != null ? Math.round(val) : null;
+    const base = { ...reason, message: msg, value: val };
+
+    if (t === "line" || t === "line_overload") {
+      return { ...base, kind: "grid", element: { line_id: eid },
+        short: `Overloads line ${eid}${pct != null ? ` to ${pct}%` : ""} — a grid limit, not the project`,
+        why: `Connecting this would overload line ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""}. The wires between here and the rest of the grid are the bottleneck — the project itself is fine.`,
+        action: `Reinforce line ${eid} (add a parallel circuit) — open Review ▸ Suggestions for the exact plan and the MW it frees — or hold this project to 2035.` };
+    }
+    if (t === "trafo" || t === "trafo_overload") {
+      return { ...base, kind: "grid", element: null,
+        short: `Overloads transformer ${eid}${pct != null ? ` to ${pct}%` : ""}`,
+        why: `Connecting this would overload transformer ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""} — the primary substation can't pass this much power.`,
+        action: `Uprate or reinforce transformer ${eid} — see Review ▸ Suggestions — or hold this project to 2035.` };
+    }
+    if (t === "voltage" || t === "voltage_high" || t === "voltage_low") {
+      const high = t === "voltage_high" || (t === "voltage" && val != null && val > 1.0);
+      if (high) {
+        return { ...base, kind: "grid", element: { bus_id: eid },
+          short: `Too much export — bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu (limit 1.10)`,
+          why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above the 1.10 limit. The local network is too weak for this much export.`,
+          action: `Reinforce the feeder or add reactive support at bus ${eid} — see Review ▸ Suggestions — or site a smaller project at this bus.` };
+      }
+      return { ...base, kind: "grid", element: { bus_id: eid },
+        short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit 0.90)`,
+        why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below the 0.90 limit — the network is too weak here under this demand.`,
+        action: `Reinforce the feeder to bus ${eid} — see Review ▸ Suggestions — or hold this project to 2035.` };
+    }
+    if (t === "readiness") {
+      return { ...base, kind: "readiness", element: null, short: "Not developed enough yet",
+        why: msg || "The project isn't developed enough yet (land rights, planning consent, grid-connection agreement or financing).",
+        action: "Resubmit once land, planning and financing progress — the grid can take it; the project isn't ready." };
+    }
+    if (t === "phased") {
+      return { ...base, kind: "phased", element: reason.element || null, short: msg,
+        why: msg, action: "No action needed — it connects in 2035 as demand grows and headroom opens." };
+    }
+    // rejected / intake / non_convergent
+    const m = msg.toLowerCase();
+    let short, why, action;
+    if (m.includes("not in") || m.includes("does not exist") || (m.includes("bus") && !m.includes("busbar"))) {
+      short = "Connection point not in the network model";
+      why = `The point of connection${it.bus_id != null ? ` (bus ${it.bus_id})` : ""} isn't in this network model, so it can't be assessed.`;
+      action = "Pick a real connection point: in + Add project, choose a bus from the dropdown or click “Map” to pick one on the network.";
+    } else if (m.includes("rating") && (m.includes("exceed") || m.includes("range") || m.includes("cap"))) {
+      short = "Capacity over the 20 MW feeder limit";
+      why = `The requested capacity${it.rating_mw != null ? ` (${it.rating_mw} MW)` : ""} is above the 20 MW limit for a 20 kV feeder.`;
+      action = "Reduce the capacity to ≤ 20 MW, split it across sites, or connect at a higher-voltage point.";
+    } else if (m.includes("missing") || m.includes("capacity")) {
+      short = "Incomplete application";
+      why = msg || "The application is missing required details.";
+      action = "Complete the missing fields (capacity, point of connection, technology) in + Add project and resubmit.";
+    } else {
+      short = "Can't be assessed yet";
+      why = msg || "This application can't be assessed yet.";
+      action = "Complete the application details and resubmit.";
+    }
+    return { ...base, kind: "intake", element: null, short, why, action };
+  }
+
+  function _applyReasons(res) {
+    if (res && Array.isArray(res.queue)) res.queue.forEach((q) => { q.reason = _normReason(q.reason, q); });
+    return res;
+  }
+  function _applyDiffReasons(out) {
+    if (out && Array.isArray(out.projects)) out.projects.forEach((p) => { p.head_reason = _normReason(p.head_reason, p); });
+    return out;
+  }
+
   function justify(res, p) {
     const q = res.queue, by = (s) => q.filter((x) => x.status === s);
     const mw = (xs) => xs.reduce((s, x) => s + (x.rating_mw || 0), 0);
@@ -187,11 +335,22 @@
     return t.trim() + "\n\n" + notes.join("\n");
   }
 
+  let _candsLoaded = false;
+  async function _loadCandidates() {
+    if (_candsLoaded) return CANDIDATES;
+    try {
+      const r = await fetch("./data/candidates.json");
+      if (r.ok) CANDIDATES = await r.json();
+    } catch (e) { /* keep the built-in fallback */ }
+    _candsLoaded = true;
+    return CANDIDATES;
+  }
   async function getModel() {
     if (!config.mock) return (await fetch(`${config.base}/model`)).json();
     if (!model) {
       const src = (window.__resources && window.__resources.modelJson) || "./data/model.json";
       model = await (await fetch(src)).json();
+      await _loadCandidates();
       model.lines.forEach((l) => { l.rating_a = fixRating(l.rating_a); l.r_ohm_per_km = l.rating_a >= 645 ? 0.125 : l.rating_a >= 421 ? 0.2 : 0.27; });
       net = buildNet(model);
       model.loads = model.buses.filter((b) => net.load[b.bus_id] > 0).map((b, i) => ({ load_id: i, bus_id: b.bus_id, p_mw: net.load[b.bus_id], lon: b.lon, lat: b.lat }));
@@ -200,6 +359,7 @@
   }
   async function getCandidates() {
     if (!config.mock) return (await fetch(`${config.base}/optimize/candidates`)).json();
+    await _loadCandidates();
     return [...CANDIDATES, ...extra];
   }
   async function addCandidate(c) {
@@ -211,20 +371,52 @@
   }
   async function removeCandidate(id) { extra = extra.filter((c) => c.request_id !== id); }
   async function optimize(body) {
-    if (!config.mock) return (await fetch(`${config.base}/optimize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
-    await getModel();
-    await sleep(config.latencyMs);
-    const res = runOptimizer(await getCandidates(), body);
-    res.justification = body.with_justification ? justify(res, body) : "";
-    res.snapshot_id = "mv_oberrhein-baseline";
-    return res;
+    let res;
+    if (!config.mock) {
+      res = await (await fetch(`${config.base}/optimize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    } else {
+      await getModel();
+      await sleep(config.latencyMs);
+      res = runOptimizer(await getCandidates(), body);
+      res.justification = body.with_justification ? justify(res, body) : "";
+      res.snapshot_id = "mv_oberrhein-baseline";
+    }
+    return _applyReasons(res);
   }
-  // NESO FES 2025 demand pathways (fallback / mock; live mode fetches GET /forecasts)
+  async function runDiff(body) {
+    let out;
+    if (!config.mock) {
+      out = await (await fetch(`${config.base}/optimize/diff`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    } else {
+      await getModel();
+      await sleep(config.latencyMs);
+      const cands = await getCandidates();
+      out = diffResults(runOptimizer(cands, body.base), runOptimizer(cands, body.head));
+      out.narration = "";
+    }
+    return _applyDiffReasons(out);
+  }
+  let mockBaseline = null;
+  async function getBaseline() {
+    if (!config.mock) {
+      try { return await (await fetch(`${config.base}/baseline`)).json(); }
+      catch (e) { return { exists: false, params: null }; }
+    }
+    return { exists: !!mockBaseline, params: mockBaseline };
+  }
+  async function setBaseline(params) {
+    if (!config.mock) return (await fetch(`${config.base}/baseline`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) })).json();
+    mockBaseline = { ...params };
+    return { exists: true, params: mockBaseline };
+  }
+  // NESO FES 2025 demand pathways — fixed, cited peak-demand multipliers vs ~60 GW (2024).
+  // Holistic Transition is the firmly-cited anchor (65 GW 2030 / 81 GW 2035); the spread across
+  // the others is directional. Fallback/mock only; live mode fetches GET /forecasts.
   const FORECASTS = [
-    { id: "ht", label: "Holistic Transition", growth_2030: 1.1, growth_2035: 1.3 },
-    { id: "ee", label: "Electric Engagement", growth_2030: 1.12, growth_2035: 1.36 },
-    { id: "he", label: "Hydrogen Evolution", growth_2030: 1.07, growth_2035: 1.22 },
-    { id: "fb", label: "Falling Behind", growth_2030: 1.03, growth_2035: 1.08 },
+    { id: "ht", label: "Holistic Transition", growth_2030: 1.08, growth_2035: 1.35, source: "NESO FES 2025", cited: true },
+    { id: "ee", label: "Electric Engagement", growth_2030: 1.1, growth_2035: 1.42, source: "NESO FES 2025", cited: false },
+    { id: "he", label: "Hydrogen Evolution", growth_2030: 1.07, growth_2035: 1.28, source: "NESO FES 2025", cited: false },
+    { id: "fb", label: "Falling Behind", growth_2030: 1.04, growth_2035: 1.15, source: "NESO FES 2025", cited: false },
   ];
   async function getForecasts() {
     if (!config.mock) {
@@ -247,5 +439,126 @@
     return { mw: +lo.toFixed(1), binding: bind, capped: false };
   }
 
-  window.GridForgeAPI = { hostingCapacity, config, getModel, getCandidates, addCandidate, removeCandidate, optimize, getForecasts, _powerFlow: (g, gr) => powerFlow(g, gr) };
+  // --- branches ("git for grids") + unblock suggestions ---------------------
+  // Live mode talks to the FastAPI branch endpoints; mock keeps an in-memory branch store so the
+  // offline demo still works. A branch = a scenario (demand pathway) + the projects added on it.
+  let mockBranches = null, mockBranchSeq = 0, mockCandSeq = 0;
+  function _mb() {
+    if (!mockBranches) mockBranches = [{
+      branch_id: "main", name: "Main", parent_id: null, scenario: "ht",
+      growth_2030: 1.08, growth_2035: 1.35, w_readiness: null, w_need: null, w_strategic: null,
+      status: "open", created_at: new Date().toISOString(), merged_at: null, added: [], withdraw: [],
+    }];
+    return mockBranches;
+  }
+  const _findBranch = (id) => _mb().find((b) => b.branch_id === id);
+  function _branchParams(b) {
+    const f = FORECASTS.find((x) => x.id === b.scenario);
+    return { scenario: b.scenario, growth_2030: f ? f.growth_2030 : b.growth_2030, growth_2035: f ? f.growth_2035 : b.growth_2035 };
+  }
+  function _branchClient(b) {
+    return { branch_id: b.branch_id, name: b.name, parent_id: b.parent_id, scenario: b.scenario,
+      growth_2030: b.growth_2030, growth_2035: b.growth_2035, w_readiness: b.w_readiness, w_need: b.w_need,
+      w_strategic: b.w_strategic, status: b.status, created_at: b.created_at, merged_at: b.merged_at, n_added: b.added.length };
+  }
+  function _branchCands(b) {
+    const w = new Set(b.withdraw);
+    const base = b.branch_id === "main" ? [...CANDIDATES, ...extra] : [...CANDIDATES];
+    return [...base, ...b.added].filter((c) => !w.has(c.request_id));
+  }
+
+  async function createBranch(body) {
+    if (!config.mock) return (await fetch(`${config.base}/branches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
+    const parent = _findBranch(body.from_branch || "main") || _findBranch("main");
+    const id = "br-" + (++mockBranchSeq).toString(16).padStart(8, "0");
+    const pick = (v, k) => (v == null ? parent[k] : v);
+    const b = { branch_id: id, name: body.name, parent_id: parent.branch_id,
+      scenario: pick(body.scenario, "scenario"), growth_2030: pick(body.growth_2030, "growth_2030"),
+      growth_2035: pick(body.growth_2035, "growth_2035"), w_readiness: pick(body.w_readiness, "w_readiness"),
+      w_need: pick(body.w_need, "w_need"), w_strategic: pick(body.w_strategic, "w_strategic"),
+      status: "open", created_at: new Date().toISOString(), merged_at: null,
+      added: parent.added.map((c) => ({ ...c })), withdraw: [...parent.withdraw] };
+    (body.added_projects || []).forEach((p) => {
+      b.added.push({ request_id: `CR-${2056 + mockCandSeq++}`, status: "valid", review_reasons: "",
+        strategic_fit: p.technology === "battery" ? 0.84 : 0.74, ...p });
+    });
+    (body.withdraw || []).forEach((rid) => { if (!b.withdraw.includes(rid)) b.withdraw.push(rid); });
+    _mb().push(b);
+    return _branchClient(b);
+  }
+  async function listBranches() {
+    if (!config.mock) { const r = await (await fetch(`${config.base}/branches`)).json(); return r.branches || []; }
+    return _mb().map(_branchClient);
+  }
+  async function getBranch(id) {
+    if (!config.mock) return (await fetch(`${config.base}/branches/${id}`)).json();
+    const b = _findBranch(id); if (!b) return null;
+    return { ..._branchClient(b), added_project_ids: b.added.map((c) => c.request_id), withdrawn_project_ids: [...b.withdraw] };
+  }
+  async function optimizeBranch(id, opts) {
+    let res;
+    if (!config.mock) {
+      res = await (await fetch(`${config.base}/branches/${id}/optimize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts || {}) })).json();
+    } else {
+      await getModel(); await sleep(config.latencyMs);
+      const b = _findBranch(id), p = _branchParams(b);
+      res = runOptimizer(_branchCands(b), p);
+      res.branch_id = id; res.snapshot_id = "mv_oberrhein-baseline";
+      res.justification = opts && opts.with_justification ? justify(res, p) : "";
+    }
+    return _applyReasons(res);
+  }
+  async function diffBranch(id, opts) {
+    let out;
+    if (!config.mock) {
+      const qs = opts && opts.with_narration ? "?with_narration=1" : "";
+      out = await (await fetch(`${config.base}/branches/${id}/diff${qs}`)).json();
+    } else {
+      await getModel(); await sleep(config.latencyMs);
+      const head = _findBranch(id), base = _findBranch(head.parent_id || "main") || _findBranch("main");
+      out = diffResults(runOptimizer(_branchCands(base), _branchParams(base)), runOptimizer(_branchCands(head), _branchParams(head)));
+      out.base_branch = base.branch_id; out.head_branch = id; out.narration = "";
+    }
+    return _applyDiffReasons(out);
+  }
+  async function mergeBranch(id, opts) {
+    if (!config.mock) return (await fetch(`${config.base}/branches/${id}/merge`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts || { into: "main" }) })).json();
+    const into = (opts && opts.into) || "main", b = _findBranch(id), target = _findBranch(into);
+    Object.assign(target, { scenario: b.scenario, growth_2030: b.growth_2030, growth_2035: b.growth_2035,
+      w_readiness: b.w_readiness, w_need: b.w_need, w_strategic: b.w_strategic,
+      added: b.added.map((c) => ({ ...c })), withdraw: [...b.withdraw] });
+    b.status = "merged"; b.merged_at = new Date().toISOString();
+    return _branchClient(target);
+  }
+  async function discardBranch(id) {
+    if (!config.mock) return (await fetch(`${config.base}/branches/${id}/discard`, { method: "POST" })).json();
+    const b = _findBranch(id); b.status = "discarded"; return _branchClient(b);
+  }
+  async function getSuggestions(id, opts) {
+    if (!config.mock) {
+      const p = new URLSearchParams();
+      if (opts && opts.limit) p.set("limit", opts.limit);
+      if (opts && opts.with_narration) p.set("with_narration", "1");
+      const qs = p.toString() ? `?${p}` : "";
+      const r = await (await fetch(`${config.base}/branches/${id}/suggestions${qs}`)).json();
+      return r.suggestions || [];
+    }
+    // mock: a simple heuristic over the branch's grid-deferred projects
+    await getModel();
+    const b = _findBranch(id), res = runOptimizer(_branchCands(b), _branchParams(b));
+    return res.queue.filter((q) => q.status === "Deferred" && q.reason && q.reason.element)
+      .slice(0, (opts && opts.limit) || 5).map((q) => {
+        const el = q.reason.element, isLine = el.type === "line_overload";
+        return { target_type: isLine ? "line" : "voltage", target_element_id: isLine ? el.line_id : el.bus_id,
+          action: isLine ? `Add a parallel circuit to line ${el.line_id}` : `Reinforce the feeder supplying bus ${el.bus_id}`,
+          reinforcements: isLine ? [{ kind: "line", element_id: el.line_id, action: "add_parallel", factor: 2 }] : [],
+          connects_target: true, freed_mw_2030: 0, freed_mw_2035: q.rating_mw || 0,
+          newly_connected_project_ids: [q.request_id], blocked_project_ids: [q.request_id],
+          extra_solves: 0, caveat: "Offline estimate. A feasible lever, not a least-cost study.", narration: "" };
+      });
+  }
+
+  window.GridForgeAPI = { hostingCapacity, config, getModel, getCandidates, addCandidate, removeCandidate, optimize, runDiff, getBaseline, setBaseline, getForecasts,
+    createBranch, listBranches, getBranch, optimizeBranch, diffBranch, mergeBranch, discardBranch, getSuggestions,
+    _powerFlow: (g, gr) => powerFlow(g, gr) };
 })();

@@ -1,10 +1,12 @@
-# GridForge
+# GridForge — data pipeline
 
 **A versioned, auditable "source of truth" pipeline for power-grid models — with an LLM edge that never bypasses it.**
 
+> This is the **`apps/pipeline`** slice of GridForge. It produces the validated grid model *and* the scored candidate projects that the connection-queue optimizer consumes. For the whole system (optimizer, API, map UI) and how to run it, see the [root README](../../README.md); for the engine, [`packages/optimizer`](../../packages/optimizer/README.md).
+
 GridForge ingests the mismatched, messy data that real distribution-network planning runs on — a planning-tool model export, a GIS layer, a field-team spreadsheet, and free-text connection requests — reconciles it into one validated canonical model, serves it to a queryable warehouse with a content-hashed snapshot, and uses an LLM only at the *messy edge*, where every extraction is checked against the canonical model before it's trusted.
 
-Built with [Dagster](https://dagster.io), [pandapower](https://pandapower.readthedocs.io), DuckDB, and Claude Sonnet 5.5 (via OpenRouter). The sample network is `mv_oberrhein`, a real 20 kV German distribution feeder (179 buses, 181 lines, 2 transformers).
+Built with [Dagster](https://dagster.io), [pandapower](https://pandapower.readthedocs.io), DuckDB, and Claude Sonnet 5.5 (via OpenRouter). The sample network is `mv_oberrhein`, a real 20 kV distribution feeder (≈179 buses); after geolocation the served model exposes 174 buses, 170 lines, 2 transformers, and 142 loads.
 
 ---
 
@@ -31,10 +33,15 @@ That single idea — *the model is the source of truth; the agent is checked aga
                                                                          (buses/lines/transformers
                                                                           + content-hash snapshots)
 
-                      LLM EDGE
- connection       raw_connection_requests ──► extracted_connections ──► triaged_connections
- request .txt                                 (Sonnet 4.5, strict JSON   (validate vs canonical_buses →
-                                               → typed + confidence)       auto_accept / needs_review)
+                      LLM EDGE                                      OPTIMIZER INPUTS
+ connection    raw_connection_requests ─► extracted_connections ─► triaged_connections
+ request .txt                             (Sonnet 5.5, strict JSON  (validate vs canonical_buses →
+                                           → typed + confidence)      auto_accept / needs_review)
+                                                 │
+                                                 └─► scored_connections ─► served_candidates
+                                                     (deterministic readiness rubric +      → candidate_projects
+                                                      Jev strategic fit, grounded in a          (warehouse)
+                                                      power-flow grid signal)
 ```
 
 Everything is a Dagster **software-defined asset**; dependencies (and the lineage graph in the UI) are inferred from function parameters.
@@ -76,26 +83,40 @@ The last two are genuine power-systems checks. `network_connected` was the proje
 
 Note the confidences: the invalid requests scored **0.90–0.97**. Routing on confidence would have auto-accepted garbage. Routing on the *model* catches it — which is the whole point.
 
+### Optimizer inputs — scored candidate projects
+
+`scored_connections` turns each application into a ranked-ready candidate, keeping the right tool for each sub-question:
+
+- **Readiness** is deterministic: the LLM extracts a Gate-2 checklist (land rights, planning, connection agreement, financing, commissioning year) and a rubric (`gridforge_optimizer.readiness`) scores it — auditable, with a per-milestone breakdown.
+- **Strategic fit** is judged by the **Jev** decisions model, grounded in the local grid signal from a power-flow solve, and carries a **calibrated confidence**.
+
+`served_candidates` writes the result to the warehouse `candidate_projects` table, which the API reads to run the queue. The engine lives in [`packages/optimizer`](../../packages/optimizer/README.md).
+
 ---
 
 ## Quickstart
 
+Run these from `apps/pipeline/`:
+
 ```bash
 # 1. install (uv)
 uv sync
-.venv\Scripts\activate            # Windows  (source .venv/bin/activate on macOS/Linux)
 
 # 2. generate the sample source files
 uv run python scripts/make_sources.py
 
-# 3. for the LLM edge: create a .env at the repo root (gitignored)
+# 3. for the LLM edge + scoring: create apps/pipeline/.env (gitignored)
 #    OPENROUTER_API_KEY=sk-or-...
 
-# 4. launch Dagster
-dg dev                            # http://localhost:3000  → Materialize all
+# 4. launch Dagster and click "Materialize all"
+uv run dg dev                     # http://localhost:3000
+#    …or headless:
+uv run dagster asset materialize -m grid_simulator.definitions --select "*"
 ```
 
-The deterministic pipeline (bronze → serve) needs no API key; only `extracted_connections` calls OpenRouter (~6 cheap calls per run).
+The deterministic pipeline (bronze → serve) needs no API key; the LLM edge + scoring make ~25 cheap OpenRouter/Jev calls per full materialize. `dg dev` loads `apps/pipeline/.env` automatically; the headless CLI reads the key from the environment.
+
+> **Port note:** `dg dev` and the web app (`next dev`) both default to port **3000** — run them at different times.
 
 ---
 

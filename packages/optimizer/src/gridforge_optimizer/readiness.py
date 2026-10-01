@@ -13,7 +13,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from .config import READINESS_WEIGHTS
+from .config import (
+    READINESS_COMMISSIONING_FAR_CREDIT,
+    READINESS_COMMISSIONING_MID_CREDIT,
+    READINESS_COMMISSIONING_MID_YEARS,
+    READINESS_COMMISSIONING_NEAR_CREDIT,
+    READINESS_COMMISSIONING_NEAR_YEARS,
+    READINESS_WEIGHTS,
+)
 
 # level label -> credit in 0..1, per milestone. The lowest label is the silent/default case.
 _LEVELS = {
@@ -35,13 +42,13 @@ _LABELS = {
 def _commissioning_credit(year: int | None, reference_year: int) -> float:
     """Sooner-energising projects are readier. Unknown year -> treated as distant/uncertain."""
     if year is None:
-        return 0.3
+        return READINESS_COMMISSIONING_FAR_CREDIT
     years_out = int(year) - reference_year
-    if years_out <= 2:
-        return 1.0
-    if years_out <= 5:
-        return 0.6
-    return 0.3
+    if years_out <= READINESS_COMMISSIONING_NEAR_YEARS:
+        return READINESS_COMMISSIONING_NEAR_CREDIT
+    if years_out <= READINESS_COMMISSIONING_MID_YEARS:
+        return READINESS_COMMISSIONING_MID_CREDIT
+    return READINESS_COMMISSIONING_FAR_CREDIT
 
 
 def score_from_checklist(checklist: dict, reference_year: int | None = None) -> dict:

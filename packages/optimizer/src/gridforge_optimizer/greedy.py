@@ -7,22 +7,34 @@ import pandapower as pp
 from .config import MAX_CONNECTION_MW
 from .network import (
     apply_growth,
+    apply_reinforcement,
     build_base_net,
+    bus_voltages,
     drop_sgen,
     feasibility,
     inject_sgen,
     line_loadings,
     overloaded_line_ids,
     per_bus_growth,
+    voltage_violation_bus_ids,
 )
 from .scoring import grid_need_from_solved
-from .types import Candidate, OptimizeParams, OptimizeResult, PhaseResult, QueueItem, Reason
+from .types import (
+    Candidate,
+    OptimizeParams,
+    OptimizeResult,
+    PhaseResult,
+    QueueItem,
+    Reason,
+    Reinforcement,
+)
 
 _PHASES = [(1, "2030", "growth_2030"), (2, "2035", "growth_2035")]
 _STATUS = {1: "Phase1", 2: "Phase2"}
 
 
 def _is_valid(c: Candidate) -> bool:
+    """A candidate is rankable only if it passed intake triage and has a usable bus + rating."""
     return (
         c.status == "auto_accept"
         and c.bus_id is not None
@@ -39,18 +51,36 @@ def _grow(net, m: float, scenario: str, horizon: int) -> None:
         apply_growth(net, m)
 
 
-def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) -> OptimizeResult:
+def optimize(
+    candidates: list[Candidate],
+    params: OptimizeParams | None = None,
+    reinforcements: list[Reinforcement] | None = None,
+) -> OptimizeResult:
+    """Rank candidates by readiness + grid need + strategic fit, then connect them greedily.
+
+    For each phase (2030, then 2035) demand is grown and every ranked project is trialled with a
+    power-flow feasibility check; it is accepted only if voltages and line/transformer loadings stay
+    within limits, else deferred with the binding constraint. Projects that failed intake triage are
+    appended as Rejected. Returns the ordered queue plus per-phase network results.
+
+    `reinforcements` (optional) simulate network upgrades applied to every solved net — the
+    "accurate" mode behind the unblock suggestions (see suggest.py).
+    """
     params = params or OptimizeParams()
+    reinforcements = reinforcements or []
     valid = [c for c in candidates if _is_valid(c)]
     rejected = [c for c in candidates if not _is_valid(c)]
 
     # one power flow under max growth to read 'need' at every candidate bus
     need_net = build_base_net()
     _grow(need_net, params.growth_2035, params.scenario, 2035)
+    for r in reinforcements:
+        apply_reinforcement(need_net, r)
     pp.runpp(need_net)
     need = {c.request_id: grid_need_from_solved(need_net, c.bus_id) for c in valid}
 
     def rank_score(c: Candidate) -> float:
+        """Weighted blend of readiness, grid need, and strategic fit for this candidate."""
         return (
             params.w_readiness * c.readiness_score
             + params.w_need * need[c.request_id]
@@ -73,6 +103,8 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
         net = build_base_net()
         _grow(net, growth, params.scenario, int(phase_key))
+        for r in reinforcements:
+            apply_reinforcement(net, r)
         for a in accepted_order:
             inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology)
 
@@ -100,6 +132,8 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
             max_vm_pu=round(m.get("max_vm", 0.0), 4),
             overloaded_line_ids=overloaded_line_ids(net),
             line_loading=line_loadings(net),
+            bus_vm=bus_voltages(net),
+            voltage_violation_bus_ids=voltage_violation_bus_ids(net),
         )
 
     queue: list[QueueItem] = []

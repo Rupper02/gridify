@@ -17,10 +17,14 @@ import urllib.request
 from openai import OpenAI
 
 from .config import (
+    DECISIONS_TIMEOUT_S,
     DECISIONS_URL,
     JEV_MODEL,
     JUSTIFY_MODEL,
     JUSTIFY_SYSTEM_PROMPT,
+    JUSTIFY_TEMPERATURE,
+    LLM_TEMPERATURE,
+    NARRATE_DIFF_SYSTEM_PROMPT,
     OPENROUTER_BASE_URL,
     READINESS_CHECKLIST_RESPONSE_FORMAT,
     READINESS_EXTRACTION_SYSTEM_PROMPT,
@@ -30,10 +34,12 @@ from .config import (
     STRATEGIC_INSTRUCTIONS,
     STRATEGIC_RESPONSE_FORMAT,
     STRATEGIC_SYSTEM_PROMPT,
+    SUGGEST_SYSTEM_PROMPT,
 )
 
 
 def _client() -> OpenAI:
+    """An OpenAI SDK client pointed at OpenRouter (reads OPENROUTER_API_KEY from the environment)."""
     return OpenAI(api_key=os.environ["OPENROUTER_API_KEY"], base_url=OPENROUTER_BASE_URL)
 
 
@@ -44,7 +50,7 @@ def extract_readiness_checklist(text: str) -> dict:
     """
     resp = _client().chat.completions.create(
         model=SCORING_MODEL,
-        temperature=0,
+        temperature=LLM_TEMPERATURE,
         messages=[
             {"role": "system", "content": READINESS_EXTRACTION_SYSTEM_PROMPT},
             {"role": "user", "content": text},
@@ -83,7 +89,7 @@ def score_strategic_fit(state: dict) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=DECISIONS_TIMEOUT_S) as r:
             ans = json.loads(r.read())["answers"]["strategic_fit"]
         probs = ans.get("probabilities", {})
         # expected value over the probability distribution -> continuous 0..1
@@ -106,7 +112,7 @@ def _score_strategic_fit_chat(state: dict) -> dict:
     """Degradation path: a plain chat call when the decisions endpoint is unavailable."""
     resp = _client().chat.completions.create(
         model=SCORING_MODEL,
-        temperature=0,
+        temperature=LLM_TEMPERATURE,
         messages=[
             {"role": "system", "content": STRATEGIC_SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(state)},
@@ -125,10 +131,45 @@ def justify(result_summary: str) -> str:
     """Write a narrative justification for the ordered queue (plain text)."""
     resp = _client().chat.completions.create(
         model=JUSTIFY_MODEL,
-        temperature=0.3,
+        temperature=JUSTIFY_TEMPERATURE,
         messages=[
             {"role": "system", "content": JUSTIFY_SYSTEM_PROMPT},
             {"role": "user", "content": result_summary},
+        ],
+    )
+    return resp.choices[0].message.content
+
+
+def narrate_diff(diff_summary: str) -> str:
+    """Re-phrase a pre-computed consequence diff into one or two plain-text sentences.
+
+    `diff_summary` is a prewritten text summary of the diff (capacity deltas, top project moves,
+    network effects). The model only restates those figures; it computes nothing.
+    """
+    resp = _client().chat.completions.create(
+        model=JUSTIFY_MODEL,
+        temperature=JUSTIFY_TEMPERATURE,
+        messages=[
+            {"role": "system", "content": NARRATE_DIFF_SYSTEM_PROMPT},
+            {"role": "user", "content": diff_summary},
+        ],
+    )
+    return resp.choices[0].message.content
+
+
+def narrate_suggestion(suggestion_summary: str) -> str:
+    """Phrase a pre-computed unblock suggestion into one or two plain-text sentences.
+
+    `suggestion_summary` restates the deterministic figures (the action, MW freed by 2030/2035, the
+    projects connected). The model phrases them only — it computes nothing and must not imply the
+    action is the cheapest or only fix.
+    """
+    resp = _client().chat.completions.create(
+        model=JUSTIFY_MODEL,
+        temperature=JUSTIFY_TEMPERATURE,
+        messages=[
+            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
+            {"role": "user", "content": suggestion_summary},
         ],
     )
     return resp.choices[0].message.content
