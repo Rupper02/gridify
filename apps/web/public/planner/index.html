@@ -494,7 +494,7 @@ const readyFromForm = (f) => +(0.1 + (f.land ? 0.3 : 0) + (f.planning ? 0.35 : 0
 
 class Component extends DCLogic {
   state = {
-    model: null, cands: [], forecasts: [], forecastId: 'st', g30: 1.1, g35: 1.25,
+    model: null, cands: [], forecasts: [], forecastId: 'ht', g30: 1.1, g35: 1.3,
     result: null, prevStatus: {}, lastParams: null, lastRun: null, running: false, step: 0,
     phase: null, tab: 'queue', filter: 'All', sortKey: 'rank', sortDir: 1, grouped: false, query: '',
     hover: null, mouse: { x: 0, y: 0 }, sel: null, view: { k: 1, x: 0, y: 0 }, size: { w: 0, h: 0 },
@@ -530,12 +530,12 @@ class Component extends DCLogic {
     A.config.latencyMs = this.props.simLatencyMs ?? 1400;
     const prev = this.state.result;
     const prevStatus = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
-    const params = { g30: this.state.g30, g35: this.state.g35, n: this.state.cands.length };
+    const params = { g30: this.state.g30, g35: this.state.g35, scenario: this.state.forecastId, n: this.state.cands.length };
     this.setState({ running: true, step: 0, hover: null });
     const t0 = performance.now();
     clearInterval(this._stepT);
     this._stepT = setInterval(() => this.setState((s) => ({ step: Math.min(s.step + 1, 4) })), A.config.latencyMs / 5);
-    const res = await A.optimize({ growth_2030: params.g30, growth_2035: params.g35, with_justification: true });
+    const res = await A.optimize({ scenario: params.scenario, growth_2030: params.g30, growth_2035: params.g35, with_justification: true });
     clearInterval(this._stepT);
     const cands = await A.getCandidates();
     this.setState((st) => ({ runId: (st.runId || 0) + 1 }));

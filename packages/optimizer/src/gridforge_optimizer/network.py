@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+
+import networkx as nx
 import pandapower as pp
 import pandapower.networks as nw
+import pandapower.topology as top
+import pandas as pd
 
 from .config import (
     LINE_LOADING_MAX_PCT,
@@ -19,11 +24,79 @@ def build_base_net():
     return nw.mv_oberrhein()
 
 
-def apply_growth(net, factor: float) -> None:
-    """Scale every load by `factor` to model demand growth (keeps original p_mw)."""
-    net.load["scaling"] = net.load["scaling"] * factor
+# --- demand growth ----------------------------------------------------------
+def apply_growth(net, factor) -> None:
+    """Scale load to model demand growth (keeps original p_mw).
+
+    `factor` may be a scalar (uniform growth) or a per-load Series/dict indexed by
+    net.load.index (spatially heterogeneous growth, see per_bus_growth).
+    """
+    if isinstance(factor, (int, float)):
+        net.load["scaling"] = net.load["scaling"] * float(factor)
+    else:
+        s = factor if isinstance(factor, pd.Series) else pd.Series(factor)
+        net.load["scaling"] = net.load["scaling"] * net.load.index.map(s).astype(float)
 
 
+# residential LV networks electrify fast (EVs + heat pumps); directly-connected MV
+# industrial load grows slowly. This is the FES residential-vs-industrial sector split,
+# and it is already encoded in the network's load types.
+_RESI_BETA = 1.0      # "MV/LV Station" -> LV residential/commercial
+_INDU_BETA = 0.25     # "MV Load" -> directly-connected MV industrial
+_ALPHA = 0.6          # amplitude of per-bus EV/heat-pump heterogeneity
+_GAMMA = 0.3          # tilt growth toward the rural feeder edge
+_HOTSPOT_CUT = 0.8    # top ~20% of buses become adoption hotspots (DFES street-clustering)
+_HOTSPOT_MULT = 1.8
+
+
+def _hash01(key: str) -> float:
+    """Deterministic pseudo-random value in [0,1) from a string (seeded by scenario+bus)."""
+    return int(hashlib.md5(key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
+
+
+def _feeder_hops(net) -> tuple[dict[int, int], int]:
+    """Electrical hop-distance of every bus from the nearest feeder head (HV/MV trafo LV side)."""
+    graph = top.create_nxgraph(net)
+    sources = [int(b) for b in net.trafo["lv_bus"].unique() if int(b) in graph]
+    if not sources:
+        return {}, 1
+    dist = nx.multi_source_shortest_path_length(graph, sources)
+    d_max = max(dist.values()) if dist else 1
+    return {int(b): int(d) for b, d in dist.items()}, max(d_max, 1)
+
+
+def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
+    """Per-load growth factors whose load-weighted mean equals the scenario multiplier `m`.
+
+    Shapes demand growth by load type (residential vs industrial), a seeded per-bus
+    heterogeneity, distance to the feeder edge, and ~20% adoption hotspots -- so the
+    feeder TOTAL grows by exactly `m` while individual buses diverge realistically.
+    Fully deterministic in (scenario, horizon, network structure).
+    """
+    load = net.load
+    try:
+        hops, d_max = _feeder_hops(net)
+    except Exception:
+        hops, d_max = {}, 1
+
+    weights: dict[int, float] = {}
+    for idx, row in load.iterrows():
+        bus = int(row["bus"])
+        beta = _RESI_BETA if str(row.get("type", "")) == "MV/LV Station" else _INDU_BETA
+        h = _hash01(f"{scenario}:{horizon}:{bus}")
+        d = hops.get(bus, d_max // 2)
+        dist_term = 1.0 + _GAMMA * (d / d_max - 0.5)
+        hot = _HOTSPOT_MULT if h > _HOTSPOT_CUT else 1.0
+        weights[idx] = beta * (1.0 + _ALPHA * (2.0 * h - 1.0)) * dist_term * hot
+
+    w = pd.Series(weights)
+    p = load["p_mw"].reindex(w.index).astype(float)
+    wbar = float((w * p).sum() / p.sum()) if float(p.sum()) > 0 else float(w.mean())
+    g = m - 1.0
+    return 1.0 + g * (w / wbar)
+
+
+# --- generation + feasibility ----------------------------------------------
 def inject_sgen(net, bus: int, p_mw: float, name: str = "", tech: str | None = None) -> int:
     """Add a static generator (PQ) — DER does not regulate voltage, so violations surface.
 
@@ -98,3 +171,9 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
 def overloaded_line_ids(net) -> list[int]:
     lp = net.res_line["loading_percent"]
     return [int(i) for i in lp[lp > LINE_LOADING_MAX_PCT].index]
+
+
+def line_loadings(net) -> dict[int, float]:
+    """Per-line loading_percent from the last solve (for the map heat overlay)."""
+    lp = net.res_line["loading_percent"]
+    return {int(i): round(float(v), 1) for i, v in lp.items()}

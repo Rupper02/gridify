@@ -219,14 +219,22 @@
     res.snapshot_id = "mv_oberrhein-baseline";
     return res;
   }
-  // demand forecast used to seed the growth scenario (mock of a forecast service)
+  // NESO FES 2025 demand pathways (fallback / mock; live mode fetches GET /forecasts)
   const FORECASTS = [
-    { id: "ccr", label: "Consumer Transformation", growth_2030: 1.14, growth_2035: 1.32 },
-    { id: "lw", label: "Leading the Way", growth_2030: 1.12, growth_2035: 1.28 },
-    { id: "st", label: "System Transformation", growth_2030: 1.1, growth_2035: 1.25 },
-    { id: "fs", label: "Falling Short", growth_2030: 1.04, growth_2035: 1.1 },
+    { id: "ht", label: "Holistic Transition", growth_2030: 1.1, growth_2035: 1.3 },
+    { id: "ee", label: "Electric Engagement", growth_2030: 1.12, growth_2035: 1.36 },
+    { id: "he", label: "Hydrogen Evolution", growth_2030: 1.07, growth_2035: 1.22 },
+    { id: "fb", label: "Falling Behind", growth_2030: 1.03, growth_2035: 1.08 },
   ];
-  async function getForecasts() { return FORECASTS; }
+  async function getForecasts() {
+    if (!config.mock) {
+      try {
+        const r = await (await fetch(`${config.base}/forecasts`)).json();
+        if (r && Array.isArray(r.forecasts) && r.forecasts.length) return r.forecasts;
+      } catch (e) { /* fall back to the built-in list */ }
+    }
+    return FORECASTS;
+  }
 
   // indicative hosting capacity at a bus given already-connected generators (mock-only helper)
   function hostingCapacity(bus_id, gens, growth) {

@@ -11,7 +11,9 @@ from .network import (
     drop_sgen,
     feasibility,
     inject_sgen,
+    line_loadings,
     overloaded_line_ids,
+    per_bus_growth,
 )
 from .scoring import grid_need_from_solved
 from .types import Candidate, OptimizeParams, OptimizeResult, PhaseResult, QueueItem, Reason
@@ -29,6 +31,14 @@ def _is_valid(c: Candidate) -> bool:
     )
 
 
+def _grow(net, m: float, scenario: str, horizon: int) -> None:
+    """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform)."""
+    if scenario and scenario != "custom":
+        apply_growth(net, per_bus_growth(net, m, scenario, horizon))
+    else:
+        apply_growth(net, m)
+
+
 def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) -> OptimizeResult:
     params = params or OptimizeParams()
     valid = [c for c in candidates if _is_valid(c)]
@@ -36,7 +46,7 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
 
     # one power flow under max growth to read 'need' at every candidate bus
     need_net = build_base_net()
-    apply_growth(need_net, params.growth_2035)
+    _grow(need_net, params.growth_2035, params.scenario, 2035)
     pp.runpp(need_net)
     need = {c.request_id: grid_need_from_solved(need_net, c.bus_id) for c in valid}
 
@@ -62,7 +72,7 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
         growth = getattr(params, growth_attr)
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
         net = build_base_net()
-        apply_growth(net, growth)
+        _grow(net, growth, params.scenario, int(phase_key))
         for a in accepted_order:
             inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology)
 
@@ -89,6 +99,7 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
             min_vm_pu=round(m.get("min_vm", 0.0), 4),
             max_vm_pu=round(m.get("max_vm", 0.0), 4),
             overloaded_line_ids=overloaded_line_ids(net),
+            line_loading=line_loadings(net),
         )
 
     queue: list[QueueItem] = []
@@ -109,6 +120,9 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
                 status=status,
                 reason=None if status != "Deferred" else last_reason.get(c.request_id),
                 worst_line_loading_pct=worst_line_at_accept.get(c.request_id),
+                readiness_rationale=c.readiness_rationale,
+                strategic_rationale=c.strategic_rationale,
+                strategic_confidence=c.strategic_confidence,
             )
         )
 
@@ -127,6 +141,9 @@ def optimize(candidates: list[Candidate], params: OptimizeParams | None = None) 
                 rank_score=None,
                 status="Rejected",
                 reason=Reason(type="rejected", message=c.review_reasons or "failed intake validation"),
+                readiness_rationale=c.readiness_rationale,
+                strategic_rationale=c.strategic_rationale,
+                strategic_confidence=c.strategic_confidence,
             )
         )
 

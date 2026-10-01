@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from gridforge_optimizer import Candidate, OptimizeParams, optimize
 from gridforge_optimizer import llm as opt_llm
+from gridforge_optimizer.config import DEFAULT_SCENARIO, FORECASTS
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 WAREHOUSE = Path(
@@ -107,6 +108,15 @@ def health() -> dict:
 @app.get("/model")
 def get_model() -> dict:
     return baseline_model()
+
+
+@app.get("/forecasts")
+def get_forecasts() -> dict:
+    """The DFES demand pathways (single source of truth for the UI's scenario dropdown)."""
+    forecasts = [
+        {"id": fid, **{k: v for k, v in f.items()}} for fid, f in FORECASTS.items()
+    ]
+    return {"default": DEFAULT_SCENARIO, "forecasts": forecasts}
 
 
 # --- candidate projects (baseline + user-added) -----------------------------
@@ -221,8 +231,10 @@ def _summarize(result) -> str:
 
 
 class OptimizeRequest(BaseModel):
+    # a DFES pathway id drives per-bus growth; growth_2030/2035 are the "Custom (manual)" override
+    scenario: str | None = DEFAULT_SCENARIO
     growth_2030: float = 1.10
-    growth_2035: float = 1.25
+    growth_2035: float = 1.30
     w_readiness: float | None = None
     w_need: float | None = None
     w_strategic: float | None = None
@@ -231,8 +243,17 @@ class OptimizeRequest(BaseModel):
 
 @app.post("/optimize")
 def run_optimize(body: OptimizeRequest) -> dict:
+    # resolve a named DFES pathway to its feeder-total multipliers; "custom" keeps the posted scalars
+    if body.scenario in FORECASTS:
+        scenario = body.scenario
+        growth_2030 = FORECASTS[scenario]["growth_2030"]
+        growth_2035 = FORECASTS[scenario]["growth_2035"]
+    else:
+        scenario = "custom"
+        growth_2030, growth_2035 = body.growth_2030, body.growth_2035
+
     key = (
-        round(body.growth_2030, 3), round(body.growth_2035, 3),
+        scenario, round(growth_2030, 3), round(growth_2035, 3),
         body.w_readiness, body.w_need, body.w_strategic,
         body.with_justification, baseline_id(),
     )
@@ -248,6 +269,10 @@ def run_optimize(body: OptimizeRequest) -> dict:
             readiness_score=float(r["readiness_score"]),
             strategic_fit=float(r["strategic_fit"]),
             readiness_rationale=r.get("readiness_rationale") or "",
+            strategic_rationale=r.get("strategic_rationale") or "",
+            strategic_confidence=(
+                None if r.get("strategic_confidence") is None else float(r["strategic_confidence"])
+            ),
             status=r["status"],
             review_reasons=r.get("review_reasons") or "",
         )
@@ -259,7 +284,9 @@ def run_optimize(body: OptimizeRequest) -> dict:
             "w_readiness": body.w_readiness, "w_need": body.w_need, "w_strategic": body.w_strategic,
         }.items() if v is not None
     }
-    params = OptimizeParams(growth_2030=body.growth_2030, growth_2035=body.growth_2035, **weights)
+    params = OptimizeParams(
+        growth_2030=growth_2030, growth_2035=growth_2035, scenario=scenario, **weights
+    )
 
     result = optimize(cands, params)
     out = result.model_dump()
