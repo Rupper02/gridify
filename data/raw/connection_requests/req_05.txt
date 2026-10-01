@@ -1,0 +1,4 @@
+Subject: New BESS connection - CR-2045
+
+Please assess a battery energy storage system rated 4,500 kW for connection at
+bus 174 on the 20 kV network. Site works are expected to begin next spring.

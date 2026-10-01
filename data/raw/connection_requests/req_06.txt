@@ -1,0 +1,4 @@
+Connection request CR-2046
+
+We propose a 3 MW solar farm at bus 200 on the 20 kV feeder, approximately 1.4 km
+from the substation. Please confirm available capacity.
