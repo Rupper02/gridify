@@ -1,6 +1,0 @@
-From: Rheintal Solar GmbH
-Subject: Grid connection application CR-2041
-
-We would like to apply to connect a new 4.5 MW solar PV installation at bus 120 on
-the 20 kV distribution network. Estimated export rating around 130 A, with roughly
-2.1 km of cable to the proposed point of connection. Please advise on next steps.
