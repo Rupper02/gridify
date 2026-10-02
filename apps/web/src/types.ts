@@ -2,7 +2,8 @@
 
 export type Status = "Phase1" | "Phase2" | "Deferred" | "Rejected";
 export type Tech = "solar" | "wind" | "battery";
-export type PhaseKey = "2030" | "2035";
+// PhaseKey can be "2030", "2035", or any year string for year-scoped studies
+export type PhaseKey = string;
 
 export interface Bus {
   bus_id: number;

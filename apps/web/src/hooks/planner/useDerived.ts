@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import type { QueueItem } from "../../types";
+import type { PhaseResult, QueueItem } from "../../types";
 import type { PlannerState } from "./core";
 
 export function useDerived(s: PlannerState) {
@@ -15,11 +15,11 @@ export function useDerived(s: PlannerState) {
     // For year-specific studies, use the timeline year as the phase key
     const phaseKey = String(s.timelineYear);
     // Fallback to legacy 2030/2035 if year-specific phase doesn't exist
-    const legacyPhase = s.timelineYear <= 2030 ? ("2030" as const) : ("2035" as const);
+    const legacyPhase = s.timelineYear <= 2030 ? "2030" : "2035";
     
     // Try to get year-specific phase, fall back to legacy phase
-    const ph = s.result 
-      ? (s.result.phases[phaseKey] ?? s.result.phases[legacyPhase]) 
+    const ph: PhaseResult | null = s.result 
+      ? (s.result.phases[phaseKey] ?? s.result.phases[legacyPhase] ?? null)
       : null;
     
     const phase = phaseKey;  // expose the actual phase key being used
