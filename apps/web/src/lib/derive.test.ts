@@ -95,6 +95,50 @@ describe("alertGroupsFor", () => {
     expect(violationCount(groups)).toBe(3);
     expect(alertGroupsFor(null, 1, 1)).toEqual([]);
   });
+  
+  it("handles single-year phase keys without crashing or inventing 2030/2035 data", () => {
+    // Single-year study result with only "2028" phase key
+    const singleYearResult: OptimizeResult = {
+      params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
+      queue: [item({ request_id: "P1", status: "Phase1", recommended_year: 2028 })],
+      phases: {
+        "2028": phase({
+          accepted: ["P1"],
+          overloaded_line_ids: [3],
+          line_loading: { 3: 105, 4: 92 },
+          voltage_violation_bus_ids: [7],
+          bus_vm: { 7: 0.92 },
+          n1_violations: [{ outage_type: "trafo", outage_id: 2, outage_name: "T2", type: "line", element_id: 10, value: 110, message: "overload" }],
+        }),
+      },
+      justification: "", snapshot_id: "s", branch_id: "main",
+    };
+    
+    // Should not throw
+    const groups = alertGroupsFor(singleYearResult, 1.08, 1.35);
+    
+    // Should have violations from the 2028 phase
+    expect(groups.length).toBeGreaterThan(0);
+    const violGroup = groups.find(g => g.key === "viol");
+    expect(violGroup).toBeDefined();
+    expect(violGroup!.items.length).toBe(2); // 1 overload + 1 voltage violation
+    
+    // Tags should be "2028", not "2030" or "2035"
+    expect(violGroup!.items.every(a => a.tag === "2028")).toBe(true);
+    
+    // Should report line 3 and bus 7 from 2028 phase
+    expect(violGroup!.items.some(a => a.title.includes("Line 3"))).toBe(true);
+    expect(violGroup!.items.some(a => a.title.includes("bus 7"))).toBe(true);
+    
+    // N-1 group should also have 2028 tag
+    const n1Group = groups.find(g => g.key === "n1");
+    expect(n1Group?.items[0].tag).toBe("N-1 · 2028");
+    
+    // Watch group should have 2028 tag for line 4 at 92%
+    const watchGroup = groups.find(g => g.key === "watch");
+    expect(watchGroup?.items[0].tag).toBe("2028");
+    expect(watchGroup?.items[0].title).toBe("Line 4 at 92%");
+  });
 });
 
 describe("small helpers", () => {

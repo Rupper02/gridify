@@ -193,9 +193,16 @@ export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: num
   if (!r) return groups;
   const q = r.queue;
   const viol: AlertItem[] = [];
-  (["2030", "2035"] as PhaseKey[]).forEach((p) => {
-    const P: PhaseResult = r.phases[p];
-    const g = p === "2030" ? eg30 : eg35;
+  
+  // Iterate over actual phase keys in the result (supports single-year and multi-year studies)
+  const phaseKeys = Object.keys(r.phases) as PhaseKey[];
+  phaseKeys.forEach((p) => {
+    const P = r.phases[p];
+    if (!P) return; // skip missing phases
+    
+    // For legacy two-phase results, use eg30/eg35; for single-year, use the closest growth
+    const g = p === "2030" ? eg30 : p === "2035" ? eg35 : (Number(p) <= 2030 ? eg30 : eg35);
+    
     P.overloaded_line_ids.forEach((id) =>
       viol.push({
         key: `o${p}${id}`,
@@ -221,8 +228,10 @@ export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: num
 
   // single-outage screen of the 132 kV backbone (informational, not a connection gate)
   const n1: AlertItem[] = [];
-  (["2030", "2035"] as PhaseKey[]).forEach((p) => {
-    (r.phases[p].n1_violations ?? []).forEach((v) =>
+  phaseKeys.forEach((p) => {
+    const P = r.phases[p];
+    if (!P) return;
+    (P.n1_violations ?? []).forEach((v) =>
       n1.push({
         key: `n1${p}${v.outage_type}${v.outage_id}${v.type}`,
         title: `${v.outage_type === "trafo" ? "Transformer" : "Line"} ${v.outage_id} out → ${v.type === "islanded" ? `${v.value ?? "?"} MW islanded` : v.type === "voltage" ? `bus ${v.element_id} at ${v.value ?? "?"} pu` : v.type === "non_convergent" ? "no solution" : `${v.type} ${v.element_id} at ${v.value ?? "?"}%`}`,
@@ -248,8 +257,10 @@ export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: num
   if (dg.length) groups.push({ key: "dg", label: "Deferred by grid constraint", color: "#d97706", fg: "#92400e", items: dg });
 
   const watch: AlertItem[] = [];
-  (["2030", "2035"] as PhaseKey[]).forEach((p) => {
-    const L = r.phases[p].line_loading ?? {};
+  phaseKeys.forEach((p) => {
+    const P = r.phases[p];
+    if (!P) return;
+    const L = P.line_loading ?? {};
     Object.entries(L)
       .filter(([, v]) => v > 88 && v <= 100)
       .sort((a, b) => b[1] - a[1])
