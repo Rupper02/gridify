@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 import pandapower as pp
 
 from .config import MAX_CONNECTION_MW
@@ -17,6 +19,8 @@ from .network import (
     n1_screen,
     overloaded_line_ids,
     per_bus_growth,
+    set_tap_positions,
+    tap_positions,
     voltage_violation_bus_ids,
 )
 from .scoring import grid_need_from_solved
@@ -68,10 +72,21 @@ def _grow(net, m: float, scenario: str, horizon: int) -> None:
         apply_growth(net, m)
 
 
+Progress = Callable[[str, float], None]
+
+
+def _sig(c: Candidate) -> tuple:
+    """What a trial's outcome depends on, per project."""
+    return (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology)
+
+
 def optimize(
     candidates: list[Candidate],
     params: OptimizeParams | None = None,
     reinforcements: list[Reinforcement] | None = None,
+    *,
+    trial_cache: dict | None = None,
+    progress: Progress | None = None,
 ) -> OptimizeResult:
     """Rank candidates by readiness + grid need + strategic fit, then connect them greedily.
 
@@ -82,9 +97,18 @@ def optimize(
 
     `reinforcements` (optional) simulate network upgrades applied to every solved net — the
     "accurate" mode behind the unblock suggestions (see suggest.py).
+
+    `trial_cache` (optional, a dict the caller keeps) memoises each trial's outcome by
+    (phase, the projects accepted before it, the project). A trial is a pure function of that
+    state, so when a branch gains one project every trial up to its rank is served from the cache
+    and only the suffix is solved again: "re-trial what changed", exactly. The caller must key the
+    dict by network snapshot, parameters and engine version. `progress(stage, fraction)` is called
+    as the run advances.
     """
     params = params or OptimizeParams()
     reinforcements = reinforcements or []
+    report = progress or (lambda _s, _f: None)
+    report("ranking", 0.02)
 
     # one power flow under max growth to read 'need' at every candidate bus
     need_net = build_base_net()
@@ -120,7 +144,9 @@ def optimize(
     worst_line_at_accept: dict[str, float | None] = {}
     phases: dict[str, PhaseResult] = {}
 
-    for phase_num, phase_key, growth_attr in _PHASES:
+    n_phases = len(_PHASES)
+    reinf_key = tuple((r.kind, r.element_id, r.action, r.factor) for r in reinforcements)
+    for phase_i, (phase_num, phase_key, growth_attr) in enumerate(_PHASES):
         growth = getattr(params, growth_attr)
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
         net = build_base_net()
@@ -129,23 +155,47 @@ def optimize(
             apply_reinforcement(net, r)
         for a in accepted_order:
             inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology, import_mw=a.import_mw)
+        settled = False  # taps are regulated by the first real solve of the phase
 
-        for c in ranked:
-            if c.request_id in accepted_phase:
-                continue
-            idx = inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
-            ok, reason, m = feasibility(net)
+        todo = [c for c in ranked if c.request_id not in accepted_phase]
+        for i, c in enumerate(todo):
+            report(f"phase {phase_key}: trial {i + 1}/{len(todo)}", (phase_i + 0.1 + 0.7 * i / max(len(todo), 1)) / n_phases)
+            # the outcome of this trial is a function of (phase, what was accepted before it, the
+            # project, the scenario): look it up before solving
+            tkey = (phase_key, reinf_key, tuple(_sig(a) for a in accepted_order), _sig(c))
+            hit = trial_cache.get(tkey) if trial_cache is not None else None
+            if hit is not None and (settled or not hit[0]):
+                ok, reason, max_line, taps_after = hit
+                if ok:
+                    inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
+                    set_tap_positions(net, taps_after)
+            else:
+                taps_before = tap_positions(net)
+                idx = inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
+                ok, reason, m = feasibility(net)
+                settled = True
+                max_line = round(m.get("max_line_pct", 0.0), 1)
+                if ok:
+                    taps_after = tap_positions(net)
+                else:
+                    drop_sgen(net, idx)  # roll back the trial; keep eligibility for next phase
+                    set_tap_positions(net, taps_before)  # a rejected trial leaves no trace
+                    taps_after = taps_before
+                if trial_cache is not None:
+                    trial_cache[tkey] = (ok, reason, max_line, taps_after)
             if ok:
                 accepted_phase[c.request_id] = phase_num
                 accepted_order.append(c)
-                worst_line_at_accept[c.request_id] = round(m.get("max_line_pct", 0.0), 1)
+                worst_line_at_accept[c.request_id] = max_line
                 last_reason[c.request_id] = None
             else:
-                drop_sgen(net, idx)  # roll back the trial; keep eligibility for next phase
                 last_reason[c.request_id] = reason
 
         # snapshot the grid state with all generators accepted so far: the N-1 screen first (it
         # leaves outage results on the net), then the intact envelope the map and metrics read
+        report(f"phase {phase_key}: intact state", (phase_i + 0.82) / n_phases)
+        _, _, m = feasibility(net)  # settles taps for the final state (also when every trial was cached)
+        report(f"phase {phase_key}: N-1 screen", (phase_i + 0.86) / n_phases)
         n1 = n1_screen(net)
         _, _, m = feasibility(net)
         phases[phase_key] = PhaseResult(
@@ -215,4 +265,5 @@ def optimize(
             )
         )
 
+    report("done", 1.0)
     return OptimizeResult(params=params, queue=queue, phases=phases)

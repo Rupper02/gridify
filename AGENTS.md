@@ -73,7 +73,8 @@ Windows / Git Bash:
 ## Engineering conventions
 
 - **Tests are grid-agnostic.** Derive fixtures from `build_base_net()` via `packages/optimizer/tests/_grid.py` (`stiff_bus`, `weak_buses`, `saturating_candidates`, `grid_deferred`, `invalid_bus`). Never hardcode bus ids, and never size fixtures from policy caps like `MAX_CONNECTION_MW` (only use the cap to test the cap itself). NGED-specific data rules go in `tests/test_nged.py`.
-- **API cache keys include the candidate-set hash** (`_cand_key` → `_compute`). Any new cached computation must too, or branches serve each other's results.
+- **API cache keys include the candidate-set hash, the model snapshot and the engine fingerprint** (`_cand_key`, `baseline_id()`, `_ENGINE` → `_cache_key`). Results live in the scenarios DB table `result_cache` (durable) and in `_compute_cache` (process). Any new cached computation must use `_cache_key`, or branches serve each other's results / stale physics survives a code change. The engine's `trial_cache` dicts are keyed the same way in `_TRIAL_CACHES`.
+- **Long computations run on the single job worker** (`_start_job`, `GET /jobs/{id}`); the planner polls. Keep the sync endpoints too (tests and scripts use them). The engine reports progress through `optimize(progress=...)`; new long stages should call it.
 - **The warehouse is read-only to the API.** Anything a user does goes to the scenarios DB. Schema changes there need a migration (PRAGMA check + ALTER) and, for per-project columns, an entry in `_ADDED_COLS` so they copy on branch create/merge.
 - **Change the output shape in one pass:** `types.py` → API enrichment in `apps/api/src/gridforge_api/main.py` → `apps/web/src/types.ts` + `src/api.ts` → the component that renders it. Add an API test for new endpoints.
 - Engine functions (`optimize`, `suggest_unblock`, `diff_results`) make no network calls; keep it that way. Network/LLM calls belong in `llm.py` and the API only.

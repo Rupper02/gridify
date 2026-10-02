@@ -6,6 +6,7 @@ import type {
   Branch,
   Diff,
   Forecast,
+  Job,
   Model,
   NewCandidate,
   OptimizeResult,
@@ -259,6 +260,21 @@ export const api = {
   listBranches: async () => (await getJson<{ branches: Branch[] }>("/branches")).branches ?? [],
   optimizeBranch: async (id: string, opts?: { with_justification?: boolean }) =>
     applyReasons(await postJson<OptimizeResult>(`/branches/${id}/optimize`, opts ?? {})),
+  /** Start a run in the background; poll `getJob` until it is done. A cached run finishes at once. */
+  startOptimizeJob: (id: string, opts?: { with_justification?: boolean }) => postJson<Job>(`/branches/${id}/optimize/jobs`, opts ?? {}),
+  getJob: (jobId: string) => getJson<Job>(`/jobs/${jobId}`),
+  /** Run a branch as a background job, reporting stage + fraction while it runs. */
+  runBranchJob: async (id: string, opts: { with_justification?: boolean }, onProgress: (stage: string, fraction: number) => void): Promise<OptimizeResult> => {
+    let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
+    while (job.status === "queued" || job.status === "running") {
+      onProgress(job.stage, job.fraction);
+      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 700));
+      job = await getJson<Job>(`/jobs/${job.job_id}`);
+    }
+    if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the run failed");
+    onProgress("done", 1);
+    return applyReasons(job.result);
+  },
   diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
     applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
   mergeBranch: (id: string, opts?: { into: string }) => postJson<Branch>(`/branches/${id}/merge`, opts ?? { into: "main" }),

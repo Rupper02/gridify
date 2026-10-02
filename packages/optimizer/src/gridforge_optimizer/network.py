@@ -217,19 +217,44 @@ def _regulate_taps(net) -> int:
     return moved
 
 
-def _solve(net) -> bool:
+def _runpp(net) -> None:
+    """One Newton-Raphson solve, warm-started from the last solution when there is one (the net
+    changes little between trials, so this roughly halves the iterations)."""
+    warm = len(net.res_bus) == len(net.bus) and not net.res_bus["vm_pu"].isna().any()
+    try:
+        pp.runpp(net, init="results" if warm else "auto")  # numba when installed
+    except Exception:
+        if not warm:
+            raise
+        pp.runpp(net, init="auto")  # a bad warm start is retried cold
+
+
+def _solve(net, regulate: bool = True) -> bool:
     """Run the AC power flow in place, letting the on-load tap changers settle (up to
     OLTC_MAX_PASSES passes; tap positions persist on the net so later solves start settled).
-    Return False if the power flow fails to converge."""
+    `regulate=False` keeps the taps where they are (used by the N-1 screen, where the intact
+    settings are the honest pre-fault state). Return False if the power flow fails to converge."""
     try:
-        pp.runpp(net)  # numba when installed
-        for _ in range(OLTC_MAX_PASSES - 1):
-            if _regulate_taps(net) == 0:
-                break
-            pp.runpp(net)
+        _runpp(net)
+        if regulate:
+            for _ in range(OLTC_MAX_PASSES - 1):
+                if _regulate_taps(net) == 0:
+                    break
+                _runpp(net)
         return True
     except Exception:
         return False
+
+
+def tap_positions(net) -> tuple:
+    """The current tap positions, for saving before a trial and restoring after a rolled-back one
+    (a rejected trial must leave no trace, or the greedy path would depend on solve history)."""
+    return tuple(int(x) for x in net.trafo["tap_pos"].fillna(0).to_numpy()) if "tap_pos" in net.trafo.columns else ()
+
+
+def set_tap_positions(net, taps: tuple) -> None:
+    if taps and len(taps) == len(net.trafo):
+        net.trafo["tap_pos"] = list(taps)
 
 
 # --- study cases ------------------------------------------------------------------------------
@@ -255,7 +280,8 @@ def _study_cases(net) -> list[tuple[str, pd.Series | None, pd.Series | None]]:
     return cases
 
 
-def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Series | None) -> dict | None:
+def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Series | None,
+              regulate: bool = True) -> dict | None:
     """Solve one study case in place and return its results, leaving the net's inputs as found.
     None when the power flow does not converge."""
     scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
@@ -267,7 +293,7 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
             net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
         if len(net.sgen):
             net.sgen["p_mw"] = dispatch_for_case(net, case)
-        ok = _solve(net)
+        ok = _solve(net, regulate=regulate)
     finally:
         net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"] = scaling0, imax0, p0
     if not ok:
@@ -419,7 +445,7 @@ def n1_screen(net, case: str = "winter_peak") -> dict:
         for eid in ids:
             table.at[eid, "in_service"] = False
             try:
-                res = _run_case(net, case, load_scale, rating_ratio)
+                res = _run_case(net, case, load_scale, rating_ratio, regulate=False)  # pre-fault tap settings
             finally:
                 table.at[eid, "in_service"] = True
             name = str(table.at[eid, "name"] or f"{kind} {eid}")

@@ -15,7 +15,7 @@ for q in result.queue:
 print(suggest_unblock(cands, OptimizeParams(scenario="ht"), result))
 ```
 
-Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same inputs always give the same answer.
+Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same inputs always give the same answer. That purity is what the caching leans on: `optimize(..., trial_cache=my_dict)` memoises every trial's outcome by (phase, the projects accepted before it, the project), so a re-run after one project is added solves only the trials whose state changed and still returns exactly the full answer; `progress=callback` reports the stage and fraction as the run advances.
 
 ---
 
@@ -59,7 +59,7 @@ optimize(candidates, params):
   each accepted project gets recommended_year = clamp(requested year, phase window)
 ```
 
-The network is built **once per phase**. Each trial is an `sgen` inject, and a failed one is rolled back with `drop_sgen`. Generation is injected as **PQ** (`create_sgen`, not a voltage-regulating `create_gen`), so voltage problems from export show up instead of being regulated away.
+The network is built **once per phase**. Each trial is an `sgen` inject, and a failed one is rolled back with `drop_sgen` and its tap positions restored (a rejected trial leaves no trace, so the greedy path never depends on solve history). Generation is injected as **PQ** (`create_sgen`, not a voltage-regulating `create_gen`), so voltage problems from export show up instead of being regulated away. Power flows are warm-started from the previous solution (`init="results"`), which roughly halves the Newton iterations; the N-1 screen keeps the intact tap settings. On the Bicker Fen network a full run of the 20-project registry takes about 14 s cold; lightsim2grid was measured and gave no gain at this size, so it is not a dependency.
 
 ### Feasibility (`network.feasibility`)
 

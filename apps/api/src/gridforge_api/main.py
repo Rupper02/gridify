@@ -10,7 +10,9 @@ import json
 import logging
 import os
 import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +34,7 @@ from gridforge_optimizer import (
     suggest_unblock,
 )
 from gridforge_optimizer import llm as opt_llm
+from gridforge_optimizer import engine_fingerprint
 from gridforge_optimizer.nged import _commission_year, gsp_boundary
 from gridforge_optimizer.config import (
     DEFAULT_SCENARIO,
@@ -67,12 +70,19 @@ async def _lifespan(_app: FastAPI):
     """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests
     never race on DDL), then warm pandapower's numba JIT so the first /optimize isn't slow."""
     _init_scenarios_db()
-    try:
-        from gridforge_optimizer.network import build_base_net, feasibility
-        feasibility(build_base_net())
-    except Exception:  # warming is best-effort; a broken network surfaces on the first real call
-        log.exception("numba warm-up failed")
+
+    def _warm() -> None:
+        try:
+            from gridforge_optimizer.network import build_base_net, feasibility
+            feasibility(build_base_net())
+            if WAREHOUSE.exists():
+                _optimize_payload(OptimizeRequest(with_justification=False), "main")
+        except Exception:  # warming is best-effort; a broken network surfaces on the first real call
+            log.exception("warm-up failed")
+
+    _JOBS.submit(_warm)
     yield
+    _JOBS.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(title="GridForge API", lifespan=_lifespan)
@@ -352,6 +362,17 @@ def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
         )
         """
     )
+    # durable cache of engine results: the same inputs (model snapshot, parameters, candidate set,
+    # engine code) always give the same answer, so a run that has happened once never runs again,
+    # not even after a restart
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS result_cache (
+            cache_key VARCHAR PRIMARY KEY, kind VARCHAR, snapshot_id VARCHAR, engine VARCHAR,
+            created_at VARCHAR, compute_ms INTEGER, result_json VARCHAR
+        )
+        """
+    )
     _ensure_main_branch(con)
 
 
@@ -514,6 +535,12 @@ class OptimizeRequest(BaseModel):
     with_justification: bool = True
 
 
+class BranchOptimizeRequest(BaseModel):
+    """Request body for running a branch (its scenario is the branch's own)."""
+
+    with_justification: bool = False
+
+
 def _resolve_params(body: OptimizeRequest) -> OptimizeParams:
     """Resolve a request to concrete OptimizeParams (named DFES pathway -> feeder multipliers)."""
     if body.scenario in FORECASTS:
@@ -554,30 +581,95 @@ def _candidates(branch_id: str = "main") -> list[Candidate]:
 
 
 
+_ENGINE = engine_fingerprint()  # hash of the engine's source: a code change invalidates every cached result
+_JOBS = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-job")  # pandapower is CPU-bound: one at a time
+_jobs: dict[str, dict] = {}
+_jobs_lock = threading.Lock()
+# per (parameters, snapshot, engine): the engine's exact trial cache, so a branch that gains one
+# project re-solves only the trials whose state changed (see greedy.optimize)
+_TRIAL_CACHES: dict[tuple, dict] = {}
+
+
 def _cand_key(cands: list[Candidate]) -> str:
     """A stable hash of a candidate set, so the compute cache never serves one branch's result for
     another branch with different projects (the highest-risk bug of branch-scoping)."""
     sig = sorted(
         (c.request_id, c.bus_id, c.rating_mw, round(c.readiness_score, 4),
-         round(c.strategic_fit, 4), c.status)
+         round(c.strategic_fit, 4), c.status, c.import_mw)
         for c in cands
     )
     return hashlib.md5(json.dumps(sig, default=str).encode()).hexdigest()
 
 
-def _compute(body: OptimizeRequest, cands: list[Candidate], cand_key: str) -> OptimizeResult:
-    """Run the deterministic optimizer for a request + candidate set, cached by both."""
+def _params_key(params: OptimizeParams) -> tuple:
+    return (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
+            params.w_readiness, params.w_need, params.w_strategic)
+
+
+def _cache_key(kind: str, params: OptimizeParams, cand_key: str, extra: str = "") -> str:
+    sig = json.dumps([kind, _params_key(params), cand_key, baseline_id(), _ENGINE, extra], default=str)
+    return hashlib.sha256(sig.encode()).hexdigest()[:32]
+
+
+def _cache_get(key: str) -> str | None:
+    with _scenarios() as con:
+        row = con.execute("SELECT result_json FROM result_cache WHERE cache_key = ?", [key]).fetchone()
+    return row[0] if row else None
+
+
+def _cache_put(key: str, kind: str, compute_ms: int, result_json: str) -> None:
+    with _scenarios() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO result_cache VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [key, kind, baseline_id(), _ENGINE, _now(), compute_ms, result_json],
+        )
+
+
+def _compute(body: OptimizeRequest, cands: list[Candidate], cand_key: str,
+             progress=None) -> OptimizeResult:
+    """Run the deterministic optimizer for a request + candidate set.
+
+    Three layers: the in-process dict, the durable `result_cache` table (survives restarts and is
+    shared by every endpoint that needs the same run), then the engine. Keys include the model
+    snapshot, the parameters, the candidate set and the engine's code fingerprint."""
     params = _resolve_params(body)
-    key = (
-        params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
-        params.w_readiness, params.w_need, params.w_strategic, cand_key, baseline_id(),
-    )
-    if key not in _compute_cache:
-        _compute_cache[key] = optimize(cands, params)
-    return _compute_cache[key]
+    key = _cache_key("optimize", params, cand_key)
+    if key in _compute_cache:
+        return _compute_cache[key]
+    cached = _cache_get(key)
+    if cached is not None:
+        _compute_cache[key] = OptimizeResult.model_validate_json(cached)
+        return _compute_cache[key]
+    trial_cache = _TRIAL_CACHES.setdefault((_params_key(params), baseline_id(), _ENGINE), {})
+    if len(trial_cache) > 50_000:  # bounded: a cold start costs one full run, nothing else
+        trial_cache.clear()
+    t0 = time.perf_counter()
+    result = optimize(cands, params, trial_cache=trial_cache, progress=progress)
+    _cache_put(key, "optimize", int((time.perf_counter() - t0) * 1000), result.model_dump_json())
+    _compute_cache[key] = result
+    return result
 
 
-def _optimize_payload(body: OptimizeRequest, branch_id: str = "main") -> dict:
+def _suggestions_for(req: OptimizeRequest, cands: list[Candidate], cand_key: str, limit: int) -> list:
+    """`suggest_unblock` for a branch, through the same two cache layers (it costs dozens of solves)."""
+    params = _resolve_params(req)
+    base = _compute(req, cands, cand_key)
+    key = _cache_key("suggest", params, cand_key, extra=str(limit))
+    if key in _compute_cache:
+        return _compute_cache[key]
+    cached = _cache_get(key)
+    if cached is not None:
+        from gridforge_optimizer import Suggestion
+        _compute_cache[key] = [Suggestion.model_validate(x) for x in json.loads(cached)]
+        return _compute_cache[key]
+    t0 = time.perf_counter()
+    sugs = suggest_unblock(cands, params, base=base, max_suggestions=limit)
+    _cache_put(key, "suggest", int((time.perf_counter() - t0) * 1000), json.dumps([x.model_dump() for x in sugs]))
+    _compute_cache[key] = sugs
+    return sugs
+
+
+def _optimize_payload(body: OptimizeRequest, branch_id: str = "main", progress=None) -> dict:
     """Run the optimizer for a branch and enrich the result for the map (coords, generators).
 
     Resolves the DFES scenario to growth, runs the deterministic engine (cached by inputs AND the
@@ -586,15 +678,11 @@ def _optimize_payload(body: OptimizeRequest, branch_id: str = "main") -> dict:
     cands = _candidates(branch_id)
     ckey = _cand_key(cands)
     params = _resolve_params(body)
-    key = (
-        params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
-        params.w_readiness, params.w_need, params.w_strategic,
-        body.with_justification, ckey, baseline_id(),
-    )
+    key = (_params_key(params), body.with_justification, ckey, baseline_id(), _ENGINE)
     if key in _optimize_cache:
         return _optimize_cache[key]
 
-    result = _compute(body, cands, ckey)
+    result = _compute(body, cands, ckey, progress=progress)
     out = result.model_dump()
 
     coords = _bus_coords()
@@ -628,6 +716,8 @@ def _optimize_payload(body: OptimizeRequest, branch_id: str = "main") -> dict:
     out["branch_id"] = branch_id
     out["justification"] = ""
     if body.with_justification:
+        if progress:
+            progress("narration", 0.95)
         try:
             out["justification"] = opt_llm.justify(_summarize(result))
         except Exception:
@@ -641,6 +731,82 @@ def _optimize_payload(body: OptimizeRequest, branch_id: str = "main") -> dict:
 def run_optimize(body: OptimizeRequest) -> dict:
     """Run the optimizer on the main plan and return the enriched queue + per-phase results."""
     return _optimize_payload(body, "main")
+
+
+# --- jobs: long runs in the background, with real progress -------------------
+def _start_job(kind: str, fn) -> dict:
+    """Queue `fn(progress)` on the single engine worker and return the job record."""
+    job_id = "job-" + uuid.uuid4().hex[:10]
+    rec = {"job_id": job_id, "kind": kind, "status": "queued", "stage": "queued", "fraction": 0.0,
+           "created_at": _now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "error": None}
+    with _jobs_lock:
+        _jobs[job_id] = rec
+        if len(_jobs) > 200:  # keep the registry bounded; finished jobs fall off oldest-first
+            for old in sorted(_jobs, key=lambda k: _jobs[k]["created_at"])[:50]:
+                if _jobs[old]["status"] in ("done", "failed"):
+                    _jobs.pop(old, None)
+
+    def progress(stage: str, fraction: float) -> None:
+        with _jobs_lock:
+            rec["stage"], rec["fraction"] = stage, round(float(fraction), 3)
+
+    def run() -> None:
+        t0 = time.perf_counter()
+        with _jobs_lock:
+            rec["status"], rec["started_at"], rec["stage"] = "running", _now(), "starting"
+        try:
+            out = fn(progress)
+            with _jobs_lock:
+                rec.update(status="done", stage="done", fraction=1.0, result=out)
+        except Exception as exc:  # the job records its own failure; nothing escapes the worker
+            log.exception("job %s failed", job_id)
+            with _jobs_lock:
+                rec.update(status="failed", stage="failed", error=f"{type(exc).__name__}: {exc}")
+        finally:
+            with _jobs_lock:
+                rec["finished_at"] = _now()
+                rec["elapsed_ms"] = int((time.perf_counter() - t0) * 1000)
+
+    _JOBS.submit(run)
+    return _job_view(rec)
+
+
+def _job_view(rec: dict, with_result: bool = False) -> dict:
+    out = {k: v for k, v in rec.items() if k != "result"}
+    if with_result:
+        out["result"] = rec["result"]
+    return out
+
+
+@app.post("/branches/{branch_id}/optimize/jobs")
+def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None) -> dict:
+    """Start a run of this branch in the background. Poll GET /jobs/{job_id}; a cached run finishes
+    at once. The response is the job record (status, stage, fraction)."""
+    with _scenarios() as con:
+        row = _require_branch(con, branch_id)
+    req = OptimizeRequest(with_justification=bool(body and body.with_justification), **_branch_params(row))
+    return _start_job("optimize", lambda progress: _optimize_payload(req, branch_id, progress=progress))
+
+
+@app.get("/jobs/{job_id}")
+def get_job(job_id: str, with_result: bool = True) -> dict:
+    """A background job's status, stage and (when done) its result."""
+    with _jobs_lock:
+        rec = _jobs.get(job_id)
+        if rec is None:
+            raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
+        return _job_view(rec, with_result=with_result)
+
+
+@app.get("/cache")
+def cache_stats() -> dict:
+    """What the durable result cache holds: runs and suggestion sets per kind, with the engine
+    fingerprint they were computed under (a code change retires them)."""
+    with _scenarios() as con:
+        rows = con.execute(
+            "SELECT kind, engine, count(*) AS n, sum(compute_ms) AS compute_ms FROM result_cache GROUP BY kind, engine ORDER BY kind, engine"
+        ).fetchall()
+    return {"engine": _ENGINE, "entries": [dict(zip(("kind", "engine", "n", "compute_ms_saved"), r)) for r in rows]}
 
 
 # --- consequence diff --------------------------------------------------------
@@ -728,10 +894,6 @@ class BranchCreate(BaseModel):
 
 class MergeRequest(BaseModel):
     into: str = "main"
-
-
-class BranchOptimizeRequest(BaseModel):
-    with_justification: bool = False
 
 
 @app.post("/branches")
@@ -937,7 +1099,7 @@ def branch_suggestions(branch_id: str, limit: int = MAX_SUGGESTIONS, with_narrat
     ckey = _cand_key(cands)
     req = _branch_request(row)
     base = _compute(req, cands, ckey)
-    sugs = suggest_unblock(cands, _resolve_params(req), base=base, max_suggestions=limit)
+    sugs = _suggestions_for(req, cands, ckey, limit)
     out = []
     for s in sugs:
         d = s.model_dump()

@@ -190,3 +190,39 @@ def test_discard_and_main_guard():
     assert client.post(f"/branches/{bid}/discard").json()["status"] == "discarded"
     assert client.post("/branches/main/discard").status_code == 400
     assert client.post("/branches/main/merge", json={"into": "main"}).status_code == 400
+
+
+def test_background_job_runs_a_branch_and_reports_progress():
+    b = _create("Job branch", added_projects=[_good()])
+    bid = b["branch_id"]
+    job = client.post(f"/branches/{bid}/optimize/jobs", json={"with_justification": False}).json()
+    assert job["status"] in ("queued", "running", "done") and job["job_id"].startswith("job-")
+    import time as _t
+    for _ in range(600):
+        j = client.get(f"/jobs/{job['job_id']}").json()
+        if j["status"] in ("done", "failed"):
+            break
+        _t.sleep(0.5)
+    assert j["status"] == "done", j.get("error")
+    assert j["stage"] == "done" and j["fraction"] == 1.0 and j["elapsed_ms"] >= 0
+    sync = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    assert j["result"]["queue"] == sync["queue"]  # the job computed exactly what the sync endpoint returns
+    assert client.get("/jobs/job-nope").status_code == 404
+
+
+def test_results_are_cached_durably_and_keyed_by_engine():
+    from gridforge_api import main as m
+
+    b = _create("Cache branch", added_projects=[_good()])
+    bid = b["branch_id"]
+    first = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    stats = client.get("/cache").json()
+    assert stats["engine"] == m._ENGINE and any(e["kind"] == "optimize" and e["engine"] == m._ENGINE for e in stats["entries"])
+    # a "restart": the in-process caches are gone, the DuckDB row is not
+    m._compute_cache.clear()
+    m._optimize_cache.clear()
+    import time as _t
+    t0 = _t.perf_counter()
+    second = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    assert second["queue"] == first["queue"]
+    assert _t.perf_counter() - t0 < 5.0  # served from the durable cache, not re-solved

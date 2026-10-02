@@ -306,6 +306,21 @@ export interface FormState {
   readiness: number;
 }
 
+/** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
+export interface Job {
+  job_id: string;
+  kind: string;
+  status: "queued" | "running" | "done" | "failed";
+  stage: string;
+  fraction: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  elapsed_ms: number;
+  result?: OptimizeResult | null;
+  error?: string | null;
+}
+
 export interface RunParams {
   g30: number;
   g35: number;

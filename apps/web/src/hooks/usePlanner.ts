@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api";
-import { EVID, STEP_MS } from "../theme";
+import { EVID } from "../theme";
 import type {
   Boundary,
   Branch,
@@ -46,6 +46,7 @@ export interface PlannerState {
   lastParams: RunParams | null;
   running: boolean;
   step: number;
+  stage: string; // what the engine is doing right now (from the job's progress)
   runId: number;
   tab: Tab;
   filter: "All" | Status;
@@ -88,7 +89,7 @@ export interface PlannerState {
 
 const INITIAL: PlannerState = {
   model: null, cands: [], forecasts: [], forecastId: "ht", g30: 1.08, g35: 1.35, maxMw: 300, boundary: null,
-  result: null, prevStatus: {}, lastParams: null, running: false, step: 0, runId: 0,
+  result: null, prevStatus: {}, lastParams: null, running: false, step: 0, stage: "", runId: 0,
   tab: "queue", filter: "All", sortKey: "rank", sortDir: 1, grouped: false, query: "",
   hover: null, mouse: { x: 0, y: 0 }, sel: null, size: { w: 0, h: 0 },
   loadingMode: false, voltageMode: false, showLoads: true, showLabels: false, legendHidden: false, showBoundary: false,
@@ -179,26 +180,27 @@ export function usePlanner() {
       const g35 = br ? br.growth_2035 : (over.g35 ?? st.g35);
       const scenario = br ? br.scenario : (over.forecastId ?? st.forecastId);
       const params: RunParams = { g30, g35, scenario, branch: onBranch ? bid : "main", n: st.cands.length };
-      patch({ running: true, step: 0, hover: null });
+      patch({ running: true, step: 0, stage: "queued", hover: null });
       window.clearInterval(stepTimer.current);
-      // the progress steps are paced cosmetically; they hold on the last one until the API answers
-      stepTimer.current = window.setInterval(() => patch((x) => ({ step: Math.min(x.step + 1, 4) })), STEP_MS);
+      // every run is a background job on the API; its stage + fraction drive the overlay. A run that
+      // has happened before (same branch, same inputs, same engine) is served from the durable cache
+      // and finishes at once. The main branch still carries the header's forecast choice.
+      const onProgress = (stage: string, fraction: number) => patch({ stage, step: Math.min(5, Math.floor(fraction * 5 + 1e-9)) });
       let res: OptimizeResult;
       let cands: RegistryItem[];
       try {
-        res = onBranch
-          ? await api.optimizeBranch(bid, { with_justification: true })
+        res = onBranch || scenario === st.forecastId
+          ? await api.runBranchJob(bid || "main", { with_justification: true }, onProgress)
           : await api.optimize({ scenario, growth_2030: g30, growth_2035: g35, with_justification: true });
         cands = await api.getCandidates();
       } catch (e) {
         window.clearInterval(stepTimer.current);
         inFlight.current = false;
         runAgain.current = null;
-        patch({ running: false, step: 0 });
+        patch({ running: false, step: 0, stage: "" });
         toastMsg(`The simulation failed: ${e instanceof Error ? e.message : "check the API is running"}`);
         return;
       }
-      window.clearInterval(stepTimer.current);
       const inQueue = new Set(res.queue.map((x) => x.request_id));
       patch((x) => ({
         runId: x.runId + 1,
@@ -209,6 +211,7 @@ export function usePlanner() {
         prevStatus,
         running: false,
         step: 5,
+        stage: "",
         lastParams: params,
       }));
       inFlight.current = false;

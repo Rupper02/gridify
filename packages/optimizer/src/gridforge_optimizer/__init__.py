@@ -5,6 +5,10 @@ connects them greedily, gated by a pandapower power flow. Scoring helpers (readi
 grid need) and the LLM narration wrappers live in the sibling modules; see the package README.
 """
 
+import hashlib as _hashlib
+from functools import lru_cache as _lru_cache
+from pathlib import Path as _Path
+
 from .diff import ConsequenceDiff, LineDelta, PhaseDelta, ProjectDelta, diff_results
 from .greedy import optimize
 from .network import apply_reinforcement
@@ -20,7 +24,21 @@ from .types import (
     Suggestion,
 )
 
+@_lru_cache(maxsize=1)
+def engine_fingerprint() -> str:
+    """A hash of this package's source and bundled data. Cached results are keyed by it, so any
+    change to the physics, the ranking or the pinned network retires every cached answer."""
+    h = _hashlib.sha256()
+    here = _Path(__file__).resolve().parent
+    for p in sorted(list(here.glob("*.py")) + list((here / "data").rglob("*"))):
+        if p.is_file():
+            h.update(p.relative_to(here).as_posix().encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:12]
+
+
 __all__ = [
+    "engine_fingerprint",
     "optimize",
     "Candidate",
     "OptimizeParams",

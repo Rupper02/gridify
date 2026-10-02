@@ -131,7 +131,8 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 - **The warehouse is never mutated by the app.** Branches, added projects and chosen years live in a separate scenarios DB.
 - **Versions, not overwrites.** Every content-distinct materialisation appends a `snapshots` row (`network@<snapshot_id>`, tagged with the LTDS edition it was built from). The pipeline also diffs NGED's previous LTDS edition against the current one and stores the change-set, and keeps every fetched edition of the Embedded Capacity Register with a site-level diff between the last two. See [`apps/pipeline/README.md`](apps/pipeline/README.md).
 - **`main` is a branch row too.** Merging squashes a branch into it, last write wins.
-- **Results are cached** by inputs plus a hash of the branch's candidate set, so two branches can never serve each other's queue.
+- **Results are cached durably.** A run is a pure function of the model snapshot, the parameters, the branch's candidate set and the engine's code, so every result is stored in the scenarios DB under that key: the same run never happens twice, not even after a restart, and two branches can never serve each other's queue. Inside a run, the engine keeps an exact trial cache: when a branch gains one project, only the trials whose state changed are solved again.
+- **Runs are background jobs.** The planner starts a job and polls it; the overlay shows the engine's real stage (ranking, each phase's trials, the N-1 screen). `main` is precomputed when the API starts.
 
 ---
 
@@ -153,7 +154,9 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | `POST /branches` · `GET /branches` | Create and list branches |
 | `POST /branches/{id}/registry` | Pull a registry project onto a branch |
 | `POST /optimize/candidates` | Add a hand-entered project |
-| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, GSP exchange, recommended and scheduled years |
+| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, GSP exchange, N-1 findings, recommended and scheduled years |
+| `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs |
+| `GET /cache` | What the durable result cache holds, per kind and engine fingerprint |
 | `POST /branches/{id}/schedule` | Set or clear a project's energisation year (`against_recommendation` is reported back) |
 | `GET /branches/{id}/diff` | Consequence diff against the parent branch |
 | `GET /branches/{id}/suggestions` | "What would it take" levers with measured MW freed |
