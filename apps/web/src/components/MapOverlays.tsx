@@ -104,7 +104,7 @@ export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
         title={lim ? `Power exchange with the transmission system at the GSP. Export is against the ${Math.round(lim)} MW limit. Click for what's beyond the GSP.` : "Power exchanged with the transmission system at the GSP."}
         onClick={() => patch({ showBoundary: !s.showBoundary })}
       >
-        GSP <b style={{ color: fg }}>{exp == null ? "—" : `↑${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW · ↓${imp} MW`}</b>{" "}
+        GSP <b style={{ color: fg }}>{exp == null ? "—" : `export ${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW, import ${imp} MW`}</b>{" "}
         <span style={{ color: "var(--blue)", fontSize: 10.5 }}>{s.boundary ? (s.showBoundary ? "▴" : "▾") : ""}</span>
       </span>
       <span>Worst line <b style={{ color: ph && ph.worst_line_loading_pct > 100 ? "#dc2626" : "var(--ink)" }}>{ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : "—"}</b></span>

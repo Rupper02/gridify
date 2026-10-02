@@ -68,12 +68,14 @@ describe("filterSortQueue", () => {
   });
 });
 
+// Helper to create test phase results
+const phase = (over: Partial<PhaseResult>): PhaseResult => ({
+  accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 50, min_vm_pu: 0.98, max_vm_pu: 1.02,
+  overloaded_line_ids: [], line_loading: {}, bus_vm: {}, voltage_violation_bus_ids: [], gsp_export_mw: 0, gsp_import_mw: 0, gsp_limit_mw: null,
+  n1_screened: 0, n1_violations: [], ...over,
+});
+
 describe("alertGroupsFor", () => {
-  const phase = (over: Partial<PhaseResult>): PhaseResult => ({
-    accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 50, min_vm_pu: 0.98, max_vm_pu: 1.02,
-    overloaded_line_ids: [], line_loading: {}, bus_vm: {}, voltage_violation_bus_ids: [], gsp_export_mw: 0, gsp_import_mw: 0, gsp_limit_mw: null,
-    n1_screened: 0, n1_violations: [], ...over,
-  });
   const r: OptimizeResult = {
     params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
     queue: [item({ request_id: "D", status: "Deferred", reason: { type: "trafo", element_id: 3, value: 110, message: "m", kind: "grid", element: null, short: "Overloads transformer 3", why: "w", action: "a" } })],
@@ -194,8 +196,9 @@ describe("interpolateGrowthForYear", () => {
       justification: "", snapshot_id: "s", branch_id: "main",
     };
     
-    // Should not throw
-    const groups = alertGroupsFor(singleYearResult, 1.08, 1.35);
+    // Should not throw - use the single phase key and interpolated growth for 2028
+    const growth2028 = interpolateGrowthForYear(2028, 1.08, 1.35);
+    const groups = alertGroupsFor(singleYearResult, "2028", growth2028);
     
     // Should have violations from the 2028 phase
     expect(groups.length).toBeGreaterThan(0);
