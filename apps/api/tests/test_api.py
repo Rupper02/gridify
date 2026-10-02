@@ -78,6 +78,22 @@ def test_core_read_endpoints():
     assert "queue" in q and "phases" in q and q["branch_id"] == "main"
 
 
+def test_versions_and_edition_changes():
+    snaps = client.get("/snapshots").json()
+    assert snaps["current"] and snaps["snapshots"][0]["snapshot_id"] == snaps["current"]
+    assert snaps["snapshots"][0]["ltds_edition"]  # every version names the edition it was built from
+
+    ch = client.get("/editions/changes").json()
+    assert ch["n_changes"]["new"] > 0 and ch["n_changes"]["removed"] > 0
+    assert {r["change"] for r in ch["rows"]} <= {"new", "removed", "updated"}
+    assert sum(ch["n_changes"].values()) == len(ch["rows"])
+    assert "demand_mw" in ch["model"]["delta"] and "gsp_export_mw" in ch["physics"]["delta"]
+    assert ch["caveats"]
+
+    reg = client.get("/registry/changes").json()
+    assert "editions" in reg and "changes" in reg  # empty until the scheduled ECR fetch has run
+
+
 def test_branch_create_and_list():
     b = _create("Test branch", added_projects=[_good()])
     bid = b["branch_id"]

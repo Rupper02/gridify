@@ -105,11 +105,14 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 ```
   NGED LTDS + ECR + Td limits ─┐                     apps/pipeline (Dagster)
   NESO TEC register           ├─► ltds_tables ─► nged_model_canonical ─► 3 asset checks ─► served_nged
-  OpenStreetMap substations   ┘                  nged_connection_queue (registry) ──────┘       │
-                                                                                                 ▼
-                                                                    DuckDB warehouse: buses · lines ·
-                                                                    transformers · loads · generators ·
-                                                                    candidate_projects · snapshots
+  OpenStreetMap substations   ┘       │          nged_connection_queue (registry) ──────┘       │
+                                      └────────► ltds_edition_changes (previous vs current) ────┤
+  live registers (scheduled): ecr_register_fetch ─► ecr_editions ─► ecr_changes                 ▼
+                              osm_substations_fetch ─► coords_editions      DuckDB warehouse: buses · lines ·
+                                                                            transformers · loads · generators ·
+                                                                            candidate_projects · ltds_changes ·
+                                                                            snapshots (append-only versions) ·
+                                                                            ecr_editions · ecr_changes
                                                                                                  │ read-only
   packages/optimizer (gridforge_optimizer): the engine,                                          ▼
   shared by pipeline + API    ◄────────────────────────────────  apps/api (FastAPI) ── scenarios.duckdb
@@ -122,6 +125,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 ```
 
 - **The warehouse is never mutated by the app.** Branches, added projects and chosen years live in a separate scenarios DB.
+- **Versions, not overwrites.** Every content-distinct materialisation appends a `snapshots` row (`network@<snapshot_id>`, tagged with the LTDS edition it was built from). The pipeline also diffs NGED's previous LTDS edition against the current one and stores the change-set, and keeps every fetched edition of the Embedded Capacity Register with a site-level diff between the last two. See [`apps/pipeline/README.md`](apps/pipeline/README.md).
 - **`main` is a branch row too.** Merging squashes a branch into it, last write wins.
 - **Results are cached** by inputs plus a hash of the branch's candidate set, so two branches can never serve each other's queue.
 
@@ -137,6 +141,9 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | `GET /model` | Buses, lines, transformers, loads and the existing fleet, with coordinates |
 | `GET /boundary` | GSP export limit, export today, and transmission projects (with registry ids where optional) |
 | `GET /forecasts` | NESO FES 2025 demand pathways, plus the intake cap |
+| `GET /snapshots` | The model's version history (`network@<snapshot_id>`, newest first, with the LTDS edition of each) |
+| `GET /editions/changes` | What changed between NGED's previous LTDS edition and this one: flagged rows, model delta, physics delta |
+| `GET /registry/changes` | What changed in the Embedded Capacity Register between the last two fetched editions |
 | `GET /registry` | The optional projects |
 | `POST /optimize` | Run `main` |
 | `POST /branches` · `GET /branches` | Create and list branches |
@@ -179,15 +186,16 @@ Open **http://localhost:3000**. You land on `main`, today's network. Open **Revi
 
 ## Refreshing the data
 
-The bundled data is a snapshot. Each refresh script writes into `packages/optimizer/src/gridforge_optimizer/data/nged/`:
+The bundled data is a **pinned snapshot**. The live registers are fetched by scheduled Dagster assets (`registers` group: the ECR monthly, OpenStreetMap quarterly), stored as append-only editions in the warehouse and diffed edition-to-edition. Adopting a new edition into the model is a deliberate step:
 
 ```bash
-cd apps/api
-uv run python ../pipeline/scripts/fetch_nged_ecr.py          # Embedded Capacity Register -> ecr.json (no personal data kept)
-uv run python ../pipeline/scripts/fetch_osm_substations.py   # OpenStreetMap substations -> coords.csv
+cd apps/pipeline
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_register_fetch,ecr_editions,ecr_changes'   # fetch + diff
+uv run dagster asset materialize -m grid_simulator.definitions --select 'pin_ecr_edition'                               # promote it into data/nged/ecr.json
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'                                  # rebuild the model from it
 ```
 
-Then re-materialise the pipeline.
+Review the git diff of the bundled file, then commit. `osm_substations_fetch` / `coords_editions` / `pin_osm_coords` do the same for substation positions.
 
 The LTDS tables (`circuit`, `t2a`, `demand`, `node`, `gen`) were pulled from the Connected Data Portal's `datastore_search` API. The GSP limits and transmission projects are recorded, with their resource ids, in `nged.py` (`GSP_BOUNDARY`, `TRANSMISSION_PROJECTS`).
 
@@ -217,8 +225,8 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 ```bash
 pnpm test                                     # everything, via Turborepo
 # or individually
-cd packages/optimizer && uv run pytest -q     # engine: 30 tests
-cd apps/api && uv run --with pytest pytest tests -q   # API: 11 tests (each run uses its own temp scenarios DB)
+cd packages/optimizer && uv run pytest -q     # engine: 36 tests
+cd apps/api && uv run --with pytest pytest tests -q   # API: 12 tests (each run uses its own temp scenarios DB)
 cd apps/web && pnpm test                      # UI: 13 vitest unit tests (reason wording, timeline/queue/alert derivations)
 ```
 
@@ -226,6 +234,8 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 - removed equipment is excluded;
 - every live MW of demand is modelled;
 - no registry project is pre-loaded into today's network.
+
+`test_editions.py` covers the edition logic: the previous edition keeps Removed rows and drops New ones, the change-set agrees with NGED's flags, and the ECR diff reports added / withdrawn / connected / re-rated sites.
 
 ---
 
@@ -236,3 +246,4 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 - **Generation is studied at full export in both cases.** That includes batteries, which could also import. This is conservative.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution → transmission.
+- **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions because the old values aren't published.

@@ -17,7 +17,7 @@ Deep docs (they are the spec, so keep them current):
 | Path | Owns |
 |---|---|
 | `packages/optimizer` (`gridforge_optimizer`) | **The single source of truth** for the network build (`nged.py`), the physics (`network.py` feasibility), ranking and greedy loop (`greedy.py`), "what would it take" (`suggest.py`), the diff (`diff.py`), the pydantic contract (`types.py`) and every tunable (`config.py`). Bundled open data lives in `src/gridforge_optimizer/data/nged/`. |
-| `apps/pipeline` (`grid_simulator`) | Dagster graph in `src/grid_simulator/defs/nged.py`: `ltds_tables` → `nged_model_canonical` + `nged_connection_queue` → 3 asset checks → `served_nged` → DuckDB warehouse `apps/pipeline/warehouse/gridforge.duckdb`. `served_nged` is the **only** writer of the warehouse. |
+| `apps/pipeline` (`grid_simulator`) | Dagster. `defs/nged.py` (group `ltds`): `ltds_tables` (pinned snapshot, passed INTO the builder) → `nged_model_canonical` + `nged_connection_queue` + `ltds_edition_changes` → 3 asset checks → `served_nged` → DuckDB warehouse `apps/pipeline/warehouse/gridforge.duckdb` with an append-only `snapshots` history. `defs/registers.py` (group `registers`): scheduled fetches of the ECR (monthly) and OSM coords (quarterly) into append-only edition tables + `ecr_changes`; `pin_*` assets promote an edition into the bundled snapshot (manual). Warehouse writers carry a retry policy (DuckDB = one writer). |
 | `apps/api` (`gridforge_api`) | FastAPI on :8000. Reads the warehouse **read-only**; branches, added projects and scheduled years go to `apps/api/data/scenarios.duckdb` (`GRIDFORGE_SCENARIOS_DB` overrides; `GRIDFORGE_DB_PATH` overrides the warehouse). |
 | `apps/web` | Vite + React 19 + TypeScript single-page planner. `src/hooks/usePlanner.ts` is the controller (state + actions), `src/api.ts` the typed client (+ `normReason`), `src/lib/` pure derivations with vitest, `src/components/` the UI, `MapView.tsx` owns MapLibre. Live-only against the API (`VITE_API_BASE`, default `http://localhost:8000`). |
 
@@ -32,7 +32,9 @@ pnpm install                                      # repo root
 
 # build the warehouse (the only way; there is no seed script)
 cd apps/pipeline
-uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'   # keep the quotes
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'   # keep the quotes; offline
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_register_fetch,ecr_editions,ecr_changes'  # live ECR fetch + diff
+# never select 'pin_*' unless you mean to replace the pinned snapshot in packages/optimizer/.../data/nged/
 
 # run (two terminals, repo root)
 pnpm --filter @gridforge/api dev                  # http://localhost:8000
@@ -50,7 +52,7 @@ cd apps/web && pnpm test && pnpm typecheck        # UI unit tests + tsc
 - Optional narration: `OPENROUTER_API_KEY=...` in `apps/pipeline/.env` (the API loads it from there). Never commit `.env`.
 
 Windows / Git Bash:
-- Multi-line `python -c "..."` breaks; write a temp `.py` in your scratch dir and run it with `uv run python`.
+- Multi-line `python -c "..."` breaks; write a temp `.py` in your scratch dir and run it with `uv run python`. Long inline shell commands (roughly over 6 kB, e.g. a big heredoc) get truncated and fail with "unexpected EOF": write them to a file too.
 - Don't shell-grep or `find` from the repo root: `node_modules` is huge. Use the Grep/Glob tools or scope to a package.
 - `--select '*'` can still shell-expand here; use `'ltds_tables*'`, which already selects the full graph.
 
@@ -88,13 +90,7 @@ Windows / Git Bash:
 
 ## Data refresh
 
-Bundled snapshots live in `packages/optimizer/src/gridforge_optimizer/data/nged/` (LTDS tables, `ecr.json`, `coords.csv`). Refresh with the API's environment, then re-materialise:
-
-```bash
-cd apps/api
-uv run python ../pipeline/scripts/fetch_nged_ecr.py          # NGED Embedded Capacity Register -> ecr.json (PII dropped)
-uv run python ../pipeline/scripts/fetch_osm_substations.py   # OpenStreetMap substations -> coords.csv
-```
+Bundled snapshots live in `packages/optimizer/src/gridforge_optimizer/data/nged/` (LTDS tables, `ecr.json`, `coords.csv`) and are the pinned edition the engine runs on. Live fetches are Dagster assets in `defs/registers.py` (ECR via CKAN, OSM via Overpass) that store editions in the warehouse and diff them; `pin_ecr_edition` / `pin_osm_coords` promote the latest edition into the bundled files. After pinning: re-materialise `ltds_tables*`, review the git diff of the bundled file, commit. Every builder entry point in `gridforge_optimizer.nged` takes `tables=` (and `edition=` current/previous); the pipeline passes its bronze tables through so lineage is real. Keep the ECR fetch free of personal data (`ECR_KEEP`).
 
 OSM data is ODbL: keep the "© OpenStreetMap contributors" credit wherever positions are shown or documented. NGED's own substation-location datasets are access-restricted; don't add a dependency on them.
 

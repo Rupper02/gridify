@@ -10,7 +10,11 @@ Region: the Bicker Fen 132 kV GSP (Lincolnshire). Sources, bundled under data/ng
 
 This module reduces them to a solvable pandapower network (`build_nged_net`), a geolocated canonical
 model for the map (`nged_model`), the registry of OPTIONAL projects (`nged_candidates`) and the GSP
-boundary (`gsp_boundary`). Reduction: nodes joined by switches/zero-impedance connectors are
+boundary (`gsp_boundary`). Every entry point takes an optional `tables` argument (the raw LTDS/ECR
+rows, see `LtdsTables`): the Dagster pipeline passes the bronze tables it loaded so the lineage is
+real; the engine calls without it and gets the bundled snapshot. `edition` selects which LTDS
+edition to build: NGED flags every row New / Updated / Unchanged / Removed against its previous
+publication, so "current" drops Removed rows and "previous" drops New rows (see editions.py). Reduction: nodes joined by switches/zero-impedance connectors are
 union-find merged into one bus; real circuits (R1/X1 + rating) become lines; %Z on a 100 MVA base is
 converted to ohms / pandapower vk%; the 132 kV GSP busbar is the external-grid infeed, with the
 supergrid transformers' published export limit enforced in the study.
@@ -27,6 +31,12 @@ from pathlib import Path
 import pandapower as pp
 
 _DATA = Path(__file__).resolve().parent / "data" / "nged"
+BUNDLED_DATA_DIR = _DATA  # where the pipeline's "pin" assets write a promoted edition
+TABLE_NAMES = ("circuit", "t2a", "demand", "node", "gen", "ecr")
+# raw rows per table, as fetched/bundled; `coords` (optional) = [{name, latitude, longitude, source}]
+LtdsTables = dict[str, list[dict]]
+EDITION_CURRENT = "current"  # what exists today: every row NGED has not marked Removed
+EDITION_PREVIOUS = "previous"  # NGED's previous edition, reconstructed: every row not marked New
 GSP_CENTER = (-0.20, 52.88)  # Bicker Fen, Lincolnshire (lon, lat) — fallback spot for unplaceable buses
 # After-diversity factor on LTDS winter-peak demand: peaks don't coincide, so planners assess an
 # after-diversity maximum demand. This sets a feasible present-day base; growth scenarios push it up.
@@ -81,6 +91,19 @@ def _load(name: str) -> list[dict]:
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
 
 
+def load_bundled_tables() -> LtdsTables:
+    """The bundled snapshot of every raw table (the pinned edition the engine runs on)."""
+    return {name: _load(name) for name in TABLE_NAMES}
+
+
+def _in_edition(status, edition: str) -> bool:
+    """Is a row with this LTDS Status part of the requested edition?"""
+    st = str(status or "").strip().lower()
+    if edition == EDITION_PREVIOUS:
+        return st != "new"
+    return st != "removed"
+
+
 def _num(v):
     try:
         f = float(v)
@@ -113,17 +136,20 @@ class _UF:
         self.p[self.find(a)] = self.find(b)
 
 
-def _build():
+def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict."""
     # LTDS flags every row against NGED's previous edition: New / Updated / Unchanged / Removed.
     # The base network is what exists TODAY, so "Removed" equipment (decommissioned, or replaced —
     # e.g. a transformer swapped for a bigger one appears once as Removed and once as New) is left
-    # out. Planned works would sit in LTDS Table 7, which has no rows for this GSP.
-    live = lambda rows, col: [r for r in rows if str(r.get(col) or "").strip().lower() != "removed"]
-    circ = live(_load("circuit"), "Circuit Status")
-    t2a = live(_load("t2a"), "Status")
-    dem = live(_load("demand"), "Status")
-    nodes = _load("node")  # names only (removed codes simply go unreferenced)
+    # out. Planned works would sit in LTDS Table 7, which has no rows for this GSP. The "previous"
+    # edition keeps the Removed rows and drops the New ones instead (Updated rows carry their
+    # current values either way: NGED doesn't publish the old ones).
+    tables = tables if tables is not None else load_bundled_tables()
+    live = lambda rows, col: [r for r in rows if _in_edition(r.get(col), edition)]
+    circ = live(tables.get("circuit", []), "Circuit Status")
+    t2a = live(tables.get("t2a", []), "Status")
+    dem = live(tables.get("demand", []), "Status")
+    nodes = tables.get("node", [])  # names only (unreferenced codes simply go unused)
     name_by_code = {n["Code"]: n.get("Name", n["Code"]) for n in nodes}
 
     uf = _UF()
@@ -247,7 +273,7 @@ def _build():
     buses_132 = [int(b) for b in net.bus.index if net.bus.at[b, "vn_kv"] >= 132]
     buses_33 = [int(b) for b in net.bus.index if 30 <= net.bus.at[b, "vn_kv"] < 132] or buses_132
     conn_gen = sorted(
-        [g for g in _load("gen")
+        [g for g in tables.get("gen", [])
          if (_num(g.get("Agreed Export Capacity")) or 0) > 0
          and (g.get("Connection Status") or "").strip() in _EXISTING_STATUSES],
         key=lambda g: -(_num(g.get("Agreed Export Capacity")) or 0),
@@ -290,27 +316,55 @@ def _build():
         drop_buses(net, unsupplied)
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
-            "name_by_code": name_by_code, "existing": existing}
+            "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}
 
 
 @lru_cache(maxsize=1)
-def _built():
+def _built_bundled():
     return _build()
 
 
-def build_nged_net():
+_BUILT: dict[str, dict] = {}  # content-hash -> built, for tables passed in explicitly (pipeline)
+
+
+def tables_hash(tables: LtdsTables) -> str:
+    """A stable content fingerprint of a set of raw tables (the edition id the pipeline records)."""
+    import hashlib
+    blob = json.dumps({k: tables.get(k, []) for k in sorted(tables)}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _ctx(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
+    """The built network + bookkeeping for `tables` (bundled snapshot when None), memoised."""
+    if tables is None and edition == EDITION_CURRENT:
+        return _built_bundled()
+    key = f"{tables_hash(tables) if tables is not None else 'bundled'}:{edition}"
+    if key not in _BUILT:
+        if len(_BUILT) >= 6:
+            _BUILT.pop(next(iter(_BUILT)))
+        _BUILT[key] = _build(tables, edition)
+    return _BUILT[key]
+
+
+def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     """A fresh, solvable copy of the NGED network (deep-copied so callers can mutate freely)."""
     import copy
-    return copy.deepcopy(_built()["net"])
+    return copy.deepcopy(_ctx(tables, edition)["net"])
 
 
-def gsp_boundary() -> dict:
+def substation_names(tables: LtdsTables | None = None) -> list[str]:
+    """The distinct substation names in the built network (what the OSM geocoder matches against)."""
+    net = _ctx(tables)["net"]
+    return sorted({_substation(net.bus.at[b, "name"]) for b in net.bus.index})
+
+
+def gsp_boundary(tables: LtdsTables | None = None) -> dict:
     """The GSP boundary for the API/UI: export/import limits, the region's export today, and the
     transmission-registered projects behind it (with which ones this study injects)."""
     from .network import feasibility
-    net = build_nged_net()
+    net = build_nged_net(tables)
     _, _, m = feasibility(net)  # today: existing fleet, today's demand, both study cases
-    reg = {c["applicant"].split(" · ")[-1]: c["request_id"] for c in tec_candidates(float("inf"))}
+    reg = {c["applicant"].split(" · ")[-1]: c["request_id"] for c in tec_candidates(float("inf"), tables)}
     return {**GSP_BOUNDARY, "export_today_mw": m.get("gsp_export_mw", 0.0),
             "transmission_projects": [{**p, "registry_id": reg.get(p["name"])} for p in TRANSMISSION_PROJECTS]}
 
@@ -325,14 +379,21 @@ def _h01(s: str) -> float:
     return int(hashlib.md5(s.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
 
 
-def _coords_csv() -> dict[str, tuple[float, float]]:
-    """Substation-name -> (lon, lat) from the bundled OpenStreetMap join table `coords.csv`
-    (written by apps/pipeline/scripts/fetch_osm_substations.py)."""
-    out: dict[str, tuple[float, float]] = {}
+def load_bundled_coords() -> list[dict]:
+    """The bundled OpenStreetMap join table `coords.csv` as rows {name, latitude, longitude, source}
+    (maintained by the pipeline's `osm_substations_fetch` / `pin_osm_coords` assets)."""
     p = _DATA / "coords.csv"
     if not p.exists():
-        return out
-    for r in csv.DictReader(p.open(encoding="utf-8-sig")):
+        return []
+    with p.open(encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
+
+
+def _coords_index(tables: LtdsTables | None) -> dict[str, tuple[float, float]]:
+    """Substation-name -> (lon, lat), from `tables['coords']` when given, else the bundled csv."""
+    rows = tables.get("coords") if tables is not None and tables.get("coords") is not None else load_bundled_coords()
+    out: dict[str, tuple[float, float]] = {}
+    for r in rows:
         try:
             out[_substation(r["name"]).lower()] = (float(r["longitude"]), float(r["latitude"]))
         except (KeyError, TypeError, ValueError):
@@ -340,7 +401,7 @@ def _coords_csv() -> dict[str, tuple[float, float]]:
     return out
 
 
-def _bus_coords(net) -> dict[int, tuple[float, float]]:
+def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None) -> dict[int, tuple[float, float]]:
     """(lon, lat) per bus.
 
     Substations found in `coords.csv` sit at their real position (buses of one substation are
@@ -349,7 +410,7 @@ def _bus_coords(net) -> dict[int, tuple[float, float]]:
     point, so it sits on the route between real substations. A bus with no placed neighbour falls
     back to a deterministic spot near the GSP so the map still renders.
     """
-    real = _coords_csv()
+    real = coords if coords is not None else _coords_index(None)
     jit = lambda b: ((_h01(str(b) + "jx") - 0.5) * 0.006, (_h01(str(b) + "jy") - 0.5) * 0.004)
     pos: dict[int, tuple[float, float]] = {}
     for b in net.bus.index:
@@ -386,13 +447,14 @@ def _bus_coords(net) -> dict[int, tuple[float, float]]:
     return out
 
 
-def nged_model() -> dict:
+def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
     """Geolocated canonical model (buses/lines/transformers/loads) with bus_id = pandapower index.
 
     Matches build_nged_net() exactly, so the API/map and the optimizer share one network.
     """
-    net = _built()["net"]
-    xy = _bus_coords(net)
+    ctx = _ctx(tables, edition)
+    net = ctx["net"]
+    xy = _bus_coords(net, _coords_index(tables))
     buses = [{"bus_id": int(i), "name": net.bus.at[i, "name"], "vn_kv": float(net.bus.at[i, "vn_kv"]),
               "lon": xy[int(i)][0], "lat": xy[int(i)][1]} for i in net.bus.index]
     lines = []
@@ -418,7 +480,7 @@ def nged_model() -> dict:
                       "lon": xy[b][0], "lat": xy[b][1]})
     # the existing/connected fleet (baked into the base network), for the map
     generators = []
-    for g in _built()["existing"]:
+    for g in ctx["existing"]:
         b = int(g["bus_id"])
         generators.append({"request_id": g["request_id"], "bus_id": b, "rating_mw": g["rating_mw"],
                            "technology": g["technology"], "applicant": g["applicant"],
@@ -450,18 +512,19 @@ def _commission_year(readiness: float, tech: str | None, rating: float | None, s
     return max(2027, min(2035, year))
 
 
-def nged_candidates(max_mw: float) -> list[dict]:
+def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
     """A connection queue from LTDS Table 5 (generation), mapped to real buses.
 
     Real fuel types, export capacities and connection statuses; bus matched by substation name.
     Projects over `max_mw` or without a resolvable bus are flagged needs_review (the intake path).
     """
-    net = _built()["net"]
+    ctx = _ctx(tables)
+    net = ctx["net"]
     # town-token -> a representative bus (prefer the lower-voltage/connection buses)
     town_bus: dict[str, int] = {}
     for b in sorted(net.bus.index, key=lambda i: net.bus.at[i, "vn_kv"]):
         town_bus.setdefault(_substation(net.bus.at[b, "name"]).lower(), int(b))
-    gen = _load("gen")
+    gen = ctx["tables"].get("gen", [])
     # large generation connects at EHV/primary (33 kV+), so cluster unresolved sites there
     fallback_buses = [int(b) for b in net.bus.index if net.bus.at[b, "vn_kv"] >= 33] or [int(net.bus.index[0])]
 
@@ -502,15 +565,15 @@ def nged_candidates(max_mw: float) -> list[dict]:
 
     # The real connection queue: every site NGED's Embedded Capacity Register lists as ACCEPTED TO
     # CONNECT at this GSP. (LTDS Table 6 only gives aggregate interest per substation, so it isn't used.)
-    ecr = ecr_candidates(max_mw)
+    ecr = ecr_candidates(max_mw, tables)
     # an LTDS Table 5 project the ECR also lists (same export MW + technology) is the same site — keep
     # the ECR record (it has a location and a target date), drop the Table 5 duplicate
     ecr_keys = {(round(c["rating_mw"], 1), c["technology"]) for c in ecr}
     out = [c for c in out if (round(c["rating_mw"] or 0, 1), c["technology"]) not in ecr_keys]
-    return out + ecr + tec_candidates(max_mw)
+    return out + ecr + tec_candidates(max_mw, tables)
 
 
-def tec_candidates(max_mw: float) -> list[dict]:
+def tec_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
     """Transmission-registered projects that would connect AT THE GSP's 132 kV busbar (so their
     export flows up through our supergrid transformers) and aren't built yet — optional registry
     projects like any other. Readiness from the rubric: a TEC position is a signed connection
@@ -518,7 +581,7 @@ def tec_candidates(max_mw: float) -> list[dict]:
     import hashlib
     from .readiness import score_from_checklist
 
-    slack = int(_built()["slack"])
+    slack = int(_ctx(tables)["slack"])
     out = []
     for p in TRANSMISSION_PROJECTS:
         if p["at"] != "gsp_132kv" or p["status"] == "Built":
@@ -581,7 +644,7 @@ def _year(date_str) -> int | None:
         return None
 
 
-def ecr_candidates(max_mw: float) -> list[dict]:
+def ecr_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
     """Registry projects from the ECR's 'Accepted to connect' sites at this GSP.
 
     Export capacity = the accepted change to maximum export capacity (a solar+storage hybrid may
@@ -593,8 +656,9 @@ def ecr_candidates(max_mw: float) -> list[dict]:
     """
     from .readiness import score_from_checklist
 
-    net = _built()["net"]
-    xy = _bus_coords(net)
+    ctx = _ctx(tables)
+    net = ctx["net"]
+    xy = _bus_coords(net, _coords_index(tables))
     deg: dict[int, int] = {}
     for _, ln in net.line.iterrows():
         deg[int(ln.from_bus)] = deg.get(int(ln.from_bus), 0) + 1
@@ -610,7 +674,7 @@ def ecr_candidates(max_mw: float) -> list[dict]:
         return min(cands, key=lambda b: ((xy[b][0] - lon) * k) ** 2 + (xy[b][1] - lat) ** 2)
 
     out = []
-    for row in _load("ecr"):
+    for row in ctx["tables"].get("ecr", []):
         if (row.get("connection_status") or "") != "Accepted to connect":
             continue
         mw = _num(row.get("accepted_change_to_maximum_export_capacity(mw)"))
