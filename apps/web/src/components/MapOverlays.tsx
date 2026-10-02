@@ -1,8 +1,19 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+
 import { timelineRollup } from "../lib/derive";
 import { fmtMw } from "../theme";
 
-export function TimelineBox({ planner }: { planner: Planner }) {
+export type TimelineBoxPlanner = PlannerSlice<"timelineYear", never, "phase"> & WithPatch;
+type GspFiguresPlanner = PlannerSlice<"boundary", never, "ph">;
+export type StatsBarPlanner = PlannerSlice<
+  "result" | "model" | "timelineYear" | "boundary" | "showBoundary",
+  never,
+  "ph" | "q" | "eg30" | "eg35" | "phase"
+> &
+  WithPatch;
+export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", never, "ph"> & WithPatch;
+
+export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
   const { s, patch, derived } = planner;
   const y = s.timelineYear;
   const label = y <= 2026 ? "as-is today" : derived.phase === "2030" ? "Clean Power lens" : "Strategic lens";
@@ -28,7 +39,7 @@ export function TimelineBox({ planner }: { planner: Planner }) {
 }
 
 /** Worst-case GSP exchange for the phase in view, against its export limit. */
-function gspFigures(planner: Planner) {
+function gspFigures(planner: GspFiguresPlanner) {
   const { s, derived } = planner;
   const ph = derived.ph;
   const B = s.boundary;
@@ -40,7 +51,7 @@ function gspFigures(planner: Planner) {
   return { lim, exp, imp, util, fg };
 }
 
-export function StatsBar({ planner }: { planner: Planner }) {
+export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
   const { s, patch, derived } = planner;
   const { ph, q, eg30, eg35, phase } = derived;
   const r = s.result;
@@ -71,7 +82,7 @@ export function StatsBar({ planner }: { planner: Planner }) {
   );
 }
 
-export function BoundaryCard({ planner }: { planner: Planner }) {
+export function BoundaryCard({ planner }: { planner: BoundaryCardPlanner }) {
   const { s, patch } = planner;
   const B = s.boundary!;
   const { lim, exp, fg } = gspFigures(planner);

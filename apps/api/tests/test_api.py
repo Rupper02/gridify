@@ -13,7 +13,8 @@ os.environ["GRIDFORGE_SCENARIOS_DB"] = str(Path(tempfile.mkdtemp()) / "scenarios
 import pytest
 from fastapi.testclient import TestClient
 
-from gridforge_api.main import WAREHOUSE, app
+from gridforge_api.config import WAREHOUSE
+from gridforge_api.main import app
 
 pytestmark = pytest.mark.skipif(
     not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"
@@ -222,16 +223,15 @@ def test_background_job_runs_a_branch_and_reports_progress():
 
 
 def test_results_are_cached_durably_and_keyed_by_engine():
-    from gridforge_api import main as m
+    from gridforge_api.deps import cache
 
     b = _create("Cache branch", added_projects=[_good()])
     bid = b["branch_id"]
     first = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
     stats = client.get("/cache").json()
-    assert stats["engine"] == m._ENGINE and any(e["kind"] == "optimize" and e["engine"] == m._ENGINE for e in stats["entries"])
+    assert stats["engine"] == cache.engine and any(e["kind"] == "optimize" and e["engine"] == cache.engine for e in stats["entries"])
     # a "restart": the in-process caches are gone, the DuckDB row is not
-    m._compute_cache.clear()
-    m._optimize_cache.clear()
+    cache.clear()
     import time as _t
     t0 = _t.perf_counter()
     second = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()

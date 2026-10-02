@@ -1,7 +1,15 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+
 import { isStale } from "../lib/derive";
 
-export function Header({ planner }: { planner: Planner }) {
+export type HeaderPlanner = PlannerSlice<
+  "activeBranch" | "branches" | "cands" | "forecastId" | "forecasts" | "lastParams" | "model" | "running",
+  "newBranchQuick" | "onForecast" | "run" | "selectBranch",
+  "onMainView" | "activeB" | "eg30" | "eg35" | "fcEff" | "reviewB"
+> &
+  WithPatch;
+
+export function Header({ planner }: { planner: HeaderPlanner }) {
   const { s, actions, derived, patch } = planner;
   const { onMainView, activeB, eg30, eg35, fcEff, reviewB } = derived;
   const stale = isStale(s.lastParams, s.activeBranch, eg30, eg35, s.cands.length);

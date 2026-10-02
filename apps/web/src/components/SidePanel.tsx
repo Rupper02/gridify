@@ -1,11 +1,15 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
 import { alertGroupsFor, byStatus, sumMw, violationCount } from "../lib/derive";
 import { ST, fmtMw } from "../theme";
 import type { Status, Tab } from "../types";
 import { AddProjectDrawer } from "./AddProjectDrawer";
+import type { AddProjectDrawerPlanner } from "./AddProjectDrawer";
 import { AlertsTab } from "./AlertsTab";
+import type { AlertsTabPlanner } from "./AlertsTab";
 import { QueueTab } from "./QueueTab";
+import type { QueueTabPlanner } from "./QueueTab";
 import { ReviewTab } from "./ReviewTab";
+import type { ReviewTabPlanner } from "./ReviewTab";
 
 const TILES: ["All" | Status, string, string][] = [
   ["All", "All", "#111827"],
@@ -15,7 +19,15 @@ const TILES: ["All" | Status, string, string][] = [
   ["Rejected", "Rejected", ST.Rejected.c],
 ];
 
-export function SidePanel({ planner }: { planner: Planner }) {
+/** The side panel's own reads, plus every tab it renders. */
+export type SidePanelPlanner = PlannerSlice<"drawer" | "filter" | "result" | "tab" | "toast", "setTab", "q" | "eg30" | "eg35"> &
+  WithPatch &
+  QueueTabPlanner &
+  AlertsTabPlanner &
+  ReviewTabPlanner &
+  AddProjectDrawerPlanner;
+
+export function SidePanel({ planner }: { planner: SidePanelPlanner }) {
   const { s, patch, actions, derived } = planner;
   const { q, eg30, eg35 } = derived;
   const r = s.result;

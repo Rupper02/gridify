@@ -4,6 +4,7 @@ projects, test feasibility (statutory voltage bands, thermal limits, the GSP bou
 from __future__ import annotations
 
 import hashlib
+from typing import NamedTuple
 
 import networkx as nx
 import pandapower as pp
@@ -265,18 +266,49 @@ def set_tap_positions(net, taps: tuple) -> None:
 #     reverse power flow, voltage rise and the GSP's export to transmission all peak here.
 # The summer case needs per-load `min_scale` / per-line `summer_ratio` columns (the NGED builder
 # fills them from LTDS); a network without them is studied at winter peak only.
-_CASE_LABEL = {"winter_peak": "winter peak demand", "summer_min": "summer minimum demand"}
+class CaseSpec(NamedTuple):
+    """A planning study case. Adding one is adding an entry to CASE_SPECS (plus its dispatch factors
+    in config.GENERATION_FACTORS): the solver, the reasons and the N-1 screen all read from here."""
+
+    name: str
+    label: str  # "at <label>" in reason messages
+    rating_label: str  # what a line's loading is a percentage of, in this case
+    load_column: str | None = None  # net.load column of per-load scaling (None = demand as grown)
+    rating_column: str | None = None  # net.line column of rating multipliers (None = unchanged)
 
 
-def _study_cases(net) -> list[tuple[str, pd.Series | None, pd.Series | None]]:
-    """(case, load scaling to use or None = as grown, line-rating multiplier or None)."""
-    cases: list[tuple[str, pd.Series | None, pd.Series | None]] = [("winter_peak", None, None)]
-    has_min = "min_scale" in net.load.columns and net.load["min_scale"].notna().any()
-    has_summer = "summer_ratio" in net.line.columns and net.line["summer_ratio"].notna().any()
-    if has_min or has_summer:
-        cases.append(("summer_min",
-                      net.load["min_scale"] if has_min else None,
-                      net.line["summer_ratio"] if has_summer else None))
+CASE_SPECS: tuple[CaseSpec, ...] = (
+    CaseSpec("winter_peak", "winter peak demand", "its rating"),
+    CaseSpec("summer_min", "summer minimum demand", "its summer rating",
+             load_column="min_scale", rating_column="summer_ratio"),
+)
+_CASE_BY_NAME = {s.name: s for s in CASE_SPECS}
+_CASE_LABEL = {s.name: s.label for s in CASE_SPECS}
+
+
+class StudyCase(NamedTuple):
+    """A case as applied to one network: unpacks as (name, load scaling or None, rating ratio or None)."""
+
+    name: str
+    load_scale: pd.Series | None
+    rating_ratio: pd.Series | None
+
+
+def _column(table, column: str | None) -> pd.Series | None:
+    """The column if the network carries data in it, else None."""
+    if column is not None and column in table.columns and table[column].notna().any():
+        return table[column]
+    return None
+
+
+def _study_cases(net) -> list[StudyCase]:
+    """The cases this network can be studied in. A case with no data columns always applies (winter
+    peak); one with columns applies when the network carries data in at least one of them."""
+    cases: list[StudyCase] = []
+    for spec in CASE_SPECS:
+        load_scale, rating_ratio = _column(net.load, spec.load_column), _column(net.line, spec.rating_column)
+        if spec.load_column is None and spec.rating_column is None or load_scale is not None or rating_ratio is not None:
+            cases.append(StudyCase(spec.name, load_scale, rating_ratio))
     return cases
 
 
@@ -307,30 +339,50 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
     }
 
 
-def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
-    """The first limit this case breaches (voltage → line → transformer → GSP boundary)."""
-    at = _CASE_LABEL[case]
+def _voltage_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
     vmin, vmax = voltage_limits(net)
     v = vm.reindex(net.bus.index)
     excess = pd.concat([vmin - v, v - vmax], axis=1).max(axis=1).fillna(0.0)  # islanded buses have no voltage
-    if (excess > 1e-9).any():
-        worst = int(excess.idxmax())
-        val = float(v.loc[worst])
-        lo, hi = float(vmin.loc[worst]), float(vmax.loc[worst])
-        kv = float(net.bus.at[worst, "vn_kv"])
-        return Reason(type="voltage", element_id=worst, value=round(val, 4), limit=round(hi if val > hi else lo, 2), case=case,
-                      message=f"voltage {val:.3f} pu at bus {worst} ({kv:g} kV) outside [{lo:.2f}, {hi:.2f}] at {at}")
-    if (line_pct > LINE_LOADING_MAX_PCT).any():
-        worst = line_pct.idxmax()
-        val = float(line_pct.loc[worst])
-        rating = "its summer rating" if case == "summer_min" else "its rating"
-        return Reason(type="line", element_id=int(worst), value=round(val, 1), limit=LINE_LOADING_MAX_PCT, case=case,
-                      message=f"line {int(worst)} overloaded at {val:.0f}% of {rating} at {at}")
-    if (trafo_pct > TRAFO_LOADING_MAX_PCT).any():
-        worst = trafo_pct.idxmax()
-        val = float(trafo_pct.loc[worst])
-        return Reason(type="trafo", element_id=int(worst), value=round(val, 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
-                      message=f"transformer {int(worst)} overloaded at {val:.0f}% at {at}")
+    if not (excess > 1e-9).any():
+        return None
+    worst = int(excess.idxmax())
+    val = float(v.loc[worst])
+    lo, hi = float(vmin.loc[worst]), float(vmax.loc[worst])
+    kv = float(net.bus.at[worst, "vn_kv"])
+    return Reason(type="voltage", element_id=worst, value=round(val, 4), limit=round(hi if val > hi else lo, 2), case=case,
+                  message=f"voltage {val:.3f} pu at bus {worst} ({kv:g} kV) outside [{lo:.2f}, {hi:.2f}] at {_CASE_LABEL[case]}")
+
+
+def _line_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+    if not (line_pct > LINE_LOADING_MAX_PCT).any():
+        return None
+    worst = line_pct.idxmax()
+    val = float(line_pct.loc[worst])
+    rating = _CASE_BY_NAME[case].rating_label
+    return Reason(type="line", element_id=int(worst), value=round(val, 1), limit=LINE_LOADING_MAX_PCT, case=case,
+                  message=f"line {int(worst)} overloaded at {val:.0f}% of {rating} at {_CASE_LABEL[case]}")
+
+
+def _trafo_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+    if not (trafo_pct > TRAFO_LOADING_MAX_PCT).any():
+        return None
+    worst = trafo_pct.idxmax()
+    val = float(trafo_pct.loc[worst])
+    return Reason(type="trafo", element_id=int(worst), value=round(val, 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
+                  message=f"transformer {int(worst)} overloaded at {val:.0f}% at {_CASE_LABEL[case]}")
+
+
+# the per-case limit checks, in the order they bind: a new local limit is one function + one entry here
+# (the GSP boundary is checked after all cases, in feasibility())
+LIMIT_CHECKS = (_voltage_reason, _line_reason, _trafo_reason)
+
+
+def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+    """The first limit this case breaches (voltage → line → transformer; then the GSP boundary)."""
+    for check in LIMIT_CHECKS:
+        reason = check(net, case, vm, line_pct, trafo_pct)
+        if reason is not None:
+            return reason
     return None
 
 
@@ -473,8 +525,35 @@ def n1_screen(net, case: str = "winter_peak") -> dict:
 
 
 # --- reinforcement (for "what would it take" suggestions) -------------------
+def _reinforce_gsp(net, r: Reinforcement) -> None:
+    """One more supergrid transformer at the GSP: raises the export limit by one SGT's rating."""
+    if hasattr(net, "get") and net.get("gsp_export_limit_mw") is not None and net.get("gsp_sgt_mw"):
+        net["gsp_export_limit_mw"] = float(net["gsp_export_limit_mw"]) + float(net["gsp_sgt_mw"])
+
+
+def _reinforce_element(table_name: str, rating_column: str):
+    """A reinforcer for a line/transformer table: add_parallel, or uprate `rating_column` by `factor`."""
+    def reinforce(net, r: Reinforcement) -> None:
+        table = getattr(net, table_name)
+        if r.element_id not in table.index:
+            return
+        if r.action == "add_parallel":
+            table.at[r.element_id, "parallel"] = int(table.at[r.element_id, "parallel"]) + 1
+        else:
+            table.at[r.element_id, rating_column] = float(table.at[r.element_id, rating_column]) * r.factor
+    return reinforce
+
+
+# how each Reinforcement.kind changes the net: a new kind of upgrade is one entry here
+REINFORCERS = {
+    "gsp": _reinforce_gsp,
+    "line": _reinforce_element("line", "max_i_ka"),
+    "trafo": _reinforce_element("trafo", "sn_mva"),
+}
+
+
 def apply_reinforcement(net, r: Reinforcement) -> None:
-    """Simulate a network reinforcement in place.
+    """Simulate a network reinforcement in place (see REINFORCERS).
 
     add_parallel bumps the element's `parallel` count -> halves series impedance AND doubles its
     rating, so it relieves BOTH thermal overload and voltage. uprate raises only the thermal
@@ -482,19 +561,7 @@ def apply_reinforcement(net, r: Reinforcement) -> None:
     voltage) unchanged. kind "gsp" adds one more supergrid transformer at the GSP, raising its
     export limit by one SGT's rating (transmission works). No-op if the element id is unknown.
     """
-    if r.kind == "gsp":
-        if hasattr(net, "get") and net.get("gsp_export_limit_mw") is not None and net.get("gsp_sgt_mw"):
-            net["gsp_export_limit_mw"] = float(net["gsp_export_limit_mw"]) + float(net["gsp_sgt_mw"])
-        return
-    table = net.line if r.kind == "line" else net.trafo
-    if r.element_id not in table.index:
-        return
-    if r.action == "add_parallel":
-        table.at[r.element_id, "parallel"] = int(table.at[r.element_id, "parallel"]) + 1
-    elif r.kind == "line":
-        table.at[r.element_id, "max_i_ka"] = float(table.at[r.element_id, "max_i_ka"]) * r.factor
-    else:
-        table.at[r.element_id, "sn_mva"] = float(table.at[r.element_id, "sn_mva"]) * r.factor
+    REINFORCERS[r.kind](net, r)
 
 
 def upstream_path_lines(net, bus: int) -> list[int]:

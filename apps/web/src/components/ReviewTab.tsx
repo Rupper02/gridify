@@ -1,11 +1,22 @@
 // Review: branches (create / select / diff / suggestions / merge / discard), the registry of
 // projected projects to pull onto a branch, the consequence diff and the copilot suggestions.
 
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+
 import { BSTAT, CHG, ST, deltaColor, fmtMw, signed, signedV, techLabel } from "../theme";
 import { TechIcon } from "./TechIcon";
 
-export function ReviewTab({ planner }: { planner: Planner }) {
+export type ReviewTabPlanner = PlannerSlice<
+  | "activeBranch" | "branches" | "comparing" | "creatingBranch" | "diff" | "forecasts" | "loadingSuggestions"
+  | "newBranchForecast" | "newBranchName" | "pendingAdds" | "registry" | "registryLoaded" | "registryQuery"
+  | "showNewBranch" | "showRegistry" | "suggestions",
+  | "addRegistryProject" | "createBranchFlow" | "discardBranchFlow" | "mergeBranchFlow" | "runBranchDiff"
+  | "runSuggestions" | "selectBranch" | "selectProject" | "toggleRegistry",
+  "q" | "reviewB" | "hasReviewBranch" | "onMainView"
+> &
+  WithPatch;
+
+export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const { s, patch, actions, derived } = planner;
   const { q, reviewB, hasReviewBranch, onMainView } = derived;
   const branchActionsDisabled = !reviewB || reviewB.status !== "open";

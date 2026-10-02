@@ -15,7 +15,7 @@ for q in result.queue:
 print(suggest_unblock(cands, OptimizeParams(scenario="ht"), result))
 ```
 
-Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same inputs always give the same answer. That purity is what the caching leans on: `optimize(..., trial_cache=my_dict)` memoises every trial's outcome by (phase, the projects accepted before it, the project), so a re-run after one project is added solves only the trials whose state changed and still returns exactly the full answer; `progress=callback` reports the stage and fraction as the run advances.
+Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same inputs always give the same answer. That purity is what the caching leans on: `optimize(..., trial_cache=my_dict)` memoises every trial's outcome by (phase, the projects accepted before it, the project), so a re-run after one project is added solves only the trials whose state changed and still returns exactly the full answer; `progress=callback` reports the stage and fraction as the run advances; `net_factory=fn` supplies the base network (default: the bundled NGED build), so the same algorithm runs on any grid.
 
 ---
 

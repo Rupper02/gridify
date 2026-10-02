@@ -174,67 +174,62 @@ class _UF:
         self.p[self.find(a)] = self.find(b)
 
 
-def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
-    """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict."""
-    # LTDS flags every row against NGED's previous edition: New / Updated / Unchanged / Removed.
-    # The base network is what exists TODAY, so "Removed" equipment (decommissioned, or replaced —
-    # e.g. a transformer swapped for a bigger one appears once as Removed and once as New) is left
-    # out. Planned works would sit in LTDS Table 7, which has no rows for this GSP. The "previous"
-    # edition keeps the Removed rows and drops the New ones instead (Updated rows carry their
-    # current values either way: NGED doesn't publish the old ones).
-    tables = tables if tables is not None else load_bundled_tables()
-    live = lambda rows, col: [r for r in rows if _in_edition(r.get(col), edition)]
-    circ = live(tables.get("circuit", []), "Circuit Status")
-    t2a = live(tables.get("t2a", []), "Status")
-    dem = live(tables.get("demand", []), "Status")
-    nodes = tables.get("node", [])  # names only (unreferenced codes simply go unused)
-    name_by_code = {n["Code"]: n.get("Name", n["Code"]) for n in nodes}
+def _demand_nodes(d: dict) -> list[str]:
+    """A demand row can name several busbars ("GRNO8_MAIN1, GRNO8_MAIN2"): its load is split."""
+    return [n.strip() for n in str(d["Node"]).split(",") if n.strip()]
 
+
+def _merge_nodes(circ, t2a, dem):
+    """Union-find the nodes joined by switches / zero-impedance connectors into buses.
+    Returns (uf, groups root -> member nodes, node -> highest operating voltage touching it)."""
     uf = _UF()
     for c in circ:
         uf.find(c["Node 1"]); uf.find(c["Node 2"])
     for t in t2a:
         uf.find(t["Node 1"]); uf.find(t["Node 2"])
-    # a demand row can name several busbars ("GRNO8_MAIN1, GRNO8_MAIN2") — its load is split
-    dem_nodes = lambda d: [n.strip() for n in str(d["Node"]).split(",") if n.strip()]
     for d in dem:
-        for n in dem_nodes(d):
+        for n in _demand_nodes(d):
             uf.find(n)
     for c in circ:
         if not _is_line(c):
             uf.union(c["Node 1"], c["Node 2"])
 
     # per-node voltage from the circuits/transformers touching it
-    nodeV: dict[str, float] = {}
+    node_v: dict[str, float] = {}
     for c in circ:
         v = _num(c["Operating Voltage (kV)"])
         if v:
             for n in (c["Node 1"], c["Node 2"]):
-                nodeV[n] = max(nodeV.get(n, 0), v)
+                node_v[n] = max(node_v.get(n, 0), v)
     for t in t2a:
         for key, n in (("Operating Voltage 1", "Node 1"), ("Operating Voltage 2", "Node 2")):
             v = _num(t[key])
             if v:
-                nodeV[t[n]] = max(nodeV.get(t[n], 0), v)
+                node_v[t[n]] = max(node_v.get(t[n], 0), v)
 
     groups: dict[str, list[str]] = {}
     for n in list(uf.p):
         groups.setdefault(uf.find(n), []).append(n)
+    return uf, groups, node_v
 
-    net = pp.create_empty_network(name="NGED Bicker Fen 132kV (LTDS)")
+
+def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[int, str]]:
+    """One bus per merged group of nodes. Returns (node -> bus id, bus id -> representative code)."""
     busid: dict[str, int] = {}
     bus_code: dict[int, str] = {}
-    for g, members in groups.items():
-        v = max((nodeV.get(n, 0) for n in members), default=0) or 33.0
+    for members in groups.values():
+        v = max((node_v.get(n, 0) for n in members), default=0) or 33.0
         # prefer a human-ish code: the shortest member code
         rep = min(members, key=len)
         bid = pp.create_bus(net, vn_kv=v, name=name_by_code.get(rep, rep))
         for n in members:
             busid[n] = bid
         bus_code[bid] = rep
+    return busid, bus_code
 
-    gb = lambda n: busid[uf.find(n)]
 
+def _add_lines(net, circ, gb) -> None:
+    """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with a summer rating."""
     summer_ratio: dict[int, float | None] = {}  # line idx -> LTDS summer / winter rating
     for c in circ:
         if not _is_line(c):
@@ -263,6 +258,9 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     median_ratio = known[len(known) // 2] if known else 1.0
     net.line["summer_ratio"] = [summer_ratio.get(int(i)) or median_ratio for i in net.line.index]
 
+
+def _add_transformers(net, t2a, gb) -> None:
+    """Table 2a transformers: %Z on a 100 MVA base to pandapower vk%, with the HV-winding OLTC."""
     for t in t2a:
         sn = _num(t["Nominal Rating"])
         if not sn:
@@ -294,13 +292,15 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
             tap_changer_type="Ratio" if has_oltc else None,  # pandapower 3: taps are inert without a changer type
         )
 
-    load_mw: dict[int, float] = {}
+
+def _add_loads(net, dem, gb) -> None:
+    """LTDS Table 3 demand (after diversity), with each load's summer-minimum scaling."""
     min_scale: dict[int, float | None] = {}
     for d in dem:
         p = _num(d["Current Year Max Demand"])
         if not p:
             continue
-        nodes_d = dem_nodes(d)
+        nodes_d = _demand_nodes(d)
         pf = _num(d["Current Year Power Factor"]) or 0.95
         p *= DEMAND_DIVERSITY / len(nodes_d)
         q = p * math.tan(math.acos(min(max(pf, 0.5), 1.0)))
@@ -309,15 +309,15 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
         # Held at today's level (not grown): forecast growth is winter-evening EV/heat load.
         f = _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%"))
         for n in nodes_d:
-            b = gb(n)
-            idx = pp.create_load(net, b, p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
-            load_mw[b] = load_mw.get(b, 0.0) + p
+            idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
             min_scale[int(idx)] = (f / 100.0) / DEMAND_DIVERSITY if f else None
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
 
-    # existing/connected generation (LTDS Table 5, status Connected) IS the base network's fleet,
-    # sited at the substation NGED names for it (primary if given, else the bulk supply point) at
-    # its connection voltage, so local constraints are where they really are.
+
+def _add_existing_fleet(net, tables) -> list[dict]:
+    """Existing/connected generation (LTDS Table 5, status Connected) IS the base network's fleet,
+    sited at the substation NGED names for it (primary if given, else the bulk supply point) at
+    its connection voltage, so local constraints are where they really are."""
     conn_gen = sorted(
         [g for g in tables.get("gen", [])
          if (_num(g.get("Agreed Export Capacity")) or 0) > 0
@@ -344,8 +344,13 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
         existing.append({"request_id": f"EX-{3000 + n}", "bus_id": int(bus), "rating_mw": r,
                          "technology": tech, "fuel": fuel, "status": "connected", "placement": placement,
                          "applicant": f"{fuel or 'Existing DER'} · {_substation(site) or 'Bicker Fen'}"})
+    return existing
 
-    # external grid at the best-connected 132 kV busbar (the GSP transmission infeed)
+
+def _add_gsp_infeed(net) -> int:
+    """The external grid at the best-connected 132 kV busbar (the GSP transmission infeed), the
+    transmission boundary carried on the net, and the buses the GSP can't reach dropped.
+    Returns the slack bus id."""
     deg = _bus_degree(net)
     hv = net.bus[net.bus.vn_kv >= 132].index.tolist() or [net.bus.vn_kv.idxmax()]
     slack = max(hv, key=lambda b: deg.get(b, 0))
@@ -361,6 +366,37 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     unsupplied = [int(b) for b in top.unsupplied_buses(net) if b != slack]
     if unsupplied:
         drop_buses(net, unsupplied)
+    return slack
+
+
+def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
+    """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict.
+
+    LTDS flags every row against NGED's previous edition: New / Updated / Unchanged / Removed.
+    The base network is what exists TODAY, so "Removed" equipment (decommissioned, or replaced —
+    e.g. a transformer swapped for a bigger one appears once as Removed and once as New) is left
+    out. Planned works would sit in LTDS Table 7, which has no rows for this GSP. The "previous"
+    edition keeps the Removed rows and drops the New ones instead (Updated rows carry their
+    current values either way: NGED doesn't publish the old ones).
+
+    Each step below adds one kind of element to the net, in dependency order."""
+    tables = tables if tables is not None else load_bundled_tables()
+    circ = [r for r in tables.get("circuit", []) if _in_edition(r.get("Circuit Status"), edition)]
+    t2a = [r for r in tables.get("t2a", []) if _in_edition(r.get("Status"), edition)]
+    dem = [r for r in tables.get("demand", []) if _in_edition(r.get("Status"), edition)]
+    nodes = tables.get("node", [])  # names only (unreferenced codes simply go unused)
+    name_by_code = {n["Code"]: n.get("Name", n["Code"]) for n in nodes}
+
+    uf, groups, node_v = _merge_nodes(circ, t2a, dem)
+    net = pp.create_empty_network(name="NGED Bicker Fen 132kV (LTDS)")
+    busid, bus_code = _add_buses(net, groups, node_v, name_by_code)
+    gb = lambda n: busid[uf.find(n)]
+
+    _add_lines(net, circ, gb)
+    _add_transformers(net, t2a, gb)
+    _add_loads(net, dem, gb)
+    existing = _add_existing_fleet(net, tables)
+    slack = _add_gsp_infeed(net)
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
             "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}
@@ -544,7 +580,7 @@ _STATUS_READINESS = {"accepted": 0.9, "connected": 0.95, "budget estimates provi
                      "quotation": 0.55, "offered": 0.7, "scoping": 0.2}
 
 
-def _commission_year(readiness: float, tech: str | None, rating: float | None, seed: str) -> int:
+def commission_year(readiness: float, tech: str | None, rating: float | None, seed: str) -> int:
     """A deterministic requested-energisation year in [2027, 2035] — the timeline axis.
 
     Readiness pulls it earlier (a shovel-ready project energises soonest); wind and large schemes
@@ -604,7 +640,7 @@ def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dic
             "readiness_rationale": f"LTDS Table 5 connection status: {g.get('Connection Status') or 'unknown'}.",
             "readiness_breakdown": "", "land_rights": "", "planning_status": "",
             "grid_connection_agreement": "", "financing": "",
-            "commissioning_year": _commission_year(readiness, tech, rating, f"NG-{3000 + n}"),
+            "commissioning_year": commission_year(readiness, tech, rating, f"NG-{3000 + n}"),
             "strategic_fit": 0.75 if tech in ("wind", "battery") else 0.68,
             "strategic_rationale": "Clean capacity in a renewables-rich, network-constrained GSP region.",
             "status": "auto_accept" if valid else "needs_review", "review_reasons": ", ".join(reasons),

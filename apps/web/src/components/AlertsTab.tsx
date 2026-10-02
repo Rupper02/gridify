@@ -1,7 +1,10 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice } from "../hooks/planner/slice";
+
 import type { AlertGroup, AlertItem } from "../lib/derive";
 
-export function AlertsTab({ planner, groups }: { planner: Planner; groups: AlertGroup[] }) {
+export type AlertsTabPlanner = PlannerSlice<"result" | "sel", "focusSel" | "selectProject">;
+
+export function AlertsTab({ planner, groups }: { planner: AlertsTabPlanner; groups: AlertGroup[] }) {
   const { s, actions } = planner;
   const sel = s.sel;
   const isSel = (a: AlertItem) =>

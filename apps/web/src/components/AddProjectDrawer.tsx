@@ -1,8 +1,17 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithFormInvalid, WithPatch } from "../hooks/planner/slice";
+
 import { ADDED_ID_BASE, EVID, TECH } from "../theme";
 import type { Tech } from "../types";
 
-export function AddProjectDrawer({ planner }: { planner: Planner }) {
+export type AddProjectDrawerPlanner = PlannerSlice<
+  "cands" | "form" | "maxMw" | "model" | "pickMode",
+  "setForm" | "submit",
+  "onMainView" | "reviewB"
+> &
+  WithPatch &
+  WithFormInvalid;
+
+export function AddProjectDrawer({ planner }: { planner: AddProjectDrawerPlanner }) {
   const { s, patch, actions, derived, formInvalid } = planner;
   const { onMainView, reviewB } = derived;
   const f = s.form;

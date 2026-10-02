@@ -5,17 +5,21 @@ import type { FeatureCollection } from "geojson";
 import maplibregl, { type LayerSpecification, type Map as MLMap, type MapMouseEvent } from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithMap, WithPatch } from "../hooks/planner/slice";
 import type { ProjView } from "../lib/derive";
 import { GEO_SOURCES, type Geo } from "../lib/geo";
 import { addIcons } from "../lib/icons";
 import { placeLabels } from "../lib/labels";
 import type { Hit, HitKind, QueueItem } from "../types";
 import { BoundaryCard, StatsBar, TimelineBox } from "./MapOverlays";
+import type { BoundaryCardPlanner, StatsBarPlanner, TimelineBoxPlanner } from "./MapOverlays";
 import { DetailCard } from "./DetailCard";
+import type { DetailCardPlanner } from "./DetailCard";
 import { Legend } from "./Legend";
 import { RunOverlay } from "./RunOverlay";
+import type { RunOverlayPlanner } from "./RunOverlay";
 import { Tooltip } from "./Tooltip";
+import type { TooltipPlanner } from "./Tooltip";
 
 const HIT_LAYERS: [string, HitKind][] = [
   ["proj-icons", "project"],
@@ -67,8 +71,23 @@ function collapseAttribution(map: MLMap): void {
   }
 }
 
+/** The map's own reads, plus every overlay and card it renders. */
+export type MapViewPlanner = PlannerSlice<
+  "boundary" | "hover" | "legendHidden" | "loadingMode" | "model" | "pickMode" | "result" | "running" | "sel"
+  | "showBoundary" | "showLabels" | "showLoads" | "size" | "voltageMode",
+  "pick" | "zoomFit" | "zoomIn" | "zoomOut"
+> &
+  WithPatch &
+  WithMap &
+  TimelineBoxPlanner &
+  StatsBarPlanner &
+  BoundaryCardPlanner &
+  DetailCardPlanner &
+  TooltipPlanner &
+  RunOverlayPlanner;
+
 export interface MapViewProps {
-  planner: Planner;
+  planner: MapViewPlanner;
   geo: Geo | null;
   projList: ProjView[];
   selQ: QueueItem | null;

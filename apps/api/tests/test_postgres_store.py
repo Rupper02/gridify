@@ -3,7 +3,7 @@
 Runs only when GRIDFORGE_TEST_PG_URL points at a Postgres database the test may write to, e.g.
     GRIDFORGE_TEST_PG_URL=postgresql://gridforge@127.0.0.1:5499/gridforge_test
 Everything the API persists (branches, added projects, schedules, the durable result cache) goes
-through the same `_scenarios()` cursor, so a short end-to-end pass is a real check of the dialect.
+through the same `scenarios.cursor()`, so a short end-to-end pass is a real check of the dialect.
 """
 
 import os
@@ -11,29 +11,29 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from gridforge_api import main
+from gridforge_api import deps, main
+from gridforge_api.config import WAREHOUSE
 
 PG_URL = os.getenv("GRIDFORGE_TEST_PG_URL")
 pytestmark = [
     pytest.mark.skipif(not PG_URL, reason="set GRIDFORGE_TEST_PG_URL to a writable Postgres database"),
-    pytest.mark.skipif(not main.WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"),
+    pytest.mark.skipif(not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"),
 ]
 
 
 @pytest.fixture
 def pg_store():
-    original = main.SCENARIOS_URL or main.SCENARIOS
-    main._use_scenarios_db(PG_URL)
+    original = deps.scenarios.target
+    deps.scenarios.use(PG_URL)
     # start from a clean slate in the test database
-    with main._scenarios() as con:
+    with deps.scenarios.cursor() as con:
         for t in ("result_cache", "added_candidates", "branches"):
             con.execute(f"DROP TABLE IF EXISTS {t}")
-    main._SCEN_DB.close()
-    main._SCEN_DB = None
+    deps.scenarios.close()
     try:
         yield
     finally:
-        main._use_scenarios_db(original)
+        deps.scenarios.use(original)
 
 
 def test_branch_workflow_and_cache_on_postgres(pg_store):
@@ -57,7 +57,7 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
     assert next(x for x in again["queue"] if x["request_id"] == rid)["scheduled_year"] == item["recommended_year"]
 
     # the durable cache lives in Postgres too
-    with main._scenarios() as con:
+    with deps.scenarios.cursor() as con:
         assert con.dialect == "postgres"
         assert con.execute("SELECT count(*) FROM result_cache").fetchone()[0] >= 1
         assert "import_mw" in con.columns("added_candidates")

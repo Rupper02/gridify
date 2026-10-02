@@ -15,6 +15,8 @@ later one. The accurate mode is `optimize(..., reinforcements=[...])` + `diff_re
 
 from __future__ import annotations
 
+from typing import Callable, NamedTuple
+
 from .config import MAX_REINFORCE_STEPS, MAX_SUGGESTIONS, VOLTAGE_ABSORB_PF_STEPS
 from .greedy import _grow, optimize
 from .network import (
@@ -27,7 +29,7 @@ from .network import (
 )
 from .types import Candidate, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
 
-_BINDING = ("line", "trafo", "voltage")
+_THERMAL_TYPES = ("line", "trafo")  # reasons fixed by adding a parallel circuit to the binding element
 _HARDEST_PHASE = "2035"  # max demand growth -> the binding set that gates the whole horizon
 
 
@@ -90,7 +92,7 @@ def _discover_chain(cand_by_id, params, base, target_rid):
         last_reason = reason
         if ok:
             return reinf, True, None, solves
-        if reason is None or reason.type not in ("line", "trafo") or reason.element_id is None:
+        if reason is None or reason.type not in _THERMAL_TYPES or reason.element_id is None:
             break  # voltage / non-convergent: not fixable by adding parallels here
         key = (reason.type, int(reason.element_id))
         if any((r.kind, r.element_id) == key for r in reinf):
@@ -234,6 +236,35 @@ def _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked):
     )
 
 
+class Lever(NamedTuple):
+    """What to do about one kind of binding constraint. `suggest(cand_by_id, deferred_ids, params,
+    base, blocked_ids, element_id)` returns a Suggestion; a `wide` lever acts on the whole network
+    (element_id is None) and covers every project bound by that reason type with one suggestion."""
+
+    suggest: Callable[..., Suggestion]
+    wide: bool = False
+
+
+def _lever_thermal(cand_by_id, deferred_ids, params, base, blocked, element_id):
+    return _reinforcement_suggestion(cand_by_id, deferred_ids, params, base, blocked[0], blocked)
+
+
+def _lever_voltage(cand_by_id, deferred_ids, params, base, blocked, element_id):
+    return _voltage_suggestion(cand_by_id, deferred_ids, params, base, element_id, blocked)
+
+
+def _lever_gsp(cand_by_id, deferred_ids, params, base, blocked, element_id):
+    return _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked)
+
+
+# Reason.type -> its lever. A new kind of binding constraint is a reason in network.py plus one entry here.
+LEVERS: dict[str, Lever] = {
+    **{t: Lever(_lever_thermal) for t in _THERMAL_TYPES},
+    "voltage": Lever(_lever_voltage),
+    "gsp": Lever(_lever_gsp, wide=True),
+}
+
+
 def _dedupe(suggestions: list[Suggestion]) -> list[Suggestion]:
     """Merge suggestions that model the same action (two projects needing the same upgrade)."""
     out: dict[tuple, Suggestion] = {}
@@ -265,34 +296,22 @@ def suggest_unblock(
 
     cand_by_id = _cand_index(candidates)
     deferred_ids = [q.request_id for q in base.queue if q.status == "Deferred"]
-    binding = [
-        q
-        for q in base.queue  # already in rank order
-        if q.status == "Deferred"
-        and q.reason is not None
-        and q.reason.type in _BINDING
-        and q.reason.element_id is not None
+    bound = [  # already in rank order
+        q for q in base.queue
+        if q.status == "Deferred" and q.reason is not None and q.reason.type in LEVERS
     ]
-    gsp_bound = [q.request_id for q in base.queue
-                 if q.status == "Deferred" and q.reason is not None and q.reason.type == "gsp"]
-    if not binding and not gsp_bound:
-        return []
 
     out: list[Suggestion] = []
-    if gsp_bound:  # one GSP-wide lever covers every boundary-bound project; it leads the list
-        out.append(_gsp_suggestion(cand_by_id, deferred_ids, params, base, gsp_bound))
-        max_suggestions -= 1
-    for q in binding[:max_suggestions]:
-        if q.reason.type == "voltage":
-            out.append(
-                _voltage_suggestion(
-                    cand_by_id, deferred_ids, params, base, int(q.reason.element_id), [q.request_id]
-                )
-            )
-        else:
-            out.append(
-                _reinforcement_suggestion(
-                    cand_by_id, deferred_ids, params, base, q.request_id, [q.request_id]
-                )
-            )
+    # a wide lever covers every project bound by its reason type with ONE suggestion, which leads the list
+    for reason_type, lever in LEVERS.items():
+        if not lever.wide:
+            continue
+        blocked = [q.request_id for q in bound if q.reason.type == reason_type]
+        if blocked:
+            out.append(lever.suggest(cand_by_id, deferred_ids, params, base, blocked, None))
+            max_suggestions -= 1
+    per_project = [q for q in bound if not LEVERS[q.reason.type].wide and q.reason.element_id is not None]
+    for q in per_project[:max(max_suggestions, 0)]:
+        out.append(LEVERS[q.reason.type].suggest(
+            cand_by_id, deferred_ids, params, base, [q.request_id], int(q.reason.element_id)))
     return _dedupe(out)

@@ -1,6 +1,9 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice } from "../hooks/planner/slice";
 
-export function RunOverlay({ planner }: { planner: Planner }) {
+export type RunOverlayPlanner = PlannerSlice<"cands" | "stage" | "step", never, "eg30" | "eg35" | "fcEff">;
+
+
+export function RunOverlay({ planner }: { planner: RunOverlayPlanner }) {
   const { s, derived } = planner;
   const { eg30, eg35, fcEff } = derived;
   const labels = [

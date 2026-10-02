@@ -1,8 +1,16 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+
 import { filterSortQueue, sumMw } from "../lib/derive";
 import { ST, fmtMw, techLabel } from "../theme";
 import type { QueueItem, SortKey, Status } from "../types";
 import { TechIcon } from "./TechIcon";
+
+export type QueueTabPlanner = PlannerSlice<
+  "filter" | "grouped" | "prevStatus" | "query" | "result" | "sel" | "sortDir" | "sortKey",
+  "selectProject",
+  "q" | "manualIds"
+> &
+  WithPatch;
 
 const COLS: [SortKey, string, "flex-start" | "flex-end"][] = [
   ["rank", "#", "flex-start"],
@@ -13,7 +21,7 @@ const COLS: [SortKey, string, "flex-start" | "flex-end"][] = [
 ];
 const GROUP_ORDER: Status[] = ["Phase1", "Phase2", "Deferred", "Rejected"];
 
-export function QueueTab({ planner }: { planner: Planner }) {
+export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
   const { s, patch, actions, derived } = planner;
   const { q, manualIds } = derived;
   const sorted = filterSortQueue(q, s.filter, s.query, s.sortKey, s.sortDir);

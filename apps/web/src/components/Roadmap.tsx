@@ -1,8 +1,11 @@
-import type { Planner } from "../hooks/usePlanner";
+import type { PlannerSlice } from "../hooks/planner/slice";
+
 import { byStatus, sumMw } from "../lib/derive";
 import { ST, fmtMw, techLabel } from "../theme";
 import type { QueueItem, Status } from "../types";
 import { TechIcon } from "./TechIcon";
+
+export type RoadmapPlanner = PlannerSlice<"result" | "sel", "selectProject", "q">;
 
 function Card({ x, selected, onClick, deferred }: { x: QueueItem; selected: boolean; onClick: () => void; deferred?: boolean }) {
   const st = ST[x.status];
@@ -24,7 +27,7 @@ function Card({ x, selected, onClick, deferred }: { x: QueueItem; selected: bool
   );
 }
 
-export function Roadmap({ planner }: { planner: Planner }) {
+export function Roadmap({ planner }: { planner: RoadmapPlanner }) {
   const { s, actions, derived } = planner;
   const { q } = derived;
   const r = s.result;

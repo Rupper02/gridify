@@ -12,22 +12,23 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from gridforge_api import main
+from gridforge_api import deps, main
+from gridforge_api.config import WAREHOUSE
 
 pytestmark = pytest.mark.skipif(
-    not main.WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"
+    not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"
 )
 
 
 @pytest.fixture
 def fresh_db():
     """Point the API at an empty scenarios DB for one test, then restore the suite's DB."""
-    original = main.SCENARIOS
-    main._use_scenarios_db(Path(tempfile.mkdtemp()) / "fresh.duckdb")
+    original = deps.scenarios.target
+    deps.scenarios.use(Path(tempfile.mkdtemp()) / "fresh.duckdb")
     try:
         yield
     finally:
-        main._use_scenarios_db(original)
+        deps.scenarios.use(original)
 
 
 def test_concurrent_first_requests_on_an_empty_scenarios_db(fresh_db):
@@ -54,7 +55,7 @@ def test_unhandled_errors_are_json_500s_with_cors_headers(monkeypatch):
     def boom():
         raise RuntimeError("warehouse exploded")
 
-    monkeypatch.setattr(main, "baseline_model", boom)
+    monkeypatch.setattr(deps.warehouse, "baseline_model", boom)
     client = TestClient(main.app, raise_server_exceptions=False)
     r = client.get("/model", headers={"Origin": "http://localhost:3000"})
     assert r.status_code == 500
