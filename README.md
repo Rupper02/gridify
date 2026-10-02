@@ -260,3 +260,21 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution → transmission.
 - **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions because the old values aren't published.
+
+---
+
+## How this was built
+
+GridForge was built in about a week by one person working with Claude Code as a pair, and the commit history says so: every commit carries a `Co-Authored-By: Claude` trailer. It would be odd to hide that from a company that lists "AI-assisted software development" as a skill it hires for, so here is how the division of labour actually worked.
+
+**What the human did.** Chose the problem and the data (one real GSP, open data only, NGED because it is the launch customer's network), set the rules the agent works under (`AGENTS.md`: `main` is only what exists today, the LLM never touches physics, honesty over fake precision), made every product decision (the pull-request framing, the registry of optional projects, "parameters are set by the flows, not the operator", recommend-then-override for energisation years), and reviewed the result in the browser after each slice. The pivots (restoration → data pipeline → connection-queue optimiser → PR workflow on a real network) were human calls, as was the decision to throw away a working manual-editing frontend.
+
+**What the agent did.** Wrote most of the code, the tests and the docs, in slices that the human directed and inspected. Then, asked to review the project as the hiring team would, it produced a critique of its own work and worked through the fixes one at a time.
+
+**What that review caught, because this is the part that matters.** A fresh clone 500'd on first load (two concurrent table creations on an empty database). The frontend was a Next.js shell redirecting to a 1,600-line template-dialect file that compiled JSX in the browser; it was rebuilt as a plain Vite + React + TypeScript app. The Dagster lineage was decorative (assets ignored their inputs) and the snapshot table was overwritten on every run. Voltage limits were 0.9–1.1 pu everywhere instead of the statutory ±6 % below 132 kV, which only became a sensible rule once the tap changers were modelled. The existing fleet was placed round-robin rather than at its real substations. PV ran at full output at the winter evening peak. The Python `.gitignore` template was silently keeping the planner's `src/lib` folder out of git. Tests took ten minutes because every one paid for an N-1 screen it was not testing.
+
+**What the agent got wrong along the way, and how it was caught.** pandapower 3 ignores transformer taps unless a changer type is declared, so the first tap-regulation loop moved taps that did nothing; a probe of the busbar voltages exposed it. The LTDS tap ranges (−12..+4) are HV-winding taps where a lower tap raises the LV voltage; the first implementation tapped the wrong winding and hit the stop. The first React port dropped the coalesced re-run after rapid adds because it read React state that had not flushed yet; a headless browser run that added four projects and found one caught it. In every case the fix came from measuring (a power-flow probe, a request log, a screenshot), not from re-reading the code, and each is now a test.
+
+**Commit discipline.** The early commits are large because the project was built in large slices. From the review onward each change is its own commit with a message that states what was measured. That is the practice going forward.
+
+**Honesty about scope.** This is a planning toy on one GSP built from open data, not a product. The limitations above are real; the numbers are only as good as the LTDS tables and the assumptions written next to them.
