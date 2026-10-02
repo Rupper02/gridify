@@ -489,6 +489,11 @@ def n1_screen(net, case: str = "winter_peak") -> dict:
     if case not in cases:
         case = "winter_peak"
     load_scale, rating_ratio = cases[case]
+    # the pre-fault state is the intact network with its taps regulated for THIS case. feasibility()
+    # leaves them as the last study case (summer minimum) settled them, which would make every winter
+    # outage look like a voltage breach, so settle them for the screened case first; each outage then
+    # runs with those taps frozen (a tap changer does not move in the instant after a fault).
+    _run_case(net, case, load_scale, rating_ratio, regulate=True)
     kv = net.bus["vn_kv"].astype(float)
     lines = [int(i) for i in net.line.index if net.line.at[i, "in_service"] and kv.loc[int(net.line.at[i, "from_bus"])] >= N1_MIN_KV]
     trafos = [int(i) for i in net.trafo.index if net.trafo.at[i, "in_service"] and kv.loc[int(net.trafo.at[i, "hv_bus"])] >= N1_MIN_KV]

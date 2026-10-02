@@ -20,7 +20,6 @@ const VARIANTS = {
   p1: { fill: "#16a34a", stroke: "#ffffff", glyph: "#ffffff", dash: [] as number[] },
   p2: { fill: "#2563eb", stroke: "#ffffff", glyph: "#ffffff", dash: [] as number[] },
   ghost: { fill: "rgba(219,234,254,0.9)", stroke: "#2563eb", glyph: "#2563eb", dash: [3, 2] },
-  def: { fill: "rgba(254,243,199,0.95)", stroke: "#d97706", glyph: "#b45309", dash: [4, 2.5] },
   rej: { fill: "#f3f4f6", stroke: "#9ca3af", glyph: "#9ca3af", dash: [2, 2] },
 };
 

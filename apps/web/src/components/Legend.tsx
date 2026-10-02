@@ -48,7 +48,6 @@ export function Legend({ onClose }: { onClose: () => void }) {
       <div className="phases">
         <span><span className="swatch" style={{ background: "#16a34a" }} />Phase 1</span>
         <span><span className="swatch" style={{ background: "#2563eb" }} />Phase 2</span>
-        <span><span className="swatch" style={{ background: "#fef3c7", border: "1.5px dashed #d97706" }} />Deferred</span>
         <span><span className="swatch" style={{ background: "#f3f4f6", border: "1px dashed #9ca3af" }} />Rejected</span>
       </div>
     </div>

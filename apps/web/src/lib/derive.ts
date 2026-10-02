@@ -37,7 +37,7 @@ export function effYearOf(x: QueueItem): number | null {
 
 export const phaseForYear = (year: number): PhaseKey => (year <= 2030 ? "2030" : "2035");
 
-export type ProjVariant = "p1" | "p2" | "ghost" | "def" | "rej";
+export type ProjVariant = "p1" | "p2" | "ghost" | "rej";
 export interface ProjView {
   x: QueueItem;
   variant: ProjVariant;
@@ -51,10 +51,15 @@ export interface ProjView {
   fg: string;
 }
 
-/** Map/label view of every geolocated queue item for the given timeline year. */
+/**
+ * Map/label view of the geolocated queue items for the given timeline year. Deferred projects are
+ * NOT drawn: they have no year, so they would sit on the map at every year as if present. They stay
+ * flagged in the Queue, the Roadmap's deferred column and the Alerts tab, and the element blocking
+ * them is still highlighted (see bindingSets).
+ */
 export function buildProjList(q: QueueItem[], timelineYear: number): ProjView[] {
   return q
-    .filter((x) => x.lon != null && x.rating_mw != null)
+    .filter((x) => x.lon != null && x.rating_mw != null && x.status !== "Deferred")
     .map((x) => {
       const accepted = isAccepted(x);
       const eff = effYearOf(x);
@@ -65,13 +70,13 @@ export function buildProjList(q: QueueItem[], timelineYear: number): ProjView[] 
       // scheduled earlier than the grid supports = goes against the recommendation (marked on map)
       const offRec =
         accepted && x.scheduled_year != null && x.recommended_year != null && x.scheduled_year < x.recommended_year;
-      const blocked = x.status === "Deferred" || x.status === "Rejected";
+      const blocked = x.status === "Rejected";
       const variant: ProjVariant =
-        x.status === "Rejected" ? "rej" : x.status === "Deferred" ? "def" : future ? "ghost" : x.status === "Phase1" ? "p1" : "p2";
+        x.status === "Rejected" ? "rej" : future ? "ghost" : x.status === "Phase1" ? "p1" : "p2";
       const size =
         x.status === "Rejected" ? 0.55 : (0.6 + (Math.sqrt(x.rating_mw ?? 0) / Math.sqrt(18)) * 0.5) * (isNew ? 1.12 : 1);
       const label = blocked
-        ? `${x.request_id} · ${x.status === "Deferred" ? "deferred" : "rejected"}`
+        ? `${x.request_id} · rejected`
         : future
           ? `${x.request_id} · planned ${eff}`
           : `${x.request_id} · ${fmtMw(x.rating_mw)} MW${isNew ? ` · online ${eff}` : ""}`;

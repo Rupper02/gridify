@@ -34,7 +34,8 @@ describe("buildProjList + timelineRollup", () => {
     expect(by.new.isNew && by.new.label.endsWith("online 2030")).toBe(true);
     expect(by.future.future && by.future.variant === "ghost" && by.future.label).toContain("planned 2033");
     expect(by.early.offRec).toBe(true);
-    expect(by.deferred.blocked && by.deferred.variant === "def").toBe(true);
+    expect(by.deferred).toBeUndefined(); // deferred: flagged elsewhere, never drawn at any year
+    expect(buildProjList(q, 2026).some((p) => p.x.status === "Deferred")).toBe(false);
     expect(by.nowhere).toBeUndefined(); // no coordinates -> not drawn
   });
   it("rolls up what is online by the year and what is new that year; deferred never counts", () => {
