@@ -52,7 +52,13 @@ export function usePlanner() {
       onForecast: (id: string) => {
         if (ref.current.activeBranch !== "main") return;
         const x = ref.current.forecasts.find((y) => y.id === id);
-        patch(x ? { forecastId: id, g30: x.growth_2030, g35: x.growth_2035 } : { forecastId: id });
+        if (x) {
+          patch({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
+          // Run with the new forecast parameters immediately
+          void run({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
+        } else {
+          patch({ forecastId: id });
+        }
       },
       toggleRegistry: () => {
         if (!ref.current.registryLoaded) void loadRegistry();
