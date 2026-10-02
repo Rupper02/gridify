@@ -1,4 +1,5 @@
-"""pandapower helpers: build the network, grow demand, inject generation, test feasibility."""
+"""pandapower helpers: build the network, grow demand, dispatch generation per study case, inject
+projects, test feasibility (statutory voltage bands, thermal limits, the GSP boundary), screen N-1."""
 
 from __future__ import annotations
 
@@ -10,6 +11,11 @@ import pandapower.topology as top
 import pandas as pd
 
 from .config import (
+    GENERATION_FACTOR_DEFAULT,
+    GENERATION_FACTORS,
+    OLTC_DEADBAND_PU,
+    OLTC_MAX_PASSES,
+    OLTC_SETPOINT_PU,
     GROWTH_BETA_INDUSTRIAL,
     GROWTH_BETA_RESIDENTIAL,
     GROWTH_EDGE_TILT,
@@ -18,9 +24,10 @@ from .config import (
     GROWTH_HOTSPOT_QUANTILE,
     LINE_LOADING_MAX_PCT,
     LOAD_TYPE_RESIDENTIAL,
+    N1_ISLAND_MIN_MW,
+    N1_MIN_KV,
     TRAFO_LOADING_MAX_PCT,
-    VOLTAGE_MAX_PU,
-    VOLTAGE_MIN_PU,
+    VOLTAGE_BANDS,
 )
 from .types import Reason, Reinforcement
 
@@ -92,19 +99,55 @@ def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
     return 1.0 + g * (w / wbar)
 
 
-# --- generation + feasibility ----------------------------------------------
+# --- voltage limits ------------------------------------------------------------------------------
+def voltage_limits(net) -> tuple[pd.Series, pd.Series]:
+    """Per-bus statutory voltage band (vmin, vmax in pu) from the bus's nominal voltage: the first
+    band in VOLTAGE_BANDS whose minimum kV the bus reaches (±10 % at 132 kV, ±6 % below it)."""
+    kv = net.bus["vn_kv"].astype(float)
+    vmin = pd.Series(VOLTAGE_BANDS[-1][1], index=net.bus.index, dtype=float)
+    vmax = pd.Series(VOLTAGE_BANDS[-1][2], index=net.bus.index, dtype=float)
+    for min_kv, lo, hi in sorted(VOLTAGE_BANDS, key=lambda b: b[0]):  # ascending: higher levels overwrite
+        sel = kv >= min_kv
+        vmin[sel] = lo
+        vmax[sel] = hi
+    return vmin, vmax
+
+
+def voltage_band(kv: float) -> tuple[float, float]:
+    """The (vmin, vmax) band for one nominal voltage."""
+    lo, hi = VOLTAGE_BANDS[-1][1], VOLTAGE_BANDS[-1][2]
+    for min_kv, lo_b, hi_b in sorted(VOLTAGE_BANDS, key=lambda b: b[0]):
+        if kv >= min_kv:
+            lo, hi = lo_b, hi_b
+    return lo, hi
+
+
+# --- generation + dispatch -----------------------------------------------------------------------
+def _ensure_sgen_columns(net) -> None:
+    if "import_mw" not in net.sgen.columns:
+        net.sgen["import_mw"] = pd.Series(dtype=float)
+    if "p_rated_mw" not in net.sgen.columns:
+        net.sgen["p_rated_mw"] = pd.Series(dtype=float)
+
+
 def inject_sgen(
-    net, bus: int, p_mw: float, name: str = "", tech: str | None = None, q_mvar: float = 0.0
+    net, bus: int, p_mw: float, name: str = "", tech: str | None = None, q_mvar: float = 0.0,
+    import_mw: float | None = None,
 ) -> int:
     """Add a static generator (PQ) — DER does not regulate voltage, so violations surface.
 
     `q_mvar` defaults to 0 (unity power factor); a negative value models the DER ABSORBING
-    reactive power, the cheapest lever against voltage rise from export. Returns the new sgen
-    index so a trial injection can be dropped again.
+    reactive power, the cheapest lever against voltage rise from export. `import_mw` is the
+    project's charging capacity (batteries): the demand it adds in the winter-peak case. Returns
+    the new sgen index so a trial injection can be dropped again.
     """
     if int(bus) not in net.bus.index:
         raise ValueError(f"cannot connect at bus {bus}: not in the network model")
-    return int(pp.create_sgen(net, bus=int(bus), p_mw=float(p_mw), q_mvar=float(q_mvar), name=name, type=tech))
+    idx = int(pp.create_sgen(net, bus=int(bus), p_mw=float(p_mw), q_mvar=float(q_mvar), name=name, type=tech))
+    _ensure_sgen_columns(net)
+    net.sgen.at[idx, "p_rated_mw"] = float(p_mw)
+    net.sgen.at[idx, "import_mw"] = float(import_mw) if import_mw is not None else float(p_mw)
+    return idx
 
 
 def drop_sgen(net, idx: int) -> None:
@@ -112,10 +155,78 @@ def drop_sgen(net, idx: int) -> None:
     net.sgen = net.sgen.drop(index=idx)
 
 
+def dispatch_for_case(net, case: str) -> pd.Series:
+    """The active power of every sgen in a study case.
+
+    GENERATION_FACTORS says how much of its rating each technology produces per case: the summer
+    minimum (generation) case runs everything at full export; the winter peak (demand) case runs PV
+    and wind at nil and batteries CHARGING at their import capacity (a negative factor means import).
+    Unknown technologies are treated as firm (GENERATION_FACTOR_DEFAULT).
+    """
+    _ensure_sgen_columns(net)
+    factors = GENERATION_FACTORS.get(case, {})
+    default = GENERATION_FACTOR_DEFAULT.get(case, 1.0)
+    rated = net.sgen["p_rated_mw"].where(net.sgen["p_rated_mw"].notna(), net.sgen["p_mw"]).astype(float)
+    imp = net.sgen["import_mw"].where(net.sgen["import_mw"].notna(), rated).astype(float)
+    out = pd.Series(0.0, index=net.sgen.index, dtype=float)
+    for idx in net.sgen.index:
+        tech = str(net.sgen.at[idx, "type"] or "").lower()
+        f = factors.get(tech, default)
+        out[idx] = rated[idx] * f if f >= 0 else -imp[idx] * (-f)
+    return out
+
+
+def _oltc_trafos(net) -> pd.Index:
+    """Transformers with a usable on-load tap changer (a tap range and a step)."""
+    t = net.trafo
+    if "tap_step_percent" not in t.columns:
+        return t.index[:0]
+    ok = t["tap_step_percent"].fillna(0) > 0
+    ok &= t["tap_max"].fillna(0) > t["tap_min"].fillna(0)
+    ok &= t["in_service"]
+    return t.index[ok]
+
+
+def _regulate_taps(net) -> int:
+    """One AVC pass: move every OLTC transformer's tap so its LV busbar heads back to the setpoint.
+    Returns how many taps moved. Needs a solved net (reads net.res_bus). On an HV-tapped transformer
+    (GB practice) a LOWER tap means fewer HV turns and a higher LV voltage; on an LV-tapped one it is
+    the other way round, so the correction's sign follows `tap_side`."""
+    moved = 0
+    idx = _oltc_trafos(net)
+    if not len(idx):
+        return 0
+    vm = net.res_bus["vm_pu"]
+    for tid in idx:
+        lv = int(net.trafo.at[tid, "lv_bus"])
+        v = float(vm.get(lv, float("nan")))
+        if v != v:  # islanded / not solved
+            continue
+        err = v - OLTC_SETPOINT_PU
+        if abs(err) <= OLTC_DEADBAND_PU:
+            continue
+        step = float(net.trafo.at[tid, "tap_step_percent"]) / 100.0
+        pos = int(net.trafo.at[tid, "tap_pos"])
+        delta = round(err / step)  # taps to move, before the winding's sign
+        if str(net.trafo.at[tid, "tap_side"]) == "lv":
+            delta = -delta
+        new = int(min(max(pos + delta, int(net.trafo.at[tid, "tap_min"])), int(net.trafo.at[tid, "tap_max"])))
+        if new != pos:
+            net.trafo.at[tid, "tap_pos"] = new
+            moved += 1
+    return moved
+
+
 def _solve(net) -> bool:
-    """Run the AC power flow in place; return False if it fails to converge."""
+    """Run the AC power flow in place, letting the on-load tap changers settle (up to
+    OLTC_MAX_PASSES passes; tap positions persist on the net so later solves start settled).
+    Return False if the power flow fails to converge."""
     try:
-        pp.runpp(net)  # uses numba when installed (big speedup over the ~2N solves)
+        pp.runpp(net)  # numba when installed
+        for _ in range(OLTC_MAX_PASSES - 1):
+            if _regulate_taps(net) == 0:
+                break
+            pp.runpp(net)
         return True
     except Exception:
         return False
@@ -123,8 +234,8 @@ def _solve(net) -> bool:
 
 # --- study cases ------------------------------------------------------------------------------
 # A connection must be safe in BOTH planning cases a DNO studies, not just at winter peak:
-#   * winter_peak — maximum (grown) demand, winter thermal ratings;
-#   * summer_min  — minimum demand with summer (lower) thermal ratings, generation still at full
+#   * winter_peak — maximum (grown) demand, winter thermal ratings, PV/wind at nil, batteries charging;
+#   * summer_min  — minimum demand with summer (lower) thermal ratings, every generator at full
 #     output. This is the GENERATION-critical case: little local load soaks up the export, so
 #     reverse power flow, voltage rise and the GSP's export to transmission all peak here.
 # The summer case needs per-load `min_scale` / per-line `summer_ratio` columns (the NGED builder
@@ -144,26 +255,56 @@ def _study_cases(net) -> list[tuple[str, pd.Series | None, pd.Series | None]]:
     return cases
 
 
+def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Series | None) -> dict | None:
+    """Solve one study case in place and return its results, leaving the net's inputs as found.
+    None when the power flow does not converge."""
+    scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
+    p0 = net.sgen["p_mw"].copy()
+    try:
+        if load_scale is not None:
+            net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
+        if rating_ratio is not None:
+            net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
+        if len(net.sgen):
+            net.sgen["p_mw"] = dispatch_for_case(net, case)
+        ok = _solve(net)
+    finally:
+        net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"] = scaling0, imax0, p0
+    if not ok:
+        return None
+    p_ext = float(net.res_ext_grid["p_mw"].sum()) if len(net.res_ext_grid) else 0.0
+    return {
+        "vm": net.res_bus["vm_pu"].copy(),
+        "line_pct": net.res_line["loading_percent"].copy(),
+        "trafo_pct": net.res_trafo["loading_percent"].copy(),
+        "p_ext_mw": p_ext,
+    }
+
+
 def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
     """The first limit this case breaches (voltage → line → transformer → GSP boundary)."""
     at = _CASE_LABEL[case]
-    if not vm.between(VOLTAGE_MIN_PU, VOLTAGE_MAX_PU).all():
-        worst = (vm - 1.0).abs().idxmax()
-        v = float(vm.loc[worst])
-        return Reason(type="voltage", element_id=int(worst), value=round(v, 4), case=case,
-                      message=f"voltage {v:.3f} pu at bus {int(worst)} outside "
-                              f"[{VOLTAGE_MIN_PU}, {VOLTAGE_MAX_PU}] at {at}")
+    vmin, vmax = voltage_limits(net)
+    v = vm.reindex(net.bus.index)
+    excess = pd.concat([vmin - v, v - vmax], axis=1).max(axis=1).fillna(0.0)  # islanded buses have no voltage
+    if (excess > 1e-9).any():
+        worst = int(excess.idxmax())
+        val = float(v.loc[worst])
+        lo, hi = float(vmin.loc[worst]), float(vmax.loc[worst])
+        kv = float(net.bus.at[worst, "vn_kv"])
+        return Reason(type="voltage", element_id=worst, value=round(val, 4), limit=round(hi if val > hi else lo, 2), case=case,
+                      message=f"voltage {val:.3f} pu at bus {worst} ({kv:g} kV) outside [{lo:.2f}, {hi:.2f}] at {at}")
     if (line_pct > LINE_LOADING_MAX_PCT).any():
         worst = line_pct.idxmax()
-        v = float(line_pct.loc[worst])
+        val = float(line_pct.loc[worst])
         rating = "its summer rating" if case == "summer_min" else "its rating"
-        return Reason(type="line", element_id=int(worst), value=round(v, 1), case=case,
-                      message=f"line {int(worst)} overloaded at {v:.0f}% of {rating} at {at}")
+        return Reason(type="line", element_id=int(worst), value=round(val, 1), limit=LINE_LOADING_MAX_PCT, case=case,
+                      message=f"line {int(worst)} overloaded at {val:.0f}% of {rating} at {at}")
     if (trafo_pct > TRAFO_LOADING_MAX_PCT).any():
         worst = trafo_pct.idxmax()
-        v = float(trafo_pct.loc[worst])
-        return Reason(type="trafo", element_id=int(worst), value=round(v, 1), case=case,
-                      message=f"transformer {int(worst)} overloaded at {v:.0f}% at {at}")
+        val = float(trafo_pct.loc[worst])
+        return Reason(type="trafo", element_id=int(worst), value=round(val, 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
+                      message=f"transformer {int(worst)} overloaded at {val:.0f}% at {at}")
     return None
 
 
@@ -181,55 +322,42 @@ def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
     if limit is None or export <= limit:
         return None
     name = net.get("gsp_name") or "the GSP"
-    return Reason(type="gsp", value=round(export, 1), case=case,
+    return Reason(type="gsp", value=round(export, 1), limit=round(limit, 1), case=case,
                   message=f"{name} would export {export:.0f} MW to the transmission system at "
                           f"{_CASE_LABEL.get(case, 'peak export')} — above its {limit:.0f} MW export limit")
 
 
 def feasibility(net) -> tuple[bool, Reason | None, dict]:
-    """Run power flow in every study case; check the voltage band, line/transformer thermal limits
-    and the GSP export boundary.
+    """Run power flow in every study case; check the statutory voltage band of every bus, line and
+    transformer thermal limits, and the GSP export boundary.
 
     Returns (ok, reason_if_not_ok, metrics). Afterwards net.res_line/res_trafo loading and
     net.res_bus voltage hold the worst-case ENVELOPE across cases (highest loading; the voltage
     furthest from 1.0 pu), so the per-element heat/violation helpers below report the binding case.
     """
-    scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
     env_vm = env_line = env_trafo = None
     reason: Reason | None = None
     gsp_export = gsp_import = 0.0
     export_case = binding_case = None
-    try:
-        for case, load_scale, rating_ratio in _study_cases(net):
-            if load_scale is not None:
-                net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
-            if rating_ratio is not None:
-                net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
-            ok = _solve(net)
-            net.load["scaling"], net.line["max_i_ka"] = scaling0.copy(), imax0.copy()
-            if not ok:
-                return False, Reason(type="non_convergent", case=case,
-                                     message=f"power flow did not converge at {_CASE_LABEL[case]}"), {}
-            vm = net.res_bus["vm_pu"].copy()
-            line_pct = net.res_line["loading_percent"].copy()
-            trafo_pct = net.res_trafo["loading_percent"].copy()
-            if len(net.res_ext_grid):
-                p = float(net.res_ext_grid["p_mw"].sum())
-                if -p > gsp_export:
-                    gsp_export, export_case = -p, case
-                gsp_import = max(gsp_import, p)
-            if reason is None:
-                reason = _case_reason(net, case, vm, line_pct, trafo_pct)
-                if reason is not None:
-                    binding_case = case
-            if env_vm is None:
-                env_vm, env_line, env_trafo = vm, line_pct, trafo_pct
-            else:
-                env_vm = env_vm.where((env_vm - 1.0).abs() >= (vm - 1.0).abs(), vm)
-                env_line = pd.concat([env_line, line_pct], axis=1).max(axis=1)  # NaN-safe max
-                env_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1)
-    finally:
-        net.load["scaling"], net.line["max_i_ka"] = scaling0, imax0
+    for case, load_scale, rating_ratio in _study_cases(net):
+        res = _run_case(net, case, load_scale, rating_ratio)
+        if res is None:
+            return False, Reason(type="non_convergent", case=case,
+                                 message=f"power flow did not converge at {_CASE_LABEL[case]}"), {}
+        vm, line_pct, trafo_pct, p = res["vm"], res["line_pct"], res["trafo_pct"], res["p_ext_mw"]
+        if -p > gsp_export:
+            gsp_export, export_case = -p, case
+        gsp_import = max(gsp_import, p)
+        if reason is None:
+            reason = _case_reason(net, case, vm, line_pct, trafo_pct)
+            if reason is not None:
+                binding_case = case
+        if env_vm is None:
+            env_vm, env_line, env_trafo = vm, line_pct, trafo_pct
+        else:
+            env_vm = env_vm.where((env_vm - 1.0).abs() >= (vm - 1.0).abs(), vm)
+            env_line = pd.concat([env_line, line_pct], axis=1).max(axis=1)  # NaN-safe max
+            env_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1)
 
     if reason is None:  # local limits hold — now the boundary, at its worst export case
         reason = _gsp_reason(net, gsp_export, export_case)
@@ -239,8 +367,8 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
     metrics = {
         "min_vm": float(env_vm.min()),
         "max_vm": float(env_vm.max()),
-        "max_line_pct": float(env_line.max()),
-        "max_trafo_pct": float(env_trafo.max()),
+        "max_line_pct": float(env_line.max()) if len(env_line) else 0.0,
+        "max_trafo_pct": float(env_trafo.max()) if len(env_trafo) else 0.0,
         "gsp_export_mw": round(gsp_export, 1),
         "gsp_import_mw": round(gsp_import, 1),
         "gsp_limit_mw": gsp_export_limit(net),
@@ -268,9 +396,54 @@ def bus_voltages(net) -> dict[int, float]:
 
 
 def voltage_violation_bus_ids(net) -> list[int]:
-    """Bus ids whose voltage is outside the [min, max] band in the last solve."""
-    vm = net.res_bus["vm_pu"]
-    return [int(i) for i in vm[(vm < VOLTAGE_MIN_PU) | (vm > VOLTAGE_MAX_PU)].index]
+    """Bus ids whose voltage is outside their statutory band in the last solve."""
+    vm = net.res_bus["vm_pu"].reindex(net.bus.index)
+    vmin, vmax = voltage_limits(net)
+    return [int(i) for i in vm[(vm < vmin) | (vm > vmax)].index]
+
+
+# --- N-1 screen ---------------------------------------------------------------------------------
+def n1_screen(net, case: str = "winter_peak") -> dict:
+    """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
+    above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
+    islanding violation. Informational (not a connection gate); roughly P2/8 security of supply."""
+    cases = {c: (ls, rr) for c, ls, rr in _study_cases(net)}
+    if case not in cases:
+        case = "winter_peak"
+    load_scale, rating_ratio = cases[case]
+    kv = net.bus["vn_kv"].astype(float)
+    lines = [int(i) for i in net.line.index if net.line.at[i, "in_service"] and kv.loc[int(net.line.at[i, "from_bus"])] >= N1_MIN_KV]
+    trafos = [int(i) for i in net.trafo.index if net.trafo.at[i, "in_service"] and kv.loc[int(net.trafo.at[i, "hv_bus"])] >= N1_MIN_KV]
+    violations: list[dict] = []
+    for kind, ids, table in (("line", lines, net.line), ("trafo", trafos, net.trafo)):
+        for eid in ids:
+            table.at[eid, "in_service"] = False
+            try:
+                res = _run_case(net, case, load_scale, rating_ratio)
+            finally:
+                table.at[eid, "in_service"] = True
+            name = str(table.at[eid, "name"] or f"{kind} {eid}")
+            if res is None:
+                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "non_convergent",
+                                   "element_id": None, "value": None, "message": f"power flow does not converge with {kind} {eid} out"})
+                continue
+            # demand stranded on an island: a supply violation only if it is material (a generator
+            # spur or a tee-point with no customers is not)
+            island = res["vm"].reindex(net.bus.index)
+            island = island[island.isna()].index
+            if len(island):
+                lost = float((net.load.loc[net.load["bus"].isin(island), "p_mw"] * net.load.loc[net.load["bus"].isin(island), "scaling"]).sum())
+                if lost >= N1_ISLAND_MIN_MW:
+                    violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
+                                       "element_id": int(island[0]), "value": round(lost, 2),
+                                       "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {len(island)} bus(es)"})
+                    continue
+            r = _case_reason(net, case, res["vm"], res["line_pct"], res["trafo_pct"])
+            if r is not None:
+                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": r.type,
+                                   "element_id": r.element_id, "value": r.value, "message": r.message})
+    # the screen leaves res_* from its last outage; callers re-solve for the intact state
+    return {"case": case, "screened": len(lines) + len(trafos), "violations": violations}
 
 
 # --- reinforcement (for "what would it take" suggestions) -------------------

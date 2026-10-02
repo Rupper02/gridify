@@ -210,6 +210,8 @@ warehouse/
 *.duckdb.wal
 
 # --- Node / monorepo ---
+# the Python template above ignores any `lib/`; the planner's helpers live in one
+!apps/web/src/lib/
 node_modules/
 .vite/
 .turbo/

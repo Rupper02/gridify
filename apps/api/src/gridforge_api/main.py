@@ -264,7 +264,7 @@ def get_forecasts() -> dict:
 # The warehouse is never mutated.
 _ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
-    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year"
+    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw"
 )
 _BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
@@ -340,6 +340,8 @@ def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
         con.execute("ALTER TABLE added_candidates ADD COLUMN commissioning_year INTEGER")
     if "scheduled_year" not in cols:  # operator's chosen energisation year (None = follow recommendation)
         con.execute("ALTER TABLE added_candidates ADD COLUMN scheduled_year INTEGER")
+    if "import_mw" not in cols:  # charging capacity (batteries); None = same as the rating
+        con.execute("ALTER TABLE added_candidates ADD COLUMN import_mw DOUBLE")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS branches (
@@ -428,6 +430,7 @@ class NewCandidate(BaseModel):
     strategic_fit: float = MANUAL_STRATEGIC_DEFAULT
     readiness_rationale: str = ""
     commissioning_year: int | None = None  # requested energisation year; derived if omitted
+    import_mw: float | None = None  # charging capacity (batteries); defaults to the rating
     branch_id: str = "main"  # which branch to add the project to
 
 
@@ -461,17 +464,17 @@ def _insert_candidate(con: duckdb.DuckDBPyConnection, branch_id: str, body: NewC
         body.readiness_score, body.technology, body.rating_mw, request_id)
     con.execute(
         f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [request_id, body.applicant, body.bus_id, body.technology, body.rating_mw,
          body.readiness_score, body.strategic_fit, body.readiness_rationale, status, review,
-         year, None, branch_id],
+         year, None, body.import_mw, branch_id],
     )
     return {
         "request_id": request_id, "applicant": body.applicant, "bus_id": body.bus_id,
         "technology": body.technology, "rating_mw": body.rating_mw,
         "readiness_score": body.readiness_score, "strategic_fit": body.strategic_fit,
         "readiness_rationale": body.readiness_rationale, "status": status,
-        "review_reasons": review, "commissioning_year": year, "branch_id": branch_id,
+        "review_reasons": review, "commissioning_year": year, "import_mw": body.import_mw, "branch_id": branch_id,
     }
 
 
@@ -544,6 +547,7 @@ def _candidates(branch_id: str = "main") -> list[Candidate]:
             status=r["status"],
             review_reasons=r.get("review_reasons") or "",
             commissioning_year=(None if r.get("commissioning_year") is None else int(r["commissioning_year"])),
+            import_mw=(None if r.get("import_mw") is None else float(r["import_mw"])),
         )
         for r in _candidate_rows(branch_id)
     ]
@@ -797,11 +801,11 @@ def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
         ).fetchone()
         if not exists:
             con.execute(
-                f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [row["request_id"], row.get("applicant"), row.get("bus_id"), row.get("technology"),
                  row.get("rating_mw"), row.get("readiness_score"), row.get("strategic_fit"),
                  row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
-                 row.get("commissioning_year"), None, branch_id],
+                 row.get("commissioning_year"), None, row.get("import_mw"), branch_id],
             )
     _optimize_cache.clear()
     _compute_cache.clear()

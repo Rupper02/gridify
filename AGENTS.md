@@ -61,14 +61,14 @@ Windows / Git Bash:
 1. **`main` = only what physically exists today.** Every not-yet-built project, and any future network asset, is an OPTIONAL registry item that counts only once it is added to a branch. Never pre-load, inject in the background, or reserve capacity for it.
 2. **Physics is deterministic.** Feasibility comes from power flow only. An LLM never decides, scores or adjusts physics or ranking. The only LLM use is optional narration in the API (`justify`, `narrate_diff`, `narrate_suggestion` via OpenRouter); it must restate engine figures, never invent them, and the app must work fully with no key.
 3. **Parameters are set by the flows, not the operator.** No ranking-weight sliders or physics knobs in the UI; weights stay engine defaults in `config.py`.
-4. **Two study cases plus the boundary.** Every accepted project must pass `winter_peak` (grown demand, winter ratings) AND `summer_min` (LTDS minimum-demand factor, not grown, summer ratings), plus the GSP export limit. Every `Reason` carries the element, the value and the `case`.
+4. **Two study cases plus the boundary.** Every accepted project must pass `winter_peak` (grown demand, winter ratings, PV/wind at nil, batteries charging at `import_mw`) AND `summer_min` (LTDS minimum-demand factor, not grown, summer ratings, everything at full export), plus the GSP export limit. Voltage limits are the statutory bands by level (`VOLTAGE_BANDS`), judged after the tap changers have settled (`_solve` regulates them; taps persist on the net). Every `Reason` carries the element, the value, the `limit` and the `case`. The N-1 screen (`n1_screen`, 132 kV backbone, winter peak) is reported on `PhaseResult`, never a gate.
 5. **Real data, real units.**
    - Never hardcode a voltage or ratio: line MVA comes from `voltage_kv`, transformer ratios from `hv_kv`/`lv_kv`.
    - LTDS rows with Status `Removed` are excluded (the LTDS is a change-log against NGED's previous edition).
    - Cite sources (resource ids live next to the constants in `nged.py`).
    - Bundled ECR data must contain **no personal data** (customer names, addresses, MPANs are dropped by the fetch script).
 6. **Reasons are human-readable and actionable**: why it's blocked, and what to do. The engine emits typed reasons (`line`/`trafo`/`voltage`/`gsp`/`rejected`, ...); `normReason` in `apps/web/src/api.ts` turns them into `{kind, element, short, why, action}` (unit-tested in `src/api.test.ts`). Extend both when you add a reason type.
-7. **Honesty over fake precision.** State limitations instead of modelling them badly: fault levels are not checked, the 400 kV network is context only, the GSP limit's sign convention is assumed, batteries are studied at full export. Copilot "freed MW" is first-order (shown as ≈). Don't tune constants (e.g. `MAX_REINFORCE_STEPS`) for nicer-looking output.
+7. **Honesty over fake precision.** State limitations instead of modelling them badly: fault levels are not checked, the 400 kV network is context only, the GSP limit's sign convention is assumed, the tap step (1.25%) and the per-case dispatch factors are planning assumptions, N-1 is informational. Copilot "freed MW" is first-order (shown as ≈). Don't tune constants (e.g. `MAX_REINFORCE_STEPS`) for nicer-looking output.
 
 ## Engineering conventions
 
@@ -78,7 +78,8 @@ Windows / Git Bash:
 - **Change the output shape in one pass:** `types.py` → API enrichment in `apps/api/src/gridforge_api/main.py` → `apps/web/src/types.ts` + `src/api.ts` → the component that renders it. Add an API test for new endpoints.
 - Engine functions (`optimize`, `suggest_unblock`, `diff_results`) make no network calls; keep it that way. Network/LLM calls belong in `llm.py` and the API only.
 - Delete dead code rather than keeping it "not wired". Update the READMEs in the same change when behaviour, endpoints or commands change.
-- pandapower gotchas: generation is injected as PQ `sgen` (not `gen`) so voltage problems show; use `pandapower.toolbox.drop_buses`; avoid `deepcopy` of nets in hot loops (build once per phase, inject/roll back).
+- pandapower gotchas: generation is injected as PQ `sgen` (not `gen`) so voltage problems show; use `pandapower.toolbox.drop_buses`; avoid `deepcopy` of nets in hot loops (build once per phase, inject/roll back); in pandapower 3 a transformer's taps are inert unless `tap_changer_type="Ratio"` is set; the LTDS tap ranges (e.g. -12..+4) are HV-winding taps where a lower tap raises the LV voltage, so model them with `tap_side="hv"`; `sgen` rows carry `p_rated_mw` and `import_mw` (set by `inject_sgen`) that `dispatch_for_case` reads.
+- The root `.gitignore` is a Python template that ignores every `lib/`; `apps/web/src/lib/` is explicitly un-ignored. Check `git status` shows new frontend files before committing.
 
 ## Planner (`apps/web`)
 

@@ -23,8 +23,9 @@ Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same
 
 | Module | Responsibility |
 |---|---|
-| `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`). `build_nged_net()` gives today's network; `nged_model()` gives the geolocated model for the map. `nged_candidates()` gives the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` gives the export limit plus transmission context. |
-| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`), `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), per-element results, `apply_reinforcement`. |
+| `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context. |
+| `editions.py` | `edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (rows, model, physics). `diff_ecr_editions(prev, cur)`: site-level changes between two fetches of the Embedded Capacity Register. Pure. |
+| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen`, per-element results, `apply_reinforcement`. |
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
 | `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
@@ -64,17 +65,21 @@ The network is built **once per phase**. Each trial is an `sgen` inject, and a f
 
 Each call solves **every study case** and returns the first limit breached:
 
-| Case | Load scaling | Line ratings |
-|---|---|---|
-| `winter_peak` | as grown by the demand pathway | winter (`max_i_ka`) |
-| `summer_min` | per-load `min_scale` (LTDS minimum-demand factor ÷ diversity; **not grown**) | × per-line `summer_ratio` (LTDS summer ÷ winter) |
+| Case | Load scaling | Generation (`GENERATION_FACTORS`) | Line ratings |
+|---|---|---|---|
+| `winter_peak` | as grown by the demand pathway | solar 0 · wind 0 · battery **−1** (charging at `import_mw`) · other 1 | winter (`max_i_ka`) |
+| `summer_min` | per-load `min_scale` (LTDS minimum-demand factor ÷ diversity; **not grown**) | everything at 1 (full export) | × per-line `summer_ratio` (LTDS summer ÷ winter) |
+
+Before each case is judged, `_solve` lets the on-load tap changers settle: every transformer with a tap range moves its tap (HV winding, GB convention: a lower tap raises the LV voltage) until its LV busbar is within `OLTC_DEADBAND_PU` of `OLTC_SETPOINT_PU` or at an end stop, in at most `OLTC_MAX_PASSES` power flows. Tap positions persist on the net, so a trial injection normally needs one solve.
 
 Checks, in order:
-1. Bus voltage within [`VOLTAGE_MIN_PU`, `VOLTAGE_MAX_PU`] = [0.9, 1.1].
+1. Every bus inside its statutory band (`VOLTAGE_BANDS`: ±10% at 132 kV and above, ±6% below).
 2. Line and transformer loading ≤ 100%.
 3. **GSP export** at its worst case ≤ `net["gsp_export_limit_mw"]`.
 
-Each failure is reported as a `Reason` (`voltage` / `line` / `trafo` / `gsp` / `non_convergent`) carrying the element, the value and the `case` it failed in.
+Each failure is reported as a `Reason` (`voltage` / `line` / `trafo` / `gsp` / `non_convergent`) carrying the element, the value, the `limit` breached and the `case` it failed in.
+
+`n1_screen(net)` takes every in-service line and transformer at or above `N1_MIN_KV` out in turn at winter peak and reports overloads, band breaches and islanded demand (≥ `N1_ISLAND_MIN_MW`). `optimize` runs it on each phase's final state and puts the findings on `PhaseResult.n1_violations`; it is not a connection gate.
 
 After the call, `net.res_*` hold the **worst-case envelope** across cases: highest loading, and the voltage furthest from 1.0. So the heat-map helpers (`line_loadings`, `bus_voltages`, `overloaded_line_ids`, …) report the binding case.
 
@@ -125,7 +130,10 @@ How the registry's facts map onto it:
 ## Config (selected)
 
 ```python
-VOLTAGE_MIN_PU / VOLTAGE_MAX_PU     = 0.9 / 1.1
+VOLTAGE_BANDS                       = ((132, 0.90, 1.10), (1, 0.94, 1.06))   # statutory, by level
+OLTC_SETPOINT_PU / OLTC_DEADBAND_PU = 1.0 / 0.01 ; OLTC_TAP_STEP_PERCENT = 1.25 (assumed)
+GENERATION_FACTORS                  = winter: solar 0, wind 0, battery -1 ; summer: all 1
+N1_MIN_KV / N1_ISLAND_MIN_MW        = 132 / 1.0
 LINE_LOADING_MAX_PCT / TRAFO_...    = 100 / 100
 MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 248 MW accepted at 132 kV)
 W_READINESS / W_NEED / W_STRATEGIC  = 0.5 / 0.35 / 0.15
@@ -148,6 +156,7 @@ Tests are **grid-agnostic**. `tests/_grid.py` derives every fixture from the net
 - no hard-coded bus ids.
 
 What they cover:
+- statutory voltage bands by level, tap-changer regulation, per-case dispatch, fleet siting and the N-1 screen (`test_physics.py`);
 - feasibility and the worst-case envelope;
 - the summer-minimum case raising export;
 - the GSP limit binding, and an SGT relieving it;

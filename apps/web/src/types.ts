@@ -66,6 +66,7 @@ export interface RawReason {
   type: string;
   element_id?: number | null;
   value?: number | null;
+  limit?: number | null; // the limit breached (pu for voltage, % for thermal, MW for the GSP)
   message: string;
   case?: string | null;
 }
@@ -116,6 +117,19 @@ export interface PhaseResult {
   gsp_export_mw: number;
   gsp_import_mw: number;
   gsp_limit_mw: number | null;
+  n1_screened: number;
+  n1_violations: N1Violation[];
+}
+
+/** One finding of the single-outage (N-1) screen of the 132 kV backbone. */
+export interface N1Violation {
+  outage_type: "line" | "trafo";
+  outage_id: number;
+  outage_name: string;
+  type: string; // "line" | "trafo" | "voltage" | "islanded" | "non_convergent"
+  element_id: number | null;
+  value: number | null;
+  message: string;
 }
 
 export interface OptimizeResult {

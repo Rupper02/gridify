@@ -45,7 +45,7 @@ def _phase_net(cand_by_id, params, base, phase_key, reinf):
     for rid in base.phases[phase_key].accepted:
         c = cand_by_id.get(rid)
         if c is not None:
-            inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology)
+            inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
     return net
 
 
@@ -58,7 +58,7 @@ def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, 
         if c is None:
             continue
         idx = inject_sgen(
-            net, c.bus_id, c.rating_mw, c.request_id, c.technology, q_mvar=-q_factor * c.rating_mw
+            net, c.bus_id, c.rating_mw, c.request_id, c.technology, q_mvar=-q_factor * c.rating_mw, import_mw=c.import_mw
         )
         ok, _, _ = feasibility(net)
         solves += 1
@@ -84,7 +84,7 @@ def _discover_chain(cand_by_id, params, base, target_rid):
         return reinf, False, None, solves
     for _ in range(MAX_REINFORCE_STEPS + 1):
         net = _phase_net(cand_by_id, params, base, _HARDEST_PHASE, reinf)
-        inject_sgen(net, target.bus_id, target.rating_mw, target.request_id, target.technology)
+        inject_sgen(net, target.bus_id, target.rating_mw, target.request_id, target.technology, import_mw=target.import_mw)
         ok, reason, _ = feasibility(net)
         solves += 1
         last_reason = reason

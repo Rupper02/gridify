@@ -58,8 +58,10 @@ NGED's own substation-location datasets are access-restricted, which is why posi
 - Impedances are converted from %Z on a 100 MVA base.
 - Demand is LTDS maximum demand × 0.55 (an after-diversity peak).
 - The 132 kV busbar is the transmission infeed.
+- The 14 connected generators sit at the substations NGED names for them, at their connection voltage (a site at a double-busbar substation is shared across its sections).
+- Every transformer carries its LTDS tap range as an on-load tap changer; the solver regulates the taps so each 33 kV and 11 kV busbar is held near 1.0 pu, as the real AVC relays do.
 
-The result has **139 buses, 128 lines, 44 transformers and 170 MW of demand**. It solves with every voltage in band and the worst line at 58%. Today the region **exports ~226 MW up to the transmission system**, because it generates more than it uses.
+The result has **139 buses, 128 lines, 44 transformers and 170 MW of demand**. It solves in both study cases with every bus inside its statutory band; the worst element is the pair of 132 kV circuits carrying the Middlemarsh offshore wind to Skegness, at 94% at summer minimum. Today the region **exports ~224 MW up to the transmission system**, because it generates more than it uses.
 
 ---
 
@@ -77,17 +79,19 @@ rank_score = 0.5 · readiness + 0.35 · grid_need + 0.15 · strategic_fit
 
 **3. The feasibility gate.** Projects are trialled greedily in rank order for each phase. A project is accepted only if the network passes **both planning study cases**:
 
-| Case | Demand | Thermal ratings | Why it matters |
-|---|---|---|---|
-| Winter peak | maximum demand, grown by the NESO FES 2025 pathway | winter | demand-driven overloads and low voltage |
-| Summer minimum | LTDS minimum-demand factor (~48% of max), *not* grown | summer (~90% of winter) | the **generation**-critical case: the least local load to absorb export |
+| Case | Demand | Generation | Thermal ratings | Why it matters |
+|---|---|---|---|---|
+| Winter peak | maximum demand, grown by the NESO FES 2025 pathway | PV and wind at nil (a winter evening); batteries **charging** at their import capacity; other generation firm | winter | demand-driven overloads and low voltage |
+| Summer minimum | LTDS minimum-demand factor (~48% of max), *not* grown | everything at full export | summer (~90% of winter) | the **generation**-critical case: the least local load to absorb export |
 
 On top of both cases:
-- Voltages must stay in [0.9, 1.1] pu.
+- Every bus must stay inside its **statutory voltage band**: ±10% at 132 kV, ±6% at 33 kV and 11 kV (GB ESQCR). The tap changers are regulated first, so a breach is one the network cannot tap its way out of.
 - Every line and transformer must stay at or below 100%.
 - **The GSP must not export more than its supergrid transformers allow.** That's 2 × 263.5 MW = 527 MW. With one transformer out it's 263.5 MW; that figure is shown but not enforced.
 
 For this region, the GSP boundary, not the local wires, is usually what fills up first.
+
+**N-1 screen.** After each phase, every 132 kV circuit and grid transformer is taken out in turn at winter peak and the result is checked for overloads, band breaches and islanded demand. The findings are shown (Alerts, and the `N-1` count on the map) but do not gate a connection: a firm-connection standard would, and that is a documented next step.
 
 **4. Year.** The **recommended** year is the developer's requested date, clamped into the window the grid can host: 2027–30 for Phase 1, 2031–35 for Phase 2. Deferred projects get none.
 
@@ -243,7 +247,9 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 
 - **The GSP export limit is the only transmission constraint modelled.** The 400 kV network and wider transmission boundaries are not; the 400 kV projects are context only.
 - **Fault levels are not checked.** NGED publishes them, but the units are undocumented and some breaker ratings sit below the calculated fault current, so they can't be used safely as-is.
-- **Generation is studied at full export in both cases.** That includes batteries, which could also import. This is conservative.
+- **Generation dispatch per case is a planning assumption.** PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum. Technologies the data doesn't classify (biomass, 'other') are treated as firm in both.
+- **Tap-changer steps are assumed.** The LTDS gives each transformer's tap range but not its step; 1.25% per tap is used. Taps are regulated towards 1.0 pu with a ±0.01 pu deadband.
+- **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution → transmission.
 - **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions because the old values aren't published.

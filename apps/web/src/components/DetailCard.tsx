@@ -2,7 +2,7 @@
 // stepper), a line, a bus or a transformer.
 
 import type { Planner } from "../hooks/usePlanner";
-import { lineMva, loadPct, trafoRatio, trafoSub, vmAt } from "../lib/derive";
+import { lineMva, loadPct, trafoRatio, trafoSub, vmAt, voltageBandLabel } from "../lib/derive";
 import { ST, fmtMw, techLabel } from "../theme";
 import type { QueueItem } from "../types";
 
@@ -147,6 +147,7 @@ export function DetailCard({ planner, selQ, over, vv, busProjects }: Props) {
       subtitle: b?.vn_kv != null ? `${b.vn_kv} kV node` : "Network node",
       chip: vv.has(sel.id) ? { label: "Voltage breach", bg: "#fee2e2", fg: "#991b1b" } : undefined,
       rows: [
+        { k: "Statutory band", v: voltageBandLabel(b?.vn_kv) },
         { k: "Voltage 2030", v: v30 == null ? "—" : `${v30.toFixed(3)} pu` },
         { k: "Voltage 2035", v: v35 == null ? "—" : `${v35.toFixed(3)} pu` },
         { k: "Projects here", v: ps.length ? ps.map((x) => x.request_id).join(", ") : "None" },

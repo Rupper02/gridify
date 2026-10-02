@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pandapower as pp
 
+from .config import OLTC_TAP_STEP_PERCENT
+
 _DATA = Path(__file__).resolve().parent / "data" / "nged"
 BUNDLED_DATA_DIR = _DATA  # where the pipeline's "pin" assets write a promoted edition
 TABLE_NAMES = ("circuit", "t2a", "demand", "node", "gen", "ecr")
@@ -119,6 +121,42 @@ def _is_line(c: dict) -> bool:
         and (_num(c["X1"]) or _num(c["R1"]))
         and _num(c["Winter"]) is not None
     )
+
+
+def _bus_degree(net) -> dict[int, int]:
+    deg: dict[int, int] = {}
+    for _, ln in net.line.iterrows():
+        deg[int(ln.from_bus)] = deg.get(int(ln.from_bus), 0) + 1
+        deg[int(ln.to_bus)] = deg.get(int(ln.to_bus), 0) + 1
+    return deg
+
+
+def _site_buses(net, names: tuple[str, ...], kv: float, deg: dict[int, int]) -> tuple[list[int], str]:
+    """The buses to connect a named site at: every busbar of the named substation at the connection
+    voltage (a double busbar runs coupled, so a site there is shared across its sections); else the
+    named substation at its nearest voltage level; else the best-connected bus at that voltage.
+    Substation names are matched after stripping the voltage suffix, then by shorter and shorter
+    word prefixes ('Warth Lane Skegness' -> 'Warth Lane'). Returns (buses, how it was placed)."""
+    by_token: dict[str, list[int]] = {}
+    for b in net.bus.index:
+        by_token.setdefault(_substation(net.bus.at[b, "name"]).lower(), []).append(int(b))
+    levels = sorted({float(v) for v in net.bus.vn_kv})
+    for name in names:
+        tok = _substation(name or "").lower()
+        words = tok.split()
+        for k in range(len(words), 0, -1):
+            cands = by_token.get(" ".join(words[:k]))
+            if not cands:
+                continue
+            at_kv = sorted((b for b in cands if abs(float(net.bus.at[b, "vn_kv"]) - kv) < 0.5), key=lambda b: -deg.get(b, 0))
+            if at_kv:
+                how = f"{name} at {kv:g} kV" + (f", shared across its {len(at_kv)} busbars" if len(at_kv) > 1 else "")
+                return at_kv, how
+            best = min(cands, key=lambda b: (abs(float(net.bus.at[b, "vn_kv"]) - kv), -deg.get(b, 0)))
+            return [best], f"{name} ({net.bus.at[best, 'vn_kv']:g} kV busbar; no {kv:g} kV busbar in the model)"
+    level = min(levels, key=lambda v: abs(v - kv))
+    pool = [int(b) for b in net.bus.index if float(net.bus.at[b, "vn_kv"]) == level]
+    return [max(pool, key=lambda b: deg.get(b, 0))], f"best-connected {level:g} kV busbar (site not matched)"
 
 
 class _UF:
@@ -240,10 +278,20 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
         net.bus.at[hv, "vn_kv"], net.bus.at[lv, "vn_kv"] = hv_kv, lv_kv
         r1, x1 = _num(t["R1"]) or 0.0, _num(t["X1"]) or 1.0
         vk = min(max(abs(x1) * sn / 100.0, 0.1), 25.0)
+        # on-load tap changer on the HV winding (GB practice): LTDS gives the tap range (Min/Max Tap,
+        # e.g. -12..+4: negative taps = fewer HV turns = a higher LV voltage), the step is an assumption
+        # (OLTC_TAP_STEP_PERCENT). network._solve regulates the taps so each LV busbar sits near
+        # OLTC_SETPOINT_PU, as the real AVC relay does: 33/11 kV voltages are held, not left to drift.
+        tmin, tmax = _num(t.get("Min Tap")), _num(t.get("Max Tap"))
+        has_oltc = tmin is not None and tmax is not None and tmax > tmin
         pp.create_transformer_from_parameters(
             net, hv, lv, sn_mva=sn, vn_hv_kv=hv_kv, vn_lv_kv=lv_kv,
             vk_percent=vk, vkr_percent=min(abs(r1) * sn / 100.0, vk), pfe_kw=0.0, i0_percent=0.0,
             name=t.get("Vector Group", ""),
+            tap_side="hv", tap_neutral=0, tap_pos=0,
+            tap_min=int(tmin) if has_oltc else 0, tap_max=int(tmax) if has_oltc else 0,
+            tap_step_percent=OLTC_TAP_STEP_PERCENT if has_oltc else 0.0, tap_step_degree=0.0,
+            tap_changer_type="Ratio" if has_oltc else None,  # pandapower 3: taps are inert without a changer type
         )
 
     load_mw: dict[int, float] = {}
@@ -267,11 +315,9 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
             min_scale[int(idx)] = (f / 100.0) / DEMAND_DIVERSITY if f else None
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
 
-    # existing/connected generation (LTDS Table 5, status Connected) IS the base network's fleet.
-    # Spread it across distinct connection buses (large at 132 kV, the rest at 33 kV) so the real
-    # ~377 MW fleet solves instead of piling onto one bus and diverging.
-    buses_132 = [int(b) for b in net.bus.index if net.bus.at[b, "vn_kv"] >= 132]
-    buses_33 = [int(b) for b in net.bus.index if 30 <= net.bus.at[b, "vn_kv"] < 132] or buses_132
+    # existing/connected generation (LTDS Table 5, status Connected) IS the base network's fleet,
+    # sited at the substation NGED names for it (primary if given, else the bulk supply point) at
+    # its connection voltage, so local constraints are where they really are.
     conn_gen = sorted(
         [g for g in tables.get("gen", [])
          if (_num(g.get("Agreed Export Capacity")) or 0) > 0
@@ -279,27 +325,28 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
         key=lambda g: -(_num(g.get("Agreed Export Capacity")) or 0),
     )
     existing: list[dict] = []
-    i132 = i33 = 0
+    deg0 = _bus_degree(net)
     for n, g in enumerate(conn_gen):
         r = _num(g["Agreed Export Capacity"])
-        if r >= 30 and buses_132:
-            bus = buses_132[i132 % len(buses_132)]; i132 += 1
-        else:
-            bus = buses_33[i33 % len(buses_33)]; i33 += 1
+        primary = g.get("Primary Substation") if g.get("Primary Substation") not in (None, "-", "") else ""
+        bsp = g.get("Bulk Supply Point") or ""
+        kv = _num(g.get("Connection Voltage")) or 33.0
+        buses, placement = _site_buses(net, (primary, bsp), kv, deg0)
         fuel = (g.get("Fuel Type") or "").strip()
-        tech = _FUEL_TECH.get(fuel.lower(), "solar")
-        pp.create_sgen(net, bus=int(bus), p_mw=float(r), q_mvar=0.0, name=f"EX-{n}", type=tech)
-        site = (g.get("Primary Substation") if g.get("Primary Substation") not in (None, "-", "")
-                else g.get("Bulk Supply Point")) or ""
+        tech = _FUEL_TECH.get(fuel.lower(), "other")
+        share = float(r) / len(buses)
+        for k, bus in enumerate(buses):
+            idx = pp.create_sgen(net, bus=int(bus), p_mw=share, q_mvar=0.0, name=f"EX-{n}" + (f"-{k}" if k else ""), type=tech)
+            net.sgen.at[idx, "p_rated_mw"] = share
+            net.sgen.at[idx, "import_mw"] = share
+        bus = buses[0]
+        site = primary or bsp
         existing.append({"request_id": f"EX-{3000 + n}", "bus_id": int(bus), "rating_mw": r,
-                         "technology": tech, "fuel": fuel, "status": "connected",
+                         "technology": tech, "fuel": fuel, "status": "connected", "placement": placement,
                          "applicant": f"{fuel or 'Existing DER'} · {_substation(site) or 'Bicker Fen'}"})
 
     # external grid at the best-connected 132 kV busbar (the GSP transmission infeed)
-    deg: dict[int, int] = {}
-    for _, ln in net.line.iterrows():
-        deg[ln.from_bus] = deg.get(ln.from_bus, 0) + 1
-        deg[ln.to_bus] = deg.get(ln.to_bus, 0) + 1
+    deg = _bus_degree(net)
     hv = net.bus[net.bus.vn_kv >= 132].index.tolist() or [net.bus.vn_kv.idxmax()]
     slack = max(hv, key=lambda b: deg.get(b, 0))
     pp.create_ext_grid(net, slack, vm_pu=1.02, name="GSP infeed")
@@ -492,7 +539,7 @@ def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT)
 _FUEL_TECH = {"photovoltaic": "solar", "solar": "solar", "solar pv": "solar",
               "wind": "wind", "onshore wind": "wind", "offshore wind": "wind",
               "storage": "battery", "battery": "battery", "battery storage": "battery",
-              "energy storage": "battery"}
+              "energy storage": "battery"}  # anything else (biomass, 'other generation') -> "other": firm in both cases
 _STATUS_READINESS = {"accepted": 0.9, "connected": 0.95, "budget estimates provided": 0.45,
                      "quotation": 0.55, "offered": 0.7, "scoping": 0.2}
 
@@ -693,6 +740,7 @@ def ecr_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict
             bus = named[0] if named else max(pool, key=lambda b: deg.get(b, 0))
             where = "its primary substation" if named else "the best-connected busbar at its voltage (location not published)"
         rid = _ecr_id(row)
+        import_mw = _num(row.get("accepted_change_to_maximum_import_capacity(mw)"))
         year = _year(row.get("target_energisation_date"))
         ready = score_from_checklist({"grid_connection_agreement": "signed", "commissioning_year": year})
         site = (row.get("customer_site") or "").strip()
@@ -702,6 +750,7 @@ def ecr_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict
         out.append({
             "request_id": rid, "applicant": f"{label} · {site[:40]}",
             "bus_id": int(bus), "technology": tech, "rating_mw": round(mw, 2),
+            "import_mw": round(import_mw, 3) if import_mw is not None else None,
             "readiness_score": ready["readiness_score"],
             "readiness_rationale": (f"NGED Embedded Capacity Register: connection offer accepted ({accepted}), "
                                     f"target energisation {row.get('target_energisation_date') or 'not published'}. "

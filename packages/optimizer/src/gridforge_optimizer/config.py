@@ -9,13 +9,41 @@ The division of labour is deliberate:
 """
 
 # --- feasibility constraints ---
-VOLTAGE_MIN_PU = 0.9
+# Statutory voltage bands (GB ESQCR 2002 reg. 27): ±10 % at 132 kV and above, ±6 % above 1 kV and
+# below 132 kV. Each entry is (minimum nominal kV, vmin pu, vmax pu); a bus takes the band of the
+# highest threshold it reaches. Grid and primary transformers carry on-load tap changers (modelled
+# in nged.py) that hold their LV busbar near OLTC_SETPOINT_PU, so the tight band below 132 kV is a
+# real planning limit rather than an artefact of fixed taps.
+VOLTAGE_BANDS = ((132.0, 0.90, 1.10), (1.0, 0.94, 1.06))
+VOLTAGE_MIN_PU = 0.9  # the widest (132 kV) band: kept for the pipeline check's headline + docs
 VOLTAGE_MAX_PU = 1.1
+OLTC_SETPOINT_PU = 1.0  # tap changers regulate their LV busbar to this voltage
+OLTC_DEADBAND_PU = 0.01  # no tap movement while the LV busbar is within setpoint ± this (AVC relay deadband)
+OLTC_MAX_PASSES = 3  # power-flow passes per solve to settle the taps (they persist on the net, so trials usually need one)
+OLTC_TAP_STEP_PERCENT = 1.25  # LTDS gives the tap RANGE but not the step; a typical GB value (assumption)
 LINE_LOADING_MAX_PCT = 100.0
 TRAFO_LOADING_MAX_PCT = 100.0
 MAX_CONNECTION_MW = 300.0  # intake plausibility cap for a single DISTRIBUTION connection (33–132 kV).
 #                            NGED's ECR has real 132 kV sites accepted at up to 248 MW at Bicker Fen;
 #                            beyond ~300 MW a generator connects to transmission, which this model doesn't cover.
+
+# --- generation dispatch per study case ---------------------------------------------------------
+# How much of its rating each technology produces in each planning case. The summer-minimum
+# (generation) case runs everything at full export. The winter-peak (demand) case is a demand
+# study: PV and wind produce nothing at a winter evening peak, and batteries CHARGE at their import
+# capacity (negative = import), which adds demand. Unknown technologies (biomass, 'other') are
+# treated as firm. Conservative on both sides; stated in the UI and README.
+GENERATION_FACTORS = {
+    "winter_peak": {"solar": 0.0, "wind": 0.0, "battery": -1.0},
+    "summer_min": {"solar": 1.0, "wind": 1.0, "battery": 1.0},
+}
+GENERATION_FACTOR_DEFAULT = {"winter_peak": 1.0, "summer_min": 1.0}
+
+# --- N-1 screen ---------------------------------------------------------------------------------
+# Single-outage screen of the EHV backbone (every circuit and transformer at or above this kV),
+# reported per phase, not enforced as a connection gate. Roughly ENA P2/8 security of supply.
+N1_MIN_KV = 132.0
+N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a generator spur, a tee) is not a supply violation
 
 # --- demand growth (fixed, sourced; multiplier on existing load scaling) ---------------------
 # Peak-demand growth multipliers vs a ~2024 baseline of ~60 GW GB peak (NESO Winter Outlook

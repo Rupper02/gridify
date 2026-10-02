@@ -1,5 +1,5 @@
 import type { Planner } from "../hooks/usePlanner";
-import { lineMva, loadPct, trafoRatio, trafoSub, vmAt } from "../lib/derive";
+import { lineMva, loadPct, trafoRatio, trafoSub, vmAt, voltageBand, voltageBandLabel } from "../lib/derive";
 import { ST, fmtMw, techLabel } from "../theme";
 import type { PhaseKey, QueueItem } from "../types";
 
@@ -10,7 +10,11 @@ interface Row {
 }
 
 const pctColor = (v: number | null) => (v == null ? "#9ca3af" : v > 100 ? "#f87171" : v > 90 ? "#fbbf24" : "#f9fafb");
-const vColor = (v: number | null) => (v == null ? "#9ca3af" : v > 1.1 || v < 0.9 ? "#f87171" : "#f9fafb");
+const vColor = (v: number | null, kv?: number | null) => {
+  if (v == null) return "#9ca3af";
+  const [lo, hi] = voltageBand(kv);
+  return v > hi || v < lo ? "#f87171" : "#f9fafb";
+};
 const PHASES: PhaseKey[] = ["2030", "2035"];
 
 export function Tooltip({ planner, bindLines, busProjects }: { planner: Planner; bindLines: Set<number>; busProjects: Record<number, QueueItem[]> }) {
@@ -47,10 +51,10 @@ export function Tooltip({ planner, bindLines, busProjects }: { planner: Planner;
     const ps = busProjects[id] ?? [];
     const bb = m.buses.find((x) => x.bus_id === id);
     title = `Bus ${id}`;
-    rows = [{ k: "Voltage level", v: bb?.vn_kv != null ? `${bb.vn_kv} kV` : "—" }];
+    rows = [{ k: "Voltage level", v: bb?.vn_kv != null ? `${bb.vn_kv} kV` : "—" }, { k: "Statutory band", v: voltageBandLabel(bb?.vn_kv) }];
     PHASES.forEach((p) => {
       const v = vmAt(r, p, id);
-      rows.push({ k: `V ${p}`, v: v == null ? "—" : `${v.toFixed(3)} pu`, color: vColor(v) });
+      rows.push({ k: `V ${p}`, v: v == null ? "—" : `${v.toFixed(3)} pu`, color: vColor(v, bb?.vn_kv) });
     });
     if (ps.length) rows.push({ k: "Projects", v: ps.map((x) => x.request_id).join(", ") });
     if (s.pickMode) rows.push({ k: "", v: "Click to select", color: "#93c5fd" });

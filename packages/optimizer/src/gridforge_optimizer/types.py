@@ -28,6 +28,7 @@ class Candidate(BaseModel):
     status: str = "auto_accept"  # "auto_accept" | "needs_review"
     review_reasons: str = ""
     commissioning_year: int | None = None  # developer's requested energisation year (the timeline axis)
+    import_mw: float | None = None  # charging capacity (batteries); None = same as the rating
 
 
 class Reason(BaseModel):
@@ -36,6 +37,7 @@ class Reason(BaseModel):
     type: str  # "voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "rejected"
     element_id: int | None = None
     value: float | None = None
+    limit: float | None = None  # the limit breached (pu for voltage, % for thermal, MW for the GSP)
     message: str
     case: str | None = None  # the study case it fails in: "winter_peak" | "summer_min" (None = n/a)
 
@@ -87,6 +89,8 @@ class PhaseResult(BaseModel):
     gsp_export_mw: float = 0.0  # peak power pushed UP through the GSP to transmission (worst case)
     gsp_import_mw: float = 0.0  # peak power drawn DOWN from transmission (worst case)
     gsp_limit_mw: float | None = None  # the GSP's export limit to transmission; None = unlimited
+    n1_screened: int = 0  # EHV elements outaged one at a time in the N-1 screen
+    n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, type, element_id, value, message}
 
 
 class OptimizeResult(BaseModel):

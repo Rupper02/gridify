@@ -14,6 +14,7 @@ from .network import (
     feasibility,
     inject_sgen,
     line_loadings,
+    n1_screen,
     overloaded_line_ids,
     per_bus_growth,
     voltage_violation_bus_ids,
@@ -127,12 +128,12 @@ def optimize(
         for r in reinforcements:
             apply_reinforcement(net, r)
         for a in accepted_order:
-            inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology)
+            inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology, import_mw=a.import_mw)
 
         for c in ranked:
             if c.request_id in accepted_phase:
                 continue
-            idx = inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology)
+            idx = inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
             ok, reason, m = feasibility(net)
             if ok:
                 accepted_phase[c.request_id] = phase_num
@@ -143,7 +144,9 @@ def optimize(
                 drop_sgen(net, idx)  # roll back the trial; keep eligibility for next phase
                 last_reason[c.request_id] = reason
 
-        # snapshot the grid state with all generators accepted so far
+        # snapshot the grid state with all generators accepted so far: the N-1 screen first (it
+        # leaves outage results on the net), then the intact envelope the map and metrics read
+        n1 = n1_screen(net)
         _, _, m = feasibility(net)
         phases[phase_key] = PhaseResult(
             accepted=[a.request_id for a in accepted_order],
@@ -158,6 +161,8 @@ def optimize(
             gsp_export_mw=m.get("gsp_export_mw", 0.0),
             gsp_import_mw=m.get("gsp_import_mw", 0.0),
             gsp_limit_mw=m.get("gsp_limit_mw"),
+            n1_screened=n1["screened"],
+            n1_violations=n1["violations"],
         )
 
     queue: list[QueueItem] = []

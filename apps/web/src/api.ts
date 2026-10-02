@@ -128,13 +128,15 @@ function normReasonCore(reason: RawReason | Reason, it: ReasonContext): Reason {
   }
   if (t === "voltage" || t === "voltage_high" || t === "voltage_low") {
     const high = t === "voltage_high" || (t === "voltage" && val != null && val > 1.0);
+    // the statutory limit the engine reports for that bus (±10 % at 132 kV, ±6 % below)
+    const lim = typeof reason.limit === "number" ? reason.limit.toFixed(2) : high ? "1.06" : "0.94";
     if (high) {
       return {
         ...base,
         kind: "grid",
         element: { bus_id: eid ?? undefined },
-        short: `Too much export — bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu (limit 1.10)`,
-        why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above the 1.10 limit. The local network is too weak for this much export.`,
+        short: `Too much export — bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
+        why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above its ${lim} pu statutory limit. The local network is too weak for this much export.`,
         action: `Reinforce the feeder or add reactive support at bus ${eid} — see Review ▸ Suggestions — or site a smaller project at this bus.`,
       };
     }
@@ -142,8 +144,8 @@ function normReasonCore(reason: RawReason | Reason, it: ReasonContext): Reason {
       ...base,
       kind: "grid",
       element: { bus_id: eid ?? undefined },
-      short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit 0.90)`,
-      why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below the 0.90 limit — the network is too weak here under this demand.`,
+      short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
+      why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below its ${lim} pu statutory limit — the network is too weak here under this demand.`,
       action: `Reinforce the feeder to bus ${eid} — see Review ▸ Suggestions — or hold this project to 2035.`,
     };
   }

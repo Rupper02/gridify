@@ -18,7 +18,7 @@ The **`apps/pipeline`** slice of GridForge: a [Dagster](https://dagster.io) asse
                    previous vs current edition
 
  asset checks on nged_model_canonical:
-   power_flow_converges      ERROR  AC power flow solves, voltages in [0.9, 1.1] pu
+   power_flow_converges      ERROR  both study cases solve via the engine's `feasibility`: every bus inside its statutory band, nothing overloaded
    referential_integrity     ERROR  every line/trafo/load/generator endpoint and every valid registry bus exists
    single_connected_network  WARN   one island, across lines AND transformers
 ```

@@ -64,6 +64,9 @@ export function StatsBar({ planner }: { planner: Planner }) {
       </span>
       <span>Worst line <b style={{ color: ph && ph.worst_line_loading_pct > 100 ? "#dc2626" : "var(--ink)" }}>{ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : "—"}</b></span>
       <span>Voltage <b>{ph ? `${ph.min_vm_pu.toFixed(3)}–${ph.max_vm_pu.toFixed(3)} pu` : "—"}</b></span>
+      <span title="Single-outage screen of the 132 kV backbone at winter peak: outages that overload something, breach a voltage band or island demand. Reported, not a connection gate.">
+        N-1 <b style={{ color: ph && ph.n1_violations?.length ? "#c2410c" : "var(--ink)" }}>{ph ? `${ph.n1_violations?.length ?? 0} / ${ph.n1_screened ?? 0}` : "—"}</b>
+      </span>
     </div>
   );
 }

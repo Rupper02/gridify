@@ -18,12 +18,12 @@ from datetime import datetime, timezone
 import dagster as dg
 import duckdb
 import networkx as nx
-import pandapower as pp
 import pandas as pd
 
-from grid_simulator.config import DB_PATH, VOLTAGE_MAX_PU, VOLTAGE_MIN_PU
+from grid_simulator.config import DB_PATH
 from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.editions import edition_changeset
+from gridforge_optimizer.network import feasibility, voltage_limits
 from gridforge_optimizer.nged import (
     TABLE_NAMES,
     build_nged_net,
@@ -38,7 +38,7 @@ _CAND_COLS = [
     "request_id", "applicant", "bus_id", "technology", "rating_mw", "readiness_score",
     "readiness_rationale", "readiness_breakdown", "land_rights", "planning_status",
     "grid_connection_agreement", "financing", "commissioning_year", "strategic_fit",
-    "strategic_rationale", "status", "review_reasons",
+    "strategic_rationale", "status", "review_reasons", "import_mw",
 ]
 _SNAPSHOT_COLS = {
     "snapshot_id": "VARCHAR", "created_at": "VARCHAR", "ltds_edition": "VARCHAR",
@@ -119,17 +119,23 @@ def ltds_edition_changes(context: dg.AssetExecutionContext, ltds_tables: dict) -
 # --- checks: the deterministic safety gate --------------------------------------------------
 @dg.asset_check(asset=nged_model_canonical, additional_ins={"ltds_tables": dg.AssetIn("ltds_tables")})
 def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.AssetCheckResult:
+    """Today's network solves in both planning study cases with every bus inside its statutory
+    voltage band (±10 % at 132 kV, ±6 % below) and nothing overloaded: the engine's own
+    `feasibility` is the gate, so the pipeline and the optimizer agree on what 'healthy' means."""
     net = build_nged_net(ltds_tables)
-    pp.runpp(net, max_iteration=50, init="flat")
-    v = net.res_bus["vm_pu"]
-    ok = bool(net.converged and v.between(VOLTAGE_MIN_PU, VOLTAGE_MAX_PU).all())
+    ok, reason, m = feasibility(net)
+    vmin, vmax = voltage_limits(net)
+    vm = net.res_bus["vm_pu"].reindex(net.bus.index)
+    out_of_band = int(((vm < vmin) | (vm > vmax)).sum())
     return dg.AssetCheckResult(
-        passed=ok,
+        passed=bool(ok),
         severity=dg.AssetCheckSeverity.ERROR,
-        metadata={"converged": bool(net.converged), "v_min_pu": round(float(v.min()), 4),
-                  "v_max_pu": round(float(v.max()), 4), "buses_in_model": len(nged_model_canonical["buses"]),
-                  "max_line_pct": round(float(net.res_line.loading_percent.max()), 1),
-                  "max_trafo_pct": round(float(net.res_trafo.loading_percent.max()), 1)},
+        metadata={"binding": reason.message if reason else "none", "buses_out_of_band": out_of_band,
+                  "v_min_pu": round(float(m.get("min_vm", 0.0)), 4), "v_max_pu": round(float(m.get("max_vm", 0.0)), 4),
+                  "buses_in_model": len(nged_model_canonical["buses"]),
+                  "max_line_pct": round(float(m.get("max_line_pct", 0.0)), 1),
+                  "max_trafo_pct": round(float(m.get("max_trafo_pct", 0.0)), 1),
+                  "gsp_export_mw": m.get("gsp_export_mw")},
     )
 
 
