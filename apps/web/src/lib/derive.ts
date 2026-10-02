@@ -37,6 +37,23 @@ export function effYearOf(x: QueueItem): number | null {
 
 export const phaseForYear = (year: number): PhaseKey => (year <= 2030 ? "2030" : "2035");
 
+/**
+ * Interpolate demand growth multiplier for a specific year, matching the backend logic.
+ * Linear interpolation between base (2026) → 2030 → 2035 anchors; holds at 2035 after.
+ */
+export function interpolateGrowthForYear(year: number, g30: number, g35: number, baseYear = 2026): number {
+  if (year <= baseYear) return 1.0;
+  if (year <= 2030) {
+    const t = (year - baseYear) / (2030 - baseYear);
+    return 1.0 + t * (g30 - 1.0);
+  }
+  if (year <= 2035) {
+    const t = (year - 2030) / (2035 - 2030);
+    return g30 + t * (g35 - g30);
+  }
+  return g35;
+}
+
 export type ProjVariant = "p1" | "p2" | "ghost" | "rej";
 export interface ProjView {
   x: QueueItem;
@@ -188,62 +205,73 @@ export interface AlertGroup {
   items: AlertItem[];
 }
 
-export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: number): AlertGroup[] {
+export function alertGroupsFor(r: OptimizeResult | null, phaseKey: string, growth: number): AlertGroup[] {
   const groups: AlertGroup[] = [];
   if (!r) return groups;
   const q = r.queue;
-  const viol: AlertItem[] = [];
   
-  // Iterate over actual phase keys in the result (supports single-year and multi-year studies)
-  const phaseKeys = Object.keys(r.phases) as PhaseKey[];
-  phaseKeys.forEach((p) => {
-    const P = r.phases[p];
-    if (!P) return; // skip missing phases
-    
-    // For legacy two-phase results, use eg30/eg35; for single-year, use the closest growth
-    const g = p === "2030" ? eg30 : p === "2035" ? eg35 : (Number(p) <= 2030 ? eg30 : eg35);
-    
+  // Use only the current phase data (year-specific) for network groups
+  const P = r.phases[phaseKey];
+  
+  // Network groups (violations, N-1, watch) require phase data
+  if (P) {
+    const viol: AlertItem[] = [];
     P.overloaded_line_ids.forEach((id) =>
       viol.push({
-        key: `o${p}${id}`,
+        key: `o${phaseKey}${id}`,
         title: `Line ${id} overloaded · ${P.line_loading?.[id] != null ? P.line_loading[id].toFixed(0) : ">100"}%`,
-        meta: `Demand ×${g.toFixed(2)} exceeds thermal rating with the ${p} plan connected`,
-        tag: p,
+        meta: `Demand ×${growth.toFixed(2)} exceeds thermal rating with the ${phaseKey} plan connected`,
+        tag: phaseKey,
         fg: "#991b1b",
         target: { kind: "line", id },
       }),
     );
     (P.voltage_violation_bus_ids ?? []).forEach((id) =>
       viol.push({
-        key: `v${p}${id}`,
+        key: `v${phaseKey}${id}`,
         title: `Voltage breach at bus ${id}`,
         meta: `${P.bus_vm?.[id] != null ? P.bus_vm[id].toFixed(3) : ""} pu outside its statutory band`,
-        tag: p,
+        tag: phaseKey,
         fg: "#991b1b",
         target: { kind: "bus", id },
       }),
     );
-  });
-  if (viol.length) groups.push({ key: "viol", label: "Network violations", color: "#dc2626", fg: "#991b1b", items: viol });
+    if (viol.length) groups.push({ key: "viol", label: "Network violations", color: "#dc2626", fg: "#991b1b", items: viol });
 
-  // single-outage screen of the 132 kV backbone (informational, not a connection gate)
-  const n1: AlertItem[] = [];
-  phaseKeys.forEach((p) => {
-    const P = r.phases[p];
-    if (!P) return;
+    // single-outage screen of the 132 kV backbone (informational, not a connection gate)
+    const n1: AlertItem[] = [];
     (P.n1_violations ?? []).forEach((v) =>
       n1.push({
-        key: `n1${p}${v.outage_type}${v.outage_id}${v.type}`,
+        key: `n1${phaseKey}${v.outage_type}${v.outage_id}${v.type}`,
         title: `${v.outage_type === "trafo" ? "Transformer" : "Line"} ${v.outage_id} out → ${v.type === "islanded" ? `${v.value ?? "?"} MW islanded` : v.type === "voltage" ? `bus ${v.element_id} at ${v.value ?? "?"} pu` : v.type === "non_convergent" ? "no solution" : `${v.type} ${v.element_id} at ${v.value ?? "?"}%`}`,
         meta: v.message,
-        tag: `N-1 · ${p}`,
+        tag: `N-1 · ${phaseKey}`,
         fg: "#7c2d12",
         target: v.type === "voltage" && v.element_id != null ? { kind: "bus", id: v.element_id } : v.outage_type === "line" ? { kind: "line", id: v.outage_id } : undefined,
       }),
     );
-  });
-  if (n1.length) groups.push({ key: "n1", label: "N-1: one circuit out", color: "#ea580c", fg: "#7c2d12", items: n1 });
+    if (n1.length) groups.push({ key: "n1", label: "N-1: one circuit out", color: "#ea580c", fg: "#7c2d12", items: n1 });
 
+    const watch: AlertItem[] = [];
+    const L = P.line_loading ?? {};
+    Object.entries(L)
+      .filter(([, v]) => v > 88 && v <= 100)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .forEach(([id, v]) =>
+        watch.push({
+          key: `w${phaseKey}${id}`,
+          title: `Line ${id} at ${v.toFixed(0)}%`,
+          meta: "Within 12% of thermal rating — little headroom left",
+          tag: phaseKey,
+          fg: "#374151",
+          target: { kind: "line", id: +id },
+        }),
+      );
+    if (watch.length) groups.push({ key: "watch", label: "Approaching limits", color: "#6b7280", fg: "#374151", items: watch });
+  }
+
+  // Queue groups (deferred, rejected) do not depend on phase data
   const dg = byStatus(q, "Deferred")
     .filter((x) => x.reason?.kind === "grid")
     .map<AlertItem>((x) => ({
@@ -255,28 +283,6 @@ export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: num
       project: x.request_id,
     }));
   if (dg.length) groups.push({ key: "dg", label: "Deferred by grid constraint", color: "#d97706", fg: "#92400e", items: dg });
-
-  const watch: AlertItem[] = [];
-  phaseKeys.forEach((p) => {
-    const P = r.phases[p];
-    if (!P) return;
-    const L = P.line_loading ?? {};
-    Object.entries(L)
-      .filter(([, v]) => v > 88 && v <= 100)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .forEach(([id, v]) =>
-        watch.push({
-          key: `w${p}${id}`,
-          title: `Line ${id} at ${v.toFixed(0)}%`,
-          meta: "Within 12% of thermal rating — little headroom left",
-          tag: p,
-          fg: "#374151",
-          target: { kind: "line", id: +id },
-        }),
-      );
-  });
-  if (watch.length) groups.push({ key: "watch", label: "Approaching limits", color: "#6b7280", fg: "#374151", items: watch });
 
   const dr = byStatus(q, "Deferred")
     .filter((x) => x.reason?.kind === "readiness")
@@ -303,7 +309,7 @@ export function alertGroupsFor(r: OptimizeResult | null, eg30: number, eg35: num
 }
 
 export const violationCount = (groups: AlertGroup[]): number =>
-  groups.filter((g) => g.key === "viol" || g.key === "dg").reduce((a, g) => a + g.items.length, 0);
+  groups.filter((g) => g.key === "viol" || g.key === "n1" || g.key === "dg").reduce((a, g) => a + g.items.length, 0);
 
 // ---- misc -----------------------------------------------------------------------------------
 export function isStale(lp: RunParams | null, activeBranch: string, eg30: number, eg35: number, n: number): boolean {

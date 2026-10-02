@@ -9,7 +9,7 @@ type GspFiguresPlanner = PlannerSlice<"boundary", never, "ph">;
 export type StatsBarPlanner = PlannerSlice<
   "result" | "model" | "timelineYear" | "boundary" | "showBoundary",
   never,
-  "ph" | "q" | "eg30" | "eg35" | "phase"
+  "ph" | "q" | "egYear"
 > &
   WithPatch;
 export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", never, "ph"> & WithPatch;
@@ -87,9 +87,9 @@ function gspFigures(planner: GspFiguresPlanner) {
 
 export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
   const { s, patch, derived } = planner;
-  const { ph, q, eg30, eg35, phase } = derived;
+  const { ph, q, egYear } = derived;
   const r = s.result;
-  const growth = phase === "2030" ? eg30 : eg35;
+  const growth = egYear;
   const tl = timelineRollup(q, s.timelineYear);
   const { lim, exp, imp, fg } = gspFigures(planner);
   const gens = s.model?.generators ?? [];
@@ -101,10 +101,10 @@ export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
       <span>New in {s.timelineYear} <b style={{ color: r && tl.fresh.length ? "#b45309" : "var(--mute2)" }}>{r && tl.fresh.length ? `+${tl.fresh.length} · ${fmtMw(tl.freshMw)} MW` : "—"}</b></span>
       <span
         className="link"
-        title={lim ? `Worst-case power pushed up through the GSP to the transmission system, against the ${Math.round(lim)} MW it can take. Click for what's beyond the GSP.` : "Worst-case power exchanged with the transmission system at the GSP."}
+        title={lim ? `Power exchange with the transmission system at the GSP. Export is against the ${Math.round(lim)} MW limit. Click for what's beyond the GSP.` : "Power exchanged with the transmission system at the GSP."}
         onClick={() => patch({ showBoundary: !s.showBoundary })}
       >
-        GSP → transmission <b style={{ color: fg }}>{exp == null ? "—" : exp > 0 ? `${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW export` : `${imp} MW import`}</b>{" "}
+        GSP <b style={{ color: fg }}>{exp == null ? "—" : `export ${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW, import ${imp} MW`}</b>{" "}
         <span style={{ color: "var(--blue)", fontSize: 10.5 }}>{s.boundary ? (s.showBoundary ? "▴" : "▾") : ""}</span>
       </span>
       <span>Worst line <b style={{ color: ph && ph.worst_line_loading_pct > 100 ? "#dc2626" : "var(--ink)" }}>{ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : "—"}</b></span>

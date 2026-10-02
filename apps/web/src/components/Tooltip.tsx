@@ -4,9 +4,9 @@ import { ST, fmtMw, techLabel } from "../theme";
 import type { HitKind, Model, PhaseKey, QueueItem } from "../types";
 
 export type TooltipPlanner = PlannerSlice<
-  "hover" | "model" | "mouse" | "pickMode" | "result" | "size",
+  "hover" | "model" | "mouse" | "pickMode" | "result" | "size" | "timelineYear",
   never,
-  "q" | "qById" | "eg30" | "eg35"
+  "q" | "qById" | "phase" | "egYear"
 >;
 
 interface Row {
@@ -44,12 +44,8 @@ function lineTip({ planner, m, bindLines }: Ctx, id: number | string): View | nu
   ];
   if (l.in_service === false) rows.push({ k: "State", v: "Open point" });
   else {
-    // Use actual phase keys from the result
-    const phases = s.result ? Object.keys(s.result.phases) as PhaseKey[] : [];
-    phases.forEach((p) => {
-      const v = loadPct(s.result, p, l.line_id);
-      rows.push({ k: `Loading ${p}`, v: v == null ? "—" : `${v.toFixed(0)}%`, color: pctColor(v) });
-    });
+    const v = loadPct(s.result, derived.phase, l.line_id);
+    rows.push({ k: `Loading ${s.timelineYear}`, v: v == null ? "—" : `${v.toFixed(0)}%`, color: pctColor(v) });
   }
   if (bindLines.has(l.line_id))
     rows.push({ k: "Binds", v: derived.q.filter((x) => x.reason?.element?.line_id === l.line_id).map((x) => x.request_id).join(", "), color: "#fbbf24" });
@@ -57,19 +53,13 @@ function lineTip({ planner, m, bindLines }: Ctx, id: number | string): View | nu
 }
 
 function busTip({ planner, m, busProjects }: Ctx, rawId: number | string): View {
-  const { s } = planner;
+  const { s, derived } = planner;
   const id = Number(rawId);
   const ps = busProjects[id] ?? [];
   const bb = m.buses.find((x) => x.bus_id === id);
   const rows: Row[] = [{ k: "Voltage level", v: bb?.vn_kv != null ? `${bb.vn_kv} kV` : "—" }, { k: "Statutory band", v: voltageBandLabel(bb?.vn_kv) }];
-  
-  // Use actual phase keys from the result
-  const phases = s.result ? Object.keys(s.result.phases) as PhaseKey[] : [];
-  phases.forEach((p) => {
-    const v = vmAt(s.result, p, id);
-    rows.push({ k: `V ${p}`, v: v == null ? "—" : `${v.toFixed(3)} pu`, color: vColor(v, bb?.vn_kv) });
-  });
-  
+  const v = vmAt(s.result, derived.phase, id);
+  rows.push({ k: `V ${s.timelineYear}`, v: v == null ? "—" : `${v.toFixed(3)} pu`, color: vColor(v, bb?.vn_kv) });
   if (ps.length) rows.push({ k: "Projects", v: ps.map((x) => x.request_id).join(", ") });
   if (s.pickMode) rows.push({ k: "", v: "Click to select", color: "#93c5fd" });
   return { title: `Bus ${id}`, rows };
@@ -89,15 +79,15 @@ function projectTip({ planner }: Ctx, id: number | string): View | null {
 }
 
 function loadTip({ planner, m }: Ctx, id: number | string): View | null {
-  const { eg30, eg35 } = planner.derived;
+  const { s, derived } = planner;
+  const { egYear } = derived;
   const l = m.loads.find((x) => x.load_id === id);
   if (!l) return null;
   return {
     title: `Load at bus ${l.bus_id}`,
     rows: [
       { k: "Base demand", v: `${l.p_mw.toFixed(2)} MW` },
-      { k: "2030", v: `${(l.p_mw * eg30).toFixed(2)} MW` },
-      { k: "2035", v: `${(l.p_mw * eg35).toFixed(2)} MW` },
+      { k: `${s.timelineYear}`, v: `${(l.p_mw * egYear).toFixed(2)} MW` },
     ],
   };
 }

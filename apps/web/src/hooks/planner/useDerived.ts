@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { interpolateGrowthForYear } from "../../lib/derive";
 import type { PhaseResult, QueueItem } from "../../types";
 import type { PlannerState } from "./core";
 
@@ -22,6 +23,10 @@ export function useDerived(s: PlannerState) {
       : null;
     
     const phase = phaseKey;  // expose the actual phase key being used
+    
+    // Interpolate growth for the timeline year
+    const egYear = interpolateGrowthForYear(s.timelineYear, eg30, eg35);
+    
     const q: QueueItem[] = s.result ? s.result.queue : [];
     const qById: Record<string, QueueItem> = Object.fromEntries(q.map((x) => [x.request_id, x]));
     const fc = s.forecasts.find((x) => x.id === s.forecastId);
@@ -29,6 +34,6 @@ export function useDerived(s: PlannerState) {
     const reviewB = s.branches.find((b) => b.branch_id === s.activeBranch) ?? null;
     const hasReviewBranch = !!(reviewB && reviewB.branch_id !== "main");
     const manualIds = new Set(s.cands.filter((c) => c.manual).map((c) => c.request_id));
-    return { onMainView, activeB, eg30, eg35, phase, ph, q, qById, fc, fcEff, reviewB, hasReviewBranch, manualIds };
+    return { onMainView, activeB, eg30, eg35, egYear, phase, ph, q, qById, fc, fcEff, reviewB, hasReviewBranch, manualIds };
   }, [s.activeBranch, s.branches, s.cands, s.forecastId, s.forecasts, s.g30, s.g35, s.result, s.timelineYear]);
 }

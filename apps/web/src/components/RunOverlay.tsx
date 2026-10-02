@@ -1,19 +1,18 @@
 import type { PlannerSlice } from "../hooks/planner/slice";
 
-export type RunOverlayPlanner = PlannerSlice<"cands" | "stage" | "step", never, "eg30" | "eg35" | "fcEff">;
+export type RunOverlayPlanner = PlannerSlice<"cands" | "stage" | "step" | "timelineYear", never, "egYear" | "fcEff">;
 
 
 export function RunOverlay({ planner }: { planner: RunOverlayPlanner }) {
   const { s, derived } = planner;
-  const { eg30, eg35, fcEff } = derived;
+  const { egYear, fcEff } = derived;
   const labels = [
     "Ranking: readiness · grid need · strategic fit",
-    `Power flow · 2030 demand ×${eg30.toFixed(2)} · two study cases`,
-    `Power flow · 2035 demand ×${eg35.toFixed(2)} · two study cases`,
+    `Power flow · ${s.timelineYear} demand ×${egYear.toFixed(2)} · two study cases`,
     "N-1 screen of the 132 kV backbone",
     "Drafting committee briefing",
   ];
-  const pct = Math.min(100, Math.max(4, s.step * 20));
+  const pct = Math.min(100, Math.max(4, s.step * 25));
   return (
     <div className="run-overlay">
       <div className="run-card">

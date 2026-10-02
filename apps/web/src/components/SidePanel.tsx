@@ -20,7 +20,7 @@ const TILES: ["All" | Status, string, string][] = [
 ];
 
 /** The side panel's own reads, plus every tab it renders. */
-export type SidePanelPlanner = PlannerSlice<"drawer" | "filter" | "result" | "tab" | "toast", "setTab", "q" | "eg30" | "eg35"> &
+export type SidePanelPlanner = PlannerSlice<"drawer" | "filter" | "result" | "tab" | "toast", "setTab", "q" | "phase" | "egYear"> &
   WithPatch &
   QueueTabPlanner &
   AlertsTabPlanner &
@@ -29,9 +29,9 @@ export type SidePanelPlanner = PlannerSlice<"drawer" | "filter" | "result" | "ta
 
 export function SidePanel({ planner }: { planner: SidePanelPlanner }) {
   const { s, patch, actions, derived } = planner;
-  const { q, eg30, eg35 } = derived;
+  const { q, phase, egYear } = derived;
   const r = s.result;
-  const alertGroups = alertGroupsFor(r, eg30, eg35);
+  const alertGroups = alertGroupsFor(r, phase, egYear);
   const viol = violationCount(alertGroups);
   const tabs: [Tab, string, number, string][] = [
     ["queue", "Queue", q.length, "#6b7280"],
