@@ -94,8 +94,8 @@ describe("alertGroupsFor", () => {
     expect(violationCount(groups2032)).toBe(4); // 1 overload + 1 voltage + 1 N-1 + 1 deferred = 4
     
     const groups2028 = alertGroupsFor(r, "2028", 1.08);
-    expect(groups2028.map((g) => g.key)).toEqual(["dg", "watch"]);
-    expect(groups2028[1].items[0].title).toBe("Line 1 at 95%"); // 2028: 95% is within 12% of the rating
+    expect(groups2028.map((g) => g.key)).toEqual(["watch", "dg"]);
+    expect(groups2028[0].items[0].title).toBe("Line 1 at 95%"); // 2028: 95% is within 12% of the rating
     expect(violationCount(groups2028)).toBe(1); // only the deferred project
     
     expect(alertGroupsFor(null, "2030", 1.0)).toEqual([]);
@@ -113,6 +113,25 @@ describe("alertGroupsFor", () => {
     // With N-1 included, count is 4
     expect(count).toBe(4);
     expect(count).toBeGreaterThan(3); // must be > count without N-1
+  });
+  
+  it("shows deferred and rejected queue items even when phase is missing", () => {
+    // Regression: during scrub debounce, result holds the previous year's phase.
+    // Queue groups (deferred, rejected) must still appear; network groups are skipped.
+    const rWithRejected: OptimizeResult = {
+      params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
+      queue: [
+        item({ request_id: "D1", status: "Deferred", reason: { type: "trafo", element_id: 3, value: 110, message: "m", kind: "grid", element: null, short: "Grid constraint", why: "w", action: "a" } }),
+        item({ request_id: "R1", status: "Rejected", reason: { type: "intake", element_id: null, value: null, message: "Invalid", kind: "intake", element: null, short: "Invalid", why: "Invalid bus", action: "Fix" } }),
+      ],
+      phases: { "2030": phase({}) }, // no phase for 2029
+      justification: "", snapshot_id: "s", branch_id: "main",
+    };
+    
+    const groups = alertGroupsFor(rWithRejected, "2029", 1.05);
+    expect(groups.map(g => g.key)).toEqual(["dg", "rj"]); // queue groups only, no network groups
+    expect(groups.find(g => g.key === "dg")!.items).toHaveLength(1);
+    expect(groups.find(g => g.key === "rj")!.items).toHaveLength(1);
   });
 });
 

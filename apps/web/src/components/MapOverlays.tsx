@@ -101,10 +101,10 @@ export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
       <span>New in {s.timelineYear} <b style={{ color: r && tl.fresh.length ? "#b45309" : "var(--mute2)" }}>{r && tl.fresh.length ? `+${tl.fresh.length} · ${fmtMw(tl.freshMw)} MW` : "—"}</b></span>
       <span
         className="link"
-        title={lim ? `Worst-case power pushed up through the GSP to the transmission system, against the ${Math.round(lim)} MW it can take. Click for what's beyond the GSP.` : "Worst-case power exchanged with the transmission system at the GSP."}
+        title={lim ? `Power exchange with the transmission system at the GSP. Export is against the ${Math.round(lim)} MW limit. Click for what's beyond the GSP.` : "Power exchanged with the transmission system at the GSP."}
         onClick={() => patch({ showBoundary: !s.showBoundary })}
       >
-        GSP → transmission <b style={{ color: fg }}>{exp == null ? "—" : exp > 0 ? `${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW export` : `${imp} MW import`}</b>{" "}
+        GSP <b style={{ color: fg }}>{exp == null ? "—" : `↑${exp}${lim ? ` / ${Math.round(lim)}` : ""} MW · ↓${imp} MW`}</b>{" "}
         <span style={{ color: "var(--blue)", fontSize: 10.5 }}>{s.boundary ? (s.showBoundary ? "▴" : "▾") : ""}</span>
       </span>
       <span>Worst line <b style={{ color: ph && ph.worst_line_loading_pct > 100 ? "#dc2626" : "var(--ink)" }}>{ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : "—"}</b></span>
