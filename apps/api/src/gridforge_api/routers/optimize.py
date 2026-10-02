@@ -22,6 +22,8 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
         row = repository.require_branch(con, branch_id)
     req = repository.branch_request(row)
     req.with_justification = bool(body and body.with_justification)
+    if body and body.study_year is not None:
+        req.study_year = body.study_year
     return plans.optimize_payload(req, branch_id)
 
 
@@ -32,6 +34,8 @@ def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None
     with scenarios.cursor() as con:
         row = repository.require_branch(con, branch_id)
     req = OptimizeRequest(with_justification=bool(body and body.with_justification), **repository.branch_params(row))
+    if body and body.study_year is not None:
+        req.study_year = body.study_year
     return jobs.start("optimize", lambda progress: plans.optimize_payload(req, branch_id, progress=progress))
 
 

@@ -237,3 +237,40 @@ def test_results_are_cached_durably_and_keyed_by_engine():
     second = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
     assert second["queue"] == first["queue"]
     assert _t.perf_counter() - t0 < 5.0  # served from the durable cache, not re-solved
+
+
+def test_different_study_years_do_not_share_cache():
+    """Regression: cache keys must include study_year; wrong-year physics is a correctness bug."""
+    # Run on main with two different study years
+    r2028 = client.post("/optimize", json={"with_justification": False, "study_year": 2028}).json()
+    r2032 = client.post("/optimize", json={"with_justification": False, "study_year": 2032}).json()
+    
+    # Results must differ: different years have different interpolated demand growth
+    # 2028 uses ~1.04× growth (halfway between 2026 and 2030 @ 1.08)
+    # 2032 uses ~1.19× growth (between 2030 @ 1.08 and 2035 @ 1.35)
+    assert r2028["params"]["study_year"] == 2028
+    assert r2032["params"]["study_year"] == 2032
+    
+    # Phase keys should be year-specific
+    assert "2028" in r2028["phases"]
+    assert "2032" in r2032["phases"]
+    
+    # Physics should differ (loading percentages, voltages, etc. change with demand)
+    phase_2028 = r2028["phases"]["2028"]
+    phase_2032 = r2032["phases"]["2032"]
+    
+    # At higher demand (2032), worst line loading should be higher than at 2028
+    # (more demand = more flow = higher loading)
+    assert phase_2032["worst_line_loading_pct"] > phase_2028["worst_line_loading_pct"], \
+        "2032 (higher demand) must have higher line loading than 2028"
+    
+    # Verify cache keys are different by checking params_key includes study_year
+    from gridforge_api.cache import params_key
+    from gridforge_optimizer import OptimizeParams
+    
+    params_2028 = OptimizeParams(**r2028["params"])
+    params_2032 = OptimizeParams(**r2032["params"])
+    
+    key_2028 = params_key(params_2028)
+    key_2032 = params_key(params_2032)
+    assert key_2028 != key_2032, "params_key for different study_years must differ"

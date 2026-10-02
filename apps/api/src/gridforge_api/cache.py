@@ -29,7 +29,7 @@ def cand_key(cands: list[Candidate]) -> str:
 
 def params_key(params: OptimizeParams) -> tuple:
     return (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
-            params.w_readiness, params.w_need, params.w_strategic)
+            params.w_readiness, params.w_need, params.w_strategic, params.study_year)
 
 
 class ResultCache:

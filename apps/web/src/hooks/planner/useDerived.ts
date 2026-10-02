@@ -14,12 +14,11 @@ export function useDerived(s: PlannerState) {
     
     // For year-specific studies, use the timeline year as the phase key
     const phaseKey = String(s.timelineYear);
-    // Fallback to legacy 2030/2035 if year-specific phase doesn't exist
-    const legacyPhase = s.timelineYear <= 2030 ? "2030" : "2035";
     
-    // Try to get year-specific phase, fall back to legacy phase
-    const ph: PhaseResult | null = s.result 
-      ? (s.result.phases[phaseKey] ?? s.result.phases[legacyPhase] ?? null)
+    // Get year-specific phase ONLY - no fallback to legacy 2030/2035
+    // Year Y must use year-Y results only
+    const ph: PhaseResult | null = s.result && s.result.phases[phaseKey] 
+      ? s.result.phases[phaseKey]
       : null;
     
     const phase = phaseKey;  // expose the actual phase key being used

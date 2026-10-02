@@ -40,6 +40,7 @@ class BranchOptimizeRequest(BaseModel):
     """Request body for running a branch (its scenario is the branch's own)."""
 
     with_justification: bool = False
+    study_year: int | None = None  # optional: run for a specific year (overrides two-phase logic)
 
 
 class BranchCreate(BaseModel):

@@ -59,7 +59,7 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
       let cands: RegistryItem[];
       try {
         res = onBranch || scenario === st.forecastId
-          ? await api.runBranchJob(bid || "main", { with_justification: true }, onProgress)
+          ? await api.runBranchJob(bid || "main", { with_justification: true, study_year: studyYear }, onProgress)
           : await api.optimize({ scenario, growth_2030: g30, growth_2035: g35, with_justification: true, study_year: studyYear });
         cands = await api.getCandidates();
       } catch (e) {

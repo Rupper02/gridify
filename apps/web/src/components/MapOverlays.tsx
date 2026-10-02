@@ -1,4 +1,5 @@
 import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+import { useRef, useCallback } from "react";
 
 import { timelineRollup } from "../lib/derive";
 import { fmtMw } from "../theme";
@@ -16,14 +17,32 @@ export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", neve
 export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
   const { s, patch, actions, derived } = planner;
   const y = s.timelineYear;
-  const label = y <= 2026 ? "as-is today" : derived.phase === "2030" ? "Clean Power lens" : "Strategic lens";
-  const fg = y <= 2026 ? "#0d9488" : derived.phase === "2030" ? "#16a34a" : "#2563eb";
+  const debounceTimer = useRef<number | undefined>(undefined);
   
-  const handleYearChange = (newYear: number) => {
+  // Label based on actual year, not legacy phase
+  let label: string;
+  let fg: string;
+  if (y <= 2026) {
+    label = "as-is today";
+    fg = "#0d9488";
+  } else if (y <= 2030) {
+    label = "Clean Power lens";
+    fg = "#16a34a";
+  } else {
+    label = "Strategic lens";
+    fg = "#2563eb";
+  }
+  
+  const handleYearChange = useCallback((newYear: number) => {
+    // Update state immediately for smooth UI
     patch({ timelineYear: newYear });
-    // Trigger re-run with new study year
-    void actions.run();
-  };
+    
+    // Debounce the re-run to avoid spamming optimize calls during rapid scrubbing
+    window.clearTimeout(debounceTimer.current);
+    debounceTimer.current = window.setTimeout(() => {
+      void actions.run();
+    }, 500); // 500ms debounce
+  }, [patch, actions]);
   
   return (
     <div className="row" style={{ gap: 10 }}>
