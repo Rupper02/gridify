@@ -32,7 +32,6 @@ const vColor = (v: number | null, kv?: number | null) => {
   const [lo, hi] = voltageBand(kv);
   return v > hi || v < lo ? "#f87171" : "#f9fafb";
 };
-const PHASES: PhaseKey[] = ["2030", "2035"];
 
 function lineTip({ planner, m, bindLines }: Ctx, id: number | string): View | null {
   const { s, derived } = planner;
@@ -44,11 +43,14 @@ function lineTip({ planner, m, bindLines }: Ctx, id: number | string): View | nu
     { k: "Length", v: `${l.length_km != null ? l.length_km.toFixed(2) : "—"} km` },
   ];
   if (l.in_service === false) rows.push({ k: "State", v: "Open point" });
-  else
-    PHASES.forEach((p) => {
+  else {
+    // Use actual phase keys from the result
+    const phases = s.result ? Object.keys(s.result.phases) as PhaseKey[] : [];
+    phases.forEach((p) => {
       const v = loadPct(s.result, p, l.line_id);
       rows.push({ k: `Loading ${p}`, v: v == null ? "—" : `${v.toFixed(0)}%`, color: pctColor(v) });
     });
+  }
   if (bindLines.has(l.line_id))
     rows.push({ k: "Binds", v: derived.q.filter((x) => x.reason?.element?.line_id === l.line_id).map((x) => x.request_id).join(", "), color: "#fbbf24" });
   return { title: l.line_name, rows };
@@ -60,10 +62,14 @@ function busTip({ planner, m, busProjects }: Ctx, rawId: number | string): View 
   const ps = busProjects[id] ?? [];
   const bb = m.buses.find((x) => x.bus_id === id);
   const rows: Row[] = [{ k: "Voltage level", v: bb?.vn_kv != null ? `${bb.vn_kv} kV` : "—" }, { k: "Statutory band", v: voltageBandLabel(bb?.vn_kv) }];
-  PHASES.forEach((p) => {
+  
+  // Use actual phase keys from the result
+  const phases = s.result ? Object.keys(s.result.phases) as PhaseKey[] : [];
+  phases.forEach((p) => {
     const v = vmAt(s.result, p, id);
     rows.push({ k: `V ${p}`, v: v == null ? "—" : `${v.toFixed(3)} pu`, color: vColor(v, bb?.vn_kv) });
   });
+  
   if (ps.length) rows.push({ k: "Projects", v: ps.map((x) => x.request_id).join(", ") });
   if (s.pickMode) rows.push({ k: "", v: "Click to select", color: "#93c5fd" });
   return { title: `Bus ${id}`, rows };
