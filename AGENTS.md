@@ -10,7 +10,7 @@ Deep docs (they are the spec, so keep them current):
 - `README.md`: system, data sources, how a project is judged, API table, limitations
 - `packages/optimizer/README.md`: engine algorithm, study cases, suggestions, config
 - `apps/pipeline/README.md`: Dagster asset graph and checks
-- `apps/web/README.md`: planner files. `apps/web/AGENTS.md` is a Next.js-managed block; leave it alone.
+- `apps/web/README.md`: planner files (Vite + React + TypeScript).
 
 ## Repo map: who owns what
 
@@ -19,7 +19,7 @@ Deep docs (they are the spec, so keep them current):
 | `packages/optimizer` (`gridforge_optimizer`) | **The single source of truth** for the network build (`nged.py`), the physics (`network.py` feasibility), ranking and greedy loop (`greedy.py`), "what would it take" (`suggest.py`), the diff (`diff.py`), the pydantic contract (`types.py`) and every tunable (`config.py`). Bundled open data lives in `src/gridforge_optimizer/data/nged/`. |
 | `apps/pipeline` (`grid_simulator`) | Dagster graph in `src/grid_simulator/defs/nged.py`: `ltds_tables` → `nged_model_canonical` + `nged_connection_queue` → 3 asset checks → `served_nged` → DuckDB warehouse `apps/pipeline/warehouse/gridforge.duckdb`. `served_nged` is the **only** writer of the warehouse. |
 | `apps/api` (`gridforge_api`) | FastAPI on :8000. Reads the warehouse **read-only**; branches, added projects and scheduled years go to `apps/api/data/scenarios.duckdb` (`GRIDFORGE_SCENARIOS_DB` overrides; `GRIDFORGE_DB_PATH` overrides the warehouse). |
-| `apps/web` | Next.js shell; `/` redirects to `public/planner/index.html`, a self-contained MapLibre app (`index.html` + `gridforge-api.js` + vendored `support.js`). The planner is **live-only** against the API. |
+| `apps/web` | Vite + React 19 + TypeScript single-page planner. `src/hooks/usePlanner.ts` is the controller (state + actions), `src/api.ts` the typed client (+ `normReason`), `src/lib/` pure derivations with vitest, `src/components/` the UI, `MapView.tsx` owns MapLibre. Live-only against the API (`VITE_API_BASE`, default `http://localhost:8000`). |
 
 Both Python apps consume `packages/optimizer` as an editable uv path dependency. Never duplicate network-building or physics logic in the pipeline, the API or the client; import it from the engine.
 
@@ -42,6 +42,7 @@ pnpm --filter web dev                             # http://localhost:3000
 pnpm test                                         # everything, via Turborepo
 cd packages/optimizer && uv run pytest -q         # engine
 cd apps/api && uv run --with pytest pytest tests -q   # API (uses a temp scenarios DB)
+cd apps/web && pnpm test && pnpm typecheck        # UI unit tests + tsc
 ```
 
 - `uv run dg dev` (Dagster UI) also binds **port 3000**: don't run it alongside the web app.
@@ -64,7 +65,7 @@ Windows / Git Bash:
    - LTDS rows with Status `Removed` are excluded (the LTDS is a change-log against NGED's previous edition).
    - Cite sources (resource ids live next to the constants in `nged.py`).
    - Bundled ECR data must contain **no personal data** (customer names, addresses, MPANs are dropped by the fetch script).
-6. **Reasons are human-readable and actionable**: why it's blocked, and what to do. The engine emits typed reasons (`line`/`trafo`/`voltage`/`gsp`/`rejected`, ...); `_normReason` in `gridforge-api.js` turns them into `{kind, element, short, why, action}`. Extend both when you add a reason type.
+6. **Reasons are human-readable and actionable**: why it's blocked, and what to do. The engine emits typed reasons (`line`/`trafo`/`voltage`/`gsp`/`rejected`, ...); `normReason` in `apps/web/src/api.ts` turns them into `{kind, element, short, why, action}` (unit-tested in `src/api.test.ts`). Extend both when you add a reason type.
 7. **Honesty over fake precision.** State limitations instead of modelling them badly: fault levels are not checked, the 400 kV network is context only, the GSP limit's sign convention is assumed, batteries are studied at full export. Copilot "freed MW" is first-order (shown as ≈). Don't tune constants (e.g. `MAX_REINFORCE_STEPS`) for nicer-looking output.
 
 ## Engineering conventions
@@ -72,21 +73,18 @@ Windows / Git Bash:
 - **Tests are grid-agnostic.** Derive fixtures from `build_base_net()` via `packages/optimizer/tests/_grid.py` (`stiff_bus`, `weak_buses`, `saturating_candidates`, `grid_deferred`, `invalid_bus`). Never hardcode bus ids, and never size fixtures from policy caps like `MAX_CONNECTION_MW` (only use the cap to test the cap itself). NGED-specific data rules go in `tests/test_nged.py`.
 - **API cache keys include the candidate-set hash** (`_cand_key` → `_compute`). Any new cached computation must too, or branches serve each other's results.
 - **The warehouse is read-only to the API.** Anything a user does goes to the scenarios DB. Schema changes there need a migration (PRAGMA check + ALTER) and, for per-project columns, an entry in `_ADDED_COLS` so they copy on branch create/merge.
-- **Change the output shape in one pass:** `types.py` → API enrichment in `apps/api/src/gridforge_api/main.py` → `gridforge-api.js` → `index.html`. Add an API test for new endpoints.
+- **Change the output shape in one pass:** `types.py` → API enrichment in `apps/api/src/gridforge_api/main.py` → `apps/web/src/types.ts` + `src/api.ts` → the component that renders it. Add an API test for new endpoints.
 - Engine functions (`optimize`, `suggest_unblock`, `diff_results`) make no network calls; keep it that way. Network/LLM calls belong in `llm.py` and the API only.
 - Delete dead code rather than keeping it "not wired". Update the READMEs in the same change when behaviour, endpoints or commands change.
 - pandapower gotchas: generation is injected as PQ `sgen` (not `gen`) so voltage problems show; use `pandapower.toolbox.drop_buses`; avoid `deepcopy` of nets in hot loops (build once per phase, inject/roll back).
 
-## Planner (`apps/web/public/planner`)
+## Planner (`apps/web`)
 
-- The UI is the `x-dc` dialect in `<script type="text/x-dc">` inside `index.html`. `{{ }}` bindings resolve against `renderVals()`; every binding needs a matching `renderVals` key. `<sc-if>` / `<sc-for>` must stay balanced. Use button toggles, not checkboxes.
-- `support.js` is a vendored runtime: **never edit it**.
-- Engine runs take ~20 s (two study cases). `run()` coalesces overlapping requests (`_runAgain`) and resets `running` when a call fails (try/catch + toast); keep that pattern for any long call, never drop requests silently.
-- Verify before claiming done:
-  1. `node --check apps/web/public/planner/gridforge-api.js`
-  2. Extract the `<script type="text/x-dc">` block to a temp `.js` and `node --check` it.
-  3. Count opening vs closing `<sc-if` and `<sc-for` tags; they must match.
-  4. Load the page against a running API in a headless browser (e.g. Playwright installed in a scratch dir, not the repo; MapLibre needs `--use-gl=swiftshader`) and require **zero page errors**. Exercise the flow you changed (branch → add project → run → review).
+- State lives in one object in `usePlanner` (`patch` merges partial updates; `ref.current` is the latest state for async flows). Actions that need state React hasn't flushed yet take an explicit override (e.g. `run({ activeBranch })`) instead of reading it back.
+- Engine runs take ~20 s (two study cases). `run()` keeps its in-flight flag in a ref and coalesces overlapping requests into one re-run; a failed call clears the flag and toasts. Keep that pattern for any long call; never drop requests silently.
+- Pure logic goes in `src/lib/` or `src/api.ts` with a vitest next to it; components stay thin. Styles are classes in `src/styles.css`; inline styles only for data-driven colours.
+- `MapView.tsx` owns the MapLibre instance: layers/icons are added once on `load`, data is pushed with `setData` from the memoised GeoJSON in `App.tsx`, and labels are re-projected on each `move`.
+- Verify before claiming done: `pnpm --filter web typecheck && pnpm --filter web test && pnpm --filter web build`, then load the dev server against a running API in a headless browser (Playwright in a scratch dir, not the repo; MapLibre needs `--use-gl=swiftshader`) and require **zero page errors**. Exercise the flow you changed (branch → add project → run → review).
 
 ## Data refresh
 
@@ -105,7 +103,7 @@ OSM data is ODbL: keep the "© OpenStreetMap contributors" credit wherever posit
 - **Verify in a real browser** before saying UI work is done; tests and `node --check` aren't enough.
 - **Don't commit or push unless asked.** The owner's usual flow is a feature branch fast-forwarded into `main`; ask before pushing, and never force-push `main`.
 - **`AGENTS.md` is the only agent-guidance file, for every kind of agent.** Don't add `CLAUDE.md`, `.cursorrules` or other tool-specific copies; put guidance here.
-- Keep the Turborepo block below and `apps/web/AGENTS.md` committed and unedited; the tools re-add them. (Next.js only scaffolds a `CLAUDE.md` when no `AGENTS.md` exists, so keeping `apps/web/AGENTS.md` prevents that.)
+- Keep the Turborepo block below committed and unedited; turbo re-adds it.
 - When several agents work in parallel, stay inside the files you were assigned.
 
 <!-- BEGIN:turborepo-agent-rules -->

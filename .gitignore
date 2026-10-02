@@ -211,10 +211,9 @@ warehouse/
 
 # --- Node / monorepo ---
 node_modules/
-.next/
+.vite/
 .turbo/
 out/
 dist/
 *.tsbuildinfo
 .env*.local
-public/maplibre/

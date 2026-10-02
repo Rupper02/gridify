@@ -117,7 +117,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
                                                                    scheduled years
                                                                                                  │
                                                                                                  ▼
-                                                                  apps/web /planner: MapLibre map,
+                                                                  apps/web (Vite + React): MapLibre map,
                                                                   queue, timeline, review, copilot
 ```
 
@@ -202,7 +202,7 @@ grid-simulator/                    pnpm workspace + Turborepo
 │  │  ├─ src/grid_simulator/defs/nged.py   the asset graph
 │  │  └─ scripts/                  fetch_nged_ecr · fetch_osm_substations (data refresh)
 │  ├─ api/                         FastAPI: model, registry, branches, optimize, diff, suggestions
-│  └─ web/                         Next.js; public/planner/ is the MapLibre planner (index.html + gridforge-api.js)
+│  └─ web/                         Vite + React + TypeScript planner: src/hooks/usePlanner.ts (controller), src/api.ts, src/components/
 └─ packages/
    └─ optimizer/                   gridforge_optimizer: network build, feasibility, greedy, suggest, diff
       └─ src/gridforge_optimizer/data/nged/   bundled open data
@@ -218,7 +218,8 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 pnpm test                                     # everything, via Turborepo
 # or individually
 cd packages/optimizer && uv run pytest -q     # engine: 30 tests
-cd apps/api && uv run --with pytest pytest tests -q   # API: 9 tests (each run uses its own temp scenarios DB)
+cd apps/api && uv run --with pytest pytest tests -q   # API: 11 tests (each run uses its own temp scenarios DB)
+cd apps/web && pnpm test                      # UI: 13 vitest unit tests (reason wording, timeline/queue/alert derivations)
 ```
 
 The engine tests are **grid-agnostic**: fixtures are derived from whatever network `build_base_net()` returns, never from hard-coded bus ids. `test_nged.py` adds the NGED data rules:
