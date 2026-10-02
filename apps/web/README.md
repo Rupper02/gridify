@@ -1,36 +1,15 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GridForge — web
 
-## Getting Started
+A Next.js shell around the GridForge planner. `/` redirects to `/planner/index.html`: a self-contained MapLibre app in `public/planner/`.
 
-First, run the development server:
+| File | Role |
+|---|---|
+| `public/planner/index.html` | The planner UI: map, queue, timeline, Review (branches, diff, copilot), registry |
+| `public/planner/gridforge-api.js` | API client for the FastAPI service on `http://localhost:8000` (`config.base`); normalises engine deferral reasons into plain-English "why / what to do" |
+| `public/planner/support.js` | The template runtime the page is written against. Treat it as a vendored dependency; don't edit it |
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm --filter web dev        # http://localhost:3000  (needs the API running: pnpm --filter @gridforge/api dev)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See the [root README](../../README.md) for the full system and the quickstart.

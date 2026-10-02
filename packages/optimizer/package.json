@@ -1,0 +1,8 @@
+{
+  "name": "@gridforge/optimizer",
+  "private": true,
+  "scripts": {
+    "test": "uv run pytest -q",
+    "build": "uv sync"
+  }
+}

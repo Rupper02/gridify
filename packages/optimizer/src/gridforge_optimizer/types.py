@@ -25,19 +25,19 @@ class Candidate(BaseModel):
     readiness_score: float = 0.5
     strategic_fit: float = 0.5
     readiness_rationale: str = ""
-    strategic_rationale: str = ""
-    strategic_confidence: float | None = None  # Jev's calibrated confidence (None = chat fallback)
     status: str = "auto_accept"  # "auto_accept" | "needs_review"
     review_reasons: str = ""
+    commissioning_year: int | None = None  # developer's requested energisation year (the timeline axis)
 
 
 class Reason(BaseModel):
     """Why a project was deferred or rejected, with the binding element where applicable."""
 
-    type: str  # "voltage" | "line" | "trafo" | "non_convergent" | "rejected"
+    type: str  # "voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "rejected"
     element_id: int | None = None
     value: float | None = None
     message: str
+    case: str | None = None  # the study case it fails in: "winter_peak" | "summer_min" (None = n/a)
 
 
 class QueueItem(BaseModel):
@@ -54,10 +54,10 @@ class QueueItem(BaseModel):
     rank_score: float | None
     status: str  # "Phase1" | "Phase2" | "Deferred" | "Rejected"
     reason: Reason | None = None
+    commissioning_year: int | None = None  # developer's requested energisation year
+    recommended_year: int | None = None  # the year the optimizer suggests it energise (None if it can't)
     worst_line_loading_pct: float | None = None
     readiness_rationale: str = ""
-    strategic_rationale: str = ""
-    strategic_confidence: float | None = None
 
 
 class OptimizeParams(BaseModel):
@@ -84,6 +84,9 @@ class PhaseResult(BaseModel):
     line_loading: dict[int, float] = {}  # line_id -> loading_percent, for the map heat overlay
     bus_vm: dict[int, float] = {}  # bus_id -> voltage pu, for the map voltage overlay
     voltage_violation_bus_ids: list[int] = []  # buses outside the voltage band
+    gsp_export_mw: float = 0.0  # peak power pushed UP through the GSP to transmission (worst case)
+    gsp_import_mw: float = 0.0  # peak power drawn DOWN from transmission (worst case)
+    gsp_limit_mw: float | None = None  # the GSP's export limit to transmission; None = unlimited
 
 
 class OptimizeResult(BaseModel):
@@ -103,7 +106,7 @@ class Reinforcement(BaseModel):
     (impedance unchanged -> voltage unmoved).
     """
 
-    kind: str  # "line" | "trafo"
+    kind: str  # "line" | "trafo" | "gsp" (one more supergrid transformer at the GSP)
     element_id: int
     action: str = "add_parallel"  # "add_parallel" | "uprate"
     factor: float = 2.0  # uprate multiplier on the rating (ignored for add_parallel)
@@ -116,7 +119,7 @@ class Suggestion(BaseModel):
     them. `freed_mw_*` is first-order (second-order knock-on is not modelled) -> report it as ≈.
     """
 
-    target_type: str  # "line" | "trafo" | "voltage"
+    target_type: str  # "line" | "trafo" | "voltage" | "gsp"
     target_element_id: int
     action: str
     reinforcements: list[Reinforcement] = []  # the full chain of upgrades this suggestion models

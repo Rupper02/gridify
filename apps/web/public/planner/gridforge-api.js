@@ -1,244 +1,32 @@
-// GridForge API client. Runs LIVE against the FastAPI backend by default
-// (config.mock = false, base = http://localhost:8000); set mock = true for the built-in offline model.
+// GridForge API client: a thin wrapper over the FastAPI backend (apps/api), exposed as
+// window.GridForgeAPI. Every call goes to config.base; deferral reasons are normalised for the UI.
 (function () {
-  const config = { mock: false, base: "http://localhost:8000", latencyMs: 900 };
-  const V_MIN = 0.9, V_MAX = 1.1, LINE_MAX = 100, MAX_MW = 20;
-  const W_READY = 0.5, W_NEED = 0.35, W_STRAT = 0.15;
-  const READY_P1 = 0.6, READY_P2 = 0.35;
-  const R_OHM_KM = 0.26, V_SET = 1.02;
+  const config = { base: "http://localhost:8000" };
+  const MAX_MW = 300;  // intake cap — mirrors gridforge_optimizer.config.MAX_CONNECTION_MW; the API sends the real value
 
-  // Offline fallback only — overwritten by _loadCandidates() from ./data/candidates.json (NGED).
-  let CANDIDATES = [
-    { request_id: "CR-2041", applicant: "Rheintal Solar GmbH", bus_id: 120, technology: "solar", rating_mw: 4.5, readiness_score: 0.46, strategic_fit: 0.7, status: "valid", review_reasons: "", readiness_rationale: "Initial enquiry; no consent or land agreement referenced." },
-    { request_id: "CR-2042", applicant: "Unnamed BESS developer", bus_id: 250, technology: "battery", rating_mw: 2, readiness_score: 0.5, strategic_fit: 0.8, status: "rejected", review_reasons: "Point of connection bus 250 does not exist in the network model", readiness_rationale: "Commissioning date given, but no consent evidence." },
-    { request_id: "CR-2043", applicant: "Ettenheim depot enquiry", bus_id: null, technology: "solar", rating_mw: null, readiness_score: 0.1, strategic_fit: 0.6, status: "rejected", review_reasons: "Missing capacity and point of connection", readiness_rationale: "Size and connection point unconfirmed." },
-    { request_id: "CR-2044", applicant: "Oberrhein Wind Partners", bus_id: 42, technology: "wind", rating_mw: 850, readiness_score: 0.3, strategic_fit: 0.7, status: "rejected", review_reasons: "850 MW exceeds the 20 MW plausibility cap for a 20 kV feeder", readiness_rationale: "Feasibility stage only." },
-    { request_id: "CR-2045", applicant: "Lahr Speicher AG", bus_id: 174, technology: "battery", rating_mw: 4.5, readiness_score: 0.64, strategic_fit: 0.82, status: "valid", review_reasons: "", readiness_rationale: "Site works scheduled next spring; consent implied." },
-    { request_id: "CR-2046", applicant: "Kappel Solarfeld", bus_id: 200, technology: "solar", rating_mw: 3, readiness_score: 0.5, strategic_fit: 0.7, status: "valid", review_reasons: "", readiness_rationale: "Capacity check requested; no consent referenced." },
-    { request_id: "CR-2047", applicant: "Schwarzwald Wind eG", bus_id: 155, technology: "wind", rating_mw: 18, readiness_score: 0.93, strategic_fit: 0.86, status: "valid", review_reasons: "", readiness_rationale: "Full planning consent, land secured, financing in place, 2029 COD." },
-    { request_id: "CR-2048", applicant: "Mahlberg PV Projekt", bus_id: 159, technology: "solar", rating_mw: 16, readiness_score: 0.58, strategic_fit: 0.74, status: "valid", review_reasons: "", readiness_rationale: "Planning submitted, awaiting determination; land option agreed." },
-    { request_id: "CR-2049", applicant: "Kinzig Wind (scoping)", bus_id: 157, technology: "wind", rating_mw: 15, readiness_score: 0.16, strategic_fit: 0.7, status: "valid", review_reasons: "", readiness_rationale: "Pre-application; no land, planning or financing." },
-    { request_id: "CR-2050", applicant: "Rust Energiespeicher", bus_id: 305, technology: "battery", rating_mw: 6, readiness_score: 0.9, strategic_fit: 0.85, status: "valid", review_reasons: "", readiness_rationale: "Consent granted, land secured, financing committed; ready 2028." },
-    { request_id: "CR-2051", applicant: "Schutterwald Solarpark", bus_id: 81, technology: "solar", rating_mw: 7.5, readiness_score: 0.81, strategic_fit: 0.72, status: "valid", review_reasons: "", readiness_rationale: "Consent granted; lease signed; EPC tender under way." },
-    { request_id: "CR-2052", applicant: "Ortenau Windpark II", bus_id: 236, technology: "wind", rating_mw: 9, readiness_score: 0.72, strategic_fit: 0.8, status: "valid", review_reasons: "", readiness_rationale: "Consent granted; financing at term-sheet stage." },
-    { request_id: "CR-2053", applicant: "Friesenheim BESS", bus_id: 132, technology: "battery", rating_mw: 3, readiness_score: 0.68, strategic_fit: 0.84, status: "valid", review_reasons: "", readiness_rationale: "Land secured; planning approved with conditions." },
-    { request_id: "CR-2054", applicant: "Seelbach Agri-PV", bus_id: 286, technology: "solar", rating_mw: 5, readiness_score: 0.41, strategic_fit: 0.68, status: "valid", review_reasons: "", readiness_rationale: "Land option only; planning pre-app meeting held." },
-    { request_id: "CR-2055", applicant: "Meißenheim Solar Süd", bus_id: 153, technology: "solar", rating_mw: 11, readiness_score: 0.84, strategic_fit: 0.73, status: "valid", review_reasons: "", readiness_rationale: "Consent granted, land owned, debt financing agreed." },
-  ];
+  const getJson = async (path) => (await fetch(`${config.base}${path}`)).json();
+  const postJson = async (path, body) => (await fetch(`${config.base}${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  })).json();
 
-  let model = null, extra = [], net = null;
-
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const hash = (n) => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
-  const fixRating = (r) => (typeof r === "number" && r > 0 ? r : 362);
-
-  function buildNet(m) {
-    const busById = {}; m.buses.forEach((b) => (busById[b.bus_id] = b));
-    const adj = {}; m.buses.forEach((b) => (adj[b.bus_id] = []));
-    m.lines.forEach((l) => {
-      if (l.in_service === false) return;
-      adj[l.from_bus].push({ to: l.to_bus, line: l });
-      adj[l.to_bus].push({ to: l.from_bus, line: l });
-    });
-    const roots = m.transformers.map((t) => t.lv_bus);
-    const parent = {}, parentLine = {}, order = [], depthKm = {}, feeder = {};
-    roots.forEach((r, i) => { parent[r] = null; depthKm[r] = 0; feeder[r] = i; order.push(r); });
-    for (let i = 0; i < order.length; i++) {
-      const n = order[i];
-      for (const e of adj[n] || []) if (!(e.to in parent)) {
-        parent[e.to] = n; parentLine[e.to] = e.line; depthKm[e.to] = depthKm[n] + e.line.length_km;
-        feeder[e.to] = feeder[n]; order.push(e.to);
-      }
-    }
-    // base demand per 20 kV bus (MW) — deterministic, heavier toward the town centres
-    const load = {};
-    m.buses.forEach((b) => { load[b.bus_id] = b.vn_kv > 20 ? 0 : +(0.07 + hash(b.bus_id) * 0.2).toFixed(3); });
-    // industrial demand pocket: one branch sized to reach ~104% loading at 1.25× growth
-    const size = {}, sub = {};
-    for (let i = order.length - 1; i >= 0; i--) { const b = order[i]; size[b] = (size[b] || 0) + 1; sub[b] = (sub[b] || []).concat([b]); if (parent[b] != null) { size[parent[b]] = (size[parent[b]] || 0) + size[b]; sub[parent[b]] = (sub[parent[b]] || []).concat(sub[b]); } }
-    const head = order.filter((b) => size[b] >= 12 && size[b] <= 24 && parentLine[b] && parentLine[b].rating_a <= 421).sort((a, b) => depthKm[a] - depthKm[b])[0];
-    if (head != null) {
-      const S = sub[head].reduce((s, b) => s + load[b], 0);
-      const M = (Math.sqrt(3) * 20 * parentLine[head].rating_a) / 1000;
-      const f = (1.04 / 1.25) * M * 0.95 / S;
-      sub[head].forEach((b) => (load[b] = +(load[b] * f).toFixed(3)));
-    }
-    return { busById, parent, parentLine, order, depthKm, load, roots, hotHead: head };
-  }
-
-  function powerFlow(gens, growth) {
-    const { order, parent, parentLine, load, roots } = net;
-    const inj = {};
-    order.forEach((b) => (inj[b] = -load[b] * growth));
-    for (const g of gens) if (g.bus_id in inj) inj[g.bus_id] += g.rating_mw;
-    const flow = {}; // export (toward root) on each bus's parent line, MW
-    for (let i = order.length - 1; i >= 0; i--) {
-      const b = order[i]; flow[b] = (flow[b] || 0) + inj[b];
-      if (parent[b] != null) flow[parent[b]] = (flow[parent[b]] || 0) + flow[b];
-    }
-    const vm = {}, loading = {};
-    for (const b of order) {
-      if (parent[b] == null) { vm[b] = V_SET; continue; }
-      const l = parentLine[b];
-      const subFlow = flow[b];
-      vm[b] = vm[parent[b]] + (subFlow * (l.r_ohm_per_km || R_OHM_KM) * l.length_km) / 400;
-      const mva = (Math.sqrt(3) * 20 * fixRating(l.rating_a)) / 1000;
-      loading[l.line_id] = (Math.abs(subFlow) / 0.95 / mva) * 100;
-    }
-    let worst = 0, worstLine = null, vmin = 9, vmax = 0, vminBus = null, vmaxBus = null;
-    for (const id in loading) if (loading[id] > worst) { worst = loading[id]; worstLine = +id; }
-    for (const b in vm) { if (vm[b] < vmin) { vmin = vm[b]; vminBus = +b; } if (vm[b] > vmax) { vmax = vm[b]; vmaxBus = +b; } }
-    return { vm, loading, worst, worstLine, vmin, vmax, vminBus, vmaxBus };
-  }
-
-  // violations introduced/worsened relative to a reference flow
-  function violations(pf, ref) {
-    const v = [];
-    for (const id in pf.loading) if (pf.loading[id] > LINE_MAX && pf.loading[id] > ref.loading[id] + 0.5)
-      v.push({ type: "line_overload", line_id: +id, value: pf.loading[id], message: `Line ${id} overloaded ${Math.round(pf.loading[id])}%` });
-    for (const b in pf.vm) {
-      if (pf.vm[b] > V_MAX && pf.vm[b] > ref.vm[b] + 0.0005) v.push({ type: "voltage_high", bus_id: +b, value: pf.vm[b], message: `Voltage ${pf.vm[b].toFixed(3)} pu at bus ${b}` });
-      if (pf.vm[b] < V_MIN && pf.vm[b] < ref.vm[b] - 0.0005) v.push({ type: "voltage_low", bus_id: +b, value: pf.vm[b], message: `Voltage ${pf.vm[b].toFixed(3)} pu at bus ${b}` });
-    }
-    const sev = (x) => (x.type === "line_overload" ? (x.value - 100) / 10 : Math.abs(x.value - 1) * 100 - 10 + 1);
-    return v.sort((a, b) => sev(b) - sev(a));
-  }
-
-  function gridNeed(bus_id, growth) {
-    // how much local demand sits on this branch relative to its capacity under future growth
-    const pf = powerFlow([], growth);
-    let b = bus_id, peak = 0, hops = 0;
-    while (b != null && hops < 6) { const l = net.parentLine[b]; if (l) peak = Math.max(peak, pf.loading[l.line_id] || 0); b = net.parent[b]; hops++; }
-    const dist = Math.min(1, (net.depthKm[bus_id] || 0) / 12);
-    return +Math.min(1, 0.25 + peak / 140 + dist * 0.25).toFixed(2);
-  }
-
-  function runOptimizer(cands, p) {
-    const g30 = p.growth_2030, g35 = p.growth_2035;
-    const base30 = powerFlow([], g30), base35 = powerFlow([], g35);
-    const rows = cands.map((c) => {
-      let status = c.status, reason = null;
-      if (status === "valid") {
-        if (c.bus_id == null || !(c.bus_id in net.busById)) { status = "rejected"; reason = `Bus ${c.bus_id} not in network model`; }
-        else if (c.rating_mw == null || c.rating_mw <= 0) { status = "rejected"; reason = "Missing capacity"; }
-        else if (c.rating_mw > MAX_MW) { status = "rejected"; reason = `${c.rating_mw} MW exceeds ${MAX_MW} MW cap`; }
-      } else reason = c.review_reasons || "Rejected at intake";
-      const need = status === "valid" ? gridNeed(c.bus_id, g35) : 0;
-      const score = status === "valid" ? +(W_READY * c.readiness_score + W_NEED * need + W_STRAT * c.strategic_fit).toFixed(3) : null;
-      return { c, status, reason, need, score };
-    });
-    const valid = rows.filter((r) => r.status === "valid").sort((a, b) => b.score - a.score);
-    const A30 = [], A35 = [];
-    const out = [];
-    valid.forEach((r, i) => {
-      const c = r.c, g = { request_id: c.request_id, bus_id: c.bus_id, rating_mw: c.rating_mw, technology: c.technology };
-      let status, reason = null;
-      const pf35 = powerFlow([...A35, g], g35), v35 = violations(pf35, base35);
-      const pf30 = powerFlow([...A30, g], g30), v30 = violations(pf30, base30);
-      if (c.readiness_score >= READY_P1 && !v30.length && !v35.length) { status = "Phase1"; A30.push(g); A35.push(g); }
-      else if (c.readiness_score >= READY_P2 && !v35.length) {
-        status = "Phase2"; A35.push(g);
-        if (c.readiness_score >= READY_P1 && v30.length) reason = { type: "phased", message: `Held to 2035 — ${v30[0].message} under 2030 demand`, element: v30[0] };
-      } else if (c.readiness_score < READY_P2) {
-        status = "Deferred"; reason = { type: "readiness", message: `Readiness ${Math.round(c.readiness_score * 100)}% below ${READY_P2 * 100}% threshold` };
-        if (v35.length) reason.grid = v35[0];
-      } else {
-        status = "Deferred"; const v = v35[0];
-        reason = { type: v.type, message: v.message, element: v };
-      }
-      out.push({ rank: i + 1, request_id: c.request_id, applicant: c.applicant, bus_id: c.bus_id, technology: c.technology, rating_mw: c.rating_mw,
-        readiness_score: c.readiness_score, grid_need: r.need, rank_score: r.score, status, reason });
-    });
-    rows.filter((r) => r.status !== "valid").forEach((r) => out.push({ rank: null, request_id: r.c.request_id, applicant: r.c.applicant, bus_id: r.c.bus_id,
-      technology: r.c.technology, rating_mw: r.c.rating_mw, readiness_score: r.c.readiness_score, grid_need: 0, rank_score: null, status: "Rejected",
-      reason: { type: "intake", message: r.reason } }));
-    out.forEach((q) => { const b = net.busById[q.bus_id]; q.lon = b ? b.lon : null; q.lat = b ? b.lat : null; });
-    const phase = (gens, growth) => {
-      const pf = powerFlow(gens, growth);
-      return {
-        accepted: gens.map((x) => x.request_id),
-        overloaded_line_ids: Object.keys(pf.loading).filter((k) => pf.loading[k] > LINE_MAX).map(Number),
-        generators: gens.map((x) => ({ ...x, lon: net.busById[x.bus_id].lon, lat: net.busById[x.bus_id].lat })),
-        worst_line_loading_pct: +pf.worst.toFixed(1), worst_line_id: pf.worstLine,
-        min_vm_pu: +pf.vmin.toFixed(3), max_vm_pu: +pf.vmax.toFixed(3), min_vm_bus: pf.vminBus, max_vm_bus: pf.vmaxBus,
-        voltage_violation_bus_ids: Object.keys(pf.vm).filter((b) => pf.vm[b] > V_MAX || pf.vm[b] < V_MIN).map(Number),
-        line_loading: Object.fromEntries(Object.entries(pf.loading).map(([k, v]) => [k, +v.toFixed(1)])),
-        bus_vm: Object.fromEntries(Object.entries(pf.vm).map(([k, v]) => [k, +v.toFixed(3)])),
-      };
-    };
-    return { queue: out, phases: { "2030": phase(A30, g30), "2035": phase(A35, g35) } };
-  }
-
-  // consequence diff of two runOptimizer() results — mirrors packages/optimizer/diff.py
-  const DIFF_HORIZON = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
-  const DIFF_CONNECTED = new Set(["Phase1", "Phase2"]);
-  const DIFF_CHANGE_ORDER = { accelerated: 0, slipped: 1, dropped: 2, added: 3, moved_up: 4, moved_down: 5, unchanged: 6 };
-  const ratingsOf = (q) => Object.fromEntries(q.map((x) => [x.request_id, x.rating_mw || 0]));
-  const mwConnected = (ph, r) => (ph ? +ph.accepted.reduce((s, id) => s + (r[id] || 0), 0).toFixed(1) : 0);
-  function diffClassify(b, h) {
-    if (!b) return "added";
-    if (!h) return "dropped";
-    const hb = DIFF_HORIZON[b.status], hh = DIFF_HORIZON[h.status];
-    if (hh < hb) return "accelerated";
-    if (hh > hb) return "slipped";
-    if (b.rank != null && h.rank != null) { if (h.rank < b.rank) return "moved_up"; if (h.rank > b.rank) return "moved_down"; }
-    return "unchanged";
-  }
-  function diffCrossed(bp, hp, delta) {
-    const bo = bp != null && bp > LINE_MAX, ho = hp != null && hp > LINE_MAX;
-    if (ho && !bo) return "newly_overloaded";
-    if (bo && !ho) return "cleared";
-    if (delta > 0.1) return "worsened";
-    if (delta < -0.1) return "eased";
-    return "unchanged";
-  }
-  function diffResults(base, head) {
-    const bById = Object.fromEntries(base.queue.map((q) => [q.request_id, q]));
-    const hById = Object.fromEntries(head.queue.map((q) => [q.request_id, q]));
-    const ids = new Set([...Object.keys(bById), ...Object.keys(hById)]);
-    const projects = [...ids].map((id) => {
-      const b = bById[id], h = hById[id], ident = h || b;
-      const rankDelta = b && h && b.rank != null && h.rank != null ? h.rank - b.rank : null;
-      return { request_id: id, technology: ident.technology, rating_mw: ident.rating_mw, bus_id: ident.bus_id,
-        base_status: b ? b.status : null, head_status: h ? h.status : null, base_rank: b ? b.rank : null,
-        head_rank: h ? h.rank : null, rank_delta: rankDelta, change: diffClassify(b, h), head_reason: h ? h.reason : null };
-    });
-    projects.sort((a, b) => (DIFF_CHANGE_ORDER[a.change] - DIFF_CHANGE_ORDER[b.change]) ||
-      (Math.abs(b.rank_delta || 0) - Math.abs(a.rank_delta || 0)) || (a.request_id < b.request_id ? -1 : 1));
-    const bR = ratingsOf(base.queue), hR = ratingsOf(head.queue);
-    const phases = ["2030", "2035"].filter((k) => base.phases[k] && head.phases[k]).map((k) => {
-      const bp = base.phases[k], hp = head.phases[k];
-      const bo = new Set(bp.overloaded_line_ids), ho = new Set(hp.overloaded_line_ids);
-      const lids = new Set([...Object.keys(bp.line_loading), ...Object.keys(hp.line_loading)]);
-      const top = [...lids].map((key) => {
-        const bpp = bp.line_loading[key], hpp = hp.line_loading[key];
-        const delta = +(((hpp || 0) - (bpp || 0)).toFixed(1));
-        return { line_id: +key, base_pct: bpp ?? null, head_pct: hpp ?? null, delta, crossed: diffCrossed(bpp, hpp, delta) };
-      }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 10);
-      const mwB = mwConnected(bp, bR), mwH = mwConnected(hp, hR);
-      return { phase: k, worst_line_delta: +(hp.worst_line_loading_pct - bp.worst_line_loading_pct).toFixed(1),
-        worst_trafo_delta: +(((hp.worst_trafo_loading_pct || 0) - (bp.worst_trafo_loading_pct || 0))).toFixed(1),
-        min_vm_delta: +(hp.min_vm_pu - bp.min_vm_pu).toFixed(4), max_vm_delta: +(hp.max_vm_pu - bp.max_vm_pu).toFixed(4),
-        newly_overloaded_line_ids: [...ho].filter((x) => !bo.has(x)).sort((a, b) => a - b),
-        cleared_line_ids: [...bo].filter((x) => !ho.has(x)).sort((a, b) => a - b),
-        top_line_deltas: top, mw_connected_base: mwB, mw_connected_head: mwH, mw_connected_delta: +(mwH - mwB).toFixed(1) };
-    });
-    const nStatus = (q, set) => q.filter((x) => set.has(x.status)).length;
-    const cnt = (c) => projects.filter((p) => p.change === c).length;
-    const m2030b = mwConnected(base.phases["2030"], bR), m2030h = mwConnected(head.phases["2030"], hR);
-    const m2035b = mwConnected(base.phases["2035"], bR), m2035h = mwConnected(head.phases["2035"], hR);
-    const headline = { mw_2030_base: m2030b, mw_2030_head: m2030h, mw_2030_delta: +(m2030h - m2030b).toFixed(1),
-      mw_2035_base: m2035b, mw_2035_head: m2035h, mw_2035_delta: +(m2035h - m2035b).toFixed(1),
-      n_connected_base: nStatus(base.queue, DIFF_CONNECTED), n_connected_head: nStatus(head.queue, DIFF_CONNECTED),
-      n_deferred_base: nStatus(base.queue, new Set(["Deferred"])), n_deferred_head: nStatus(head.queue, new Set(["Deferred"])),
-      n_accelerated: cnt("accelerated"), n_slipped: cnt("slipped"), n_added: cnt("added"), n_dropped: cnt("dropped") };
-    return { base_label: "baseline", head_label: "proposed", headline, projects, phases };
-  }
-
-  // Normalize a deferral/rejection reason (live {type,element_id,value,message} OR mock
-  // {type:'line_overload'|…,element,message}) into a single shape the UI renders everywhere:
+  // Normalize a deferral/rejection reason from the API ({type, element_id, value, message, case})
+  // into a single shape the UI renders everywhere:
   // { kind, element:{line_id|bus_id}, short, why (plain English), action (what to do next) }.
+  // Which planning study case a grid limit bites in — so the operator knows WHEN it's a problem.
+  const _CASE_WHY = {
+    summer_min: " This bites at summer minimum demand — a sunny, low-demand day when little local load is there to soak up the export and the wires are on their lower summer rating.",
+    winter_peak: " This bites at winter peak demand.",
+  };
   function _normReason(reason, item) {
+    const out = _normReasonCore(reason, item);
+    // (a GSP reason already names its case in the message, and explains it itself)
+    if (out && out.kind === "grid" && reason && reason.type !== "gsp" && reason.case && _CASE_WHY[reason.case]) {
+      out.why = `${out.why}${_CASE_WHY[reason.case]}`;
+      out.caseLabel = reason.case === "summer_min" ? "summer minimum" : "winter peak";
+    }
+    return out;
+  }
+  function _normReasonCore(reason, item) {
     if (!reason) return reason;
     const it = item || {};
     const t = reason.type;
@@ -250,6 +38,14 @@
     const pct = val != null ? Math.round(val) : null;
     const base = { ...reason, message: msg, value: val };
 
+    if (t === "gsp") {
+      // the transmission boundary: no distribution-side reinforcement can fix this
+      const mw = val != null ? Math.round(val) : null;
+      return { ...base, kind: "grid", element: null,
+        short: `GSP export limit — the region would push ${mw != null ? `${mw} MW` : "too much"} up to transmission`,
+        why: `${msg ? msg.charAt(0).toUpperCase() + msg.slice(1) + "." : "The GSP would export more than the transmission boundary allows."}${reason.case === "summer_min" ? " That's a sunny, low-demand day — the most generation and the least local load at the same time." : ""} The bottleneck isn't in the local network — it's the supergrid transformers and transmission network above the GSP, which already carry this region's surplus generation out.`,
+        action: "No local reinforcement fixes this. Options: wait for transmission (NESO) reinforcement, take a flexible / non-firm connection that's curtailed at export peaks, pair it with storage to shift export, or site it under a GSP with headroom." };
+    }
     if (t === "line" || t === "line_overload") {
       return { ...base, kind: "grid", element: { line_id: eid },
         short: `Overloads line ${eid}${pct != null ? ` to ${pct}%` : ""} — a grid limit, not the project`,
@@ -292,9 +88,9 @@
       why = `The point of connection${it.bus_id != null ? ` (bus ${it.bus_id})` : ""} isn't in this network model, so it can't be assessed.`;
       action = "Pick a real connection point: in + Add project, choose a bus from the dropdown or click “Map” to pick one on the network.";
     } else if (m.includes("rating") && (m.includes("exceed") || m.includes("range") || m.includes("cap"))) {
-      short = "Capacity over the 20 MW feeder limit";
-      why = `The requested capacity${it.rating_mw != null ? ` (${it.rating_mw} MW)` : ""} is above the 20 MW limit for a 20 kV feeder.`;
-      action = "Reduce the capacity to ≤ 20 MW, split it across sites, or connect at a higher-voltage point.";
+      short = `Capacity over the ${MAX_MW} MW connection cap`;
+      why = `The requested capacity${it.rating_mw != null ? ` (${it.rating_mw} MW)` : ""} is above the ${MAX_MW} MW connection cap for this network.`;
+      action = `Reduce the capacity to ≤ ${MAX_MW} MW, split it across sites, or connect at a higher-voltage point.`;
     } else if (m.includes("missing") || m.includes("capacity")) {
       short = "Incomplete application";
       why = msg || "The application is missing required details.";
@@ -316,249 +112,55 @@
     return out;
   }
 
-  function justify(res, p) {
-    const q = res.queue, by = (s) => q.filter((x) => x.status === s);
-    const mw = (xs) => xs.reduce((s, x) => s + (x.rating_mw || 0), 0);
-    const p1 = by("Phase1"), p2 = by("Phase2"), d = by("Deferred"), r = by("Rejected");
-    const gridD = d.filter((x) => x.reason && x.reason.type !== "readiness");
-    let t = `Under ${p.growth_2030.toFixed(2)}× (2030) and ${p.growth_2035.toFixed(2)}× (2035) demand growth, ${p1.length} projects (${mw(p1)} MW) connect in Phase 1 and ${p2.length} (${mw(p2)} MW) in Phase 2. `;
-    t += `Ordering follows "first ready and needed, first connected": rank score weights readiness ${W_READY}, grid need ${W_NEED} and strategic fit ${W_STRAT}. `;
-    if (gridD.length) t += `${gridD.length} ready project${gridD.length > 1 ? "s are" : " is"} held back purely by network limits — reinforcement, not developer progress, is the critical path there. `;
-    if (r.length) t += `${r.length} application${r.length > 1 ? "s were" : " was"} rejected at intake for data or plausibility issues.`;
-    const notes = q.map((x) => {
-      const head = `${x.request_id} (${x.technology || "—"}, ${x.rating_mw ?? "—"} MW${x.bus_id != null ? ", bus " + x.bus_id : ""})`;
-      if (x.status === "Phase1") return `${head} — connects by 2030: readiness ${Math.round(x.readiness_score * 100)}% and no thermal or voltage limits breached in either year.`;
-      if (x.status === "Phase2") return `${head} — connects by 2035: ${x.reason ? x.reason.message.replace(/^Held to 2035 — /, "") + " in 2030; headroom opens as demand grows." : "readiness " + Math.round(x.readiness_score * 100) + "% supports 2035 delivery, not 2030."}`;
-      if (x.status === "Deferred") return x.reason.type === "readiness" ? `${head} — deferred: ${x.reason.message}; resubmit once land, consent and finance progress.` : `${head} — deferred despite readiness ${Math.round(x.readiness_score * 100)}%: ${x.reason.message}. Needs reinforcement before it can connect.`;
-      return `${head} — rejected at intake: ${x.reason.message}.`;
-    });
-    return t.trim() + "\n\n" + notes.join("\n");
+  const getModel = () => getJson("/model");
+  const getCandidates = () => getJson("/optimize/candidates");
+  const addCandidate = (c) => postJson("/optimize/candidates", c);
+  const getRegistry = () => getJson("/registry");
+  // persist the operator's energisation year for a project on a branch (null = follow the recommendation)
+  async function setSchedule(branchId, requestId, year) {
+    const res = await fetch(`${config.base}/branches/${branchId}/schedule`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ request_id: requestId, year }) });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `schedule failed (${res.status})`);
+    return res.json();
   }
-
-  let _candsLoaded = false;
-  async function _loadCandidates() {
-    if (_candsLoaded) return CANDIDATES;
-    try {
-      const r = await fetch("./data/candidates.json");
-      if (r.ok) CANDIDATES = await r.json();
-    } catch (e) { /* keep the built-in fallback */ }
-    _candsLoaded = true;
-    return CANDIDATES;
-  }
-  async function getModel() {
-    if (!config.mock) return (await fetch(`${config.base}/model`)).json();
-    if (!model) {
-      const src = (window.__resources && window.__resources.modelJson) || "./data/model.json";
-      model = await (await fetch(src)).json();
-      await _loadCandidates();
-      model.lines.forEach((l) => { l.rating_a = fixRating(l.rating_a); l.r_ohm_per_km = l.rating_a >= 645 ? 0.125 : l.rating_a >= 421 ? 0.2 : 0.27; });
-      net = buildNet(model);
-      model.loads = model.buses.filter((b) => net.load[b.bus_id] > 0).map((b, i) => ({ load_id: i, bus_id: b.bus_id, p_mw: net.load[b.bus_id], lon: b.lon, lat: b.lat }));
-    }
-    return model;
-  }
-  async function getCandidates() {
-    if (!config.mock) return (await fetch(`${config.base}/optimize/candidates`)).json();
-    await _loadCandidates();
-    return [...CANDIDATES, ...extra];
-  }
-  async function addCandidate(c) {
-    if (!config.mock) return (await fetch(`${config.base}/optimize/candidates`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(c) })).json();
-    const id = `CR-${2056 + extra.length}`;
-    const row = { request_id: id, status: "valid", review_reasons: "", strategic_fit: c.technology === "battery" ? 0.84 : 0.74, ...c };
-    extra.push(row);
-    return row;
-  }
-  async function removeCandidate(id) { extra = extra.filter((c) => c.request_id !== id); }
-  async function optimize(body) {
-    let res;
-    if (!config.mock) {
-      res = await (await fetch(`${config.base}/optimize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
-    } else {
-      await getModel();
-      await sleep(config.latencyMs);
-      res = runOptimizer(await getCandidates(), body);
-      res.justification = body.with_justification ? justify(res, body) : "";
-      res.snapshot_id = "mv_oberrhein-baseline";
-    }
-    return _applyReasons(res);
-  }
-  async function runDiff(body) {
-    let out;
-    if (!config.mock) {
-      out = await (await fetch(`${config.base}/optimize/diff`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
-    } else {
-      await getModel();
-      await sleep(config.latencyMs);
-      const cands = await getCandidates();
-      out = diffResults(runOptimizer(cands, body.base), runOptimizer(cands, body.head));
-      out.narration = "";
-    }
-    return _applyDiffReasons(out);
-  }
-  let mockBaseline = null;
-  async function getBaseline() {
-    if (!config.mock) {
-      try { return await (await fetch(`${config.base}/baseline`)).json(); }
-      catch (e) { return { exists: false, params: null }; }
-    }
-    return { exists: !!mockBaseline, params: mockBaseline };
-  }
-  async function setBaseline(params) {
-    if (!config.mock) return (await fetch(`${config.base}/baseline`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) })).json();
-    mockBaseline = { ...params };
-    return { exists: true, params: mockBaseline };
-  }
-  // NESO FES 2025 demand pathways — fixed, cited peak-demand multipliers vs ~60 GW (2024).
-  // Holistic Transition is the firmly-cited anchor (65 GW 2030 / 81 GW 2035); the spread across
-  // the others is directional. Fallback/mock only; live mode fetches GET /forecasts.
-  const FORECASTS = [
-    { id: "ht", label: "Holistic Transition", growth_2030: 1.08, growth_2035: 1.35, source: "NESO FES 2025", cited: true },
-    { id: "ee", label: "Electric Engagement", growth_2030: 1.1, growth_2035: 1.42, source: "NESO FES 2025", cited: false },
-    { id: "he", label: "Hydrogen Evolution", growth_2030: 1.07, growth_2035: 1.28, source: "NESO FES 2025", cited: false },
-    { id: "fb", label: "Falling Behind", growth_2030: 1.04, growth_2035: 1.15, source: "NESO FES 2025", cited: false },
-  ];
+  const addFromRegistry = (branchId, requestId) => postJson(`/branches/${branchId}/registry`, { request_id: requestId });
+  const optimize = async (body) => _applyReasons(await postJson("/optimize", body));
+  // NESO FES 2025 demand pathways (fixed growth multipliers per pathway), served by GET /forecasts
   async function getForecasts() {
-    if (!config.mock) {
-      try {
-        const r = await (await fetch(`${config.base}/forecasts`)).json();
-        if (r && Array.isArray(r.forecasts) && r.forecasts.length) return r.forecasts;
-      } catch (e) { /* fall back to the built-in list */ }
-    }
-    return FORECASTS;
+    const r = await getJson("/forecasts");
+    return r && Array.isArray(r.forecasts) ? r.forecasts : [];
   }
-
-  // indicative hosting capacity at a bus given already-connected generators (mock-only helper)
-  function hostingCapacity(bus_id, gens, growth) {
-    if (!net || !(bus_id in net.parent)) return null;
-    const base = powerFlow([], growth);
-    const test = (mw) => violations(powerFlow([...gens, { bus_id, rating_mw: mw }], growth), base);
-    if (!test(MAX_MW).length) return { mw: MAX_MW, binding: null, capped: true };
-    let lo = 0, hi = MAX_MW, bind = test(MAX_MW)[0];
-    for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2, v = test(mid); if (v.length) { hi = mid; bind = v[0]; } else lo = mid; }
-    return { mw: +lo.toFixed(1), binding: bind, capped: false };
+  // the GSP boundary: export/import limits to transmission + the transmission projects behind it
+  async function getBoundary() {
+    try { return await getJson("/boundary"); } catch (e) { return null; }
+  }
+  async function getMaxConnectionMw() {
+    try {
+      const r = await getJson("/forecasts");
+      if (r && r.max_connection_mw) return r.max_connection_mw;
+    } catch (e) { /* fall back to the default cap */ }
+    return MAX_MW;
   }
 
   // --- branches ("git for grids") + unblock suggestions ---------------------
-  // Live mode talks to the FastAPI branch endpoints; mock keeps an in-memory branch store so the
-  // offline demo still works. A branch = a scenario (demand pathway) + the projects added on it.
-  let mockBranches = null, mockBranchSeq = 0, mockCandSeq = 0;
-  function _mb() {
-    if (!mockBranches) mockBranches = [{
-      branch_id: "main", name: "Main", parent_id: null, scenario: "ht",
-      growth_2030: 1.08, growth_2035: 1.35, w_readiness: null, w_need: null, w_strategic: null,
-      status: "open", created_at: new Date().toISOString(), merged_at: null, added: [], withdraw: [],
-    }];
-    return mockBranches;
-  }
-  const _findBranch = (id) => _mb().find((b) => b.branch_id === id);
-  function _branchParams(b) {
-    const f = FORECASTS.find((x) => x.id === b.scenario);
-    return { scenario: b.scenario, growth_2030: f ? f.growth_2030 : b.growth_2030, growth_2035: f ? f.growth_2035 : b.growth_2035 };
-  }
-  function _branchClient(b) {
-    return { branch_id: b.branch_id, name: b.name, parent_id: b.parent_id, scenario: b.scenario,
-      growth_2030: b.growth_2030, growth_2035: b.growth_2035, w_readiness: b.w_readiness, w_need: b.w_need,
-      w_strategic: b.w_strategic, status: b.status, created_at: b.created_at, merged_at: b.merged_at, n_added: b.added.length };
-  }
-  function _branchCands(b) {
-    const w = new Set(b.withdraw);
-    const base = b.branch_id === "main" ? [...CANDIDATES, ...extra] : [...CANDIDATES];
-    return [...base, ...b.added].filter((c) => !w.has(c.request_id));
-  }
-
-  async function createBranch(body) {
-    if (!config.mock) return (await fetch(`${config.base}/branches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })).json();
-    const parent = _findBranch(body.from_branch || "main") || _findBranch("main");
-    const id = "br-" + (++mockBranchSeq).toString(16).padStart(8, "0");
-    const pick = (v, k) => (v == null ? parent[k] : v);
-    const b = { branch_id: id, name: body.name, parent_id: parent.branch_id,
-      scenario: pick(body.scenario, "scenario"), growth_2030: pick(body.growth_2030, "growth_2030"),
-      growth_2035: pick(body.growth_2035, "growth_2035"), w_readiness: pick(body.w_readiness, "w_readiness"),
-      w_need: pick(body.w_need, "w_need"), w_strategic: pick(body.w_strategic, "w_strategic"),
-      status: "open", created_at: new Date().toISOString(), merged_at: null,
-      added: parent.added.map((c) => ({ ...c })), withdraw: [...parent.withdraw] };
-    (body.added_projects || []).forEach((p) => {
-      b.added.push({ request_id: `CR-${2056 + mockCandSeq++}`, status: "valid", review_reasons: "",
-        strategic_fit: p.technology === "battery" ? 0.84 : 0.74, ...p });
-    });
-    (body.withdraw || []).forEach((rid) => { if (!b.withdraw.includes(rid)) b.withdraw.push(rid); });
-    _mb().push(b);
-    return _branchClient(b);
-  }
-  async function listBranches() {
-    if (!config.mock) { const r = await (await fetch(`${config.base}/branches`)).json(); return r.branches || []; }
-    return _mb().map(_branchClient);
-  }
-  async function getBranch(id) {
-    if (!config.mock) return (await fetch(`${config.base}/branches/${id}`)).json();
-    const b = _findBranch(id); if (!b) return null;
-    return { ..._branchClient(b), added_project_ids: b.added.map((c) => c.request_id), withdrawn_project_ids: [...b.withdraw] };
-  }
-  async function optimizeBranch(id, opts) {
-    let res;
-    if (!config.mock) {
-      res = await (await fetch(`${config.base}/branches/${id}/optimize`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts || {}) })).json();
-    } else {
-      await getModel(); await sleep(config.latencyMs);
-      const b = _findBranch(id), p = _branchParams(b);
-      res = runOptimizer(_branchCands(b), p);
-      res.branch_id = id; res.snapshot_id = "mv_oberrhein-baseline";
-      res.justification = opts && opts.with_justification ? justify(res, p) : "";
-    }
-    return _applyReasons(res);
-  }
+  // A branch = a scenario (demand pathway) + the projects added on it.
+  const createBranch = (body) => postJson("/branches", body);
+  const listBranches = async () => (await getJson("/branches")).branches || [];
+  const optimizeBranch = async (id, opts) => _applyReasons(await postJson(`/branches/${id}/optimize`, opts || {}));
   async function diffBranch(id, opts) {
-    let out;
-    if (!config.mock) {
-      const qs = opts && opts.with_narration ? "?with_narration=1" : "";
-      out = await (await fetch(`${config.base}/branches/${id}/diff${qs}`)).json();
-    } else {
-      await getModel(); await sleep(config.latencyMs);
-      const head = _findBranch(id), base = _findBranch(head.parent_id || "main") || _findBranch("main");
-      out = diffResults(runOptimizer(_branchCands(base), _branchParams(base)), runOptimizer(_branchCands(head), _branchParams(head)));
-      out.base_branch = base.branch_id; out.head_branch = id; out.narration = "";
-    }
-    return _applyDiffReasons(out);
+    const qs = opts && opts.with_narration ? "?with_narration=1" : "";
+    return _applyDiffReasons(await getJson(`/branches/${id}/diff${qs}`));
   }
-  async function mergeBranch(id, opts) {
-    if (!config.mock) return (await fetch(`${config.base}/branches/${id}/merge`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts || { into: "main" }) })).json();
-    const into = (opts && opts.into) || "main", b = _findBranch(id), target = _findBranch(into);
-    Object.assign(target, { scenario: b.scenario, growth_2030: b.growth_2030, growth_2035: b.growth_2035,
-      w_readiness: b.w_readiness, w_need: b.w_need, w_strategic: b.w_strategic,
-      added: b.added.map((c) => ({ ...c })), withdraw: [...b.withdraw] });
-    b.status = "merged"; b.merged_at = new Date().toISOString();
-    return _branchClient(target);
-  }
-  async function discardBranch(id) {
-    if (!config.mock) return (await fetch(`${config.base}/branches/${id}/discard`, { method: "POST" })).json();
-    const b = _findBranch(id); b.status = "discarded"; return _branchClient(b);
-  }
+  const mergeBranch = (id, opts) => postJson(`/branches/${id}/merge`, opts || { into: "main" });
+  const discardBranch = async (id) => (await fetch(`${config.base}/branches/${id}/discard`, { method: "POST" })).json();
   async function getSuggestions(id, opts) {
-    if (!config.mock) {
-      const p = new URLSearchParams();
-      if (opts && opts.limit) p.set("limit", opts.limit);
-      if (opts && opts.with_narration) p.set("with_narration", "1");
-      const qs = p.toString() ? `?${p}` : "";
-      const r = await (await fetch(`${config.base}/branches/${id}/suggestions${qs}`)).json();
-      return r.suggestions || [];
-    }
-    // mock: a simple heuristic over the branch's grid-deferred projects
-    await getModel();
-    const b = _findBranch(id), res = runOptimizer(_branchCands(b), _branchParams(b));
-    return res.queue.filter((q) => q.status === "Deferred" && q.reason && q.reason.element)
-      .slice(0, (opts && opts.limit) || 5).map((q) => {
-        const el = q.reason.element, isLine = el.type === "line_overload";
-        return { target_type: isLine ? "line" : "voltage", target_element_id: isLine ? el.line_id : el.bus_id,
-          action: isLine ? `Add a parallel circuit to line ${el.line_id}` : `Reinforce the feeder supplying bus ${el.bus_id}`,
-          reinforcements: isLine ? [{ kind: "line", element_id: el.line_id, action: "add_parallel", factor: 2 }] : [],
-          connects_target: true, freed_mw_2030: 0, freed_mw_2035: q.rating_mw || 0,
-          newly_connected_project_ids: [q.request_id], blocked_project_ids: [q.request_id],
-          extra_solves: 0, caveat: "Offline estimate. A feasible lever, not a least-cost study.", narration: "" };
-      });
+    const p = new URLSearchParams();
+    if (opts && opts.limit) p.set("limit", opts.limit);
+    if (opts && opts.with_narration) p.set("with_narration", "1");
+    const qs = p.toString() ? `?${p}` : "";
+    return (await getJson(`/branches/${id}/suggestions${qs}`)).suggestions || [];
   }
 
-  window.GridForgeAPI = { hostingCapacity, config, getModel, getCandidates, addCandidate, removeCandidate, optimize, runDiff, getBaseline, setBaseline, getForecasts,
-    createBranch, listBranches, getBranch, optimizeBranch, diffBranch, mergeBranch, discardBranch, getSuggestions,
-    _powerFlow: (g, gr) => powerFlow(g, gr) };
+  window.GridForgeAPI = { config, getModel, getCandidates, addCandidate, getRegistry, addFromRegistry, setSchedule, optimize,
+    getForecasts, getMaxConnectionMw, getBoundary,
+    createBranch, listBranches, optimizeBranch, diffBranch, mergeBranch, discardBranch, getSuggestions };
 })();

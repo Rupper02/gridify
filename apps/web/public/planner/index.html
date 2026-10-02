@@ -40,10 +40,26 @@ input[type=range]{accent-color:#111827}
     </div>
     <div style="flex:1"></div>
 
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:nowrap; padding:5px 6px 5px 12px; border:1px solid {{ branchPillBd }}; border-radius:9px; background:{{ branchPillBg }}">
+      <div style="display:flex; flex-direction:column; gap:2px; min-width:0">
+        <span style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">Branch</span>
+        <div style="display:flex; align-items:center; gap:6px">
+          <span style="flex:none; width:8px; height:8px; border-radius:50%; background:{{ branchDot }}"></span>
+          <select value="{{ activeBranch }}" onChange="{{ onActiveBranch }}" style="font-family:inherit; font-size:12.5px; font-weight:600; color:#111827; border:none; background:transparent; padding:0; outline:none; cursor:pointer; max-width:200px">
+            <sc-for list="{{ branchOpts }}" as="o" hint-placeholder-count="2">
+              <option value="{{ o.id }}" selected="{{ o.selected }}">{{ o.label }}</option>
+            </sc-for>
+          </select>
+        </div>
+        <span style="font-family:'Geist Mono', monospace; font-size:9px; color:#9ca3af; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ activeBranchHint }}</span>
+      </div>
+      <button onClick="{{ newBranchQuick }}" title="Start a new branch off main" style="height:34px; padding:0 12px; border:1px solid #d1d5db; border-radius:7px; background:#ffffff; color:#111827; font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap" style-hover="background:#f9fafb; border-color:#9ca3af">＋ New branch</button>
+    </div>
+
     <div style="display:flex; align-items:center; gap:14px; flex-wrap:nowrap; padding:5px 6px 5px 12px; border:1px solid #e5e7eb; border-radius:9px; background:#f9fafb">
       <div style="display:flex; flex-direction:column; gap:2px">
-        <span style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">Demand forecast</span>
-        <sc-if value="{{ hasForecasts }}" hint-placeholder-val="{{ false }}"><select value="{{ forecastId }}" onChange="{{ onForecast }}" style="font-family:inherit; font-size:12.5px; font-weight:500; color:#111827; border:none; background:transparent; padding:0; outline:none; cursor:pointer; max-width:220px">
+        <span style="font-size:10px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:#9ca3af">{{ forecastLabel }}</span>
+        <sc-if value="{{ hasForecasts }}" hint-placeholder-val="{{ false }}"><select value="{{ forecastId }}" onChange="{{ onForecast }}" disabled="{{ forecastLocked }}" style="font-family:inherit; font-size:12.5px; font-weight:500; color:#111827; border:none; background:transparent; padding:0; outline:none; cursor:{{ forecastCursor }}; max-width:220px">
           <sc-for list="{{ forecastOpts }}" as="o" hint-placeholder-count="4">
             <option value="{{ o.id }}" selected="{{ o.selected }}">{{ o.label }}</option>
           </sc-for>
@@ -73,19 +89,53 @@ input[type=range]{accent-color:#111827}
           </sc-for>
         </div>
 
-        <div style="position:absolute; top:12px; left:12px; display:flex; flex-direction:column; gap:8px; pointer-events:none">
+        <div style="position:absolute; top:12px; left:12px; z-index:3; display:flex; flex-direction:column; gap:8px; pointer-events:none">
           <div style="display:flex; align-items:center; gap:10px; pointer-events:auto">
-            <div style="display:flex; padding:3px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 1px 2px rgba(17,24,39,0.05)">
-              <button onClick="{{ setPhase30 }}" style="padding:5px 12px; border:none; border-radius:6px; background:{{ ph30Bg }}; color:{{ ph30Fg }}; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap">2030 · Clean Power</button>
-              <button onClick="{{ setPhase35 }}" style="padding:5px 12px; border:none; border-radius:6px; background:{{ ph35Bg }}; color:{{ ph35Fg }}; font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap">2035 · Strategic</button>
+            <div style="display:flex; flex-direction:column; gap:2px; padding:6px 12px 5px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 1px 2px rgba(17,24,39,0.05); min-width:230px">
+              <div style="display:flex; align-items:baseline; justify-content:space-between; gap:10px">
+                <span style="font-size:10px; font-weight:700; letter-spacing:0.07em; color:#6b7280">TIMELINE</span>
+                <span><b style="font-family:'Geist Mono', monospace; font-size:15px; font-weight:700; color:#111827">{{ timelineYear }}</b> <span style="font-size:10.5px; color:{{ timelinePhaseFg }}; font-weight:600">{{ timelinePhaseLabel }}</span></span>
+              </div>
+              <input type="range" min="2026" max="2035" step="1" value="{{ timelineYear }}" onChange="{{ onTimelineYear }}" style="width:100%; accent-color:#2563eb; cursor:pointer; margin:1px 0 0">
+              <div style="display:flex; justify-content:space-between; font-family:'Geist Mono', monospace; font-size:8.5px; color:#9ca3af"><span>2026 · today</span><span>2035</span></div>
             </div>
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:4px 14px; padding:7px 11px; background:rgba(255,255,255,0.92); border:1px solid #e5e7eb; border-radius:8px; font-size:11.5px; color:#4b5563; pointer-events:auto">
             <span style="white-space:nowrap">Demand <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseGrowth }}</b></span>
-            <span style="white-space:nowrap">Connected <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseMw }}</b></span>
+            <span style="white-space:nowrap">Existing fleet <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#0d9488">{{ existingSummary }}</b></span>
+            <span style="white-space:nowrap">Online by {{ timelineYear }} <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ tlOnlineSummary }}</b></span>
+            <span style="white-space:nowrap">New in {{ timelineYear }} <b style="font-family:'Geist Mono', monospace; font-weight:600; color:{{ tlNewFg }}">{{ tlNewSummary }}</b></span>
+            <span onClick="{{ toggleBoundary }}" style="white-space:nowrap; cursor:pointer; border-bottom:1px dotted #9ca3af" title="{{ gspTitle }}">GSP → transmission <b style="font-family:'Geist Mono', monospace; font-weight:600; color:{{ gspFg }}">{{ gspSummary }}</b> <span style="color:#2563eb; font-size:10.5px">{{ boundaryChevron }}</span></span>
             <span style="white-space:nowrap">Worst line <b style="font-family:'Geist Mono', monospace; font-weight:600; color:{{ worstColor }}">{{ phaseWorst }}</b></span>
             <span style="white-space:nowrap">Voltage <b style="font-family:'Geist Mono', monospace; font-weight:600; color:#111827">{{ phaseV }}</b></span>
           </div>
+          <sc-if value="{{ showBoundary }}" hint-placeholder-val="{{ false }}">
+            <div style="width:400px; max-width:calc(100vw - 48px); max-height:420px; overflow:auto; padding:11px 13px; background:#ffffff; border:1px solid #e5e7eb; border-radius:8px; box-shadow:0 4px 14px rgba(17,24,39,0.08); font-size:12px; color:#374151; pointer-events:auto">
+              <div style="display:flex; justify-content:space-between; align-items:baseline">
+                <span style="font-size:10px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase; color:#6b7280">Beyond the GSP · {{ boundaryName }}</span>
+                <button onClick="{{ toggleBoundary }}" style="border:none; background:transparent; font-size:14px; color:#9ca3af; cursor:pointer">×</button>
+              </div>
+              <div style="display:grid; grid-template-columns:auto 1fr; gap:4px 12px; margin-top:8px">
+                <span style="color:#6b7280">Export limit</span><span style="font-family:'Geist Mono', monospace; text-align:right; color:#111827">{{ boundaryLimit }}</span>
+                <span style="color:#6b7280">Firm (one SGT out)</span><span style="font-family:'Geist Mono', monospace; text-align:right; color:#111827">{{ boundaryFirm }}</span>
+                <span style="color:#6b7280">Export today</span><span style="font-family:'Geist Mono', monospace; text-align:right; color:#111827">{{ boundaryToday }}</span>
+                <span style="color:#6b7280">In {{ timelineYear }}</span><span style="font-family:'Geist Mono', monospace; text-align:right; color:{{ gspFg }}">{{ boundaryYear }}</span>
+              </div>
+              <div style="margin-top:9px; font-size:11.5px; color:#4b5563; text-wrap:pretty">This region already generates more than it uses, so new generation flows <b>up</b> through the supergrid transformers into the transmission system. That boundary — not the local wires — is what fills up first.</div>
+              <div style="margin-top:10px; font-size:10px; font-weight:700; letter-spacing:0.07em; text-transform:uppercase; color:#6b7280">Transmission projects at Bicker Fen</div>
+              <sc-for list="{{ boundaryRows }}" as="row" hint-placeholder-count="4">
+                <div style="display:flex; justify-content:space-between; gap:10px; padding:6px 0; border-top:1px solid #f3f4f6">
+                  <div style="min-width:0">
+                    <div style="font-weight:600; color:#111827">{{ row.name }}</div>
+                    <div style="font-size:11px; color:#6b7280">{{ row.meta }}</div>
+                    <div style="font-size:11px; color:{{ row.tagFg }}; margin-top:1px">{{ row.tag }}</div>
+                  </div>
+                  <span style="font-family:'Geist Mono', monospace; font-weight:600; white-space:nowrap; color:{{ row.mwFg }}">{{ row.mw }}</span>
+                </div>
+              </sc-for>
+              <div style="margin-top:8px; font-size:10.5px; color:#9ca3af; text-wrap:pretty">{{ boundarySource }}</div>
+            </div>
+          </sc-if>
         </div>
 
         <sc-if value="{{ pickMode }}" hint-placeholder-val="{{ false }}">
@@ -123,6 +173,27 @@ input[type=range]{accent-color:#111827}
                 </sc-if>
               </div>
             </sc-if>
+            <sc-if value="{{ detail.hasSchedule }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:12px; padding:9px 10px; border-radius:7px; background:#f8fafc; border:1px solid #e5e7eb">
+                <div style="display:flex; justify-content:space-between; align-items:baseline">
+                  <span style="font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#6b7280">Energisation year</span>
+                  <span style="font-size:11px; color:#6b7280">recommended <b style="font-family:'Geist Mono', monospace; color:#111827">{{ detail.schedRec }}</b></span>
+                </div>
+                <sc-if value="{{ detail.schedCan }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
+                    <button onClick="{{ detail.onSchedDec }}" style="width:28px; height:28px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:15px; font-weight:600; color:#111827; cursor:pointer" style-hover="background:#f3f4f6">−</button>
+                    <span style="font-family:'Geist Mono', monospace; font-size:16px; font-weight:700; min-width:52px; text-align:center">{{ detail.schedYear }}</span>
+                    <button onClick="{{ detail.onSchedInc }}" style="width:28px; height:28px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:15px; font-weight:600; color:#111827; cursor:pointer" style-hover="background:#f3f4f6">+</button>
+                    <sc-if value="{{ detail.schedOverridden }}" hint-placeholder-val="{{ false }}">
+                      <button onClick="{{ detail.onSchedReset }}" style="margin-left:2px; padding:0 8px; height:28px; border:none; border-radius:6px; background:transparent; font-family:inherit; font-size:11.5px; font-weight:600; color:#2563eb; cursor:pointer" style-hover="background:#eff6ff">↺ recommended</button>
+                    </sc-if>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ detail.hasSchedWarn }}" hint-placeholder-val="{{ false }}">
+                  <div style="margin-top:8px; font-size:12px; color:#b45309; text-wrap:pretty">⚠ {{ detail.schedWarn }}</div>
+                </sc-if>
+              </div>
+            </sc-if>
             <sc-if value="{{ detail.hasAction }}" hint-placeholder-val="{{ false }}">
               <button onClick="{{ detail.onAction }}" style="margin-top:10px; width:100%; height:30px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:12px; font-weight:600; color:#111827; cursor:pointer" style-hover="background:#f9fafb">{{ detail.action }}</button>
             </sc-if>
@@ -139,13 +210,14 @@ input[type=range]{accent-color:#111827}
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#374151"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff"></line></svg>Solar PV</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><polygon points="3,5 13,5 8,13" fill="#a8a29e"></polygon></svg>Load (sized by MW)</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5" fill="#374151"></circle><line x1="8" y1="8" x2="8" y2="3.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line><line x1="8" y1="8" x2="11.9" y2="10.3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line><line x1="8" y1="8" x2="4.1" y2="10.3" stroke="#fff" stroke-width="1.5" stroke-linecap="round"></line></svg>Wind</div>
-            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="4" fill="#fff" stroke="#111827" stroke-width="1.6"></circle><circle cx="8" cy="10.5" r="4" fill="#fff" fill-opacity="0.6" stroke="#111827" stroke-width="1.6"></circle></svg>Transformer 110/20 kV</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="5.5" r="4" fill="#fff" stroke="#111827" stroke-width="1.6"></circle><circle cx="8" cy="10.5" r="4" fill="#fff" fill-opacity="0.6" stroke="#111827" stroke-width="1.6"></circle></svg>Transformer</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><rect x="14" y="6" width="1.6" height="4" fill="#374151"></rect><rect x="1" y="4" width="13" height="8" rx="1.5" fill="#374151"></rect><line x1="5.3" y1="5.5" x2="5.3" y2="10.5" stroke="#fff" stroke-width="1.2"></line><line x1="9.6" y1="5.5" x2="9.6" y2="10.5" stroke="#fff" stroke-width="1.2"></line></svg>Battery</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#94a3b8" stroke-width="3"></line><circle cx="3" cy="8" r="2.2" fill="#64748b" stroke="#fff"></circle><circle cx="13" cy="8" r="2.2" fill="#64748b" stroke="#fff"></circle></svg>Line · bus</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#dc2626" stroke-width="4"></line></svg>Overloaded line</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#cbd5e1" stroke-width="1.2" stroke-dasharray="2 2"></line><rect x="5" y="5" width="6" height="6" fill="#fff" stroke="#94a3b8" stroke-width="1.2"></rect></svg>Open point</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><line x1="1" y1="8" x2="15" y2="8" stroke="#d97706" stroke-width="3.4" stroke-dasharray="4 2.5"></line></svg>Binding constraint</div>
             <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="rgba(220,38,38,0.1)" stroke="#dc2626" stroke-width="1.8"></circle><circle cx="8" cy="8" r="2" fill="#64748b"></circle></svg>Voltage breach</div>
+            <div style="display:flex; align-items:center; gap:7px"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="#0d9488" stroke="#ffffff" stroke-width="1.6"></circle></svg>Existing generation</div>
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:4px 12px; padding-top:6px; margin-top:2px; border-top:1px solid #f3f4f6">
             <span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#16a34a;"></span>Phase 1</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#2563eb;"></span>Phase 2</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#fef3c7; border:1.5px dashed #d97706;"></span>Deferred</span><span style="display:flex; align-items:center; gap:5px"><span style="width:9px; height:9px; border-radius:2px; background:#f3f4f6; border:1px dashed #9ca3af;"></span>Rejected</span>
@@ -330,9 +402,6 @@ input[type=range]{accent-color:#111827}
                     <sc-if value="{{ row.hasAction }}" hint-placeholder-val="{{ false }}"><div style="font-size:11.5px; color:#6b7280"><b>→</b> {{ row.action }}</div></sc-if>
                   </div>
                 </sc-if>
-                <sc-if value="{{ row.manual }}" hint-placeholder-val="{{ false }}">
-                  <div style="grid-column:2 / -1"><button onClick="{{ row.onRemove }}" style="border:none; background:transparent; padding:0; font-family:inherit; font-size:11px; color:#6b7280; text-decoration:underline; cursor:pointer">Withdraw application</button></div>
-                </sc-if>
               </div>
             </sc-for>
           </sc-for>
@@ -374,7 +443,7 @@ input[type=range]{accent-color:#111827}
 
               <sc-if value="{{ showNewBranch }}" hint-placeholder-val="{{ false }}">
                 <div style="display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid #e5e7eb; border-radius:7px; background:#ffffff">
-                  <input value="{{ newBranchName }}" onChange="{{ onNewBranchName }}" placeholder="Branch name, e.g. ‘Connect Offenburg + Lahr’" style="height:32px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:12.5px; outline:none">
+                  <input value="{{ newBranchName }}" onChange="{{ onNewBranchName }}" placeholder="Branch name, e.g. ‘Connect the Bicker Fen batteries’" style="height:32px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:12.5px; outline:none">
                   <span style="font-size:10px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:#9ca3af">Demand profile — the scenario this branch is tested against</span>
                   <div style="display:flex; gap:6px; align-items:center">
                     <select value="{{ newBranchForecast }}" onChange="{{ onNewBranchForecast }}" style="flex:1; min-width:0; height:32px; padding:0 8px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:12.5px; background:#ffffff; cursor:pointer">
@@ -407,10 +476,42 @@ input[type=range]{accent-color:#111827}
               </sc-if>
             </div>
 
+            <div style="display:flex; flex-direction:column; gap:10px; padding:12px; border:1px solid #e5e7eb; border-radius:9px; background:#f9fafb">
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+                <div style="display:flex; flex-direction:column; line-height:1.3">
+                  <span style="font-size:11px; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:#9ca3af">Registry · projected projects</span>
+                  <span style="font-size:11px; color:#6b7280">{{ registryAddHint }}</span>
+                </div>
+                <button onClick="{{ toggleRegistry }}" style="height:28px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; background:#ffffff; font-family:inherit; font-size:11.5px; font-weight:600; color:#374151; cursor:pointer; white-space:nowrap" style-hover="background:#f3f4f6">{{ toggleRegistryLabel }}</button>
+              </div>
+              <sc-if value="{{ showRegistry }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex; flex-direction:column; gap:8px">
+                  <input value="{{ registryQuery }}" onChange="{{ onRegistryQuery }}" placeholder="Search registry — ID, applicant, tech, bus…" style="height:30px; padding:0 10px; border:1px solid #d1d5db; border-radius:6px; font-family:inherit; font-size:12.5px; outline:none; background:#ffffff">
+                  <div style="display:flex; flex-direction:column; gap:4px; max-height:280px; overflow:auto">
+                    <sc-for list="{{ registryRows }}" as="g" hint-placeholder-count="3">
+                      <div style="display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; align-items:center; padding:8px 10px; border:1px solid #e5e7eb; border-radius:7px; background:#ffffff">
+                        <div style="min-width:0">
+                          <div style="display:flex; align-items:center; gap:6px">
+                            <span style="font-family:'Geist Mono', monospace; font-size:12.5px; font-weight:600">{{ g.id }}</span>
+                            <span style="font-size:12px; color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis">{{ g.applicant }}</span>
+                          </div>
+                          <div style="display:flex; align-items:center; gap:5px; font-size:11px; color:#9ca3af"><sc-if value="{{ g.isSolar }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><rect x="2" y="2" width="12" height="12" rx="1.5" fill="#6b7280"></rect><line x1="2" y1="8" x2="14" y2="8" stroke="#fff" stroke-width="1.4"></line><line x1="8" y1="2" x2="8" y2="14" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><sc-if value="{{ g.isWind }}" hint-placeholder-val="{{ false }}"><svg width="11" height="11" viewBox="0 0 16 16" style="flex:none"><circle cx="8" cy="8" r="7" fill="#6b7280"></circle><line x1="8" y1="8" x2="8" y2="3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="12.3" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line><line x1="8" y1="8" x2="3.7" y2="10.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"></line></svg></sc-if><sc-if value="{{ g.isBattery }}" hint-placeholder-val="{{ false }}"><svg width="13" height="11" viewBox="0 0 18 16" style="flex:none"><rect x="15" y="5.5" width="2.5" height="5" fill="#6b7280"></rect><rect x="1" y="3" width="14" height="10" rx="1.5" fill="#6b7280"></rect><line x1="5.7" y1="5" x2="5.7" y2="11" stroke="#fff" stroke-width="1.4"></line><line x1="10.3" y1="5" x2="10.3" y2="11" stroke="#fff" stroke-width="1.4"></line></svg></sc-if><span>{{ g.meta }} · ready {{ g.ready }}</span></div>
+                        </div>
+                        <button onClick="{{ g.onAdd }}" style="height:28px; padding:0 13px; border:none; border-radius:6px; background:#111827; color:#ffffff; font-family:inherit; font-size:11.5px; font-weight:600; cursor:pointer; white-space:nowrap" style-hover="filter:brightness(1.3)">Add</button>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <sc-if value="{{ registryEmpty }}" hint-placeholder-val="{{ false }}">
+                    <div style="padding:14px; text-align:center; color:#9ca3af; font-size:12px">No registry projects match — or they're all on this branch already.</div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </div>
+
             <sc-if value="{{ hasReviewBranch }}" hint-placeholder-val="{{ false }}">
               <div style="display:flex; align-items:center; gap:9px; padding:9px 12px; border-radius:8px; background:#eef2ff; border:1px solid #c7d2fe; font-size:12px; color:#3730a3">
                 <span style="font-size:15px; line-height:1">⎇</span>
-                <span>You're reviewing a <b>proposal</b> — branch <b>{{ reviewBranchName }}</b> vs <b>main</b>. The map and Queue still show <b>main</b>; nothing changes there until you <b>Merge</b>.</span>
+                <span>You're on branch <b>{{ activeBranchName }}</b> — the map, Queue and roadmap show this <b>proposal</b>. <b>main</b> (the plan of record) stays unchanged until you <b>Merge</b>.</span>
               </div>
             </sc-if>
             <sc-if value="{{ noDiff }}" hint-placeholder-val="{{ true }}">
@@ -525,14 +626,14 @@ input[type=range]{accent-color:#111827}
           <div style="display:flex; align-items:flex-start; gap:10px; padding:14px 16px; border-bottom:1px solid #e5e7eb">
             <div style="flex:1">
               <div style="font-size:14px; font-weight:600">New connection application</div>
-              <div style="font-size:11.5px; color:#6b7280; margin-top:2px">Joins the queue as {{ nextId }} and is ranked on the next run.</div>
+              <div style="font-size:11.5px; color:#6b7280; margin-top:2px">{{ addDrawerHint }}</div>
             </div>
             <button onClick="{{ closeDrawer }}" style="width:26px; height:26px; border:none; border-radius:6px; background:#f3f4f6; color:#6b7280; font-size:16px; line-height:1; cursor:pointer">×</button>
           </div>
           <div style="overflow:auto; padding:16px; display:flex; flex-direction:column; gap:16px">
             <label style="display:flex; flex-direction:column; gap:5px">
               <span style="font-size:11.5px; font-weight:600; color:#374151">Project / applicant</span>
-              <input value="{{ form.name }}" onChange="{{ onFormName }}" placeholder="e.g. Offenburg Solarpark Nord" style="height:34px; padding:0 10px; border:1px solid #d1d5db; border-radius:7px; font-family:inherit; font-size:13px; outline:none">
+              <input value="{{ form.name }}" onChange="{{ onFormName }}" placeholder="e.g. Sleaford Fen Solar" style="height:34px; padding:0 10px; border:1px solid #d1d5db; border-radius:7px; font-family:inherit; font-size:13px; outline:none">
             </label>
             <div style="display:flex; flex-direction:column; gap:5px">
               <span style="font-size:11.5px; font-weight:600; color:#374151">Technology</span>
@@ -562,19 +663,6 @@ input[type=range]{accent-color:#111827}
             </div>
             <sc-if value="{{ mwWarn }}" hint-placeholder-val="{{ false }}">
               <div style="margin-top:-8px; font-size:11.5px; color:#b91c1c">{{ mwWarnText }}</div>
-            </sc-if>
-            <sc-if value="{{ hasHosting }}" hint-placeholder-val="{{ false }}">
-              <div style="padding:11px 12px; border-radius:8px; background:{{ host.bg }}; border:1px solid {{ host.bd }}">
-                <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px">
-                  <span style="font-size:10px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:{{ host.labelFg }}">Indicative headroom · bus {{ form.bus }} · 2035</span>
-                  <span style="font-family:'Geist Mono', monospace; font-size:15px; font-weight:600; color:{{ host.fg }}">{{ host.mw }}</span>
-                </div>
-                <div style="height:6px; margin-top:8px; background:#ffffff; border-radius:3px; position:relative; overflow:hidden; border:1px solid {{ host.bd }}">
-                  <div style="position:absolute; left:0; top:0; bottom:0; width:{{ host.capPct }}%; background:{{ host.capColor }}; opacity:0.35"></div>
-                  <div style="position:absolute; left:0; top:0; bottom:0; width:{{ host.reqPct }}%; background:{{ host.reqColor }}"></div>
-                </div>
-                <div style="font-size:12px; color:{{ host.fg }}; margin-top:7px; text-wrap:pretty">{{ host.text }}</div>
-              </div>
             </sc-if>
             <div style="display:flex; flex-direction:column; gap:6px">
               <div style="display:flex; justify-content:space-between; align-items:baseline">
@@ -608,7 +696,7 @@ input[type=range]{accent-color:#111827}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;simLatencyMs&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1400,&quot;min&quot;:200,&quot;max&quot;:4000,&quot;step&quot;:100,&quot;unit&quot;:&quot;ms&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;autoRerunOnAdd&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Simulation&quot;},&quot;defaultPhase&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;2030&quot;,&quot;2035&quot;],&quot;default&quot;:&quot;2035&quot;,&quot;tsType&quot;:&quot;'2030' | '2035'&quot;,&quot;section&quot;:&quot;Network view&quot;},&quot;lineWeightByRating&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Network view&quot;},&quot;basemap&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;openfreemap&quot;,&quot;osm&quot;,&quot;carto-light&quot;],&quot;default&quot;:&quot;openfreemap&quot;,&quot;tsType&quot;:&quot;'openfreemap' | 'osm' | 'carto-light'&quot;,&quot;section&quot;:&quot;Network view&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;lineWeightByRating&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Network view&quot;},&quot;basemap&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;openfreemap&quot;,&quot;osm&quot;,&quot;carto-light&quot;],&quot;default&quot;:&quot;openfreemap&quot;,&quot;tsType&quot;:&quot;'openfreemap' | 'osm' | 'carto-light'&quot;,&quot;section&quot;:&quot;Network view&quot;}}">
 const ST = {
   Phase1: { label: 'Phase 1 · 2030', short: 'Phase 1', c: '#16a34a', bg: '#dcfce7', fg: '#166534', soft: '#f0fdf4', bd: '#bbf7d0' },
   Phase2: { label: 'Phase 2 · 2035', short: 'Phase 2', c: '#2563eb', bg: '#dbeafe', fg: '#1e40af', soft: '#eff6ff', bd: '#bfdbfe' },
@@ -629,17 +717,19 @@ const TECH = { solar: 'Solar PV', wind: 'Wind', battery: 'Battery' };
 const EVID = [{ k: 'land', label: 'Land rights secured', w: 0.3 }, { k: 'planning', label: 'Planning consent granted', w: 0.35 }, { k: 'finance', label: 'Financing committed', w: 0.25 }];
 const fmtMw = (x) => (x == null ? '—' : (Math.round(x * 10) / 10).toString());
 const mix = (a, b, t) => { const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const A = p(a), B = p(b); return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join(''); };
-const readyFromForm = (f) => +(0.1 + (f.land ? 0.3 : 0) + (f.planning ? 0.35 : 0) + (f.finance ? 0.25 : 0)).toFixed(2);
+const STEP_MS = 280;  // pacing of the run-overlay progress steps
+const readyFromForm =(f) => +(0.1 + (f.land ? 0.3 : 0) + (f.planning ? 0.35 : 0) + (f.finance ? 0.25 : 0)).toFixed(2);
 
 class Component extends DCLogic {
   state = {
-    model: null, cands: [], forecasts: [], forecastId: 'ht', g30: 1.08, g35: 1.35,
-    result: null, prevStatus: {}, lastParams: null, lastRun: null, running: false, step: 0,
-    phase: null, tab: 'queue', filter: 'All', sortKey: 'rank', sortDir: 1, grouped: false, query: '',
+    model: null, cands: [], forecasts: [], forecastId: 'ht', g30: 1.08, g35: 1.35, maxMw: 100,
+    result: null, prevStatus: {}, lastParams: null, running: false, step: 0,
+    tab: 'queue', filter: 'All', sortKey: 'rank', sortDir: 1, grouped: false, query: '',
     hover: null, mouse: { x: 0, y: 0 }, sel: null, view: { k: 1, x: 0, y: 0 }, size: { w: 0, h: 0 },
-    loadingMode: false, showLabels: false, drawer: false, pickMode: false, toast: null, copied: false,
-    baseline: null, diff: null, comparing: false,
-    branches: [], branchesLoaded: false, reviewBranch: null, showNewBranch: false,
+    loadingMode: false, showLabels: false, drawer: false, pickMode: false, toast: null,
+    diff: null, comparing: false,
+    branches: [], branchesLoaded: false, activeBranch: 'main', showNewBranch: false,
+    registry: [], registryLoaded: false, showRegistry: false, registryQuery: '',
     newBranchName: '', newBranchForecast: 'ht', creatingBranch: false,
     suggestions: null, loadingSuggestions: false, voltageMode: false,
     form: { name: '', tech: 'solar', mw: '5', bus: '', land: true, planning: false, finance: false, readiness: 0.4 },
@@ -664,28 +754,51 @@ class Component extends DCLogic {
   async boot() {
     let n = 0; while (!window.GridForgeAPI && n++ < 200) await new Promise((r) => setTimeout(r, 50));
     const A = (this.A = window.GridForgeAPI); if (!A) return;
-    const [model, cands, forecasts, baseline] = await Promise.all([A.getModel(), A.getCandidates(), A.getForecasts(), A.getBaseline()]);
+    const [model, cands, forecasts, maxMw, boundary] = await Promise.all([A.getModel(), A.getCandidates(), A.getForecasts(), A.getMaxConnectionMw(), A.getBoundary()]);
     // growth is fixed per pathway (no sliders): sync g30/g35 to the default forecast's cited values
     const def = forecasts.find((f) => f.id === this.state.forecastId) || forecasts[0];
     const patch = def ? { forecastId: def.id, g30: def.growth_2030, g35: def.growth_2035 } : {};
-    this.setState({ model, cands, forecasts, baseline, ...patch }, () => { if (this._mapReady) this.fit(false); this.run(); });
+    this.setState({ model, cands, forecasts, maxMw, boundary, ...patch }, () => { if (this._mapReady) this.fit(false); this.refreshBranches(); this.run(); });
   }
 
   run = async () => {
-    const A = this.A; if (!A || this.state.running) return;
-    A.config.latencyMs = this.props.simLatencyMs ?? 1400;
+    const A = this.A; if (!A) return;
+    // a run is already in flight (e.g. several registry adds in a row, or a branch switch): don't
+    // drop this request — coalesce it into ONE re-run when the current one finishes
+    if (this.state.running) { this._runAgain = true; return; }
     const prev = this.state.result;
     const prevStatus = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
-    const params = { g30: this.state.g30, g35: this.state.g35, scenario: this.state.forecastId, n: this.state.cands.length };
+    // The view follows the active branch: main runs the plan of record (existing fleet, empty queue);
+    // a branch runs its own scenario + the projects pulled onto it.
+    const bid = this.state.activeBranch, onBranch = !!bid && bid !== 'main';
+    const br = onBranch ? this.state.branches.find((b) => b.branch_id === bid) : null;
+    const g30 = br ? br.growth_2030 : this.state.g30, g35 = br ? br.growth_2035 : this.state.g35;
+    const scenario = br ? br.scenario : this.state.forecastId;
+    const params = { g30, g35, scenario, branch: onBranch ? bid : 'main', n: this.state.cands.length };
     this.setState({ running: true, step: 0, hover: null });
-    const t0 = performance.now();
     clearInterval(this._stepT);
-    this._stepT = setInterval(() => this.setState((s) => ({ step: Math.min(s.step + 1, 4) })), A.config.latencyMs / 5);
-    const res = await A.optimize({ scenario: params.scenario, growth_2030: params.g30, growth_2035: params.g35, with_justification: true });
+    // the progress steps are paced cosmetically; they hold on the last one until the API answers
+    this._stepT = setInterval(() => this.setState((s) => ({ step: Math.min(s.step + 1, 4) })), STEP_MS);
+    let res, cands;
+    try {
+      res = onBranch
+        ? await A.optimizeBranch(bid, { with_justification: true })
+        : await A.optimize({ scenario, growth_2030: g30, growth_2035: g35, with_justification: true });
+      cands = await A.getCandidates();
+    } catch (e) {
+      clearInterval(this._stepT);
+      this._runAgain = false;
+      this.setState({ running: false, step: 0 });
+      this.toastMsg('The simulation failed — check the API is running.');
+      return;
+    }
     clearInterval(this._stepT);
-    const cands = await A.getCandidates();
-    this.setState((st) => ({ runId: (st.runId || 0) + 1 }));
-    this.setState({ result: res, cands, prevStatus, running: false, step: 5, lastParams: params, lastRun: { at: new Date(), ms: Math.round(performance.now() - t0) } });
+    const inQueue = new Set((res.queue || []).map((x) => x.request_id));
+    this.setState((st) => ({ runId: (st.runId || 0) + 1,
+      // registry adds that this run now reflects are no longer "pending"
+      pendingAdds: Object.fromEntries(Object.entries(st.pendingAdds || {}).filter(([id]) => !inQueue.has(id))) }));
+    this.setState({ result: res, cands, prevStatus, running: false, step: 5, lastParams: params });
+    if (this._runAgain) { this._runAgain = false; this.run(); }
   };
 
   // ---- branches ("git for grids")
@@ -698,7 +811,46 @@ class Component extends DCLogic {
     const A = this.A; if (!A) return;
     try { const branches = await A.listBranches(); this.setState({ branches, branchesLoaded: true }); } catch (e) {}
   };
-  selectBranch = (id) => this.setState({ reviewBranch: id, diff: null, suggestions: null });
+  // Switch the active branch — the whole view (map, Queue, tiles, roadmap) follows it.
+  selectBranch = (id) => { if (id === this.state.activeBranch) return; this.setState({ activeBranch: id, diff: null, suggestions: null, sel: null, pendingAdds: {} }, () => this.run()); };
+  // Pull a project from the registry onto the active branch, then re-run so it appears.
+  addRegistryProject = async (requestId) => {
+    const A = this.A; if (!A) return;
+    const branchId = await this.ensureEditableBranch();
+    if (!branchId) return;
+    // take it off the registry list straight away — the re-run that reflects it can take a while
+    const setPending = (on) => this.setState((st) => {
+      const p = { ...(st.pendingAdds || {}) };
+      if (on) p[requestId] = true; else delete p[requestId];
+      return { pendingAdds: p };
+    });
+    setPending(true);
+    try {
+      const row = await A.addFromRegistry(branchId, requestId);
+      await this.refreshBranches();
+      if (this.state.diff) this.setState({ diff: null });
+      if (this.state.suggestions) this.setState({ suggestions: null });
+      await this.run();
+      this.toastMsg(`${requestId}${row && row.applicant ? ` · ${row.applicant}` : ''} added to the branch — the map and Queue update when the run finishes.`);
+    } catch (e) { setPending(false); this.toastMsg('Could not add that project — check the API is running.'); }
+  };
+  loadRegistry = async () => {
+    const A = this.A; if (!A || this.state.registryLoaded) return;
+    try { const registry = await A.getRegistry(); this.setState({ registry, registryLoaded: true }); }
+    catch (e) { this.toastMsg('Could not load the registry — check the API is running.'); }
+  };
+  // Adds always target a branch (main is the plan of record). On main, auto-create + switch to one.
+  ensureEditableBranch = async () => {
+    const s = this.state; if (s.activeBranch && s.activeBranch !== 'main') return s.activeBranch;
+    const A = this.A; if (!A) return null;
+    try {
+      const b = await A.createBranch({ name: 'Draft plan', from_branch: 'main', scenario: s.forecastId });
+      await this.refreshBranches();
+      this.setState({ activeBranch: b.branch_id, showNewBranch: false, diff: null, suggestions: null });
+      this.toastMsg(`Opened branch “${b.name}” off main — your changes stay here until you merge.`);
+      return b.branch_id;
+    } catch (e) { this.toastMsg('Could not open a branch — check the API is running.'); return null; }
+  };
   createBranchFlow = async () => {
     const A = this.A, s = this.state; if (!A || s.creatingBranch) return;
     const name = (s.newBranchName || '').trim() || 'Untitled branch';
@@ -706,38 +858,38 @@ class Component extends DCLogic {
     try {
       const b = await A.createBranch({ name, from_branch: 'main', scenario: s.newBranchForecast });
       await this.refreshBranches();
-      this.setState({ creatingBranch: false, showNewBranch: false, newBranchName: '', reviewBranch: b.branch_id, diff: null, suggestions: null });
+      this.setState({ creatingBranch: false, showNewBranch: false, newBranchName: '', activeBranch: b.branch_id, diff: null, suggestions: null }, () => this.run());
       this.toastMsg(`Branch “${b.name}” created off main. Add projects, then Diff vs main.`);
     } catch (e) { this.setState({ creatingBranch: false }); this.toastMsg('Could not create the branch — check the API is running.'); }
   };
   runBranchDiff = async () => {
-    const A = this.A, s = this.state; if (!A || s.comparing || !s.reviewBranch) return;
+    const A = this.A, s = this.state; if (!A || s.comparing || !s.activeBranch || s.activeBranch === 'main') return;
     this.setState({ comparing: true });
-    try { const diff = await A.diffBranch(s.reviewBranch, { with_narration: true }); this.setState({ diff, comparing: false }); }
+    try { const diff = await A.diffBranch(s.activeBranch, { with_narration: true }); this.setState({ diff, comparing: false }); }
     catch (e) { this.setState({ comparing: false }); this.toastMsg('Diff failed — check the API is running.'); }
   };
   runSuggestions = async () => {
-    const A = this.A, s = this.state; if (!A || s.loadingSuggestions || !s.reviewBranch) return;
+    const A = this.A, s = this.state; if (!A || s.loadingSuggestions || !s.activeBranch || s.activeBranch === 'main') return;
     this.setState({ loadingSuggestions: true });
-    try { const suggestions = await A.getSuggestions(s.reviewBranch, { with_narration: true, limit: 5 }); this.setState({ suggestions, loadingSuggestions: false }); }
+    try { const suggestions = await A.getSuggestions(s.activeBranch, { with_narration: true, limit: 5 }); this.setState({ suggestions, loadingSuggestions: false }); }
     catch (e) { this.setState({ loadingSuggestions: false }); this.toastMsg('Suggestions failed — check the API is running.'); }
   };
   mergeBranchFlow = async () => {
-    const A = this.A, s = this.state; if (!A || !s.reviewBranch) return;
+    const A = this.A, s = this.state; if (!A || !s.activeBranch || s.activeBranch === 'main') return;
     try {
-      await A.mergeBranch(s.reviewBranch, { into: 'main' });
+      await A.mergeBranch(s.activeBranch, { into: 'main' });
       await this.refreshBranches();
       this.toastMsg('Branch merged into main — the new plan of record. Re-running…');
-      await this.run();
+      this.setState({ activeBranch: 'main', diff: null, suggestions: null }, () => this.run());
     } catch (e) { this.toastMsg('Merge failed — check the API is running.'); }
   };
   discardBranchFlow = async () => {
-    const A = this.A, s = this.state; if (!A || !s.reviewBranch) return;
+    const A = this.A, s = this.state; if (!A || !s.activeBranch || s.activeBranch === 'main') return;
     try {
-      await A.discardBranch(s.reviewBranch);
+      await A.discardBranch(s.activeBranch);
       await this.refreshBranches();
-      this.setState({ reviewBranch: null, diff: null, suggestions: null });
-      this.toastMsg('Branch discarded.');
+      this.setState({ activeBranch: 'main', diff: null, suggestions: null }, () => this.run());
+      this.toastMsg('Branch discarded — back on main.');
     } catch (e) { this.toastMsg('Discard failed — check the API is running.'); }
   };
 
@@ -823,10 +975,13 @@ class Component extends DCLogic {
   }
   addLayers() {
     const map = this.map, empty = { type: 'FeatureCollection', features: [] };
-    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'projects'].forEach((id) => map.addSource(id, { type: 'geojson', data: empty }));
+    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'existing', 'projects'].forEach((id) => map.addSource(id, { type: 'geojson', data: empty }));
     const zw = (f) => ['interpolate', ['linear'], ['zoom'], 9, ['*', ['get', 'w'], 0.6 * f], 12, ['*', ['get', 'w'], 1 * f], 16, ['*', ['get', 'w'], 1.8 * f]];
+    // casing = line width + 2px at every zoom. The +2 must be baked into each stop: a "zoom"
+    // expression may only sit at the top level of an interpolate, never nested inside arithmetic.
+    const zwCasing = ['interpolate', ['linear'], ['zoom'], 9, ['+', ['*', ['get', 'w'], 0.6], 2], 12, ['+', ['*', ['get', 'w'], 1], 2], 16, ['+', ['*', ['get', 'w'], 1.8], 2]];
     map.addLayer({ id: 'lines-halo', type: 'line', source: 'lines', filter: ['==', ['get', 'halo'], 1], layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'haloColor'], 'line-width': 14, 'line-opacity': 0.22, 'line-blur': 2 } });
-    map.addLayer({ id: 'lines-casing', type: 'line', source: 'lines', filter: ['!=', ['get', 'kind'], 'tie'], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': ['+', zw(1), 2], 'line-opacity': 0.8 } });
+    map.addLayer({ id: 'lines-casing', type: 'line', source: 'lines', filter: ['!=', ['get', 'kind'], 'tie'], layout: { 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': zwCasing, 'line-opacity': 0.8 } });
     map.addLayer({ id: 'lines-solid', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'solid'], layout: { 'line-cap': 'round' }, paint: { 'line-color': ['get', 'color'], 'line-width': zw(1) } });
     map.addLayer({ id: 'lines-tie', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'tie'], paint: { 'line-color': '#94a3b8', 'line-width': zw(1), 'line-dasharray': [2, 2] } });
     map.addLayer({ id: 'lines-bind', type: 'line', source: 'lines', filter: ['==', ['get', 'kind'], 'bind'], paint: { 'line-color': '#d97706', 'line-width': zw(1), 'line-dasharray': [2.2, 1.4] } });
@@ -839,9 +994,14 @@ class Component extends DCLogic {
     map.addLayer({ id: 'buses', type: 'circle', source: 'buses', paint: { 'circle-radius': zr('r', 1), 'circle-color': ['get', 'fill'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1 } });
     map.addLayer({ id: 'buses-hit', type: 'circle', source: 'buses', paint: { 'circle-radius': ['get', 'hitR'], 'circle-color': '#000', 'circle-opacity': 0 } });
     map.addLayer({ id: 'trafos', type: 'symbol', source: 'trafos', layout: { 'icon-image': 'trafo', 'icon-allow-overlap': true, 'icon-ignore-placement': true } });
+    // existing connected fleet (from model.generators) — muted, persistent on main and every branch
+    map.addLayer({ id: 'existing-gen-halo', type: 'circle', source: 'existing', paint: { 'circle-radius': zr('gr', 1.5), 'circle-color': '#0d9488', 'circle-opacity': 0.18 } });
+    map.addLayer({ id: 'existing-gen', type: 'circle', source: 'existing', paint: { 'circle-radius': zr('gr', 1), 'circle-color': ['get', 'fill'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2, 'circle-opacity': 1 } });
+    map.addLayer({ id: 'proj-new', type: 'circle', source: 'projects', filter: ['==', ['get', 'newYear'], 1], paint: { 'circle-radius': ['+', ['*', ['get', 'size'], 18], 7], 'circle-color': 'rgba(245,158,11,0.12)', 'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 2.4 } });
+    map.addLayer({ id: 'proj-warn', type: 'circle', source: 'projects', filter: ['==', ['get', 'warn'], 1], paint: { 'circle-radius': ['+', ['*', ['get', 'size'], 18], 6], 'circle-color': 'rgba(220,38,38,0.10)', 'circle-stroke-color': '#dc2626', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9 } });
     map.addLayer({ id: 'proj-sel', type: 'circle', source: 'projects', filter: ['==', ['get', 'sel'], 1], paint: { 'circle-radius': ['+', ['*', ['get', 'size'], 18], 5], 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#111827', 'circle-stroke-width': 2 } });
-    map.addLayer({ id: 'proj-icons', type: 'symbol', source: 'projects', layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['get', 'size'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['get', 'sort'] } });
-    this._hit = [['proj-icons', 'project'], ['trafos', 'trafo'], ['buses-hit', 'bus'], ['loads', 'load'], ['lines-hit', 'line']];
+    map.addLayer({ id: 'proj-icons', type: 'symbol', source: 'projects', layout: { 'icon-image': ['get', 'icon'], 'icon-size': ['get', 'size'], 'icon-allow-overlap': true, 'icon-ignore-placement': true, 'symbol-sort-key': ['get', 'sort'] }, paint: { 'icon-opacity': ['case', ['==', ['get', 'dim'], 1], 0.5, 1] } });
+    this._hit = [['proj-icons', 'project'], ['existing-gen', 'existing'], ['trafos', 'trafo'], ['buses-hit', 'bus'], ['loads', 'load'], ['lines-hit', 'line']];
   }
   hitAt(point) {
     if (!this._mapReady) return null;
@@ -863,7 +1023,7 @@ class Component extends DCLogic {
   hoverOut = () => this.setState({ hover: null });
   pick(kind, id) {
     if (this.state.pickMode) { if (kind === 'bus') { this.setForm({ bus: String(id) }); this.setState({ pickMode: false }); } return; }
-    if (kind === 'load') return;
+    if (kind === 'load' || kind === 'existing') return;
     if (kind === 'project') return this.selectProject(id);
     this.setState({ sel: { kind, id } });
   }
@@ -891,7 +1051,7 @@ class Component extends DCLogic {
     if (!this._mapReady || !this._geo) return;
     if (!force && this._syncedKey === this._geoKey) return;
     this._syncedKey = this._geoKey; const g = this._geo;
-    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'projects'].forEach((k) => this.map.getSource(k).setData(g[k]));
+    ['lines', 'buses', 'loads', 'openpts', 'trafos', 'existing', 'projects'].forEach((k) => this.map.getSource(k).setData(g[k]));
     this.map.setLayoutProperty('loads', 'visibility', g.showLoads ? 'visible' : 'none');
   }
 
@@ -904,33 +1064,41 @@ class Component extends DCLogic {
     });
   }
   async submit(andRun) {
-    const f = this.state.form, A = this.A, s = this.state; if (!A || this.formInvalid()) return;
-    const onBranch = s.tab === 'compare' && s.reviewBranch && s.reviewBranch !== 'main';
-    const branchId = onBranch ? s.reviewBranch : 'main';
+    const f = this.state.form, A = this.A; if (!A || this.formInvalid()) return;
+    // Every add targets a branch — main is the plan of record. On main we auto-open a branch.
+    const branchId = await this.ensureEditableBranch();
+    if (!branchId) return;
     const row = await A.addCandidate({ applicant: f.name.trim() || 'Manual application', bus_id: +f.bus, technology: f.tech, rating_mw: +f.mw, readiness_score: f.readiness, readiness_rationale: EVID.filter((e) => f[e.k]).map((e) => e.label).join('; ') || 'No evidence supplied', branch_id: branchId, manual: true });
-    this.setState({ drawer: false, pickMode: false, form: { ...this.state.form, name: '', bus: '' } });
-    if (onBranch) {
-      await this.refreshBranches();
-      this.toastMsg(`${row.request_id} added to the branch — Diff vs main to see its effect.`);
-      if (this.state.suggestions) this.setState({ suggestions: null });
+    await this.refreshBranches();
+    // the view follows the active branch — re-run so the project lands on the map + Queue
+    this.setState({ drawer: false, pickMode: false, activeBranch: branchId, suggestions: null, form: { ...this.state.form, name: '', bus: '' } }, async () => {
+      await this.run();
+      if (andRun) this.selectProject(row.request_id);
       if (this.state.diff) this.runBranchDiff();
-      return;
-    }
-    const cands = await A.getCandidates();
-    this.setState({ cands });
-    const auto = andRun || (this.props.autoRerunOnAdd ?? false);
-    this.toastMsg(`${row.request_id} added to the queue${auto ? ' — re-running power flow…' : '. Run the simulation to rank it.'}`);
-    if (auto) { await this.run(); this.selectProject(row.request_id); }
+      this.toastMsg(`${row.request_id} added to the branch — now on the map and in the Queue.`);
+    });
   }
   formInvalid() { const f = this.state.form; return !f.bus || !(+f.mw > 0); }
 
   renderVals() {
     const s = this.state, r = s.result;
-    const phase = s.phase || this.props.defaultPhase || '2035';
+    // the active branch (if any) carries its own demand scenario; the whole view follows it
+    const _activeB = (s.activeBranch && s.activeBranch !== 'main') ? s.branches.find((b) => b.branch_id === s.activeBranch) : null;
+    const eg30 = _activeB ? _activeB.growth_2030 : s.g30, eg35 = _activeB ? _activeB.growth_2035 : s.g35;
+    // the timeline slider is the primary year control: it picks the demand/power-flow lens
+    // (2030 "Clean Power" up to 2030, else 2035 "Strategic") AND reveals projects by their
+    // commissioning year. 2026 = today's grid (existing fleet only, nothing connected yet).
+    const timelineYear = s.timelineYear || 2035;
+    const phase = timelineYear <= 2030 ? '2030' : '2035';
     const ph = r ? r.phases[phase] : null;
     const q = r ? r.queue : [];
     const qById = Object.fromEntries(q.map((x) => [x.request_id, x]));
     const sel = s.sel, hov = s.hover;
+    // real ratings/voltages from the model (no assumed feeder voltage): a transformer's substation is
+    // its HV busbar name minus the voltage/bay suffix; capacity of a line = √3 · V · I
+    const trafoSub = (t) => String(t.hv_name || t.name || `T${t.trafo_id}`).replace(/\s*\d+(\.\d+)?\s*kV.*$/i, '').trim();
+    const trafoRatio = (t) => (t.hv_kv && t.lv_kv ? `${+t.hv_kv} / ${+t.lv_kv} kV` : '—');
+    const lineMva = (l) => (l.voltage_kv ? `${(Math.sqrt(3) * l.voltage_kv * l.rating_a / 1000).toFixed(1)} MVA` : '—');
     const manualIds = new Set(s.cands.filter((c) => c.manual).map((c) => c.request_id));
     const selQ = sel && sel.kind === 'project' ? qById[sel.id] : null;
     const selEl = selQ && selQ.reason ? selQ.reason.element || selQ.reason.grid : null;
@@ -945,15 +1113,52 @@ class Component extends DCLogic {
 
     // ---- map data → GeoJSON for MapLibre (rebuilt only when inputs change)
     const showLoads = s.showLoads ?? true;
-    const geoKey = [s.runId || 0, !!s.model, phase, JSON.stringify(sel), JSON.stringify(hov), s.pickMode, s.loadingMode, s.voltageMode, s.drawer ? s.form.bus : '', wBy, showLoads].join('|');
+    const geoKey = [s.runId || 0, !!s.model, phase, timelineYear, q.map((x) => x.scheduled_year ?? '').join(','), JSON.stringify(sel), JSON.stringify(hov), s.pickMode, s.loadingMode, s.voltageMode, s.drawer ? s.form.bus : '', wBy, showLoads].join('|');
     const FC = (features) => ({ type: 'FeatureCollection', features });
     const pt = (lo, la, props) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [lo, la] }, properties: props });
-    const projList = r ? q.filter((x) => x.lon != null && x.rating_mw != null && x.rating_mw <= 40).map((x) => {
-      const variant = x.status === 'Phase1' ? 'p1' : x.status === 'Phase2' ? (phase === '2030' ? 'ghost' : 'p2') : x.status === 'Deferred' ? 'def' : 'rej';
-      const size = x.status === 'Rejected' ? 0.55 : 0.6 + (Math.sqrt(x.rating_mw) / Math.sqrt(18)) * 0.5;
-      const label = variant === 'ghost' ? `${x.request_id} · 2035` : x.status === 'Deferred' ? `${x.request_id} · deferred` : x.status === 'Rejected' ? `${x.request_id} · rejected` : `${x.request_id} · ${fmtMw(x.rating_mw)} MW`;
-      return { x, variant, size, label, fg: variant === 'ghost' ? '#1e40af' : ST[x.status].fg };
+    // The year a project energises in the plan: the optimizer's recommended year, or the operator's
+    // override (set in the detail card after a run). Only ACCEPTED projects get a year — deferred and
+    // rejected ones can't be hosted, so they stay OFF the timeline (never slide onto the plan).
+    const effYearOf = (x) => {
+      if (x.status !== 'Phase1' && x.status !== 'Phase2') return null;
+      return x.scheduled_year != null ? x.scheduled_year : x.recommended_year;
+    };
+    // the operator sets/overrides a project's energisation year (null → back to the optimizer's
+    // recommendation). Persisted on the branch; applied optimistically, rolled back if the save fails.
+    // Doesn't change accept/defer/rank — it's a planning decision on top of the verdict.
+    const setSchedule = async (rid, yr) => {
+      const year = yr == null ? null : Math.max(2026, Math.min(2035, yr));
+      const patch = (val) => this.setState((st) => st.result ? { result: { ...st.result,
+        queue: st.result.queue.map((it) => it.request_id === rid ? { ...it, scheduled_year: val } : it) } } : {});
+      const prev = (qById[rid] || {}).scheduled_year ?? null;
+      patch(year);
+      try { await this.A.setSchedule(s.activeBranch || 'main', rid, year); }
+      catch (e) { patch(prev); this.toastMsg(`Couldn’t save the year for ${rid}: ${e.message}`); }
+    };
+    const projList = r ? q.filter((x) => x.lon != null && x.rating_mw != null).map((x) => {
+      const accepted = x.status === 'Phase1' || x.status === 'Phase2';
+      const eff = effYearOf(x);
+      const onTimeline = accepted && eff != null;
+      const future = onTimeline && eff > timelineYear;
+      const isNew = onTimeline && eff === timelineYear;
+      const online = onTimeline && eff <= timelineYear;
+      // scheduled earlier than the grid supports = goes against the recommendation (marked on map)
+      const offRec = accepted && x.scheduled_year != null && x.recommended_year != null && x.scheduled_year < x.recommended_year;
+      const blocked = x.status === 'Deferred' || x.status === 'Rejected';
+      const variant = x.status === 'Rejected' ? 'rej' : x.status === 'Deferred' ? 'def'
+        : future ? 'ghost' : x.status === 'Phase1' ? 'p1' : 'p2';
+      const size = x.status === 'Rejected' ? 0.55 : (0.6 + (Math.sqrt(x.rating_mw) / Math.sqrt(18)) * 0.5) * (isNew ? 1.12 : 1);
+      const label = blocked ? `${x.request_id} · ${x.status === 'Deferred' ? 'deferred' : 'rejected'}`
+        : future ? `${x.request_id} · planned ${eff}`
+        : `${x.request_id} · ${fmtMw(x.rating_mw)} MW${isNew ? ` · online ${eff}` : ''}`;
+      return { x, variant, size, label, online, isNew, future, blocked, offRec, fg: future ? '#1e40af' : ST[x.status].fg };
     }) : [];
+    // timeline roll-up: accepted projects online by the slider year, and those energising this year
+    const tlAccepted = q.filter((x) => x.status === 'Phase1' || x.status === 'Phase2');
+    const tlOnline = tlAccepted.filter((x) => { const y = effYearOf(x); return y != null && y <= timelineYear; });
+    const tlNew = tlAccepted.filter((x) => effYearOf(x) === timelineYear);
+    const tlOnlineMw = tlOnline.reduce((a, x) => a + (x.rating_mw || 0), 0);
+    const tlNewMw = tlNew.reduce((a, x) => a + (x.rating_mw || 0), 0);
     if (s.model && geoKey !== this._geoKey) {
       const m = s.model;
       const lines = m.lines.map((l) => {
@@ -968,7 +1173,7 @@ class Component extends DCLogic {
       });
       const bvm = (ph && ph.bus_vm) || {};
       const vHeat = (v) => (v == null ? '#475569' : v > 1.05 ? '#dc2626' : v > 1.02 ? '#f97316' : v < 0.95 ? '#2563eb' : v < 0.98 ? '#60a5fa' : '#9ca3af');
-      const buses = m.buses.filter((b) => b.vn_kv <= 20).map((b) => {
+      const buses = m.buses.filter((b) => b.lon != null).map((b) => {
         const id = b.bus_id, isV = vv.has(id), isB = bindBuses.has(id);
         const isSel = (sel && sel.kind === 'bus' && sel.id === id) || (selEl && selEl.bus_id === id) || (s.drawer && String(id) === s.form.bus);
         const isHov = hov && hov.kind === 'bus' && hov.id === id, pk = s.pickMode;
@@ -984,9 +1189,14 @@ class Component extends DCLogic {
       const openpts = m.lines.filter((l) => l.in_service === false).map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
       const trafos = m.transformers.map((t) => pt(t.hv_lon, t.hv_lat, { id: t.trafo_id }));
       const projects = projList.map((p, i) => pt(p.x.lon, p.x.lat, { id: p.x.request_id, icon: `${p.x.technology || 'solar'}-${p.variant}`, size: p.size, sort: ORDER[p.x.status] === 3 ? -1 : p.size * 10,
-        sel: sel && sel.kind === 'project' && sel.id === p.x.request_id ? 1 : 0 }));
+        newYear: p.isNew ? 1 : 0, dim: p.blocked ? 1 : 0, warn: p.offRec ? 1 : 0, sel: sel && sel.kind === 'project' && sel.id === p.x.request_id ? 1 : 0 }));
+      // existing connected fleet — one bold 'existing' colour (teal), sized by MW; shown on main and
+      // every branch, distinct from the phase-coloured queue so the as-is grid is unmistakable.
+      const existing = (m.generators || []).filter((g) => g.lon != null && g.lat != null).map((g) => pt(g.lon, g.lat,
+        { id: g.request_id, gr: 5 + Math.sqrt(Math.max(1, g.rating_mw || 1)) * 1.0, fill: '#0d9488',
+          rating: g.rating_mw, tech: g.technology, applicant: g.applicant, bus: g.bus_id }));
       this._geoKey = geoKey;
-      this._geo = { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), projects: FC(projects), showLoads };
+      this._geo = { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing), projects: FC(projects), showLoads };
     }
 
     // ---- HTML label overlay (screen space via map.project, simple collision avoidance)
@@ -1004,7 +1214,7 @@ class Component extends DCLogic {
       };
       projList.forEach((p) => { const [sx, sy] = toS(p.x.lon, p.x.lat), R = p.size * 17; boxes.push([sx - R, sy - R, sx + R, sy + R]); });
       s.model.transformers.forEach((t, i) => { const [sx, sy] = toS(t.hv_lon, t.hv_lat);
-        place({ key: 't' + i, sx: sx + 17, sy, text: t.name.replace('Trafo ', '').replace(' 110/20', '') + ' primary', sub: '110/20 kV · 25 MVA', hasSub: true, font: "'Geist', sans-serif", fs: 11.5, fw: 600, color: '#111827' }, 120, 28); });
+        place({ key: 't' + i, sx: sx + 17, sy, text: trafoSub(t), sub: `${trafoRatio(t)} · ${fmtMw(t.sn_mva)} MVA`, hasSub: true, font: "'Geist', sans-serif", fs: 11.5, fw: 600, color: '#111827' }, 120, 28); });
       [...projList].sort((a, b) => ORDER[a.x.status] - ORDER[b.x.status] || b.x.rating_mw - a.x.rating_mw).forEach((p) => { const [sx, sy] = toS(p.x.lon, p.x.lat), R = p.size * 17;
         place({ key: 'p' + p.x.request_id, sx: sx + R + 4, sy, text: p.label, sub: '', hasSub: false, font: "'Geist Mono', monospace", fs: 10.5, fw: 600, color: p.fg }, p.label.length * 6.4, 13); });
       if (s.showLabels || this.map.getZoom() >= (this._fitZoom || 11) + 2) s.model.buses.forEach((b) => { if (b.vn_kv > 20) return; const [sx, sy] = toS(b.lon, b.lat); const t = String(b.bus_id);
@@ -1020,27 +1230,28 @@ class Component extends DCLogic {
     let tip = null;
     if (hov && !s.running) {
       let title = '', rows = [];
-      if (hov.kind === 'line') { const l = lineInfo(hov.id); if (l) { const mva = (Math.sqrt(3) * 20 * l.rating_a / 1000).toFixed(1);
-        title = l.line_name; rows = [{ k: 'Rating', v: `${l.rating_a} A · ${mva} MVA` }, { k: 'Length', v: `${l.length_km != null ? l.length_km.toFixed(2) : '—'} km` }];
+      if (hov.kind === 'line') { const l = lineInfo(hov.id); if (l) {
+        title = l.line_name; rows = [{ k: 'Voltage', v: l.voltage_kv ? `${+l.voltage_kv} kV` : '—' }, { k: 'Rating', v: `${l.rating_a} A · ${lineMva(l)}` }, { k: 'Length', v: `${l.length_km != null ? l.length_km.toFixed(2) : '—'} km` }];
         if (l.in_service === false) rows.push({ k: 'State', v: 'Open point' });
         else ['2030', '2035'].forEach((p) => { const v = loadPct(p, l.line_id); rows.push({ k: `Loading ${p}`, v: v == null ? '—' : `${v.toFixed(0)}%`, color: pctColor(v) }); });
         if (bindLines.has(l.line_id)) rows.push({ k: 'Binds', v: q.filter((x) => x.reason && x.reason.element && x.reason.element.line_id === l.line_id).map((x) => x.request_id).join(', '), color: '#fbbf24' }); } }
-      if (hov.kind === 'bus') { const ps = busProjects[hov.id] || [];
-        title = `Bus ${hov.id}`; rows = [{ k: 'Voltage level', v: '20 kV' }];
+      if (hov.kind === 'bus') { const ps = busProjects[hov.id] || [], bb = s.model.buses.find((x) => x.bus_id === hov.id);
+        title = `Bus ${hov.id}`; rows = [{ k: 'Voltage level', v: bb && bb.vn_kv != null ? `${bb.vn_kv} kV` : '—' }];
         ['2030', '2035'].forEach((p) => { const v = vmAt(p, hov.id); rows.push({ k: `V ${p}`, v: v == null ? '—' : `${v.toFixed(3)} pu`, color: vColor(v) }); });
         if (ps.length) rows.push({ k: 'Projects', v: ps.map((x) => x.request_id).join(', ') });
         if (s.pickMode) rows.push({ k: '', v: 'Click to select', color: '#93c5fd' }); }
       if (hov.kind === 'project') { const x = qById[hov.id]; if (x) { title = x.request_id; rows = [{ k: 'Applicant', v: x.applicant || '—' }, { k: 'Status', v: ST[x.status].label, color: { Phase1: '#86efac', Phase2: '#93c5fd', Deferred: '#fcd34d', Rejected: '#d1d5db' }[x.status] }, { k: 'Capacity', v: `${TECH[x.technology] || '—'} · ${fmtMw(x.rating_mw)} MW` }, { k: 'Bus', v: String(x.bus_id) }];
         if (x.reason) rows.push({ k: 'Reason', v: x.reason.message.length > 34 ? x.reason.message.slice(0, 33) + '…' : x.reason.message, color: '#fcd34d' }); } }
-      if (hov.kind === 'load') { const l = s.model.loads.find((x) => x.load_id === hov.id); if (l) { title = `Load at bus ${l.bus_id}`; rows = [{ k: 'Base demand', v: `${l.p_mw.toFixed(2)} MW` }, { k: '2030', v: `${(l.p_mw * s.g30).toFixed(2)} MW` }, { k: '2035', v: `${(l.p_mw * s.g35).toFixed(2)} MW` }]; } }
-      if (hov.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === hov.id); if (t) { title = t.name; rows = [{ k: 'Rating', v: `${t.sn_mva || 25} MVA` }, { k: 'Ratio', v: '110 / 20 kV' }, { k: 'Setpoint', v: '1.020 pu' }]; } }
+      if (hov.kind === 'load') { const l = s.model.loads.find((x) => x.load_id === hov.id); if (l) { title = `Load at bus ${l.bus_id}`; rows = [{ k: 'Base demand', v: `${l.p_mw.toFixed(2)} MW` }, { k: '2030', v: `${(l.p_mw * eg30).toFixed(2)} MW` }, { k: '2035', v: `${(l.p_mw * eg35).toFixed(2)} MW` }]; } }
+      if (hov.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === hov.id); if (t) { title = `${trafoSub(t)} transformer`; rows = [{ k: 'Rating', v: `${fmtMw(t.sn_mva)} MVA` }, { k: 'Ratio', v: trafoRatio(t) }, { k: 'Vector group', v: t.name || '—' }]; } }
+      if (hov.kind === 'existing') { const gnr = (s.model.generators || []).find((x) => x.request_id === hov.id); if (gnr) { title = gnr.applicant || gnr.request_id;
+        rows = [{ k: '', v: 'Existing connection', color: '#cbd5e1' }, { k: 'Technology', v: TECH[gnr.technology] || gnr.technology || '—' }, { k: 'Capacity', v: `${fmtMw(gnr.rating_mw)} MW` }, { k: 'Bus', v: String(gnr.bus_id) }]; } }
       if (title) { rows.forEach((x) => (x.color = x.color || '#f9fafb')); const tx = s.mouse.x > s.size.w - 240 ? s.mouse.x - 226 : s.mouse.x + 14; tip = { x: tx, y: Math.min(s.mouse.y + 14, s.size.h - 150), title, rows }; }
     }
 
     // ---- detail card
     let detail = null;
-    const gens = ph ? ph.generators : [];
-    const growth = phase === '2030' ? s.g30 : s.g35;
+    const growth = phase === '2030' ? eg30 : eg35;
     if (sel && r) {
       if (sel.kind === 'project' && selQ) {
         const x = selQ, m = ST[x.status];
@@ -1059,24 +1270,40 @@ class Component extends DCLogic {
             hasNext: !!x.reason.action, next: x.reason.action || '' });
           if (x.reason.element) Object.assign(detail, { hasAction: true, action: 'Zoom to the binding constraint', onAction: () => this.selectProject(x.request_id, true) });
         } else if (x.status === 'Phase1' || x.status === 'Phase2') Object.assign(detail, { hasNote: true, note: x.status === 'Phase1' ? 'Clears thermal and voltage limits under both 2030 and 2035 demand.' : 'Clears network limits under 2035 demand; readiness supports 2035 delivery.', noteLabel: 'No binding constraint', noteBg: m.soft, noteBd: m.bd, noteFg: m.fg, noteLabelFg: m.c });
+        // --- energisation scheduling: the optimizer recommends a year; the operator confirms/overrides it
+        const canSched = x.status === 'Phase1' || x.status === 'Phase2';
+        const rec = x.recommended_year, ov = x.scheduled_year;
+        const eff = canSched ? (ov != null ? ov : rec) : null;
+        let schedWarn = '';
+        if (!canSched) schedWarn = x.status === 'Rejected'
+          ? 'Rejected at intake — fix the application before it can be scheduled.'
+          : 'Deferred — it can’t connect until the grid is reinforced. Open Review → Copilot for the unblock.';
+        else if (ov != null && rec != null && ov < rec) schedWarn = `Earlier than the grid supports — recommended ${rec}. Marked as against the recommendation.`;
+        Object.assign(detail, {
+          hasSchedule: true, schedCan: canSched,
+          schedRec: rec != null ? String(rec) : 'not schedulable',
+          schedYear: eff != null ? String(eff) : '—',
+          schedOverridden: canSched && ov != null && ov !== rec,
+          hasSchedWarn: !!schedWarn, schedWarn,
+          onSchedDec: () => setSchedule(x.request_id, (eff != null ? eff : rec || 2030) - 1),
+          onSchedInc: () => setSchedule(x.request_id, (eff != null ? eff : rec || 2030) + 1),
+          onSchedReset: () => setSchedule(x.request_id, null),
+        });
       }
       if (sel.kind === 'line') { const l = lineInfo(sel.id); if (l) { const binds = q.filter((x) => x.reason && x.reason.element && x.reason.element.line_id === l.line_id);
         const v30 = loadPct('2030', l.line_id), v35 = loadPct('2035', l.line_id), isO = over.has(l.line_id);
-        detail = { kind: 'Line', title: l.line_name, subtitle: l.in_service === false ? 'Normally-open point' : '20 kV feeder section', hasChip: isO || binds.length > 0, chip: isO ? `Overloaded · ${phase}` : 'Binding constraint', chipBg: isO ? '#fee2e2' : '#fef3c7', chipFg: isO ? '#991b1b' : '#92400e',
-          rows: [{ k: 'Thermal rating', v: `${l.rating_a} A` }, { k: 'Capacity', v: `${(Math.sqrt(3) * 20 * l.rating_a / 1000).toFixed(1)} MVA` }, { k: 'Length', v: `${(l.length_km || 0).toFixed(2)} km` },
+        detail = { kind: 'Line', title: l.line_name, subtitle: l.in_service === false ? 'Normally-open point' : (l.voltage_kv ? `${+l.voltage_kv} kV circuit` : 'Circuit'), hasChip: isO || binds.length > 0, chip: isO ? `Overloaded · ${phase}` : 'Binding constraint', chipBg: isO ? '#fee2e2' : '#fef3c7', chipFg: isO ? '#991b1b' : '#92400e',
+          rows: [{ k: 'Thermal rating', v: `${l.rating_a} A` }, { k: 'Capacity', v: lineMva(l) }, { k: 'Length', v: `${(l.length_km || 0).toFixed(2)} km` },
             { k: 'Loading 2030', v: v30 == null ? '—' : `${v30.toFixed(1)}%`, color: v30 > 100 ? '#dc2626' : '#111827' }, { k: 'Loading 2035', v: v35 == null ? '—' : `${v35.toFixed(1)}%`, color: v35 > 100 ? '#dc2626' : '#111827' }] };
         if (binds.length) Object.assign(detail, { hasNote: true, noteLabel: 'Holding back', note: binds.map((x) => `${x.request_id} (${fmtMw(x.rating_mw)} MW) — ${x.reason.short || x.reason.message}`).join(' · '), noteBg: '#fffbeb', noteBd: '#fde68a', noteFg: '#92400e', noteLabelFg: '#b45309' });
         else if (isO) Object.assign(detail, { hasNote: true, noteLabel: 'Demand-driven overload', note: `Load growth to ×${growth.toFixed(2)} pushes this section past its rating. Local generation or reinforcement would relieve it.`, noteBg: '#fef2f2', noteBd: '#fecaca', noteFg: '#991b1b', noteLabelFg: '#dc2626' }); } }
-      if (sel.kind === 'bus') { const ps = busProjects[sel.id] || [];
-        const hc = this.A && this.A.hostingCapacity ? this.A.hostingCapacity(sel.id, gens, growth) : null;
+      if (sel.kind === 'bus') { const ps = busProjects[sel.id] || [], bObj = s.model.buses.find((x) => x.bus_id === sel.id);
         const v30 = vmAt('2030', sel.id), v35 = vmAt('2035', sel.id);
-        detail = { kind: 'Bus', title: `Bus ${sel.id}`, subtitle: '20 kV node', hasChip: vv.has(sel.id), chip: 'Voltage breach', chipBg: '#fee2e2', chipFg: '#991b1b',
-          rows: [{ k: 'Voltage 2030', v: v30 == null ? '—' : `${v30.toFixed(3)} pu` }, { k: 'Voltage 2035', v: v35 == null ? '—' : `${v35.toFixed(3)} pu` }, { k: 'Projects here', v: ps.length ? ps.map((x) => x.request_id).join(', ') : 'None' },
-            { k: `Headroom ${phase}`, v: hc ? (hc.capped ? '≥ 20 MW' : `${hc.mw} MW`) : '—', color: hc && hc.mw < 3 ? '#b45309' : '#111827' }],
-          hasNote: !!(hc && hc.binding), noteLabel: 'Headroom limited by', note: hc && hc.binding ? hc.binding.message.replace(/ overloaded \d+%/, ' thermal rating').replace(/ [\d.]+ pu at/, ' limit (1.10 pu) at') : '', noteBg: '#f9fafb', noteBd: '#e5e7eb', noteFg: '#374151', noteLabelFg: '#6b7280',
+        detail = { kind: 'Bus', title: `Bus ${sel.id}`, subtitle: bObj && bObj.vn_kv != null ? `${bObj.vn_kv} kV node` : 'Network node', hasChip: vv.has(sel.id), chip: 'Voltage breach', chipBg: '#fee2e2', chipFg: '#991b1b',
+          rows: [{ k: 'Voltage 2030', v: v30 == null ? '—' : `${v30.toFixed(3)} pu` }, { k: 'Voltage 2035', v: v35 == null ? '—' : `${v35.toFixed(3)} pu` }, { k: 'Projects here', v: ps.length ? ps.map((x) => x.request_id).join(', ') : 'None' }],
           hasAction: true, action: 'New application at this bus', onAction: () => { this.setForm({ bus: String(sel.id) }); this.setState({ drawer: true }); } }; }
-      if (sel.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === sel.id); if (t) detail = { kind: 'Primary substation', title: t.name, subtitle: `HV bus ${t.hv_bus} → LV bus ${t.lv_bus}`, rows: [{ k: 'Rating', v: `${t.sn_mva || 25} MVA` }, { k: 'Ratio', v: '110 / 20 kV' }, { k: 'Voltage setpoint', v: '1.020 pu' }] }; }
-      if (detail) { detail.rows.forEach((x) => (x.color = x.color || '#111827')); detail = { hasChip: false, hasNote: false, hasAction: false, ...detail }; }
+      if (sel.kind === 'trafo') { const t = s.model.transformers.find((x) => x.trafo_id === sel.id); if (t) detail = { kind: (t.hv_kv || 0) >= 132 ? 'Grid / bulk supply transformer' : 'Primary substation transformer', title: trafoSub(t), subtitle: `HV bus ${t.hv_bus ?? '—'} → LV bus ${t.lv_bus ?? '—'}`, rows: [{ k: 'Rating', v: `${fmtMw(t.sn_mva)} MVA` }, { k: 'Ratio', v: trafoRatio(t) }, { k: 'Vector group', v: t.name || '—' }] }; }
+      if (detail) { detail.rows.forEach((x) => (x.color = x.color || '#111827')); detail = { hasChip: false, hasNote: false, hasAction: false, hasSchedule: false, hasSchedWarn: false, schedCan: false, schedOverridden: false, ...detail }; }
     }
 
     // ---- queue
@@ -1092,7 +1319,7 @@ class Component extends DCLogic {
         isGrid: rk === 'grid', isReadiness: rk === 'readiness', isPhased: rk === 'phased', isIntake: rk === 'intake',
         changed: !!was && was !== x.status, changedText: was ? `was ${ST[was].short}` : '', manual: manualIds.has(x.request_id),
         bg: isSel ? '#f3f4f6' : '#ffffff', shadow: isSel ? 'inset 3px 0 0 #111827' : 'none',
-        onClick: () => this.selectProject(x.request_id), onRemove: async (e) => { e.stopPropagation(); await this.A.removeCandidate(x.request_id); this.setState({ cands: await this.A.getCandidates() }); this.toastMsg(`${x.request_id} withdrawn — re-run to update the plan.`); } };
+        onClick: () => this.selectProject(x.request_id) };
     };
     const groups = s.grouped
       ? ['Phase1', 'Phase2', 'Deferred', 'Rejected'].map((st) => { const rows = sorted.filter((x) => x.status === st); const m = ST[st]; return { key: st, header: true, label: m.label, color: m.c, fg: m.fg, meta: `${rows.length} · ${fmtMw(rows.reduce((a, b) => a + (b.rating_mw || 0), 0))} MW`, rows: rows.map(toRow) }; }).filter((g) => g.rows.length)
@@ -1105,7 +1332,7 @@ class Component extends DCLogic {
     const by = (st) => q.filter((x) => x.status === st);
     const tiles = [['All', 'All', '#111827'], ['Phase1', 'Phase 1', ST.Phase1.c], ['Phase2', 'Phase 2', ST.Phase2.c], ['Deferred', 'Deferred', ST.Deferred.c], ['Rejected', 'Rejected', ST.Rejected.c]].map(([key, label, color]) => {
       const xs = key === 'All' ? q : by(key), act = s.filter === key;
-      return { key, label, color, count: r ? xs.length : '—', mw: r ? `${fmtMw(sumMw(xs.filter((x) => x.rating_mw <= 40)))} MW` : '', bd: act ? color : '#e5e7eb', bg: act ? (key === 'All' ? '#f3f4f6' : ST[key].soft) : '#ffffff',
+      return { key, label, color, count: r ? xs.length : '—', mw: r ? `${fmtMw(sumMw(xs))} MW` : '', bd: act ? color : '#e5e7eb', bg: act ? (key === 'All' ? '#f3f4f6' : ST[key].soft) : '#ffffff',
         onClick: () => this.setState({ filter: key, tab: 'queue' }) };
     });
 
@@ -1114,15 +1341,15 @@ class Component extends DCLogic {
     if (r) {
       const viol = [];
       ['2030', '2035'].forEach((p) => {
-        const P2 = r.phases[p], g = p === '2030' ? s.g30 : s.g35;
-        P2.overloaded_line_ids.forEach((id) => viol.push({ key: `o${p}${id}`, title: `Line ${id} overloaded · ${(P2.line_loading && P2.line_loading[id] != null ? P2.line_loading[id].toFixed(0) : '>100')}%`, meta: `Demand ×${g.toFixed(2)} exceeds thermal rating with the ${p} plan connected`, tag: p, fg: '#991b1b', target: { kind: 'line', id }, phase: p }));
-        (P2.voltage_violation_bus_ids || []).forEach((id) => viol.push({ key: `v${p}${id}`, title: `Voltage breach at bus ${id}`, meta: `${P2.bus_vm ? P2.bus_vm[id].toFixed(3) : ''} pu outside 0.90–1.10`, tag: p, fg: '#991b1b', target: { kind: 'bus', id }, phase: p }));
+        const P2 = r.phases[p], g = p === '2030' ? eg30 : eg35;
+        P2.overloaded_line_ids.forEach((id) => viol.push({ key: `o${p}${id}`, title: `Line ${id} overloaded · ${(P2.line_loading && P2.line_loading[id] != null ? P2.line_loading[id].toFixed(0) : '>100')}%`, meta: `Demand ×${g.toFixed(2)} exceeds thermal rating with the ${p} plan connected`, tag: p, fg: '#991b1b', target: { kind: 'line', id } }));
+        (P2.voltage_violation_bus_ids || []).forEach((id) => viol.push({ key: `v${p}${id}`, title: `Voltage breach at bus ${id}`, meta: `${P2.bus_vm ? P2.bus_vm[id].toFixed(3) : ''} pu outside 0.90–1.10`, tag: p, fg: '#991b1b', target: { kind: 'bus', id } }));
       });
       if (viol.length) alertGroups.push({ key: 'viol', label: 'Network violations', color: '#dc2626', fg: '#991b1b', items: viol });
       const dg = by('Deferred').filter((x) => x.reason && x.reason.kind === 'grid').map((x) => ({ key: x.request_id, title: `${x.request_id} — ${x.reason.short}`, meta: `${x.applicant} · ${TECH[x.technology]} ${fmtMw(x.rating_mw)} MW · readiness ${Math.round(x.readiness_score * 100)}%`, tag: `bus ${x.bus_id}`, fg: '#92400e', project: x.request_id }));
       if (dg.length) alertGroups.push({ key: 'dg', label: 'Deferred by grid constraint', color: '#d97706', fg: '#92400e', items: dg });
       const watch = [];
-      ['2030', '2035'].forEach((p) => { const L = r.phases[p].line_loading || {}; Object.entries(L).filter(([, v]) => v > 88 && v <= 100).sort((a, b) => b[1] - a[1]).slice(0, 2).forEach(([id, v]) => watch.push({ key: `w${p}${id}`, title: `Line ${id} at ${v.toFixed(0)}%`, meta: 'Within 12% of thermal rating — little headroom left', tag: p, fg: '#374151', target: { kind: 'line', id: +id }, phase: p })); });
+      ['2030', '2035'].forEach((p) => { const L = r.phases[p].line_loading || {}; Object.entries(L).filter(([, v]) => v > 88 && v <= 100).sort((a, b) => b[1] - a[1]).slice(0, 2).forEach(([id, v]) => watch.push({ key: `w${p}${id}`, title: `Line ${id} at ${v.toFixed(0)}%`, meta: 'Within 12% of thermal rating — little headroom left', tag: p, fg: '#374151', target: { kind: 'line', id: +id } })); });
       if (watch.length) alertGroups.push({ key: 'watch', label: 'Approaching limits', color: '#6b7280', fg: '#374151', items: watch });
       const dr = by('Deferred').filter((x) => x.reason && x.reason.kind === 'readiness').map((x) => ({ key: x.request_id, title: `${x.request_id} deferred — not ready`, meta: x.reason.why || x.reason.message, tag: `bus ${x.bus_id}`, fg: '#92400e', project: x.request_id }));
       if (dr.length) alertGroups.push({ key: 'dr', label: 'Deferred on readiness', color: '#fcd34d', fg: '#92400e', items: dr });
@@ -1131,7 +1358,7 @@ class Component extends DCLogic {
       alertGroups.forEach((g) => { g.count = g.items.length; g.items.forEach((a) => {
         const isSel = sel && ((a.project && sel.kind === 'project' && sel.id === a.project) || (a.target && sel.kind === a.target.kind && sel.id === a.target.id));
         a.bg = isSel ? '#f3f4f6' : 'transparent';
-        a.onClick = () => { if (a.project) return this.selectProject(a.project, true); this.setState({ sel: a.target, phase: a.phase }); this.focusOn(this.elementPt(a.target), 2.8); };
+        a.onClick = () => { if (a.project) return this.selectProject(a.project, true); this.setState({ sel: a.target }); this.focusOn(this.elementPt(a.target), 2.8); };
       }); });
     }
     const violCount = alertGroups.filter((g) => g.key === 'viol' || g.key === 'dg').reduce((a, g) => a + g.count, 0);
@@ -1144,32 +1371,21 @@ class Component extends DCLogic {
 
     // ---- form
     const f = s.form, mwN = +f.mw;
-    let host = null;
-    if (s.drawer && f.bus && this.A && r) {
-      const hc = this.A.hostingCapacity(+f.bus, r.phases['2035'].generators, s.g35);
-      if (hc) {
-        const fits = mwN <= hc.mw, scale = Math.max(20, mwN, hc.mw);
-        const lim = hc.binding ? hc.binding.message.replace(/ overloaded \d+%/, ' thermal rating').replace(/Voltage [\d.]+ pu at bus (\d+)/, 'voltage rise at bus $1') : '';
-        host = { mw: hc.capped ? '≥ 20 MW' : `${hc.mw} MW`, capPct: (hc.mw / scale) * 100, reqPct: Math.min(100, (mwN / scale) * 100),
-          capColor: fits ? '#16a34a' : '#d97706', reqColor: fits ? '#16a34a' : '#d97706', bg: fits ? '#f0fdf4' : '#fffbeb', bd: fits ? '#bbf7d0' : '#fde68a', fg: fits ? '#166534' : '#92400e', labelFg: fits ? '#16a34a' : '#b45309',
-          text: fits ? `${fmtMw(mwN)} MW fits alongside the current plan${lim ? ` — next limit: ${lim}` : ''}.` : `${fmtMw(mwN)} MW exceeds headroom — likely deferred, bound by ${lim}.` };
-      }
-    }
     const fReady = f.readiness;
     const nextId = `CR-${2056 + s.cands.filter((c) => c.manual).length}`;
-    const busOpts = s.model ? s.model.buses.filter((b) => b.vn_kv <= 20).sort((a, b) => a.bus_id - b.bus_id).map((b) => ({ key: b.bus_id, value: String(b.bus_id), label: `Bus ${b.bus_id}` })) : [];
+    const busOpts = s.model ? [...s.model.buses].sort((a, b) => (a.vn_kv - b.vn_kv) || (a.bus_id - b.bus_id)).map((b) => ({ key: b.bus_id, value: String(b.bus_id), label: `Bus ${b.bus_id}${b.vn_kv != null ? ` · ${b.vn_kv} kV` : ''}` })) : [];
 
     // ---- run overlay
-    const stepLabels = [`Validating ${s.cands.length} applications`, 'Ranking: readiness · grid need · strategic fit', `Power flow · 2030 demand ×${s.g30.toFixed(2)}`, `Power flow · 2035 demand ×${s.g35.toFixed(2)}`, 'Drafting committee briefing'];
+    const stepLabels = [`Validating ${s.cands.length} applications`, 'Ranking: readiness · grid need · strategic fit', `Power flow · 2030 demand ×${eg30.toFixed(2)}`, `Power flow · 2035 demand ×${eg35.toFixed(2)}`, 'Drafting committee briefing'];
     const runSteps = stepLabels.map((label, i) => { const done = i < s.step, cur = i === s.step;
       return { key: i, label, mark: done ? '✓' : '', fg: done ? '#374151' : cur ? '#111827' : '#9ca3af', dotBg: done ? '#111827' : '#ffffff', dotBd: done ? '#111827' : cur ? '#111827' : '#d1d5db' }; });
 
     const lp = s.lastParams;
-    const stale = !!lp && (lp.g30 !== s.g30 || lp.g35 !== s.g35 || lp.n !== s.cands.length);
+    const stale = !!lp && (lp.branch !== (s.activeBranch || 'main') || lp.g30 !== eg30 || lp.g35 !== eg35 || lp.n !== s.cands.length);
     const fc = s.forecasts.find((x) => x.id === s.forecastId);
+    const fcEff = _activeB ? (s.forecasts.find((x) => x.id === _activeB.scenario) || fc) : fc;
     const tabs = [['queue', 'Queue', q.length, '#6b7280'], ['alerts', 'Alerts', violCount, violCount ? '#dc2626' : '#9ca3af'], ['compare', 'Review', 0, '']].map(([key, label, badge, badgeBg]) => ({
       key, label, badge, badgeBg, hasBadge: (key === 'queue' || key === 'alerts') && !!r, fg: s.tab === key ? '#111827' : '#6b7280', bd: s.tab === key ? '#111827' : 'transparent', onClick: () => { this.setState({ tab: key }); if (key === 'compare') this.ensureBranches(); } }));
-    const mwTot = (p) => (ph && r ? sumMw(r.phases[p].generators) : 0);
 
     // ---- review (branch vs main) consequence diff
     const cdiff = s.diff;
@@ -1201,9 +1417,9 @@ class Component extends DCLogic {
     // ---- branches + copilot suggestions
     const BSTAT = { open: { label: 'open', bg: '#e5e7eb', fg: '#4b5563' }, merged: { label: 'merged', bg: '#dcfce7', fg: '#166534' }, discarded: { label: 'discarded', bg: '#f3f4f6', fg: '#9ca3af' } };
     const scenLabel = (id) => { const x = s.forecasts.find((y) => y.id === id); return x ? x.label : (id || 'custom'); };
-    const visibleBranches = s.branches.filter((b) => b.status !== 'discarded' || b.branch_id === s.reviewBranch);
+    const visibleBranches = s.branches.filter((b) => b.status !== 'discarded' || b.branch_id === s.activeBranch);
     const branchRows = visibleBranches.map((b) => {
-      const isMain = b.branch_id === 'main', isSel = b.branch_id === s.reviewBranch, st = BSTAT[b.status] || BSTAT.open;
+      const isMain = b.branch_id === 'main', isSel = b.branch_id === s.activeBranch, st = BSTAT[b.status] || BSTAT.open;
       return { key: b.branch_id, name: isMain ? 'main · plan of record' : b.name,
         hasStatus: !isMain, statusLabel: st.label, statusBg: st.bg, statusFg: st.fg,
         meta: `${b.n_added ? b.n_added + '＋ · ' : ''}FES ${scenLabel(b.scenario)}`,
@@ -1211,10 +1427,30 @@ class Component extends DCLogic {
         bd: isSel ? '#111827' : '#e5e7eb', bg: isSel ? '#f3f4f6' : '#ffffff',
         onClick: () => this.selectBranch(b.branch_id) };
     });
-    const reviewB = s.branches.find((b) => b.branch_id === s.reviewBranch);
+    const reviewB = s.branches.find((b) => b.branch_id === s.activeBranch);
     const hasReviewBranch = !!(reviewB && reviewB.branch_id !== 'main');
     const branchActionsDisabled = !reviewB || reviewB.status !== 'open';
     const compareHeading = reviewB ? `main  →  ${reviewB.name}` : '';
+
+    // header branch picker + view-follows-branch chrome
+    const onMainView = !s.activeBranch || s.activeBranch === 'main';
+    const openBranches = s.branches.filter((b) => b.branch_id !== 'main' && (b.status === 'open' || b.branch_id === s.activeBranch));
+    const branchOpts = [{ id: 'main', label: 'main · plan of record' }, ...openBranches.map((b) => ({ id: b.branch_id, label: b.name }))]
+      .map((o) => ({ key: o.id, id: o.id, label: o.label, selected: o.id === s.activeBranch }));
+    const activeBranchHint = onMainView ? 'plan of record · existing fleet'
+      : `${reviewB ? (reviewB.n_added || 0) : 0} added · proposal vs main`;
+
+    // registry (projected projects) — pull onto the active branch; hide ones already on it
+    const onBranchIds = new Set(hasReviewBranch ? [...q.map((x) => x.request_id), ...Object.keys(s.pendingAdds || {})] : []);
+    const regList = (s.registry || []).filter((c) => {
+      if (onBranchIds.has(c.request_id)) return false;
+      if (!s.registryQuery) return true;
+      return `${c.request_id} ${c.applicant || ''} ${c.technology || ''} bus ${c.bus_id}`.toLowerCase().includes(s.registryQuery.toLowerCase());
+    });
+    const registryRows = regList.map((c) => ({ key: c.request_id, id: c.request_id, applicant: c.applicant || '—',
+      isSolar: c.technology === 'solar', isWind: c.technology === 'wind', isBattery: c.technology === 'battery',
+      meta: `${TECH[c.technology] || 'Unknown tech'} · ${fmtMw(c.rating_mw)} MW · bus ${c.bus_id ?? '—'}`,
+      ready: `${Math.round((c.readiness_score || 0) * 100)}%`, onAdd: () => this.addRegistryProject(c.request_id) }));
 
     const sugList = s.suggestions;
     const suggestionRows = (sugList || []).map((x, i) => {
@@ -1229,10 +1465,18 @@ class Component extends DCLogic {
 
     return {
       netMeta: s.model ? `LTDS · ${s.model.buses.length} buses · ${s.model.lines.length} lines · ${s.model.transformers.length} transformers` : 'loading model…',
-      forecastId: s.forecastId, hasForecasts: s.forecasts.length > 0,
-      forecastOpts: s.forecasts.map((x) => ({ key: x.id, id: x.id, selected: x.id === s.forecastId, label: `FES 2025 · ${x.label}` })),
-      provenanceText: fc ? `${fc.source || 'NESO FES 2025'} · peak demand${fc.cited === false ? ' (spread indicative)' : ''}` : 'NESO FES 2025 · peak demand',
-      onForecast: (e) => { const v = e.target.value, x = s.forecasts.find((y) => y.id === v); this.setState(x ? { forecastId: v, g30: x.growth_2030, g35: x.growth_2035 } : { forecastId: v }); },
+      // on a branch the demand forecast is the branch's own (fixed); on main the dropdown drives it
+      forecastLabel: onMainView ? 'Demand forecast' : 'Demand forecast · branch',
+      forecastId: _activeB ? _activeB.scenario : s.forecastId, hasForecasts: s.forecasts.length > 0,
+      forecastLocked: !onMainView, forecastCursor: onMainView ? 'pointer' : 'not-allowed',
+      forecastOpts: s.forecasts.map((x) => ({ key: x.id, id: x.id, selected: x.id === (_activeB ? _activeB.scenario : s.forecastId), label: `FES 2025 · ${x.label}` })),
+      provenanceText: fcEff ? `${fcEff.source || 'NESO FES 2025'} · peak demand${fcEff.cited === false ? ' (spread indicative)' : ''}` : 'NESO FES 2025 · peak demand',
+      onForecast: (e) => { if (!onMainView) return; const v = e.target.value, x = s.forecasts.find((y) => y.id === v); this.setState(x ? { forecastId: v, g30: x.growth_2030, g35: x.growth_2035 } : { forecastId: v }); },
+      // header branch picker — the view (map · Queue · tiles · roadmap) follows the active branch
+      activeBranch: s.activeBranch || 'main', branchOpts, onActiveBranch: (e) => this.selectBranch(e.target.value),
+      activeBranchHint, branchDot: onMainView ? '#9ca3af' : '#4f46e5',
+      branchPillBd: onMainView ? '#e5e7eb' : '#c7d2fe', branchPillBg: onMainView ? '#f9fafb' : '#eef2ff',
+      newBranchQuick: () => { this.ensureBranches(); this.setState({ tab: 'compare', showNewBranch: true }); },
       run: this.run, running: s.running, stale,
       runLabel: s.running ? 'Computing power flow…' : stale ? 'Re-run simulation' : 'Run simulation',
       runBg: s.running ? '#e5e7eb' : '#2563eb', runFg: s.running ? '#6b7280' : '#ffffff',
@@ -1243,10 +1487,48 @@ class Component extends DCLogic {
       toggleLoads: () => this.setState({ showLoads: !showLoads }), loadsBg: showLoads ? '#111827' : 'transparent', loadsFg: showLoads ? '#ffffff' : '#374151',
       mapLabels,
       clearSel: () => this.setState({ sel: null }),
-      setPhase30: () => this.setState({ phase: '2030' }), setPhase35: () => this.setState({ phase: '2035' }),
-      ph30Bg: phase === '2030' ? '#16a34a' : 'transparent', ph30Fg: phase === '2030' ? '#ffffff' : '#4b5563',
-      ph35Bg: phase === '2035' ? '#2563eb' : 'transparent', ph35Fg: phase === '2035' ? '#ffffff' : '#4b5563',
-      phaseGrowth: `×${growth.toFixed(2)}`, phaseMw: ph ? `${fmtMw(mwTot(phase))} MW` : '—',
+      timelineYear, onTimelineYear: (e) => this.setState({ timelineYear: +e.target.value }),
+      timelinePhaseLabel: timelineYear <= 2026 ? 'as-is today' : phase === '2030' ? 'Clean Power lens' : 'Strategic lens',
+      timelinePhaseFg: timelineYear <= 2026 ? '#0d9488' : phase === '2030' ? '#16a34a' : '#2563eb',
+      tlOnlineSummary: r ? `${tlOnline.length} · ${fmtMw(tlOnlineMw)} MW` : '—',
+      tlNewSummary: r && tlNew.length ? `+${tlNew.length} · ${fmtMw(tlNewMw)} MW` : '—',
+      tlNewFg: r && tlNew.length ? '#b45309' : '#9ca3af',
+      // the GSP boundary: how much the region pushes UP to transmission (worst study case) vs its limit
+      ...(() => {
+        const B = s.boundary;
+        const lim = ph && ph.gsp_limit_mw != null ? ph.gsp_limit_mw : (B && B.export_limit_mw);
+        const exp = ph ? Math.round(ph.gsp_export_mw || 0) : null, imp = ph ? Math.round(ph.gsp_import_mw || 0) : 0;
+        const util = lim && exp != null ? exp / lim : 0;
+        const projs = (B && B.transmission_projects) || [];
+        const boundaryRows = projs.map((p) => {
+          const built = p.status === 'Built';
+          // only what exists today is in the network; a not-yet-built project at the GSP is an
+          // OPTIONAL registry project like any other — it counts only once you add it to a branch
+          const tag = p.registry_id
+            ? `Not built yet — would connect at the GSP and flow through our supergrid transformers. Optional: add ${p.registry_id} from the registry.`
+            : built ? 'In service at 400 kV — bypasses this network, but uses transmission capacity out of Lincolnshire'
+            : 'Planned at 400 kV — bypasses this network, but would compete for the same transmission capacity';
+          return { key: p.name, name: p.name, mw: `${fmtMw(p.mw)} MW`, mwFg: built ? '#111827' : '#9ca3af',
+            meta: `${p.type} · ${p.status} · ${built ? `in service since ${p.year}` : `contracted date ${p.year}`}`,
+            tag, tagFg: p.registry_id ? '#b45309' : '#6b7280' };
+        });
+        return {
+          gspSummary: exp == null ? '—' : exp > 0 ? `${exp}${lim ? ` / ${Math.round(lim)}` : ''} MW export` : `${imp} MW import`,
+          gspFg: util > 1 ? '#dc2626' : util > 0.9 ? '#b45309' : '#111827',
+          gspTitle: lim ? `Worst-case power pushed up through the GSP to the transmission system, against the ${Math.round(lim)} MW it can take. Click for what's beyond the GSP.` : 'Worst-case power exchanged with the transmission system at the GSP.',
+          showBoundary: !!(s.showBoundary && B), boundaryChevron: B ? (s.showBoundary ? '▴' : '▾') : '',
+          toggleBoundary: () => this.setState({ showBoundary: !s.showBoundary }),
+          boundaryName: B ? B.gsp_name : '',
+          boundaryLimit: B ? `${Math.round(B.export_limit_mw)} MW (${B.sgt_count} SGTs)` : '—',
+          boundaryFirm: B ? `${Math.round(B.firm_export_mw)} MW` : '—',
+          boundaryToday: B ? `${Math.round(B.export_today_mw)} MW` : '—',
+          boundaryYear: exp == null ? 'run the simulation' : `${exp} of ${Math.round(lim)} MW`,
+          boundaryRows,
+          boundarySource: B ? `Sources: ${B.source}; NESO TEC & Interconnector registers. Not modelled: the 400 kV network itself and fault levels (published ratings are ambiguous).` : '',
+        };
+      })(),
+      existingSummary: s.model && s.model.generators ? `${s.model.generators.length} · ${fmtMw(s.model.generators.reduce((a, g) => a + (g.rating_mw || 0), 0))} MW` : '—',
+      phaseGrowth: `×${growth.toFixed(2)}`,
       phaseWorst: ph ? `${ph.worst_line_loading_pct.toFixed(0)}%` : '—', worstColor: ph && ph.worst_line_loading_pct > 100 ? '#dc2626' : '#111827',
       phaseV: ph ? `${ph.min_vm_pu.toFixed(3)}–${ph.max_vm_pu.toFixed(3)} pu` : '—',
       pickMode: s.pickMode, cancelPick: () => this.setState({ pickMode: false }),
@@ -1258,7 +1540,7 @@ class Component extends DCLogic {
       voltageBg: s.voltageMode ? '#111827' : 'transparent', voltageFg: s.voltageMode ? '#ffffff' : '#374151',
       labelsBg: s.showLabels ? '#111827' : 'transparent', labelsFg: s.showLabels ? '#ffffff' : '#374151',
       zoomIn: () => this.zoomBy(1), zoomOut: () => this.zoomBy(-1), zoomFit: () => this.fit(true),
-      runScenarioText: `${fc ? 'DFES · ' + fc.label : 'Custom scenario'} · ${s.cands.length} applications`, runPct: Math.min(100, (s.step + 0.5) * 20), runSteps,
+      runScenarioText: `${fcEff ? 'DFES · ' + fcEff.label : 'Custom scenario'} · ${s.cands.length} applications`, runPct: Math.min(100, (s.step + 0.5) * 20), runSteps,
 
       tlSummary: r ? `${fmtMw(sumMw(p1))} MW by 2030 · ${fmtMw(sumMw(p1) + sumMw(p2))} MW cumulative by 2035 · ${def.length} deferred (${fmtMw(sumMw(def))} MW waiting on grid or readiness)` : 'Run the simulation to build the roadmap.',
       nowLabel: 'Sep 2026', nowText: r ? `${valid.length} valid applications, ${fmtMw(sumMw(valid))} MW requested. ${by('Rejected').length} rejected at intake.` : '—',
@@ -1273,7 +1555,7 @@ class Component extends DCLogic {
       newBranchForecast: s.newBranchForecast, onNewBranchForecast: (e) => this.setState({ newBranchForecast: e.target.value }),
       branchForecastOpts: s.forecasts.map((x) => ({ key: x.id, id: x.id, selected: x.id === s.newBranchForecast, label: `FES 2025 · ${x.label}` })),
       createBranch: this.createBranchFlow, createBranchDisabled: s.creatingBranch, createBranchBg: s.creatingBranch ? '#9ca3af' : '#111827', createBranchLabel: s.creatingBranch ? 'Creating…' : 'Create',
-      branchRows, hasReviewBranch, branchActionsDisabled, reviewBranchName: reviewB ? reviewB.name : '',
+      branchRows, hasReviewBranch, branchActionsDisabled, activeBranchName: reviewB ? reviewB.name : '',
       runBranchDiff: this.runBranchDiff, comparing: s.comparing, diffBtnLabel: s.comparing ? 'Diffing…' : 'Diff vs main',
       runSuggestions: this.runSuggestions, loadingSuggestions: s.loadingSuggestions, suggestBtnLabel: s.loadingSuggestions ? 'Thinking…' : 'Suggestions',
       mergeBranch: this.mergeBranchFlow, discardBranch: this.discardBranchFlow,
@@ -1285,18 +1567,24 @@ class Component extends DCLogic {
       // copilot suggestions
       hasSuggestions: sugList != null, noSuggestions: sugList != null && suggestionRows.length === 0,
       suggestionsMeta: sugList && reviewB ? `on ${reviewB.name}` : '', suggestionRows,
+      // registry — pull projected projects onto the active branch
+      showRegistry: s.showRegistry, toggleRegistryLabel: s.showRegistry ? 'Hide registry' : 'Browse registry',
+      toggleRegistry: () => { if (!s.registryLoaded) this.loadRegistry(); this.setState({ showRegistry: !s.showRegistry }); },
+      registryRows, registryQuery: s.registryQuery, onRegistryQuery: (e) => this.setState({ registryQuery: e.target.value }),
+      registryEmpty: s.registryLoaded && registryRows.length === 0,
+      registryAddHint: onMainView ? 'Adding a project opens a new branch off main (main stays the plan of record).' : `Projects are added to ${reviewB ? reviewB.name : 'this branch'}.`,
       query: s.query, onQuery: (e) => this.setState({ query: e.target.value }),
       toggleGroup: () => this.setState({ grouped: !s.grouped }), groupBg: s.grouped ? '#f3f4f6' : '#ffffff', groupBd: s.grouped ? '#9ca3af' : '#e5e7eb',
       cols, groups, noRows: !!r && sorted.length === 0,
       alertGroups, noAlerts: !!r && alertGroups.length === 0,
-      drawer: s.drawer, nextId, form: f,
+      drawer: s.drawer, form: f,
+      addDrawerHint: onMainView ? 'Opens a new branch off main and joins its queue, ranked on the next run.' : `Joins branch ${reviewB ? reviewB.name : 'this branch'} as ${nextId}, ranked on the next run.`,
       onFormName: (e) => this.setForm({ name: e.target.value }), onFormMw: (e) => this.setForm({ mw: e.target.value }), onFormBus: (e) => this.setForm({ bus: e.target.value }),
       onFormReady: (e) => this.setForm({ readiness: +e.target.value }),
       techOpts: ['solar', 'wind', 'battery'].map((t) => ({ key: t, label: TECH[t], bg: f.tech === t ? '#111827' : '#ffffff', fg: f.tech === t ? '#ffffff' : '#374151', bd: f.tech === t ? '#111827' : '#d1d5db', onClick: () => this.setForm({ tech: t }) })),
       busOpts, startPick: () => this.setState({ pickMode: !s.pickMode, sel: null }),
       pickBg: s.pickMode ? '#1d4ed8' : '#ffffff', pickFg: s.pickMode ? '#ffffff' : '#374151', pickBd: s.pickMode ? '#1d4ed8' : '#d1d5db',
-      mwBd: mwN > 20 ? '#f87171' : '#d1d5db', mwWarn: mwN > 20, mwWarnText: 'Above the 20 MW plausibility cap for this 20 kV feeder — will be rejected at intake.',
-      hasHosting: !!host, host: host || {},
+      mwBd: mwN > s.maxMw ? '#f87171' : '#d1d5db', mwWarn: mwN > s.maxMw, mwWarnText: `Above the ${s.maxMw} MW connection cap for this network — will be rejected at intake.`,
       evidence: EVID.map((e) => ({ key: e.k, label: e.label, w: `+${Math.round(e.w * 100)}%`, mark: f[e.k] ? '✓' : '', boxBg: f[e.k] ? '#111827' : '#ffffff', boxBd: f[e.k] ? '#111827' : '#d1d5db', bg: f[e.k] ? '#f9fafb' : '#ffffff', bd: f[e.k] ? '#9ca3af' : '#e5e7eb', onClick: () => this.setForm({ [e.k]: !f[e.k] }) })),
       readyText: `${Math.round(fReady * 100)}%`, readyFg: fReady >= 0.6 ? '#166534' : fReady >= 0.35 ? '#1e40af' : '#92400e',
       formInvalid: this.formInvalid(), submitBg: this.formInvalid() ? '#9ca3af' : '#2563eb', submitFg2: this.formInvalid() ? '#9ca3af' : '#111827',

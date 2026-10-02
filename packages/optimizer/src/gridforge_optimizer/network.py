@@ -102,6 +102,8 @@ def inject_sgen(
     reactive power, the cheapest lever against voltage rise from export. Returns the new sgen
     index so a trial injection can be dropped again.
     """
+    if int(bus) not in net.bus.index:
+        raise ValueError(f"cannot connect at bus {bus}: not in the network model")
     return int(pp.create_sgen(net, bus=int(bus), p_mw=float(p_mw), q_mvar=float(q_mvar), name=name, type=tech))
 
 
@@ -119,55 +121,132 @@ def _solve(net) -> bool:
         return False
 
 
-def feasibility(net) -> tuple[bool, Reason | None, dict]:
-    """Run power flow and check voltage band + line/transformer thermal limits.
+# --- study cases ------------------------------------------------------------------------------
+# A connection must be safe in BOTH planning cases a DNO studies, not just at winter peak:
+#   * winter_peak — maximum (grown) demand, winter thermal ratings;
+#   * summer_min  — minimum demand with summer (lower) thermal ratings, generation still at full
+#     output. This is the GENERATION-critical case: little local load soaks up the export, so
+#     reverse power flow, voltage rise and the GSP's export to transmission all peak here.
+# The summer case needs per-load `min_scale` / per-line `summer_ratio` columns (the NGED builder
+# fills them from LTDS); a network without them is studied at winter peak only.
+_CASE_LABEL = {"winter_peak": "winter peak demand", "summer_min": "summer minimum demand"}
 
-    Returns (ok, reason_if_not_ok, metrics).
-    """
-    if not _solve(net):
-        return False, Reason(type="non_convergent", message="power flow did not converge"), {}
 
-    vm = net.res_bus["vm_pu"]
-    line_pct = net.res_line["loading_percent"]
-    trafo_pct = net.res_trafo["loading_percent"]
-    metrics = {
-        "min_vm": float(vm.min()),
-        "max_vm": float(vm.max()),
-        "max_line_pct": float(line_pct.max()),
-        "max_trafo_pct": float(trafo_pct.max()),
-    }
+def _study_cases(net) -> list[tuple[str, pd.Series | None, pd.Series | None]]:
+    """(case, load scaling to use or None = as grown, line-rating multiplier or None)."""
+    cases: list[tuple[str, pd.Series | None, pd.Series | None]] = [("winter_peak", None, None)]
+    has_min = "min_scale" in net.load.columns and net.load["min_scale"].notna().any()
+    has_summer = "summer_ratio" in net.line.columns and net.line["summer_ratio"].notna().any()
+    if has_min or has_summer:
+        cases.append(("summer_min",
+                      net.load["min_scale"] if has_min else None,
+                      net.line["summer_ratio"] if has_summer else None))
+    return cases
 
+
+def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+    """The first limit this case breaches (voltage → line → transformer → GSP boundary)."""
+    at = _CASE_LABEL[case]
     if not vm.between(VOLTAGE_MIN_PU, VOLTAGE_MAX_PU).all():
         worst = (vm - 1.0).abs().idxmax()
         v = float(vm.loc[worst])
-        return (
-            False,
-            Reason(type="voltage", element_id=int(worst), value=round(v, 4),
-                   message=f"voltage {v:.3f} pu at bus {int(worst)} outside [{VOLTAGE_MIN_PU}, {VOLTAGE_MAX_PU}]"),
-            metrics,
-        )
-
+        return Reason(type="voltage", element_id=int(worst), value=round(v, 4), case=case,
+                      message=f"voltage {v:.3f} pu at bus {int(worst)} outside "
+                              f"[{VOLTAGE_MIN_PU}, {VOLTAGE_MAX_PU}] at {at}")
     if (line_pct > LINE_LOADING_MAX_PCT).any():
         worst = line_pct.idxmax()
         v = float(line_pct.loc[worst])
-        return (
-            False,
-            Reason(type="line", element_id=int(worst), value=round(v, 1),
-                   message=f"line {int(worst)} overloaded at {v:.0f}%"),
-            metrics,
-        )
-
+        rating = "its summer rating" if case == "summer_min" else "its rating"
+        return Reason(type="line", element_id=int(worst), value=round(v, 1), case=case,
+                      message=f"line {int(worst)} overloaded at {v:.0f}% of {rating} at {at}")
     if (trafo_pct > TRAFO_LOADING_MAX_PCT).any():
         worst = trafo_pct.idxmax()
         v = float(trafo_pct.loc[worst])
-        return (
-            False,
-            Reason(type="trafo", element_id=int(worst), value=round(v, 1),
-                   message=f"transformer {int(worst)} overloaded at {v:.0f}%"),
-            metrics,
-        )
+        return Reason(type="trafo", element_id=int(worst), value=round(v, 1), case=case,
+                      message=f"transformer {int(worst)} overloaded at {v:.0f}% at {at}")
+    return None
 
-    return True, None, metrics
+
+def gsp_export_limit(net) -> float | None:
+    """The GSP's export limit to transmission (MW), or None for an unlimited (infinite) slack."""
+    if not hasattr(net, "get") or net.get("gsp_export_limit_mw") is None:
+        return None
+    return float(net["gsp_export_limit_mw"])
+
+
+def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
+    """The GSP boundary: power pushed UP through the supergrid transformers to transmission, in its
+    worst study case, against the GSP's export limit."""
+    limit = gsp_export_limit(net)
+    if limit is None or export <= limit:
+        return None
+    name = net.get("gsp_name") or "the GSP"
+    return Reason(type="gsp", value=round(export, 1), case=case,
+                  message=f"{name} would export {export:.0f} MW to the transmission system at "
+                          f"{_CASE_LABEL.get(case, 'peak export')} — above its {limit:.0f} MW export limit")
+
+
+def feasibility(net) -> tuple[bool, Reason | None, dict]:
+    """Run power flow in every study case; check the voltage band, line/transformer thermal limits
+    and the GSP export boundary.
+
+    Returns (ok, reason_if_not_ok, metrics). Afterwards net.res_line/res_trafo loading and
+    net.res_bus voltage hold the worst-case ENVELOPE across cases (highest loading; the voltage
+    furthest from 1.0 pu), so the per-element heat/violation helpers below report the binding case.
+    """
+    scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
+    env_vm = env_line = env_trafo = None
+    reason: Reason | None = None
+    gsp_export = gsp_import = 0.0
+    export_case = binding_case = None
+    try:
+        for case, load_scale, rating_ratio in _study_cases(net):
+            if load_scale is not None:
+                net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
+            if rating_ratio is not None:
+                net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
+            ok = _solve(net)
+            net.load["scaling"], net.line["max_i_ka"] = scaling0.copy(), imax0.copy()
+            if not ok:
+                return False, Reason(type="non_convergent", case=case,
+                                     message=f"power flow did not converge at {_CASE_LABEL[case]}"), {}
+            vm = net.res_bus["vm_pu"].copy()
+            line_pct = net.res_line["loading_percent"].copy()
+            trafo_pct = net.res_trafo["loading_percent"].copy()
+            if len(net.res_ext_grid):
+                p = float(net.res_ext_grid["p_mw"].sum())
+                if -p > gsp_export:
+                    gsp_export, export_case = -p, case
+                gsp_import = max(gsp_import, p)
+            if reason is None:
+                reason = _case_reason(net, case, vm, line_pct, trafo_pct)
+                if reason is not None:
+                    binding_case = case
+            if env_vm is None:
+                env_vm, env_line, env_trafo = vm, line_pct, trafo_pct
+            else:
+                env_vm = env_vm.where((env_vm - 1.0).abs() >= (vm - 1.0).abs(), vm)
+                env_line = pd.concat([env_line, line_pct], axis=1).max(axis=1)  # NaN-safe max
+                env_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1)
+    finally:
+        net.load["scaling"], net.line["max_i_ka"] = scaling0, imax0
+
+    if reason is None:  # local limits hold — now the boundary, at its worst export case
+        reason = _gsp_reason(net, gsp_export, export_case)
+        binding_case = export_case if reason is not None else None
+    net.res_bus["vm_pu"], net.res_line["loading_percent"] = env_vm, env_line
+    net.res_trafo["loading_percent"] = env_trafo
+    metrics = {
+        "min_vm": float(env_vm.min()),
+        "max_vm": float(env_vm.max()),
+        "max_line_pct": float(env_line.max()),
+        "max_trafo_pct": float(env_trafo.max()),
+        "gsp_export_mw": round(gsp_export, 1),
+        "gsp_import_mw": round(gsp_import, 1),
+        "gsp_limit_mw": gsp_export_limit(net),
+        "binding_case": binding_case,
+    }
+    return reason is None, reason, metrics
 
 
 def overloaded_line_ids(net) -> list[int]:
@@ -201,8 +280,13 @@ def apply_reinforcement(net, r: Reinforcement) -> None:
     add_parallel bumps the element's `parallel` count -> halves series impedance AND doubles its
     rating, so it relieves BOTH thermal overload and voltage. uprate raises only the thermal
     rating (`max_i_ka` for a line, `sn_mva` for a trafo) by `factor`, leaving impedance (and thus
-    voltage) unchanged. No-op if the element id is unknown.
+    voltage) unchanged. kind "gsp" adds one more supergrid transformer at the GSP, raising its
+    export limit by one SGT's rating (transmission works). No-op if the element id is unknown.
     """
+    if r.kind == "gsp":
+        if hasattr(net, "get") and net.get("gsp_export_limit_mw") is not None and net.get("gsp_sgt_mw"):
+            net["gsp_export_limit_mw"] = float(net["gsp_export_limit_mw"]) + float(net["gsp_sgt_mw"])
+        return
     table = net.line if r.kind == "line" else net.trafo
     if r.element_id not in table.index:
         return

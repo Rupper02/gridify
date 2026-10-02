@@ -1,9 +1,10 @@
 import pytest
 
-from _grid import weak_buses
+from _grid import stiff_bus, weak_buses
 from gridforge_optimizer import Reinforcement
 from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.network import (
+    _study_cases,
     apply_growth,
     apply_reinforcement,
     build_base_net,
@@ -78,9 +79,10 @@ def test_bus_voltages_cover_every_bus_and_in_band_at_base():
 
 
 def test_apply_reinforcement_lowers_line_loading():
-    # push current through the feeder from a weak bus, then reinforce its most-loaded line
+    # push a modest, convergent amount of current through the feeder, then reinforce its most-loaded
+    # line. A fixed small injection keeps the solve well-conditioned regardless of the base fleet/cap.
     b = weak_buses(build_base_net(), 1)[0]
-    mw = MAX_CONNECTION_MW * 0.5
+    mw = 15.0
     net = build_base_net()
     inject_sgen(net, b, mw)
     feasibility(net)  # solve
@@ -102,6 +104,58 @@ def test_apply_reinforcement_lowers_line_loading():
     apply_reinforcement(par, Reinforcement(kind="line", element_id=lid, action="add_parallel"))
     feasibility(par)
     assert line_loadings(par)[lid] < before
+
+
+def _exporting_net():
+    """The base net, made to export to transmission (adds generation at the stiff bus if needed)."""
+    net = build_base_net()
+    _, _, m = feasibility(net)
+    if m["gsp_export_mw"] <= 0:
+        inject_sgen(net, stiff_bus(net), m["gsp_import_mw"] + 10.0)
+    return net
+
+
+def test_feasibility_reports_gsp_exchange_and_worst_case_envelope():
+    net = build_base_net()
+    ok, _, m = feasibility(net)
+    assert ok
+    assert m["gsp_export_mw"] >= 0 and m["gsp_import_mw"] >= 0
+    # per-element results left on the net are the worst case across the study cases
+    assert max(line_loadings(net).values()) == pytest.approx(m["max_line_pct"], abs=0.1)
+
+
+def test_summer_minimum_case_pushes_export_up():
+    # generation is judged at minimum demand too: less local load to soak it up -> more export
+    both = _exporting_net()
+    both.load["min_scale"], both.line["summer_ratio"] = 0.5, 1.0
+    assert [c[0] for c in _study_cases(both)] == ["winter_peak", "summer_min"]
+    winter_only = _exporting_net()
+    winter_only.load = winter_only.load.drop(columns=["min_scale"], errors="ignore")
+    winter_only.line = winter_only.line.drop(columns=["summer_ratio"], errors="ignore")
+    assert [c[0] for c in _study_cases(winter_only)] == ["winter_peak"]
+    assert feasibility(both)[2]["gsp_export_mw"] > feasibility(winter_only)[2]["gsp_export_mw"]
+
+
+def test_gsp_export_limit_binds_and_a_new_sgt_relieves_it():
+    net = _exporting_net()
+    _, _, m = feasibility(net)
+    net["gsp_export_limit_mw"] = m["gsp_export_mw"] - 1.0  # just below what the region exports
+    net["gsp_sgt_mw"] = 100.0
+    ok, reason, _ = feasibility(net)
+    assert not ok and reason.type == "gsp" and reason.value == pytest.approx(m["gsp_export_mw"], abs=0.2)
+    apply_reinforcement(net, Reinforcement(kind="gsp", element_id=0))  # one more supergrid transformer
+    assert feasibility(net)[0]
+
+
+def test_growing_to_a_horizon_adds_no_generation():
+    # the base is what exists today; anything not built yet enters only as a queue project —
+    # bringing the network to 2035 grows demand but never pre-loads generation
+    from gridforge_optimizer.greedy import _grow
+
+    net = build_base_net()
+    n0, p0 = len(net.sgen), float(net.sgen.p_mw.sum())
+    _grow(net, 1.35, "ht", 2035)
+    assert len(net.sgen) == n0 and float(net.sgen.p_mw.sum()) == pytest.approx(p0)
 
 
 def test_readiness_rubric_is_monotonic_and_bounded():

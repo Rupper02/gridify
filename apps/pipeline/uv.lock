@@ -961,10 +961,7 @@ dependencies = [
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "openai" },
     { name = "pandapower" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -979,10 +976,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.5.6" },
     { name = "gridforge-optimizer", editable = "../../packages/optimizer" },
     { name = "networkx", specifier = ">=3.4.2" },
-    { name = "openai", specifier = ">=3.22.1" },
     { name = "pandapower", specifier = ">=3.5.5" },
-    { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "python-dotenv", specifier = ">=1.2.3" },
 ]
 
 [package.metadata.requires-dev]

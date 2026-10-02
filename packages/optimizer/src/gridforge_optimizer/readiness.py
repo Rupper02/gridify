@@ -1,12 +1,10 @@
 """Deterministic readiness rubric.
 
 'Ready' in the connection reform is a *factual* checklist -- land rights, planning consent,
-a connection agreement, financing, a credible timeline -- not a judgment call. So the LLM only
-*extracts* those facts (see config.READINESS_EXTRACTION_SYSTEM_PROMPT); this module turns them
-into a score where every point is traceable to a milestone a connections engineer could verify.
-
-(The judgment -- 'is this the right addition to the grid' -- lives in the strategic layer, which
-is where a reasoning/decisions model belongs.)
+a connection agreement, financing, a credible timeline -- not a judgment call. The facts come from
+published registers (e.g. an ECR "accepted to connect" entry = a signed connection agreement), and
+this module turns them into a score where every point is traceable to a milestone an engineer
+could verify.
 """
 
 from __future__ import annotations
@@ -52,7 +50,7 @@ def _commissioning_credit(year: int | None, reference_year: int) -> float:
 
 
 def score_from_checklist(checklist: dict, reference_year: int | None = None) -> dict:
-    """Deterministic readiness score in 0..1 from an extracted Gate-2 checklist.
+    """Deterministic readiness score in 0..1 from a Gate-2 checklist of published facts.
 
     Returns {readiness_score, readiness_rationale, readiness_breakdown}, where the breakdown
     records, per milestone, the level read, the credit it earned, its weight, and the points

@@ -1,0 +1,120 @@
+# AGENTS.md — GridForge
+
+Guidance for AI coding agents (and humans) working in this monorepo. Read it before you change anything.
+
+## What this is
+
+GridForge is a pull-request workflow for grid connections on one real UK network: NGED's **Bicker Fen 132 kV GSP** (Lincolnshire), built only from open data. `main` is the network as it exists today. Not-yet-built projects sit in an optional registry; you branch, pull projects onto the branch, and a deterministic engine (pandapower AC power flow) decides which connect, in what order and year, and why the rest are deferred. The operator reviews a consequence diff and merges or discards it.
+
+Deep docs (they are the spec, so keep them current):
+- `README.md`: system, data sources, how a project is judged, API table, limitations
+- `packages/optimizer/README.md`: engine algorithm, study cases, suggestions, config
+- `apps/pipeline/README.md`: Dagster asset graph and checks
+- `apps/web/README.md`: planner files. `apps/web/AGENTS.md` is a Next.js-managed block; leave it alone.
+
+## Repo map: who owns what
+
+| Path | Owns |
+|---|---|
+| `packages/optimizer` (`gridforge_optimizer`) | **The single source of truth** for the network build (`nged.py`), the physics (`network.py` feasibility), ranking and greedy loop (`greedy.py`), "what would it take" (`suggest.py`), the diff (`diff.py`), the pydantic contract (`types.py`) and every tunable (`config.py`). Bundled open data lives in `src/gridforge_optimizer/data/nged/`. |
+| `apps/pipeline` (`grid_simulator`) | Dagster graph in `src/grid_simulator/defs/nged.py`: `ltds_tables` → `nged_model_canonical` + `nged_connection_queue` → 3 asset checks → `served_nged` → DuckDB warehouse `apps/pipeline/warehouse/gridforge.duckdb`. `served_nged` is the **only** writer of the warehouse. |
+| `apps/api` (`gridforge_api`) | FastAPI on :8000. Reads the warehouse **read-only**; branches, added projects and scheduled years go to `apps/api/data/scenarios.duckdb` (`GRIDFORGE_SCENARIOS_DB` overrides; `GRIDFORGE_DB_PATH` overrides the warehouse). |
+| `apps/web` | Next.js shell; `/` redirects to `public/planner/index.html`, a self-contained MapLibre app (`index.html` + `gridforge-api.js` + vendored `support.js`). The planner is **live-only** against the API. |
+
+Both Python apps consume `packages/optimizer` as an editable uv path dependency. Never duplicate network-building or physics logic in the pipeline, the API or the client; import it from the engine.
+
+## Commands
+
+Prereqs: Node 22 + pnpm 10, Python 3.11+ with `uv`. No API key needed.
+
+```bash
+pnpm install                                      # repo root
+
+# build the warehouse (the only way; there is no seed script)
+cd apps/pipeline
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'   # keep the quotes
+
+# run (two terminals, repo root)
+pnpm --filter @gridforge/api dev                  # http://localhost:8000
+pnpm --filter web dev                             # http://localhost:3000
+
+# test
+pnpm test                                         # everything, via Turborepo
+cd packages/optimizer && uv run pytest -q         # engine
+cd apps/api && uv run --with pytest pytest tests -q   # API (uses a temp scenarios DB)
+```
+
+- `uv run dg dev` (Dagster UI) also binds **port 3000**: don't run it alongside the web app.
+- Re-materialise after changing `nged.py` or bundled data, and restart the API: it caches optimize results and the GSP boundary in memory.
+- Optional narration: `OPENROUTER_API_KEY=...` in `apps/pipeline/.env` (the API loads it from there). Never commit `.env`.
+
+Windows / Git Bash:
+- Multi-line `python -c "..."` breaks; write a temp `.py` in your scratch dir and run it with `uv run python`.
+- Don't shell-grep or `find` from the repo root: `node_modules` is huge. Use the Grep/Glob tools or scope to a package.
+- `--select '*'` can still shell-expand here; use `'ltds_tables*'`, which already selects the full graph.
+
+## Domain rules (non-negotiable; set by the owner)
+
+1. **`main` = only what physically exists today.** Every not-yet-built project, and any future network asset, is an OPTIONAL registry item that counts only once it is added to a branch. Never pre-load, inject in the background, or reserve capacity for it.
+2. **Physics is deterministic.** Feasibility comes from power flow only. An LLM never decides, scores or adjusts physics or ranking. The only LLM use is optional narration in the API (`justify`, `narrate_diff`, `narrate_suggestion` via OpenRouter); it must restate engine figures, never invent them, and the app must work fully with no key.
+3. **Parameters are set by the flows, not the operator.** No ranking-weight sliders or physics knobs in the UI; weights stay engine defaults in `config.py`.
+4. **Two study cases plus the boundary.** Every accepted project must pass `winter_peak` (grown demand, winter ratings) AND `summer_min` (LTDS minimum-demand factor, not grown, summer ratings), plus the GSP export limit. Every `Reason` carries the element, the value and the `case`.
+5. **Real data, real units.**
+   - Never hardcode a voltage or ratio: line MVA comes from `voltage_kv`, transformer ratios from `hv_kv`/`lv_kv`.
+   - LTDS rows with Status `Removed` are excluded (the LTDS is a change-log against NGED's previous edition).
+   - Cite sources (resource ids live next to the constants in `nged.py`).
+   - Bundled ECR data must contain **no personal data** (customer names, addresses, MPANs are dropped by the fetch script).
+6. **Reasons are human-readable and actionable**: why it's blocked, and what to do. The engine emits typed reasons (`line`/`trafo`/`voltage`/`gsp`/`rejected`, ...); `_normReason` in `gridforge-api.js` turns them into `{kind, element, short, why, action}`. Extend both when you add a reason type.
+7. **Honesty over fake precision.** State limitations instead of modelling them badly: fault levels are not checked, the 400 kV network is context only, the GSP limit's sign convention is assumed, batteries are studied at full export. Copilot "freed MW" is first-order (shown as ≈). Don't tune constants (e.g. `MAX_REINFORCE_STEPS`) for nicer-looking output.
+
+## Engineering conventions
+
+- **Tests are grid-agnostic.** Derive fixtures from `build_base_net()` via `packages/optimizer/tests/_grid.py` (`stiff_bus`, `weak_buses`, `saturating_candidates`, `grid_deferred`, `invalid_bus`). Never hardcode bus ids, and never size fixtures from policy caps like `MAX_CONNECTION_MW` (only use the cap to test the cap itself). NGED-specific data rules go in `tests/test_nged.py`.
+- **API cache keys include the candidate-set hash** (`_cand_key` → `_compute`). Any new cached computation must too, or branches serve each other's results.
+- **The warehouse is read-only to the API.** Anything a user does goes to the scenarios DB. Schema changes there need a migration (PRAGMA check + ALTER) and, for per-project columns, an entry in `_ADDED_COLS` so they copy on branch create/merge.
+- **Change the output shape in one pass:** `types.py` → API enrichment in `apps/api/src/gridforge_api/main.py` → `gridforge-api.js` → `index.html`. Add an API test for new endpoints.
+- Engine functions (`optimize`, `suggest_unblock`, `diff_results`) make no network calls; keep it that way. Network/LLM calls belong in `llm.py` and the API only.
+- Delete dead code rather than keeping it "not wired". Update the READMEs in the same change when behaviour, endpoints or commands change.
+- pandapower gotchas: generation is injected as PQ `sgen` (not `gen`) so voltage problems show; use `pandapower.toolbox.drop_buses`; avoid `deepcopy` of nets in hot loops (build once per phase, inject/roll back).
+
+## Planner (`apps/web/public/planner`)
+
+- The UI is the `x-dc` dialect in `<script type="text/x-dc">` inside `index.html`. `{{ }}` bindings resolve against `renderVals()`; every binding needs a matching `renderVals` key. `<sc-if>` / `<sc-for>` must stay balanced. Use button toggles, not checkboxes.
+- `support.js` is a vendored runtime: **never edit it**.
+- Engine runs take ~20 s (two study cases). `run()` coalesces overlapping requests (`_runAgain`) and resets `running` when a call fails (try/catch + toast); keep that pattern for any long call, never drop requests silently.
+- Verify before claiming done:
+  1. `node --check apps/web/public/planner/gridforge-api.js`
+  2. Extract the `<script type="text/x-dc">` block to a temp `.js` and `node --check` it.
+  3. Count opening vs closing `<sc-if` and `<sc-for` tags; they must match.
+  4. Load the page against a running API in a headless browser (e.g. Playwright installed in a scratch dir, not the repo; MapLibre needs `--use-gl=swiftshader`) and require **zero page errors**. Exercise the flow you changed (branch → add project → run → review).
+
+## Data refresh
+
+Bundled snapshots live in `packages/optimizer/src/gridforge_optimizer/data/nged/` (LTDS tables, `ecr.json`, `coords.csv`). Refresh with the API's environment, then re-materialise:
+
+```bash
+cd apps/api
+uv run python ../pipeline/scripts/fetch_nged_ecr.py          # NGED Embedded Capacity Register -> ecr.json (PII dropped)
+uv run python ../pipeline/scripts/fetch_osm_substations.py   # OpenStreetMap substations -> coords.csv
+```
+
+OSM data is ODbL: keep the "© OpenStreetMap contributors" credit wherever positions are shown or documented. NGED's own substation-location datasets are access-restricted; don't add a dependency on them.
+
+## Working agreements
+
+- **Verify in a real browser** before saying UI work is done; tests and `node --check` aren't enough.
+- **Don't commit or push unless asked.** The owner's usual flow is a feature branch fast-forwarded into `main`; ask before pushing, and never force-push `main`.
+- **`AGENTS.md` is the only agent-guidance file, for every kind of agent.** Don't add `CLAUDE.md`, `.cursorrules` or other tool-specific copies; put guidance here.
+- Keep the Turborepo block below and `apps/web/AGENTS.md` committed and unedited; the tools re-add them. (Next.js only scaffolds a `CLAUDE.md` when no `AGENTS.md` exists, so keeping `apps/web/AGENTS.md` prevents that.)
+- When several agents work in parallel, stay inside the files you were assigned.
+
+<!-- BEGIN:turborepo-agent-rules -->
+
+# This is NOT the Turborepo you know
+
+Turborepo configuration, task behavior, and CLI commands can vary between installed versions and may differ from your training data. Resolve the `turbo` package from this file's directory or relevant workspace; in monorepos, it may not be visible from the repository root. For example, run `node -p "require.resolve('turbo/package.json')"` from a workspace that depends on `turbo`.
+
+Read `docs/README.md` inside that installed package first, then read the relevant pages from its `docs/` directory before changing Turborepo configuration or commands. Heed deprecation notices. These bundled docs match the installed package version and are available without network access.
+
+This block is written and re-added by `turbo` before repository-scoped commands when an AI agent is detected. In the Turborepo source repository, its template is defined in `crates/turborepo-cli/src/cli/agent_guidance.rs`. Removing the managed block while updates are enabled means a later qualifying invocation will add it again. Set `"agentGuidance": false` in the root `turbo.json` or `turbo.jsonc` to opt out; this does not remove an existing block. Keep the block committed with your work to avoid an uncommitted change on the next agent invocation.
+<!-- END:turborepo-agent-rules -->

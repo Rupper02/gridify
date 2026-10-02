@@ -99,13 +99,18 @@ def _discover_chain(cand_by_id, params, base, target_rid):
     return reinf, False, last_reason, solves
 
 
-def _describe(reinf: list[Reinforcement], connected: bool) -> str:
+def _describe(reinf: list[Reinforcement], connected: bool, last_reason: Reason | None = None) -> str:
     if not reinf:
         return "No single-element reinforcement found"
     label = {"line": "line", "trafo": "transformer"}
     parts = ", ".join(f"{label[r.kind]} {r.element_id}" for r in reinf)
     verb = "Add a parallel circuit to" if len(reinf) == 1 else "Add parallel circuits to"
-    tail = "" if connected else " (still constrained — would need further reinforcement)"
+    if connected:
+        tail = ""
+    elif last_reason is not None and last_reason.type == "gsp":
+        tail = " — clears the local limit, but the project then hits the GSP export limit (see the supergrid-transformer lever)"
+    else:
+        tail = " (still constrained — would need further reinforcement)"
     return f"{verb} {parts}{tail}"
 
 
@@ -123,7 +128,7 @@ def _reinforcement_suggestion(cand_by_id, deferred_ids, params, base, target_rid
     return Suggestion(
         target_type=first.kind if first else "line",
         target_element_id=first.element_id if first else -1,
-        action=_describe(reinf, connected),
+        action=_describe(reinf, connected, last_reason),
         reinforcements=reinf,
         connects_target=connected,
         freed_mw_2030=f30,
@@ -201,6 +206,34 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
     )
 
 
+def _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked):
+    """GSP-boundary binding: no distribution-side reinforcement helps — the export limit is the
+    supergrid transformers above the GSP. Model one more SGT and measure what it frees."""
+    sgt_mw = float(build_base_net().get("gsp_sgt_mw") or 0.0)
+    reinf = [Reinforcement(kind="gsp", element_id=0)]
+    f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=reinf)
+    f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=reinf)
+    newly = sorted(set(n30) | set(n35))
+    return Suggestion(
+        target_type="gsp",
+        target_element_id=-1,
+        action=f"Add a supergrid transformer at the GSP (+{sgt_mw:.0f} MW of export to transmission)",
+        reinforcements=reinf,
+        connects_target=bool(set(blocked) & set(newly)),
+        freed_mw_2030=f30,
+        freed_mw_2035=f35,
+        newly_connected_project_ids=newly,
+        blocked_project_ids=blocked,
+        extra_solves=s30 + s35,
+        caveat=(
+            "Transmission works by National Grid Electricity Transmission, coordinated by NESO — "
+            "outside the DNO's control and typically years away; wider transmission reinforcement "
+            "out of the area may also be needed. Nearer-term levers: flexible (curtailable) "
+            "connections or co-located storage that shifts export away from the peak."
+        ),
+    )
+
+
 def _dedupe(suggestions: list[Suggestion]) -> list[Suggestion]:
     """Merge suggestions that model the same action (two projects needing the same upgrade)."""
     out: dict[tuple, Suggestion] = {}
@@ -240,10 +273,15 @@ def suggest_unblock(
         and q.reason.type in _BINDING
         and q.reason.element_id is not None
     ]
-    if not binding:
+    gsp_bound = [q.request_id for q in base.queue
+                 if q.status == "Deferred" and q.reason is not None and q.reason.type == "gsp"]
+    if not binding and not gsp_bound:
         return []
 
     out: list[Suggestion] = []
+    if gsp_bound:  # one GSP-wide lever covers every boundary-bound project; it leads the list
+        out.append(_gsp_suggestion(cand_by_id, deferred_ids, params, base, gsp_bound))
+        max_suggestions -= 1
     for q in binding[:max_suggestions]:
         if q.reason.type == "voltage":
             out.append(

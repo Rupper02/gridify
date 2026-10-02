@@ -1,10 +1,9 @@
-"""Governed ingest of the real NGED network from LTDS open data.
+"""Governed ingest of the real NGED Bicker Fen network from open data.
 
-bronze (bundled LTDS tables) -> canonical model + connection queue -> @asset_checks (power flow
-converges, referential integrity, single connected network) -> served to the DuckDB warehouse.
-This replaces the mv_oberrhein asset chain: the shared `gridforge_optimizer.nged` builder is the
-single source of truth, so the pipeline warehouse and the optimizer's `build_base_net()` stay in
-lockstep.
+bronze (bundled LTDS tables + the Embedded Capacity Register) -> canonical model + project registry
+-> @asset_checks (power flow converges, referential integrity, single connected network) -> served
+to the DuckDB warehouse. The shared `gridforge_optimizer.nged` builder is the single source of
+truth, so the warehouse and the optimizer's `build_base_net()` stay in lockstep.
 """
 
 import hashlib
@@ -24,19 +23,20 @@ from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.nged import build_nged_net, nged_candidates, nged_model
 
 _LTDS_DIR = Path(_nged.__file__).resolve().parent / "data" / "nged"
-_LTDS_TABLES = ("circuit", "t2a", "demand", "node", "gen", "conn")
+# LTDS tables + NGED's Embedded Capacity Register (the accepted-to-connect queue → the registry)
+_LTDS_TABLES = ("circuit", "t2a", "demand", "node", "gen", "ecr")
 _CAND_COLS = [
     "request_id", "applicant", "bus_id", "technology", "rating_mw", "readiness_score",
     "readiness_rationale", "readiness_breakdown", "land_rights", "planning_status",
     "grid_connection_agreement", "financing", "commissioning_year", "strategic_fit",
-    "strategic_confidence", "strategic_rationale", "status", "review_reasons",
+    "strategic_rationale", "status", "review_reasons",
 ]
 
 
 # --- bronze: raw LTDS tables pulled from NGED's Connected Data (CKAN) API ---------------------
 @dg.asset
 def ltds_tables(context: dg.AssetExecutionContext) -> dict:
-    """The bundled NGED LTDS tables for the Bicker Fen 132 kV GSP region (Lincolnshire)."""
+    """The bundled NGED LTDS tables + Embedded Capacity Register for the Bicker Fen 132 kV GSP."""
     tables = {t: json.loads((_LTDS_DIR / f"{t}.json").read_text(encoding="utf-8")) for t in _LTDS_TABLES}
     context.add_output_metadata({f"{t}_rows": len(v) for t, v in tables.items()})
     return tables
@@ -53,7 +53,9 @@ def nged_model_canonical(context: dg.AssetExecutionContext, ltds_tables: dict) -
 
 @dg.asset
 def nged_connection_queue(context: dg.AssetExecutionContext, ltds_tables: dict) -> list:
-    """The connection queue from LTDS Table 5 (generation) + Table 6 (interest), mapped to buses."""
+    """The registry of projected projects: NGED's Embedded Capacity Register 'accepted to connect'
+    sites (+ any LTDS Table 5 project the ECR doesn't list), each mapped to a bus. These are
+    OPTIONAL — main stays the live network; projects are pulled onto branches."""
     cands = nged_candidates(MAX_CONNECTION_MW)
     context.add_output_metadata({
         "candidates": len(cands),
@@ -129,6 +131,8 @@ def served_nged(context: dg.AssetExecutionContext, nged_model_canonical: dict,
     lines = pd.DataFrame(m["lines"])[["line_id", "line_name", "rating_a", "voltage_kv", "from_bus", "to_bus"]]
     trafos = pd.DataFrame(m["transformers"])[["trafo_id", "name", "sn_mva", "hv_bus", "lv_bus"]]
     loads = pd.DataFrame([{"bus_id": ld["bus_id"], "p_mw": ld["p_mw"]} for ld in m["loads"]])
+    gens = pd.DataFrame([{"request_id": g["request_id"], "bus_id": g["bus_id"], "rating_mw": g["rating_mw"],
+                         "technology": g["technology"], "applicant": g["applicant"]} for g in m["generators"]])
     cdf = pd.DataFrame([{k: c.get(k) for k in _CAND_COLS} for c in nged_connection_queue])
 
     blob = "".join(df.to_csv(index=False) for df in (buses, lines, trafos, loads))
@@ -137,7 +141,7 @@ def served_nged(context: dg.AssetExecutionContext, nged_model_canonical: dict,
     conn = duckdb.connect(str(DB_PATH))
     try:
         for name, df in [("buses", buses), ("lines", lines), ("transformers", trafos),
-                         ("loads", loads), ("candidate_projects", cdf)]:
+                         ("loads", loads), ("generators", gens), ("candidate_projects", cdf)]:
             conn.register("df_view", df)
             conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM df_view")
             conn.unregister("df_view")

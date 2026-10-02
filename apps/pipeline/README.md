@@ -1,135 +1,61 @@
 # GridForge — data pipeline
 
-**A versioned, auditable "source of truth" pipeline for power-grid models — with an LLM edge that never bypasses it.**
-
-> This is the **`apps/pipeline`** slice of GridForge. It produces the validated grid model *and* the scored candidate projects that the connection-queue optimizer consumes. For the whole system (optimizer, API, map UI) and how to run it, see the [root README](../../README.md); for the engine, [`packages/optimizer`](../../packages/optimizer/README.md).
-
-GridForge ingests the mismatched, messy data that real distribution-network planning runs on — a planning-tool model export, a GIS layer, a field-team spreadsheet, and free-text connection requests — reconciles it into one validated canonical model, serves it to a queryable warehouse with a content-hashed snapshot, and uses an LLM only at the *messy edge*, where every extraction is checked against the canonical model before it's trusted.
-
-Built with [Dagster](https://dagster.io), [pandapower](https://pandapower.readthedocs.io), DuckDB, and Claude Sonnet 5.5 (via OpenRouter). The sample network is `mv_oberrhein`, a real 20 kV distribution feeder (≈179 buses); after geolocation the served model exposes 174 buses, 170 lines, 2 transformers, and 142 loads.
+The **`apps/pipeline`** slice of GridForge: a [Dagster](https://dagster.io) asset graph that turns NGED's open data for the Bicker Fen GSP into a validated, versioned warehouse, which the API serves. For the whole system see the [root README](../../README.md); for the engine see [`packages/optimizer`](../../packages/optimizer/README.md).
 
 ---
 
-## The thesis
-
-Grid data is a spectrum: the electrical model is structured but comes from incompatible tools; the surrounding data (studies, applications, spreadsheets) is messy or free-text. The right architecture mirrors that:
-
-- **The electrical core stays deterministic.** You never let a model *guess* a line impedance or a thermal rating — those are safety-critical. Ingestion, reconciliation, and validation are plain, testable code.
-- **The LLM lives at the edges** — turning free-text connection requests into structured candidates — but its output is **validated against the canonical model**, not trusted on self-reported confidence. The deterministic model is the judge.
-
-That single idea — *the model is the source of truth; the agent is checked against it* — drives every design decision below.
-
----
-
-## Architecture
+## The asset graph (`src/grid_simulator/defs/nged.py`)
 
 ```
-                      BRONZE                 SILVER                         CHECKS / SERVE
- pandapower net ─┐
- GeoJSON coords  ├─ raw_network ───┬──► canonical_buses ──┐
- messy CSV       ├─ raw_geojson    ├──► canonical_lines ──┼─► 5 asset checks
-                 └─ raw_register   └──► canonical_transformers ─┘   │
-                                                                    └─► served_model → DuckDB
-                                                                         (buses/lines/transformers
-                                                                          + content-hash snapshots)
+ ltds_tables ──┬─► nged_model_canonical ──┬─► served_nged ──► DuckDB warehouse
+  (bronze)     │   buses/lines/trafos/     │                 (apps/pipeline/warehouse/gridforge.duckdb)
+               │   loads/existing fleet    │
+               └─► nged_connection_queue ──┘
+                   the optional registry
+                   (ECR accepted + GSP-embedded TEC)
 
-                      LLM EDGE                                      OPTIMIZER INPUTS
- connection    raw_connection_requests ─► extracted_connections ─► triaged_connections
- request .txt                             (Sonnet 5.5, strict JSON  (validate vs canonical_buses →
-                                           → typed + confidence)      auto_accept / needs_review)
-                                                 │
-                                                 └─► scored_connections ─► served_candidates
-                                                     (deterministic readiness rubric +      → candidate_projects
-                                                      Jev strategic fit, grounded in a          (warehouse)
-                                                      power-flow grid signal)
+ asset checks on nged_model_canonical:
+   power_flow_converges      ERROR  AC power flow solves, voltages in [0.9, 1.1] pu
+   referential_integrity     ERROR  every line/trafo/load endpoint and every valid registry bus exists
+   single_connected_network  WARN   one island, across lines AND transformers
 ```
 
-Everything is a Dagster **software-defined asset**; dependencies (and the lineage graph in the UI) are inferred from function parameters.
+| Asset | What it does |
+|---|---|
+| `ltds_tables` | Loads the bundled snapshots: LTDS circuit, transformer (`t2a`), demand, node and generation tables, plus NGED's Embedded Capacity Register (`ecr`). Row counts are recorded as metadata. |
+| `nged_model_canonical` | `gridforge_optimizer.nged.nged_model()`: today's network, geolocated. |
+| `nged_connection_queue` | `nged_candidates()`: the optional projects, each mapped to a bus. |
+| `served_nged` | Writes `buses`, `lines`, `transformers`, `loads`, `generators`, `candidate_projects` and a `snapshots` row (a SHA-256 content fingerprint) to DuckDB. |
+
+**One builder, one truth.** The pipeline and the optimizer's `build_base_net()` both use `gridforge_optimizer.nged`, so the warehouse the map reads and the network the engine solves can't drift apart.
+
+**Today only.** Rows the LTDS marks *Removed* are dropped, and nothing that isn't built yet enters the network. Future projects are only in `candidate_projects`, and they enter a study only when someone adds them to a branch.
 
 ---
 
-## Pipeline
+## Run
 
-### Bronze — faithful ingestion
-`raw_network` (pandapower `mv_oberrhein`), `raw_geojson` (substation coordinates, with 5 buses deliberately missing), `raw_register` (a line-rating spreadsheet seeded with realistic mess: duplicates, `"20 kV"`/`"20kv"` inconsistency, blank/`"362 A"`/zero/negative ratings, a phantom line). Raw assets copy sources verbatim — no cleaning.
-
-### Silver — reconciliation
-`canonical_buses` joins the authoritative topology with GIS coordinates (left join, so missing coords surface as nulls rather than vanishing). `canonical_lines` cleans the register (strip, normalize voltage, coerce ratings, dedupe) and joins it onto the real lines. `canonical_transformers` carries the HV/MV transformers.
-
-### Validation — 5 asset checks
-| Check | Severity | What it verifies |
-|---|---|---|
-| `buses_have_coords` | WARN | every bus has a GIS location |
-| `ratings_positive` | ERROR | line ratings parse and are `> 0` |
-| `no_phanton_lines` | WARN | register references only real lines (referential integrity) |
-| `network_connected` | ERROR | the graph is one island — **across lines *and* transformers** |
-| `power_flow_converges` | WARN | pandapower AC power flow solves, voltages within `[0.9, 1.1] pu` |
-
-The last two are genuine power-systems checks. `network_connected` was the project's best lesson: a lines-only graph reports the network as *fragmented* (buses reachable only through a transformer look islanded) — modelling the transformers as edges fixes it. That's the kind of thing a naive pipeline silently gets wrong.
-
-### Serve
-`served_model` writes the canonical tables to a DuckDB warehouse and appends a row to a `snapshots` table — a SHA-256 **content fingerprint** of the whole model plus row counts and a timestamp. Same data → same id; any change → new id. A lightweight, honest "versioned source of truth."
-
-### LLM edge — extraction + validation-grounded triage
-`extracted_connections` sends each free-text request to **Sonnet 5.5** with a strict JSON schema, returning typed fields (`bus_id`, `technology`, `rating_mw`, `voltage_kv`) plus a confidence score. `triaged_connections` then routes each one by checking it **against the canonical model**:
-
-| request | extracted | confidence | triage |
-|---|---|---|---|
-| 4.5 MW solar @ bus 120 | valid | 0.97 | ✅ auto_accept |
-| "4,500 kW" battery @ bus 174 | 4.5 MW (unit-normalized) | 0.97 | ✅ auto_accept |
-| 2 MW battery @ **bus 250** | bus absent from model | 0.97 | ⚠️ needs_review — *bus not in model* |
-| vague "some solar, TBC" | nulls | 0.90 | ⚠️ needs_review — *missing bus, missing rating* |
-| **850 MW** wind @ bus 42 | implausible rating | 0.95 | ⚠️ needs_review — *rating out of range* |
-
-Note the confidences: the invalid requests scored **0.90–0.97**. Routing on confidence would have auto-accepted garbage. Routing on the *model* catches it — which is the whole point.
-
-### Optimizer inputs — scored candidate projects
-
-`scored_connections` turns each application into a ranked-ready candidate, keeping the right tool for each sub-question:
-
-- **Readiness** is deterministic: the LLM extracts a Gate-2 checklist (land rights, planning, connection agreement, financing, commissioning year) and a rubric (`gridforge_optimizer.readiness`) scores it — auditable, with a per-milestone breakdown.
-- **Strategic fit** is judged by the **Jev** decisions model, grounded in the local grid signal from a power-flow solve, and carries a **calibrated confidence**.
-
-`served_candidates` writes the result to the warehouse `candidate_projects` table, which the API reads to run the queue. The engine lives in [`packages/optimizer`](../../packages/optimizer/README.md).
-
----
-
-## Quickstart
-
-Run these from `apps/pipeline/`:
+From `apps/pipeline/`:
 
 ```bash
-# 1. install (uv)
 uv sync
-
-# 2. generate the sample source files
-uv run python scripts/make_sources.py
-
-# 3. for the LLM edge + scoring: create apps/pipeline/.env (gitignored)
-#    OPENROUTER_API_KEY=sk-or-...
-
-# 4. launch Dagster and click "Materialize all"
-uv run dg dev                     # http://localhost:3000
-#    …or headless:
-uv run dagster asset materialize -m grid_simulator.definitions --select "*"
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'
+#   ...or the UI: uv run dg dev  → http://localhost:3000 → Materialize all
 ```
 
-The deterministic pipeline (bronze → serve) needs no API key; the LLM edge + scoring make ~25 cheap OpenRouter/Jev calls per full materialize. `dg dev` loads `apps/pipeline/.env` automatically; the headless CLI reads the key from the environment.
+Keep the quotes around `'ltds_tables*'`: it selects the root asset and everything downstream. The pipeline makes **no LLM or network calls**; it reads only the bundled data.
 
-> **Port note:** `dg dev` and the web app (`next dev`) both default to port **3000** — run them at different times.
+## Refreshing the bundled data
 
----
+| Script | Writes |
+|---|---|
+| `scripts/fetch_nged_ecr.py` | `ecr.json`: the Embedded Capacity Register for Bicker Fen, via the NGED CKAN API. Customer names, addresses and MPANs are **not** kept. |
+| `scripts/fetch_osm_substations.py` | `coords.csv`: substation positions from OpenStreetMap (© OpenStreetMap contributors, ODbL), matched to network substation names |
 
-## Design notes
+Run them with the API's environment, e.g. `cd ../api && uv run python ../pipeline/scripts/fetch_nged_ecr.py`. Then re-materialise.
 
-- **Config in one place.** `src/grid_simulator/config.py` holds all paths, thresholds, and LLM settings — swapping the model or the DB target is a one-line change.
-- **Return annotations are contracts.** Dagster type-checks each asset's output against its annotation, so the type hints double as free validation.
-- **WARN vs ERROR** is deliberate: WARN surfaces a data-quality concern (missing coords, source junk) without blocking; ERROR marks a real correctness violation.
-- **DuckDB today, Postgres tomorrow.** The warehouse target is a single config value; the serve layer is written so moving to Postgres/PostGIS for multi-user access is a localized change.
+## Notes
 
-## Limitations & next steps
-
-- The power-flow check runs against the source electrical model — the canonical layer stores topology and ratings, not impedances, so it can't be re-solved from the warehouse alone. A fuller version would persist impedances and rebuild the net.
-- Extraction confidence is recorded but intentionally *not* the triage gate.
-- The DB connection could be promoted to a Dagster **resource** (cleaner, and the natural seam for the Postgres swap).
-- For bulk extraction, a cheaper model (e.g. Haiku) and request batching would cut cost.
+- **WARN vs ERROR is deliberate.** ERROR means the model is wrong (it won't solve, or it references things that don't exist). WARN flags a structural concern without blocking.
+- **DuckDB today.** The warehouse path is one config value (`src/grid_simulator/config.py`); moving to Postgres is a change confined to `served_nged`.
+- **Tests live with the logic.** The model rules are tested in `packages/optimizer/tests/test_nged.py`; this package has no unit tests of its own. The asset checks are the pipeline's runtime gate.

@@ -1,20 +1,21 @@
 # gridforge_optimizer
 
-The deterministic connection-queue engine behind GridForge — a standalone, tested Python package shared by the Dagster pipeline and the FastAPI service via a local editable path dependency. It decides **which generation/storage projects connect, in what order, and in which phase**, gated by a pandapower AC power flow. The only non-deterministic work (LLM extraction, the Jev strategic decision, the closing narrative) is isolated in `llm.py`; everything that ranks and connects projects is plain, testable code.
+The deterministic connection-queue engine behind GridForge. It's a standalone, tested Python package, used by the Dagster pipeline and the FastAPI service through a local editable path dependency.
+
+It decides **which projects connect, in what order and in which phase**. Every decision is gated by pandapower AC power flow in two planning study cases plus the GSP export limit. It also measures **what it would take** to unblock the projects it defers, and diffs two plans.
 
 ```python
-from gridforge_optimizer import Candidate, OptimizeParams, optimize
+from gridforge_optimizer import Candidate, OptimizeParams, optimize, suggest_unblock
 
-result = optimize(
-    [Candidate(request_id="A", bus_id=120, technology="solar", rating_mw=4.5,
-               readiness_score=0.9, strategic_fit=0.8)],
-    OptimizeParams(scenario="ht"),
-)
+cands = [Candidate(request_id="A", bus_id=19, technology="battery", rating_mw=50,
+                   readiness_score=0.3, strategic_fit=0.78, commissioning_year=2027)]
+result = optimize(cands, OptimizeParams(scenario="ht"))
 for q in result.queue:
-    print(q.rank, q.request_id, q.status, q.reason and q.reason.message)
+    print(q.rank, q.request_id, q.status, q.recommended_year, q.reason and q.reason.message)
+print(suggest_unblock(cands, OptimizeParams(scenario="ht"), result))
 ```
 
-`optimize()` makes **no network calls** — candidates arrive already scored (by the pipeline), so a run is fast and fully reproducible.
+Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same inputs always give the same answer.
 
 ---
 
@@ -22,13 +23,16 @@ for q in result.queue:
 
 | Module | Responsibility |
 |---|---|
-| `config.py` | Every tunable: feasibility limits, growth defaults + DFES pathways, ranking + rubric weights, model names, prompts. One place to change behaviour. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` (in); `QueueItem`, `PhaseResult`, `OptimizeResult`, `Reason` (out). |
-| `network.py` | pandapower helpers: `build_base_net`, `apply_growth` / `per_bus_growth`, `inject_sgen` / `drop_sgen`, `feasibility`, `line_loadings`. |
-| `scoring.py` | `grid_need_from_solved` — the "first *needed*" signal from a solved network. |
-| `readiness.py` | `score_from_checklist` — the deterministic, auditable readiness rubric. |
-| `greedy.py` | `optimize` — ranking + the per-phase greedy feasibility loop. |
-| `llm.py` | OpenRouter wrappers: fact extraction (Sonnet), strategic fit (Jev decisions model), narration (Sonnet). The *only* module that calls out. |
+| `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`). `build_nged_net()` gives today's network; `nged_model()` gives the geolocated model for the map. `nged_candidates()` gives the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` gives the export limit plus transmission context. |
+| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`), `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), per-element results, `apply_reinforcement`. |
+| `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
+| `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
+| `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
+| `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
+| `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `OptimizeResult`, `Reason`, `Reinforcement`, `Suggestion`. |
+| `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
+| `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
 ---
 
@@ -36,50 +40,72 @@ for q in result.queue:
 
 ```
 optimize(candidates, params):
-  valid    = candidates that passed intake triage (auto_accept, real bus, 0 < rating ≤ cap)
-  rejected = the rest                              →  appended to the queue as "Rejected"
+  valid    = auto_accept, bus exists in the network, 0 < rating ≤ MAX_CONNECTION_MW
+  rejected = the rest  → queue as "Rejected" with a plain-English reason
 
-  # "first needed": one power flow under the 2035 scenario reads the grid signal at each bus
-  need_net = grow(build_base_net(), 2035, scenario)
-  need[c]  = grid_need_from_solved(need_net, c.bus)
-
-  rank_score(c) = w_readiness·readiness + w_need·need[c] + w_strategic·strategic_fit
-  ranked = valid sorted by rank_score desc, tie-break (readiness desc, rating asc, id)
+  need_net = grow(build_base_net(), 2035)          # one solve: the "first needed" signal per bus
+  rank_score = W_READINESS·readiness + W_NEED·need + W_STRATEGIC·strategic_fit
+  ranked = valid by rank_score desc (tie-break: readiness desc, rating asc, id)
 
   accepted = []
-  for phase in (2030, 2035):                      # "first connected", phased
-      net = grow(build_base_net(), phase, scenario)
-      for a in accepted: inject_sgen(net, a)      # everyone already connected stays on
+  for phase in (2030, 2035):
+      net = grow(build_base_net(), phase)          # demand only — nothing is pre-loaded
+      inject every already-accepted project
       for c in ranked not yet accepted:
-          idx = inject_sgen(net, c)               # trial this project
-          ok, reason = feasibility(net)           # runpp → voltage band + thermal limits
-          if ok: accepted += c
-          else:  drop_sgen(net, idx); c.last_reason = reason   # still eligible next phase
+          trial-inject c; ok, reason = feasibility(net)
+          ok → accepted (Phase1 / Phase2)    else → roll back, keep reason, retry next phase
 
-  queue = ranked (each tagged Phase1 / Phase2 / Deferred + its binding reason) + rejected
+  each accepted project gets recommended_year = clamp(requested year, phase window)
 ```
 
-**Why the network is rebuilt once per phase, not per trial:** building `mv_oberrhein` is the expensive step. The loop builds it once, keeps accepted generators in place, and injects/`drop_sgen`s only the *trial* project — turning ~N rebuilds into one, which (with numba-compiled `runpp`) keeps a full run well under two seconds warm.
+The network is built **once per phase**. Each trial is an `sgen` inject, and a failed one is rolled back with `drop_sgen`. Generation is injected as **PQ** (`create_sgen`, not a voltage-regulating `create_gen`), so voltage problems from export show up instead of being regulated away.
 
-### Feasibility gate (`network.feasibility`)
+### Feasibility (`network.feasibility`)
 
-A trial is accepted only if, after `pp.runpp`:
+Each call solves **every study case** and returns the first limit breached:
 
-- every bus voltage is within **[`VOLTAGE_MIN_PU`, `VOLTAGE_MAX_PU`]** = [0.9, 1.1] pu, **and**
-- every line loading ≤ **`LINE_LOADING_MAX_PCT`** (100%), **and**
-- every transformer loading ≤ **`TRAFO_LOADING_MAX_PCT`** (100%).
+| Case | Load scaling | Line ratings |
+|---|---|---|
+| `winter_peak` | as grown by the demand pathway | winter (`max_i_ka`) |
+| `summer_min` | per-load `min_scale` (LTDS minimum-demand factor ÷ diversity; **not grown**) | × per-line `summer_ratio` (LTDS summer ÷ winter) |
 
-Otherwise it returns a `Reason` naming the binding element (`voltage` at a bus / `line` / `trafo` / `non_convergent`). Generation is injected with **`create_sgen` (PQ)**, deliberately *not* `create_gen` (PV): a PV node would regulate voltage and hide exactly the violations the reform is about.
+Checks, in order:
+1. Bus voltage within [`VOLTAGE_MIN_PU`, `VOLTAGE_MAX_PU`] = [0.9, 1.1].
+2. Line and transformer loading ≤ 100%.
+3. **GSP export** at its worst case ≤ `net["gsp_export_limit_mw"]`.
 
-A project deferred in 2030 stays eligible in 2035 — higher demand can absorb a generator's reverse flow that had no thermal headroom a phase earlier.
+Each failure is reported as a `Reason` (`voltage` / `line` / `trafo` / `gsp` / `non_convergent`) carrying the element, the value and the `case` it failed in.
+
+After the call, `net.res_*` hold the **worst-case envelope** across cases: highest loading, and the voltage furthest from 1.0. So the heat-map helpers (`line_loadings`, `bus_voltages`, `overloaded_line_ids`, …) report the binding case.
+
+A network without `min_scale`, `summer_ratio` or `gsp_export_limit_mw` is studied at winter peak against an unlimited slack. That keeps the engine grid-agnostic.
+
+### What would it take (`suggest.py`)
+
+For the highest-ranked deferred projects (`MAX_SUGGESTIONS`), each lever is applied and the trials re-run to measure `freed_mw_2030/2035`:
+
+- **`line` / `trafo` binding** — chain `add_parallel` reinforcements (halves impedance, doubles rating) up to `MAX_REINFORCE_STEPS`. If a voltage limit takes over, hand off to the voltage lever. If the GSP limit takes over, say so.
+- **`voltage` binding** — re-inject the project absorbing reactive power at 0.98/0.95/0.90 pf, else reinforce one upstream circuit.
+- **`gsp` binding** — `Reinforcement(kind="gsp")`, i.e. one more supergrid transformer (+`gsp_sgt_mw`). Its caveat flags it as transmission works.
+
+Freed MW is first-order: the knock-on of a freed project blocking a later one isn't modelled, so the UI shows it as "≈". The caveats say these are feasible levers, not least-cost designs.
 
 ---
 
-## Scoring — the right tool for each sub-question
+## Demand growth (`network.per_bus_growth`)
 
-### Readiness — deterministic rubric (`readiness.py`)
+A NESO FES 2025 pathway (`FORECASTS`: `ht` default, `ee`, `he`, `fb`) sets the network-wide multiplier for 2030 and 2035. Growth is then spread per load so the **total equals the pathway exactly**, while individual buses differ:
 
-Readiness is a factual Gate-2 checklist, so an LLM only *extracts* the facts (`llm.extract_readiness_checklist`, bounded enums) and this rubric scores them:
+```
+w = β_type · (1 + α·(2·hash01(scenario, horizon, bus) − 1)) · (1 + γ·(hops/hops_max − 0.5)) · hotspot
+factor = 1 + (m − 1)·w / w̄            # w̄ = load-weighted mean of w
+```
+
+It's deterministic in `(scenario, horizon, network)`. `β_type` separates residential from industrial loads only when the network labels load types. NGED's LTDS doesn't, so on this network the spread comes from the seeded heterogeneity, the distance from the GSP and the hotspots.
+
+---
+
+## Readiness rubric (`readiness.py`)
 
 | Milestone | Weight | Levels → credit |
 |---|---|---|
@@ -89,50 +115,45 @@ Readiness is a factual Gate-2 checklist, so an LLM only *extracts* the facts (`l
 | financing | 0.10 | committed 1.0 · in_progress 0.5 · none 0 |
 | commissioning timeline | 0.10 | ≤2 yrs 1.0 · ≤5 yrs 0.6 · else/unknown 0.3 |
 
-`score_from_checklist` returns the score, a human-readable rationale (secured / in-progress / outstanding), **and a per-milestone `readiness_breakdown`** (level, credit, weight, points) — so every point is auditable. Weights and credit thresholds live in `config.py` (`READINESS_WEIGHTS`, `READINESS_COMMISSIONING_*`).
-
-### Grid need — the "first needed" signal (`scoring.py`)
-
-`grid_need_from_solved(net, bus)` blends, each normalized to 0..1: local demand served at the bus (saturating at `GRID_NEED_DEMAND_FULL_MW`) and voltage depression (how far below 1.0 pu, over the allowed band). Weak, demand-heavy buses score higher — local generation helps most there.
-
-### Strategic fit — a decisions model (`llm.score_strategic_fit`)
-
-The one genuinely judgmental question ("is this the right addition?") goes to **Jev**, a typed decisions model, via OpenRouter's `/api/alpha/decisions`. It's asked to choose `{high, medium, low}` given the project plus its measured grid signal (the state), and returns a choice, a probability distribution, and a **calibrated confidence**. The `strategic_fit` score is the expected value over the distribution (`STRATEGIC_FIT_VALUE`); the confidence is persisted as the act-vs-defer knob. If the endpoint is unreachable, `llm.py` falls back to a structured chat call (confidence `None`).
+How the registry's facts map onto it:
+- ECR *accepted to connect* → connection agreement **signed**.
+- TEC *awaiting consents* → planning **submitted**.
+- Facts the source doesn't publish → no credit, and the rationale says so.
 
 ---
 
-## Per-bus demand growth (`network.per_bus_growth`)
-
-A DFES pathway sets the feeder-wide multiplier `m`; growth is then distributed **per bus** so the feeder total is preserved exactly while individual buses diverge realistically. Each load gets a weight
-
-```
-w = β_type · (1 + α·(2·hash01(scenario,bus) − 1)) · (1 + γ·(d/d_max − 0.5)) · hotspot
-factor = 1 + (m − 1)·(w / w̄)          # w̄ = load-weighted mean → Σ pᵢ·(factorᵢ−1) = (m−1)·Σ pᵢ
-```
-
-where `β_type` is `GROWTH_BETA_RESIDENTIAL` for `"MV/LV Station"` loads (LV networks — fast, EV + heat-pump led) vs `GROWTH_BETA_INDUSTRIAL` for directly-connected MV industrial (slow); `α` (`GROWTH_HETEROGENEITY`) is a seeded per-bus spread; `γ` (`GROWTH_EDGE_TILT`) tilts growth toward the feeder edge (hop-distance from the HV/MV transformer); and ~20% of buses (`GROWTH_HOTSPOT_QUANTILE`) become adoption hotspots (`GROWTH_HOTSPOT_MULT`). Everything is a pure function of `(scenario, horizon, network structure)`, so it's deterministic. `apply_growth` accepts either a scalar (uniform) or this per-load series.
-
----
-
-## Config reference (selected)
+## Config (selected)
 
 ```python
-VOLTAGE_MIN_PU / VOLTAGE_MAX_PU         = 0.9 / 1.1       # feasibility voltage band
-LINE_LOADING_MAX_PCT / TRAFO_...        = 100 / 100       # thermal limits
-MAX_CONNECTION_MW                       = 20              # intake plausibility cap (20 kV feeder)
-W_READINESS / W_NEED / W_STRATEGIC      = 0.5 / 0.35 / 0.15
-GROWTH_2030 / GROWTH_2035               = 1.10 / 1.30     # Holistic Transition defaults
-FORECASTS                               = ht · ee · he · fb   # NESO FES 2025 pathways
-SCORING_MODEL / JUSTIFY_MODEL           = anthropic/claude-sonnet-5.5
-JEV_MODEL / DECISIONS_URL               = typesafe/jev-1.13  @  /api/alpha/decisions
+VOLTAGE_MIN_PU / VOLTAGE_MAX_PU     = 0.9 / 1.1
+LINE_LOADING_MAX_PCT / TRAFO_...    = 100 / 100
+MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 248 MW accepted at 132 kV)
+W_READINESS / W_NEED / W_STRATEGIC  = 0.5 / 0.35 / 0.15
+GROWTH_2030 / GROWTH_2035           = 1.08 / 1.35   # FES 2025 Holistic Transition
+MAX_SUGGESTIONS / MAX_REINFORCE_STEPS = 5 / 4
 ```
+
+NGED-specific values live in `nged.py`: `DEMAND_DIVERSITY = 0.55`, `GSP_BOUNDARY` (2 × 263.5 MW SGT export limit, with the source resource id), `TRANSMISSION_PROJECTS` and `ECR_MIN_EXPORT_MW = 1`.
 
 ---
 
 ## Tests
 
 ```bash
-cd packages/optimizer && uv run pytest -q
+cd packages/optimizer && uv run pytest -q     # 30 tests
 ```
 
-9 tests: base network feasibility, the growth/injection primitives, the greedy accept/defer/reject outcomes and ranking determinism, the per-bus growth average-preservation property, `line_loadings` coverage, and the readiness rubric's bounds and monotonicity.
+Tests are **grid-agnostic**. `tests/_grid.py` derives every fixture from the network `build_base_net()` returns:
+- a stiff bus, the weakest buses, and a saturating queue sized from the local circuits' thermal rating (not from any policy cap);
+- no hard-coded bus ids.
+
+What they cover:
+- feasibility and the worst-case envelope;
+- the summer-minimum case raising export;
+- the GSP limit binding, and an SGT relieving it;
+- greedy outcomes and determinism;
+- recommended years;
+- reinforcement, suggestions and the diff;
+- the readiness rubric.
+
+`test_nged.py` adds the NGED data rules: removed equipment is excluded, every live MW of demand is modelled, and nothing from the registry is pre-loaded.

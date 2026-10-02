@@ -1,7 +1,7 @@
 [project]
 name = "gridforge-optimizer"
 version = "0.1.0"
-description = "Deterministic connection-queue optimizer + LLM scoring for GridForge"
+description = "Deterministic connection-queue optimizer + LLM narration for GridForge"
 requires-python = ">=3.10,<3.15"
 dependencies = [
     "pandapower>=3.5.5",

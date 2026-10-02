@@ -31,6 +31,20 @@ from .types import (
 
 _PHASES = [(1, "2030", "growth_2030"), (2, "2035", "growth_2035")]
 _STATUS = {1: "Phase1", 2: "Phase2"}
+# the year window the grid can actually host each phase's projects: Phase 1 lands by 2030, Phase 2
+# across 2031-2035. The optimizer recommends an energisation year inside this window (nudged by the
+# developer's requested year); deferred/rejected projects can't be hosted, so they get no year.
+_REC_WINDOW = {"Phase1": (2027, 2030), "Phase2": (2031, 2035)}
+
+
+def _recommended_year(requested: int | None, status: str) -> int | None:
+    """The year the optimizer suggests a project energise: the developer's requested year clamped
+    into the grid-feasible window for its phase. None when the grid can't host it (deferred/rejected)."""
+    window = _REC_WINDOW.get(status)
+    if window is None:
+        return None
+    base = requested if requested is not None else window[0] + 1
+    return max(window[0], min(window[1], base))
 
 
 def _is_valid(c: Candidate) -> bool:
@@ -44,7 +58,9 @@ def _is_valid(c: Candidate) -> bool:
 
 
 def _grow(net, m: float, scenario: str, horizon: int) -> None:
-    """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform)."""
+    """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform).
+    Only demand grows here — no generation is pre-loaded: anything not connected today enters the
+    study only as a queue project."""
     if scenario and scenario != "custom":
         apply_growth(net, per_bus_growth(net, m, scenario, horizon))
     else:
@@ -68,8 +84,6 @@ def optimize(
     """
     params = params or OptimizeParams()
     reinforcements = reinforcements or []
-    valid = [c for c in candidates if _is_valid(c)]
-    rejected = [c for c in candidates if not _is_valid(c)]
 
     # one power flow under max growth to read 'need' at every candidate bus
     need_net = build_base_net()
@@ -77,6 +91,13 @@ def optimize(
     for r in reinforcements:
         apply_reinforcement(need_net, r)
     pp.runpp(need_net)
+    net_bus_ids = {int(b) for b in need_net.bus.index}
+
+    # a candidate is rankable only if it passed intake AND its connection bus exists in the network.
+    # a bus not in the model (e.g. a stale project after a network swap) is rejected, never injected.
+    valid = [c for c in candidates if _is_valid(c) and int(c.bus_id) in net_bus_ids]
+    valid_ids = {c.request_id for c in valid}
+    rejected = [c for c in candidates if c.request_id not in valid_ids]
     need = {c.request_id: grid_need_from_solved(need_net, c.bus_id) for c in valid}
 
     def rank_score(c: Candidate) -> float:
@@ -134,6 +155,9 @@ def optimize(
             line_loading=line_loadings(net),
             bus_vm=bus_voltages(net),
             voltage_violation_bus_ids=voltage_violation_bus_ids(net),
+            gsp_export_mw=m.get("gsp_export_mw", 0.0),
+            gsp_import_mw=m.get("gsp_import_mw", 0.0),
+            gsp_limit_mw=m.get("gsp_limit_mw"),
         )
 
     queue: list[QueueItem] = []
@@ -153,15 +177,21 @@ def optimize(
                 rank_score=round(rank_score(c), 4),
                 status=status,
                 reason=None if status != "Deferred" else last_reason.get(c.request_id),
+                commissioning_year=c.commissioning_year,
+                recommended_year=_recommended_year(c.commissioning_year, status),
                 worst_line_loading_pct=worst_line_at_accept.get(c.request_id),
                 readiness_rationale=c.readiness_rationale,
-                strategic_rationale=c.strategic_rationale,
-                strategic_confidence=c.strategic_confidence,
             )
         )
 
-    # rejected-at-triage projects appear at the end, with their triage reason
+    # rejected projects appear at the end, with a clear reason (intake failure or off-network bus)
     for c in rejected:
+        if c.bus_id is None:
+            reject_msg = "no point of connection given"
+        elif int(c.bus_id) not in net_bus_ids:
+            reject_msg = f"connection point bus {c.bus_id} is not in the network model"
+        else:
+            reject_msg = c.review_reasons or "failed intake validation"
         queue.append(
             QueueItem(
                 rank=None,
@@ -174,10 +204,9 @@ def optimize(
                 grid_need=0.0,
                 rank_score=None,
                 status="Rejected",
-                reason=Reason(type="rejected", message=c.review_reasons or "failed intake validation"),
+                reason=Reason(type="rejected", message=reject_msg),
+                commissioning_year=c.commissioning_year,
                 readiness_rationale=c.readiness_rationale,
-                strategic_rationale=c.strategic_rationale,
-                strategic_confidence=c.strategic_confidence,
             )
         )
 

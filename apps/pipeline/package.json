@@ -3,7 +3,6 @@
   "private": true,
   "scripts": {
     "dev": "uv run dg dev",
-    "test": "uv run pytest -q",
     "build": "uv sync"
   }
 }

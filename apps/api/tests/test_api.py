@@ -2,7 +2,7 @@
 at import time), then drive the branch/PR workflow through the FastAPI TestClient.
 
 Grid-agnostic: bus ids are derived from the live /model, so the suite passes for whatever network
-the warehouse holds (NGED, mv_oberrhein, a future DNO region)."""
+the warehouse holds (today the NGED Bicker Fen GSP; any future DNO region)."""
 
 import os
 import tempfile
@@ -59,17 +59,26 @@ def test_main_branch_seeded_and_unique():
     assert mains[0]["status"] == "open"
 
 
-def test_backcompat_endpoints_still_work():
+def _queue_ids(branch_id):
+    """Request ids in a branch's plan, as the planner sees them (main runs via /optimize)."""
+    path = "/optimize" if branch_id == "main" else f"/branches/{branch_id}/optimize"
+    return {x["request_id"] for x in client.post(path, json={"with_justification": False}).json()["queue"]}
+
+
+def _branch(branch_id):
+    return next(b for b in client.get("/branches").json()["branches"] if b["branch_id"] == branch_id)
+
+
+def test_core_read_endpoints():
     assert client.get("/health").json()["ok"] is True
     assert "buses" in client.get("/model").json()
-    assert client.get("/optimize/candidates").json()  # non-empty candidate list
+    assert client.get("/registry").json()  # non-empty registry of optional projects
+    assert "export_limit_mw" in client.get("/boundary").json()
     q = client.post("/optimize", json={"with_justification": False}).json()
     assert "queue" in q and "phases" in q and q["branch_id"] == "main"
-    base = client.get("/baseline").json()
-    assert base["exists"] and "scenario" in base["params"]
 
 
-def test_branch_create_list_get():
+def test_branch_create_and_list():
     b = _create("Test branch", added_projects=[_good()])
     bid = b["branch_id"]
     assert bid.startswith("br-") and b["n_added"] >= 1
@@ -77,9 +86,8 @@ def test_branch_create_list_get():
     listed = {x["branch_id"] for x in client.get("/branches").json()["branches"]}
     assert "main" in listed and bid in listed
 
-    detail = client.get(f"/branches/{bid}").json()
-    assert detail["added_project_ids"]  # the added project is present
-    assert client.get("/branches/does-not-exist").status_code == 404
+    assert _queue_ids(bid)  # the added project is in the branch's plan
+    assert client.post("/branches/does-not-exist/optimize", json={}).status_code == 404
 
 
 def test_branch_diff_shows_added_project():
@@ -102,6 +110,33 @@ def test_two_branches_do_not_share_cache():
     assert ids_a != ids_b  # each branch sees its own project, never the other's cached run
 
 
+def test_schedule_persists_and_flags_against_recommendation():
+    b = _create("Scheduled", added_projects=[_good()])
+    bid = b["branch_id"]
+    q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    item = next(x for x in q["queue"] if x["status"] in ("Phase1", "Phase2"))
+    rid, rec = item["request_id"], item["recommended_year"]
+    assert rec is not None and item["scheduled_year"] is None  # follows the recommendation by default
+
+    # the operator schedules it EARLIER than the grid supports -> persisted + flagged
+    r = client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": rec - 1})
+    assert r.status_code == 200, r.text
+    q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    item = next(x for x in q["queue"] if x["request_id"] == rid)
+    assert item["scheduled_year"] == rec - 1 and item["against_recommendation"] is True
+    assert item["status"] in ("Phase1", "Phase2")  # scheduling never changes the verdict
+
+    # clearing it returns to the recommendation
+    client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": None})
+    q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    item = next(x for x in q["queue"] if x["request_id"] == rid)
+    assert item["scheduled_year"] is None and item["against_recommendation"] is False
+
+    # guards: out-of-range year, project not on the branch
+    assert client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": 2050}).status_code == 422
+    assert client.post(f"/branches/{bid}/schedule", json={"request_id": "NOPE", "year": 2030}).status_code == 404
+
+
 def test_suggestions_for_grid_deferred_branch():
     b = _create("Saturated queue", added_projects=_saturating(10))
     bid = b["branch_id"]
@@ -120,16 +155,16 @@ def test_suggestions_for_grid_deferred_branch():
 def test_merge_adopts_branch_into_main():
     b = _create("To merge", added_projects=[_good(applicant="MergeMe")])
     bid = b["branch_id"]
-    added_ids = set(client.get(f"/branches/{bid}").json()["added_project_ids"])
+    added_ids = _queue_ids(bid)
+    assert added_ids
 
     merged = client.post(f"/branches/{bid}/merge", json={"into": "main"})
     assert merged.status_code == 200, merged.text
     assert merged.json()["branch_id"] == "main"
 
-    main_added = set(client.get("/branches/main").json()["added_project_ids"])
-    assert added_ids <= main_added  # main adopted the branch's projects
+    assert added_ids <= _queue_ids("main")  # main adopted the branch's projects
 
-    assert client.get(f"/branches/{bid}").json()["status"] == "merged"
+    assert _branch(bid)["status"] == "merged"
     assert client.post(f"/branches/{bid}/merge", json={"into": "main"}).status_code == 409
 
 

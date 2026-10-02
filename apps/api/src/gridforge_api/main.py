@@ -28,6 +28,7 @@ from gridforge_optimizer import (
     suggest_unblock,
 )
 from gridforge_optimizer import llm as opt_llm
+from gridforge_optimizer.nged import _commission_year, gsp_boundary
 from gridforge_optimizer.config import (
     DEFAULT_SCENARIO,
     FORECASTS,
@@ -70,7 +71,7 @@ app = FastAPI(title="GridForge API", lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # intake cap is shared with the optimizer (imported above) so the UI and engine agree.
-# placeholder scores for a manually added project — it bypasses the pipeline's rubric + Jev scoring.
+# placeholder scores for a manually added project — it bypasses the registry's published-facts scoring.
 MANUAL_READINESS_DEFAULT = 0.5
 MANUAL_STRATEGIC_DEFAULT = 0.5
 ADDED_CANDIDATE_ID_BASE = 2056  # user-added projects are numbered CR-2056, CR-2057, …
@@ -104,7 +105,8 @@ def baseline_model() -> dict:
     )
     transformers = _warehouse_query(
         """
-        SELECT tr.trafo_id, tr.name, tr.sn_mva,
+        SELECT tr.trafo_id, tr.name, tr.sn_mva, tr.hv_bus, tr.lv_bus,
+               h.vn_kv AS hv_kv, lv.vn_kv AS lv_kv, h.name AS hv_name,
                h.lon AS hv_lon, h.lat AS hv_lat, lv.lon AS lv_lon, lv.lat AS lv_lat
         FROM transformers tr
         JOIN buses h  ON tr.hv_bus = h.bus_id
@@ -122,7 +124,18 @@ def baseline_model() -> dict:
     )
     for i, ld in enumerate(loads):
         ld["load_id"] = i
-    return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads}
+    try:
+        generators = _warehouse_query(
+            """
+            SELECT g.request_id, g.bus_id, g.rating_mw, g.technology, g.applicant, b.lon, b.lat
+            FROM generators g JOIN buses b ON g.bus_id = b.bus_id
+            WHERE b.lon IS NOT NULL
+            """
+        )
+    except Exception:  # warehouse predates the existing-fleet table
+        generators = []
+    return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads,
+            "generators": generators}
 
 
 def baseline_id() -> str:
@@ -143,22 +156,37 @@ def get_model() -> dict:
     return baseline_model()
 
 
+_boundary_cache: dict = {}
+
+
+@app.get("/boundary")
+def boundary() -> dict:
+    """The GSP boundary: the export limit to transmission, the region's export today, and the
+    transmission-registered projects behind the GSP (not-yet-built ones at the GSP are optional
+    registry projects, flagged with their registry id)."""
+    if "v" not in _boundary_cache:
+        _boundary_cache["v"] = gsp_boundary()
+    return _boundary_cache["v"]
+
+
 @app.get("/forecasts")
 def get_forecasts() -> dict:
     """The FES 2025 demand pathways + policy horizons (single source of truth for the UI)."""
     forecasts = [
         {"id": fid, **{k: v for k, v in f.items()}} for fid, f in FORECASTS.items()
     ]
-    return {"default": DEFAULT_SCENARIO, "forecasts": forecasts, "horizons": HORIZONS}
+    return {"default": DEFAULT_SCENARIO, "forecasts": forecasts, "horizons": HORIZONS,
+            "max_connection_mw": MAX_CONNECTION_MW}
 
 
 # --- scenarios DB: branches + user-added projects (API read-write) ----------
 # A "branch" is a named scenario (demand pathway + ranking weights) plus the projects added on it.
-# `main` is the plan of record. A branch's candidate set = warehouse candidate_projects (immutable)
-# ∪ its added_candidates − its withdrawals. The warehouse is never mutated.
+# `main` is the plan of record (today's network until something is merged). A branch's candidate set
+# = its added_candidates (copied from its parent on create, plus what's pulled from the registry).
+# The warehouse is never mutated.
 _ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
-    "strategic_fit, readiness_rationale, status, review_reasons"
+    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year"
 )
 _BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
@@ -175,7 +203,8 @@ def _scenarios_con() -> duckdb.DuckDBPyConnection:
         CREATE TABLE IF NOT EXISTS added_candidates (
             request_id VARCHAR, applicant VARCHAR, bus_id INTEGER, technology VARCHAR,
             rating_mw DOUBLE, readiness_score DOUBLE, strategic_fit DOUBLE,
-            readiness_rationale VARCHAR, status VARCHAR, review_reasons VARCHAR
+            readiness_rationale VARCHAR, status VARCHAR, review_reasons VARCHAR,
+            commissioning_year INTEGER, scheduled_year INTEGER
         )
         """
     )
@@ -183,6 +212,10 @@ def _scenarios_con() -> duckdb.DuckDBPyConnection:
     cols = [r[1] for r in con.execute("PRAGMA table_info('added_candidates')").fetchall()]
     if "branch_id" not in cols:
         con.execute("ALTER TABLE added_candidates ADD COLUMN branch_id VARCHAR DEFAULT 'main'")
+    if "commissioning_year" not in cols:
+        con.execute("ALTER TABLE added_candidates ADD COLUMN commissioning_year INTEGER")
+    if "scheduled_year" not in cols:  # operator's chosen energisation year (None = follow recommendation)
+        con.execute("ALTER TABLE added_candidates ADD COLUMN scheduled_year INTEGER")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS branches (
@@ -193,35 +226,19 @@ def _scenarios_con() -> duckdb.DuckDBPyConnection:
         )
         """
     )
-    con.execute(
-        """
-        CREATE TABLE IF NOT EXISTS branch_withdrawals (
-            branch_id VARCHAR, request_id VARCHAR, PRIMARY KEY (branch_id, request_id)
-        )
-        """
-    )
-    con.execute("CREATE TABLE IF NOT EXISTS baseline (name VARCHAR, params VARCHAR)")
     _ensure_main_branch(con)
     return con
 
 
 def _ensure_main_branch(con: duckdb.DuckDBPyConnection) -> None:
-    """Seed the 'main' branch once, from a legacy pinned baseline if present, else config defaults."""
+    """Seed the 'main' branch (the plan of record) once, with the default demand pathway."""
     if con.execute("SELECT 1 FROM branches WHERE branch_id = 'main'").fetchone():
         return
-    legacy = con.execute("SELECT params FROM baseline WHERE name = 'main'").fetchone()
-    if legacy:
-        p = json.loads(legacy[0])
-        scenario = p.get("scenario") or DEFAULT_SCENARIO
-        g30, g35 = p.get("growth_2030", GROWTH_2030), p.get("growth_2035", GROWTH_2035)
-        w_r, w_n, w_s = p.get("w_readiness"), p.get("w_need"), p.get("w_strategic")
-    else:
-        scenario, g30, g35, w_r, w_n, w_s = DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, None, None, None
     con.execute(
         "INSERT INTO branches (branch_id, name, parent_id, scenario, growth_2030, growth_2035, "
         "w_readiness, w_need, w_strategic, status, created_at) "
-        "VALUES ('main', 'Main', NULL, ?, ?, ?, ?, ?, ?, 'open', ?)",
-        [scenario, g30, g35, w_r, w_n, w_s, _now()],
+        "VALUES ('main', 'Main', NULL, ?, ?, ?, NULL, NULL, NULL, 'open', ?)",
+        [DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, _now()],
     )
 
 
@@ -233,24 +250,22 @@ def _branch_row(con: duckdb.DuckDBPyConnection, branch_id: str) -> dict | None:
     return dict(zip(_BRANCH_COLS, r)) if r else None
 
 
+def _registry_rows() -> list[dict]:
+    """The REGISTRY: the pool of projected connection projects (warehouse), available to add to a
+    branch. main does not auto-include these — you pull them onto a branch as they come along."""
+    return _warehouse_query("SELECT * FROM candidate_projects")
+
+
 def _candidate_rows(branch_id: str = "main") -> list[dict]:
-    """Candidate rows for a branch: warehouse baseline ∪ the branch's adds − its withdrawals."""
-    rows = _warehouse_query("SELECT * FROM candidate_projects")
+    """Projects IN a branch's plan = the ones added to it. 'main' has none until something is merged
+    into it — it is the as-is plan of record; projects are pulled onto branches from the registry."""
     con = _scenarios_con()
     try:
         cur = con.execute("SELECT * FROM added_candidates WHERE branch_id = ?", [branch_id])
         cols = [c[0] for c in cur.description]
-        added = [dict(zip(cols, r)) for r in cur.fetchall()]
-        withdrawn = {
-            r[0]
-            for r in con.execute(
-                "SELECT request_id FROM branch_withdrawals WHERE branch_id = ?", [branch_id]
-            ).fetchall()
-        }
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
     finally:
         con.close()
-    rows = [r for r in rows if r["request_id"] not in withdrawn]
-    return rows + added
 
 
 def _to_client(r: dict) -> dict:
@@ -272,8 +287,14 @@ def _bus_coords() -> dict[int, tuple[float, float]]:
 
 @app.get("/optimize/candidates")
 def optimize_candidates() -> list[dict]:
-    """List the queued projects (baseline warehouse + any added via the UI), shaped for the client."""
-    return [_to_client(r) for r in _candidate_rows()]
+    """The registry pool (projected projects available to add to a branch), shaped for the client."""
+    return [_to_client(r) for r in _registry_rows()]
+
+
+@app.get("/registry")
+def registry() -> list[dict]:
+    """The registry of projected connection projects — the pool branches pull from."""
+    return [_to_client(r) for r in _registry_rows()]
 
 
 class NewCandidate(BaseModel):
@@ -286,6 +307,7 @@ class NewCandidate(BaseModel):
     readiness_score: float = MANUAL_READINESS_DEFAULT
     strategic_fit: float = MANUAL_STRATEGIC_DEFAULT
     readiness_rationale: str = ""
+    commissioning_year: int | None = None  # requested energisation year; derived if omitted
     branch_id: str = "main"  # which branch to add the project to
 
 
@@ -315,18 +337,21 @@ def _insert_candidate(con: duckdb.DuckDBPyConnection, branch_id: str, body: NewC
     status, review = _triage(body, valid_bus_ids)
     n = con.execute("SELECT count(*) FROM added_candidates").fetchone()[0]
     request_id = f"CR-{ADDED_CANDIDATE_ID_BASE + n}"
+    year = body.commissioning_year or _commission_year(
+        body.readiness_score, body.technology, body.rating_mw, request_id)
     con.execute(
         f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [request_id, body.applicant, body.bus_id, body.technology, body.rating_mw,
-         body.readiness_score, body.strategic_fit, body.readiness_rationale, status, review, branch_id],
+         body.readiness_score, body.strategic_fit, body.readiness_rationale, status, review,
+         year, None, branch_id],
     )
     return {
         "request_id": request_id, "applicant": body.applicant, "bus_id": body.bus_id,
         "technology": body.technology, "rating_mw": body.rating_mw,
         "readiness_score": body.readiness_score, "strategic_fit": body.strategic_fit,
         "readiness_rationale": body.readiness_rationale, "status": status,
-        "review_reasons": review, "branch_id": branch_id,
+        "review_reasons": review, "commissioning_year": year, "branch_id": branch_id,
     }
 
 
@@ -399,12 +424,9 @@ def _candidates(branch_id: str = "main") -> list[Candidate]:
             readiness_score=float(r["readiness_score"]),
             strategic_fit=float(r["strategic_fit"]),
             readiness_rationale=r.get("readiness_rationale") or "",
-            strategic_rationale=r.get("strategic_rationale") or "",
-            strategic_confidence=(
-                None if r.get("strategic_confidence") is None else float(r["strategic_confidence"])
-            ),
             status=r["status"],
             review_reasons=r.get("review_reasons") or "",
+            commissioning_year=(None if r.get("commissioning_year") is None else int(r["commissioning_year"])),
         )
         for r in _candidate_rows(branch_id)
     ]
@@ -457,11 +479,20 @@ def _optimize_payload(body: OptimizeRequest, branch_id: str = "main") -> dict:
     out = result.model_dump()
 
     coords = _bus_coords()
-    applicant_by_id = {r["request_id"]: (r.get("applicant") or "") for r in _candidate_rows(branch_id)}
+    rows_by_id = {r["request_id"]: r for r in _candidate_rows(branch_id)}
     for q in out["queue"]:
         bid = q["bus_id"]
         q["lon"], q["lat"] = coords.get(int(bid), (None, None)) if bid is not None else (None, None)
-        q["applicant"] = applicant_by_id.get(q["request_id"], "")
+        row = rows_by_id.get(q["request_id"], {})
+        q["applicant"] = row.get("applicant") or ""
+        # the operator's chosen energisation year (persisted on the branch) vs the optimizer's
+        # recommendation: earlier than recommended, or scheduling a project the grid can't host,
+        # goes against the recommendation and is flagged.
+        sy = row.get("scheduled_year")
+        q["scheduled_year"] = None if sy is None else int(sy)
+        rec = q.get("recommended_year")
+        q["against_recommendation"] = q["scheduled_year"] is not None and (
+            rec is None or q["scheduled_year"] < rec)
 
     for phase in out["phases"].values():
         gens = []
@@ -519,31 +550,7 @@ def _summarize_diff(d) -> str:
     return "\n".join(lines)
 
 
-class DiffRequest(BaseModel):
-    """Two scenarios to compare: `base` (e.g. the plan of record) vs `head` (the proposed option)."""
-
-    base: OptimizeRequest
-    head: OptimizeRequest
-    with_narration: bool = False
-
-
-@app.post("/optimize/diff")
-def run_diff(body: DiffRequest) -> dict:
-    """Diff two ad-hoc scenarios on the main candidate set (legacy A-vs-B compare)."""
-    cands = _candidates("main")
-    ckey = _cand_key(cands)
-    d = diff_results(_compute(body.base, cands, ckey), _compute(body.head, cands, ckey))
-    out = d.model_dump()
-    out["narration"] = ""
-    if body.with_narration:
-        try:
-            out["narration"] = opt_llm.narrate_diff(_summarize_diff(d))
-        except Exception:
-            out["narration"] = ""
-    return out
-
-
-# --- baseline ("main") shim + branches ("git for grids") --------------------
+# --- branches ("git for grids") -----------------------------------------------
 def _pick(val, fallback):
     """Use `val` unless it is None, else fall back to the parent/branch value."""
     return fallback if val is None else val
@@ -586,38 +593,8 @@ def _require_branch(con: duckdb.DuckDBPyConnection, branch_id: str) -> dict:
     return row
 
 
-@app.get("/baseline")
-def get_baseline() -> dict:
-    """The 'main' plan-of-record scenario params (compat shim over the main branch)."""
-    con = _scenarios_con()
-    try:
-        row = _branch_row(con, "main")
-    finally:
-        con.close()
-    return {"exists": bool(row), "params": _branch_params(row) if row else None}
-
-
-@app.post("/baseline")
-def set_baseline(body: OptimizeRequest) -> dict:
-    """Pin the given scenario onto 'main' (compat shim over the main branch)."""
-    con = _scenarios_con()
-    try:
-        con.execute(
-            "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, "
-            "w_readiness=?, w_need=?, w_strategic=? WHERE branch_id='main'",
-            [body.scenario, body.growth_2030, body.growth_2035,
-             body.w_readiness, body.w_need, body.w_strategic],
-        )
-    finally:
-        con.close()
-    _optimize_cache.clear()
-    _compute_cache.clear()
-    return {"exists": True, "params": body.model_dump()}
-
-
-# --- branches ---------------------------------------------------------------
 class BranchCreate(BaseModel):
-    """Open a branch off `from_branch` (default main): a scenario + optional added/withdrawn projects."""
+    """Open a branch off `from_branch` (default main): a scenario + optional projects to add."""
 
     name: str
     from_branch: str = "main"
@@ -628,7 +605,6 @@ class BranchCreate(BaseModel):
     w_need: float | None = None
     w_strategic: float | None = None
     added_projects: list[NewCandidate] = []
-    withdraw: list[str] = []
 
 
 class MergeRequest(BaseModel):
@@ -655,22 +631,15 @@ def create_branch(body: BranchCreate) -> dict:
              _pick(body.growth_2035, parent["growth_2035"]), _pick(body.w_readiness, parent["w_readiness"]),
              _pick(body.w_need, parent["w_need"]), _pick(body.w_strategic, parent["w_strategic"]), _now()],
         )
-        # copy-on-create: snapshot the parent's added projects + withdrawals onto the new branch
+        # copy-on-create: snapshot the parent's projects onto the new branch
         con.execute(
             f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) "
             f"SELECT {_ADDED_COLS}, ? FROM added_candidates WHERE branch_id = ?",
             [bid, parent["branch_id"]],
         )
-        con.execute(
-            "INSERT INTO branch_withdrawals (branch_id, request_id) "
-            "SELECT ?, request_id FROM branch_withdrawals WHERE branch_id = ?",
-            [bid, parent["branch_id"]],
-        )
         valid = _valid_bus_ids()
         for p in body.added_projects:
             _insert_candidate(con, bid, p, valid)
-        for rid in dict.fromkeys(body.withdraw):  # dedupe, preserve order
-            con.execute("INSERT INTO branch_withdrawals (branch_id, request_id) VALUES (?, ?)", [bid, rid])
         out = _branch_to_client(con, _branch_row(con, bid))
     finally:
         con.close()
@@ -691,24 +660,6 @@ def list_branches() -> dict:
     return {"branches": branches}
 
 
-@app.get("/branches/{branch_id}")
-def get_branch(branch_id: str) -> dict:
-    """One branch, with its added + withdrawn project ids."""
-    con = _scenarios_con()
-    try:
-        row = _require_branch(con, branch_id)
-        added = [r[0] for r in con.execute(
-            "SELECT request_id FROM added_candidates WHERE branch_id = ?", [branch_id]).fetchall()]
-        withdrawn = [r[0] for r in con.execute(
-            "SELECT request_id FROM branch_withdrawals WHERE branch_id = ?", [branch_id]).fetchall()]
-        out = _branch_to_client(con, row)
-    finally:
-        con.close()
-    out["added_project_ids"] = added
-    out["withdrawn_project_ids"] = withdrawn
-    return out
-
-
 @app.post("/branches/{branch_id}/optimize")
 def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -> dict:
     """Run the optimizer on a branch's scenario + candidate set."""
@@ -720,6 +671,75 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
     req = _branch_request(row)
     req.with_justification = bool(body and body.with_justification)
     return _optimize_payload(req, branch_id)
+
+
+class RegistryAdd(BaseModel):
+    request_id: str
+
+
+@app.post("/branches/{branch_id}/registry")
+def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
+    """Pull a projected project from the registry onto a branch (copies it into the branch's plan)."""
+    row = {r["request_id"]: r for r in _registry_rows()}.get(body.request_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"registry project '{body.request_id}' not found")
+    con = _scenarios_con()
+    try:
+        _require_branch(con, branch_id)
+        exists = con.execute(
+            "SELECT 1 FROM added_candidates WHERE branch_id = ? AND request_id = ?",
+            [branch_id, body.request_id],
+        ).fetchone()
+        if not exists:
+            con.execute(
+                f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                [row["request_id"], row.get("applicant"), row.get("bus_id"), row.get("technology"),
+                 row.get("rating_mw"), row.get("readiness_score"), row.get("strategic_fit"),
+                 row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
+                 row.get("commissioning_year"), None, branch_id],
+            )
+    finally:
+        con.close()
+    _optimize_cache.clear()
+    _compute_cache.clear()
+    return _to_client({**row, "branch_id": branch_id})
+
+
+class ScheduleSet(BaseModel):
+    """The operator's chosen energisation year for a project on a branch (None = follow the
+    optimizer's recommendation)."""
+
+    request_id: str
+    year: int | None = None
+
+
+@app.post("/branches/{branch_id}/schedule")
+def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
+    """Persist the operator's energisation year for one project on a branch. It's a planning
+    decision layered on the optimizer's verdict — it doesn't change accept/defer/rank — so the
+    next /optimize just reports it alongside the recommendation (and flags any conflict)."""
+    if body.year is not None and not (2026 <= body.year <= 2035):
+        raise HTTPException(status_code=422, detail="year must be between 2026 and 2035")
+    con = _scenarios_con()
+    try:
+        _require_branch(con, branch_id)
+        hit = con.execute(
+            "SELECT 1 FROM added_candidates WHERE branch_id = ? AND request_id = ?",
+            [branch_id, body.request_id],
+        ).fetchone()
+        if not hit:
+            raise HTTPException(
+                status_code=404,
+                detail=f"project '{body.request_id}' is not on branch '{branch_id}'",
+            )
+        con.execute(
+            "UPDATE added_candidates SET scheduled_year = ? WHERE branch_id = ? AND request_id = ?",
+            [body.year, branch_id, body.request_id],
+        )
+    finally:
+        con.close()
+    _optimize_cache.clear()  # the payload carries scheduled_year; the engine result is unaffected
+    return {"branch_id": branch_id, "request_id": body.request_id, "scheduled_year": body.year}
 
 
 @app.get("/branches/{branch_id}/diff")
@@ -770,12 +790,6 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
         con.execute(
             f"INSERT INTO added_candidates ({_ADDED_COLS}, branch_id) "
             f"SELECT {_ADDED_COLS}, ? FROM added_candidates WHERE branch_id = ?",
-            [into, branch_id],
-        )
-        con.execute("DELETE FROM branch_withdrawals WHERE branch_id = ?", [into])
-        con.execute(
-            "INSERT INTO branch_withdrawals (branch_id, request_id) "
-            "SELECT ?, request_id FROM branch_withdrawals WHERE branch_id = ?",
             [into, branch_id],
         )
         con.execute("UPDATE branches SET status='merged', merged_at=? WHERE branch_id=?", [_now(), branch_id])
