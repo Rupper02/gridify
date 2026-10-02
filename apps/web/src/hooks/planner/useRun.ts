@@ -53,14 +53,13 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
       window.clearInterval(stepTimer.current);
       // every run is a background job on the API; its stage + fraction drive the overlay. A run that
       // has happened before (same branch, same inputs, same engine) is served from the durable cache
-      // and finishes at once. The main branch still carries the header's forecast choice.
+      // and finishes at once. The branch endpoint reads the scenario stored in the database, so
+      // profile changes must update main's stored scenario (see onForecast in usePlanner.ts).
       const onProgress = (stage: string, fraction: number) => patch({ stage, step: Math.min(5, Math.floor(fraction * 5 + 1e-9)) });
       let res: OptimizeResult;
       let cands: RegistryItem[];
       try {
-        res = onBranch || scenario === st.forecastId
-          ? await api.runBranchJob(bid || "main", { with_justification: true, study_year: studyYear }, onProgress)
-          : await api.optimize({ scenario, growth_2030: g30, growth_2035: g35, with_justification: true, study_year: studyYear });
+        res = await api.runBranchJob(bid || "main", { with_justification: true, study_year: studyYear }, onProgress);
         cands = await api.getCandidates();
       } catch (e) {
         window.clearInterval(stepTimer.current);

@@ -274,3 +274,42 @@ def test_different_study_years_do_not_share_cache():
     key_2028 = params_key(params_2028)
     key_2032 = params_key(params_2032)
     assert key_2028 != key_2032, "params_key for different study_years must differ"
+
+
+def test_profile_persists_across_runs():
+    """Profile changes on main must persist: scrubs and re-runs use the selected profile, not the
+    originally stored one. Regression: onForecast updates the UI but main's stored scenario stayed
+    at 'ht', so subsequent branch-endpoint runs used Holistic Transition while the UI showed High."""
+    # Update main's profile to High (Electric Engagement: ×1.10 / ×1.42)
+    client.post("/branches/main/scenario", json={
+        "scenario": "ee", "growth_2030": 1.10, "growth_2035": 1.42
+    })
+    
+    # First run with the new profile
+    r1 = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
+    while r1["status"] in ("queued", "running"):
+        r1 = client.get(f"/jobs/{r1['job_id']}").json()
+    assert r1["status"] == "done", "first run must complete"
+    assert r1["result"]["params"]["scenario"] == "ee", "first run must use High (ee)"
+    assert r1["result"]["params"]["growth_2030"] == 1.10
+    
+    # Second run (simulates a scrub or re-run) - must still use High, not snap back to HT
+    r2 = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
+    while r2["status"] in ("queued", "running"):
+        r2 = client.get(f"/jobs/{r2['job_id']}").json()
+    assert r2["status"] == "done", "second run must complete"
+    assert r2["result"]["params"]["scenario"] == "ee", "second run must STILL use High (ee), not revert"
+    assert r2["result"]["params"]["growth_2030"] == 1.10, "growth must stay at High's ×1.10"
+    
+    # Verify physics matches High profile (2028 with ee is ×1.05 interpolated)
+    # Compare to Standard (ht) at 2028 which is ×1.04
+    client.post("/branches/main/scenario", json={"scenario": "ht", "growth_2030": 1.08, "growth_2035": 1.35})
+    r_std = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
+    while r_std["status"] in ("queued", "running"):
+        r_std = client.get(f"/jobs/{r_std['job_id']}").json()
+    
+    # High demand (ee @ 2028 = ×1.05) must have higher loading than Standard (ht @ 2028 = ×1.04)
+    phase_ee = r2["result"]["phases"]["2028"]
+    phase_ht = r_std["result"]["phases"]["2028"]
+    assert phase_ee["worst_line_loading_pct"] > phase_ht["worst_line_loading_pct"], \
+        "High profile (×1.05) must have higher loading than Standard (×1.04) at same year"
