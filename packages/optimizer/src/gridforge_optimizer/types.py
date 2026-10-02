@@ -72,6 +72,7 @@ class OptimizeParams(BaseModel):
     w_readiness: float = W_READINESS
     w_need: float = W_NEED
     w_strategic: float = W_STRATEGIC
+    study_year: int | None = None  # optional: run study for a specific year (overrides phase logic)
 
 
 class PhaseResult(BaseModel):

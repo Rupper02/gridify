@@ -42,6 +42,16 @@ _STATUS = {1: "Phase1", 2: "Phase2"}
 _REC_WINDOW = {"Phase1": (2027, 2030), "Phase2": (2031, 2035)}
 
 
+def _eligible_for_year(c: Candidate, year: int) -> bool:
+    """A candidate is eligible for a study year only if its commission year is <= study year.
+    
+    Projects with no commission year are eligible for all years (treated as ready now).
+    """
+    if c.commissioning_year is None:
+        return True
+    return c.commissioning_year <= year
+
+
 def _recommended_year(requested: int | None, status: str) -> int | None:
     """The year the optimizer suggests a project energise: the developer's requested year clamped
     into the grid-feasible window for its phase. None when the grid can't host it (deferred/rejected)."""
@@ -299,9 +309,22 @@ def optimize(
 
     `net_factory` supplies the base network (default: the bundled NGED network); pass another to
     run the same algorithm on a different grid.
+    
+    When `params.study_year` is set, runs a single-year study instead of the two-phase flow:
+    demand is interpolated to that year, and only projects with commission year <= study_year
+    are eligible. The result phases dict will contain a single entry keyed by str(study_year).
     """
     params = params or OptimizeParams()
     report = progress or (lambda _s, _f: None)
+    
+    # Single-year study mode
+    if params.study_year is not None:
+        from .network import interpolate_growth_for_year
+        return _optimize_single_year(
+            candidates, params, reinforcements or [], net_factory, trial_cache, report
+        )
+    
+    # Standard two-phase mode
     run = _Run(candidates, params, reinforcements or [], net_factory, trial_cache, report)
 
     report("ranking", 0.02)
@@ -313,3 +336,57 @@ def optimize(
     queue = run.build_queue()
     report("done", 1.0)
     return OptimizeResult(params=params, queue=queue, phases=phases)
+
+
+def _optimize_single_year(
+    candidates: list[Candidate],
+    params: OptimizeParams,
+    reinforcements: list[Reinforcement],
+    net_factory: NetFactory,
+    trial_cache: dict | None,
+    report: Progress,
+) -> OptimizeResult:
+    """Run a single-year study with interpolated demand growth and year-filtered candidates.
+    
+    Only candidates with commission_year <= study_year are eligible. Demand is interpolated
+    to the study year from scenario anchors. Returns results with phases keyed by str(study_year).
+    """
+    from .network import interpolate_growth_for_year
+    
+    year = params.study_year
+    assert year is not None
+    
+    # Interpolate growth to this year
+    growth = interpolate_growth_for_year(year, params.scenario)
+    
+    # Filter candidates by commission year
+    eligible_cands = [c for c in candidates if _eligible_for_year(c, year)]
+    
+    # Build a synthetic params with the interpolated growth (for the _Run machinery)
+    synthetic_params = OptimizeParams(
+        growth_2030=growth,  # use interpolated growth in place of 2030
+        growth_2035=growth,
+        scenario=params.scenario,
+        w_readiness=params.w_readiness,
+        w_need=params.w_need,
+        w_strategic=params.w_strategic,
+    )
+    
+    # Run a single phase using the interpolated growth
+    run = _Run(eligible_cands, synthetic_params, reinforcements, net_factory, trial_cache, report)
+    report("ranking", 0.02)
+    run.rank()
+    
+    # Run as a single "phase" with the year's growth
+    phase_key = str(year)
+    phase_result = run.run_phase(0, 1, phase_key, "growth_2030")  # reads growth_2030 from synthetic_params
+    
+    # Build queue with year-aware status
+    queue = run.build_queue()
+    # Mark everything as Phase1 (accepted by this year) or Deferred
+    for item in queue:
+        if item.status == "Phase2":
+            item.status = "Phase1"  # single-year study has no Phase2
+    
+    report("done", 1.0)
+    return OptimizeResult(params=params, queue=queue, phases={phase_key: phase_result})

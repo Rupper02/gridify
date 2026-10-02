@@ -69,6 +69,35 @@ def _feeder_hops(net) -> tuple[dict[int, int], int]:
     return {int(b): int(d) for b, d in dist.items()}, max(d_max, 1)
 
 
+def interpolate_growth_for_year(year: int, scenario: str, base_year: int = 2026) -> float:
+    """Interpolate demand growth multiplier for a specific year from scenario anchors.
+    
+    Growth is interpolated linearly between anchor years (base → 2030 → 2035) from
+    config.FORECASTS, so intermediate years are physically distinct. Before base_year
+    returns 1.0 (no growth); after the last anchor holds that anchor's multiplier.
+    """
+    from .config import FORECASTS
+    
+    if year <= base_year:
+        return 1.0
+    
+    fc = FORECASTS.get(scenario, FORECASTS["ht"])
+    g_2030 = fc["growth_2030"]
+    g_2035 = fc["growth_2035"]
+    
+    if year <= 2030:
+        # Linear interpolation from base_year to 2030
+        t = (year - base_year) / (2030 - base_year)
+        return 1.0 + t * (g_2030 - 1.0)
+    elif year <= 2035:
+        # Linear interpolation from 2030 to 2035
+        t = (year - 2030) / (2035 - 2030)
+        return g_2030 + t * (g_2035 - g_2030)
+    else:
+        # Beyond 2035: hold at 2035 anchor
+        return g_2035
+
+
 def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
     """Per-load growth factors whose load-weighted mean equals the scenario multiplier `m`.
 

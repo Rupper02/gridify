@@ -1,9 +1,10 @@
 import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+import { useRef, useCallback } from "react";
 
 import { timelineRollup } from "../lib/derive";
 import { fmtMw } from "../theme";
 
-export type TimelineBoxPlanner = PlannerSlice<"timelineYear", never, "phase"> & WithPatch;
+export type TimelineBoxPlanner = PlannerSlice<"timelineYear", "run", "phase"> & WithPatch;
 type GspFiguresPlanner = PlannerSlice<"boundary", never, "ph">;
 export type StatsBarPlanner = PlannerSlice<
   "result" | "model" | "timelineYear" | "boundary" | "showBoundary",
@@ -14,10 +15,35 @@ export type StatsBarPlanner = PlannerSlice<
 export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", never, "ph"> & WithPatch;
 
 export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
-  const { s, patch, derived } = planner;
+  const { s, patch, actions, derived } = planner;
   const y = s.timelineYear;
-  const label = y <= 2026 ? "as-is today" : derived.phase === "2030" ? "Clean Power lens" : "Strategic lens";
-  const fg = y <= 2026 ? "#0d9488" : derived.phase === "2030" ? "#16a34a" : "#2563eb";
+  const debounceTimer = useRef<number | undefined>(undefined);
+  
+  // Label based on actual year, not legacy phase
+  let label: string;
+  let fg: string;
+  if (y <= 2026) {
+    label = "as-is today";
+    fg = "#0d9488";
+  } else if (y <= 2030) {
+    label = "Clean Power lens";
+    fg = "#16a34a";
+  } else {
+    label = "Strategic lens";
+    fg = "#2563eb";
+  }
+  
+  const handleYearChange = useCallback((newYear: number) => {
+    // Update state immediately for smooth UI
+    patch({ timelineYear: newYear });
+    
+    // Debounce the re-run to avoid spamming optimize calls during rapid scrubbing
+    window.clearTimeout(debounceTimer.current);
+    debounceTimer.current = window.setTimeout(() => {
+      void actions.run();
+    }, 500); // 500ms debounce
+  }, [patch, actions]);
+  
   return (
     <div className="row" style={{ gap: 10 }}>
       <div className="timeline-box">
@@ -28,7 +54,15 @@ export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
             <span style={{ fontSize: 10.5, color: fg, fontWeight: 600 }}>{label}</span>
           </span>
         </div>
-        <input type="range" min={2026} max={2035} step={1} value={y} onChange={(e) => patch({ timelineYear: +e.target.value })} />
+        <input 
+          type="range" 
+          min={2026} 
+          max={2035} 
+          step={1} 
+          value={y} 
+          onChange={(e) => handleYearChange(+e.target.value)}
+          title="Scrub to run power-flow for a specific year (interpolates demand growth)"
+        />
         <div className="mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 8.5, color: "var(--mute2)" }}>
           <span>2026 · today</span>
           <span>2035</span>

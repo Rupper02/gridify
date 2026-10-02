@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import type { QueueItem } from "../../types";
+import type { PhaseResult, QueueItem } from "../../types";
 import type { PlannerState } from "./core";
 
 export function useDerived(s: PlannerState) {
@@ -11,8 +11,17 @@ export function useDerived(s: PlannerState) {
     const activeB = onMainView ? null : (s.branches.find((b) => b.branch_id === s.activeBranch) ?? null);
     const eg30 = activeB ? activeB.growth_2030 : s.g30;
     const eg35 = activeB ? activeB.growth_2035 : s.g35;
-    const phase = s.timelineYear <= 2030 ? ("2030" as const) : ("2035" as const);
-    const ph = s.result ? s.result.phases[phase] : null;
+    
+    // For year-specific studies, use the timeline year as the phase key
+    const phaseKey = String(s.timelineYear);
+    
+    // Get year-specific phase ONLY - no fallback to legacy 2030/2035
+    // Year Y must use year-Y results only
+    const ph: PhaseResult | null = s.result && s.result.phases[phaseKey] 
+      ? s.result.phases[phaseKey]
+      : null;
+    
+    const phase = phaseKey;  // expose the actual phase key being used
     const q: QueueItem[] = s.result ? s.result.queue : [];
     const qById: Record<string, QueueItem> = Object.fromEntries(q.map((x) => [x.request_id, x]));
     const fc = s.forecasts.find((x) => x.id === s.forecastId);

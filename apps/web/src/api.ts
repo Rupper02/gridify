@@ -74,7 +74,7 @@ export const api = {
       `/branches/${branchId}/schedule`,
       { request_id: requestId, year },
     ),
-  optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean }) =>
+  optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean; study_year?: number | null }) =>
     applyReasons(await postJson<OptimizeResult>("/optimize", body)),
   /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway). */
   getForecasts: async () => {
@@ -112,7 +112,7 @@ export const api = {
   startOptimizeJob: (id: string, opts?: { with_justification?: boolean }) => postJson<Job>(`/branches/${id}/optimize/jobs`, opts ?? {}),
   getJob: (jobId: string) => getJson<Job>(`/jobs/${jobId}`),
   /** Run a branch as a background job, reporting stage + fraction while it runs. */
-  runBranchJob: async (id: string, opts: { with_justification?: boolean }, onProgress: (stage: string, fraction: number) => void): Promise<OptimizeResult> => {
+  runBranchJob: async (id: string, opts: { with_justification?: boolean; study_year?: number | null }, onProgress: (stage: string, fraction: number) => void): Promise<OptimizeResult> => {
     let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
     while (job.status === "queued" || job.status === "running") {
       onProgress(job.stage, job.fraction);

@@ -28,7 +28,8 @@ def resolve_params(body: OptimizeRequest) -> OptimizeParams:
         }.items() if v is not None
     }
     return OptimizeParams(
-        growth_2030=growth_2030, growth_2035=growth_2035, scenario=scenario, **weights
+        growth_2030=growth_2030, growth_2035=growth_2035, scenario=scenario,
+        study_year=body.study_year, **weights
     )
 
 
