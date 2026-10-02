@@ -207,6 +207,7 @@ warehouse/
 .tmp_dagster_home*/
 .dg/
 *.duckdb
+*.duckdb.wal
 
 # --- Node / monorepo ---
 node_modules/

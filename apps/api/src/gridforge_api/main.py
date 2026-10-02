@@ -7,9 +7,11 @@ stored in a separate scenarios DB, so the pipeline baseline is never mutated.
 
 import hashlib
 import json
+import logging
 import os
+import threading
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +20,8 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from gridforge_optimizer import (
     Candidate,
@@ -55,18 +59,36 @@ SCENARIOS = Path(
 # reuse the pipeline's OPENROUTER_API_KEY for the LLM justification (dev)
 load_dotenv(_REPO_ROOT / "apps" / "pipeline" / ".env")
 
+log = logging.getLogger("gridforge_api")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """Warm pandapower's numba JIT at startup so the first /optimize isn't slow."""
+    """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests
+    never race on DDL), then warm pandapower's numba JIT so the first /optimize isn't slow."""
+    _init_scenarios_db()
     try:
         from gridforge_optimizer.network import build_base_net, feasibility
         feasibility(build_base_net())
-    except Exception:
-        pass
+    except Exception:  # warming is best-effort; a broken network surfaces on the first real call
+        log.exception("numba warm-up failed")
     yield
 
 
 app = FastAPI(title="GridForge API", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _json_errors(request: Request, call_next):
+    """Turn an unhandled exception into a JSON 500. Registered BEFORE the CORS middleware so it sits
+    inside it: the browser then sees CORS headers plus the reason, not an opaque CORS error."""
+    try:
+        return await call_next(request)
+    except Exception as exc:  # the one place a blind except is right: it's the last line of defence
+        log.exception("unhandled error on %s %s", request.method, request.url.path)
+        return JSONResponse({"detail": f"{type(exc).__name__}: {exc}"}, status_code=500)
+
+
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -76,6 +98,7 @@ MANUAL_READINESS_DEFAULT = 0.5
 MANUAL_STRATEGIC_DEFAULT = 0.5
 ADDED_CANDIDATE_ID_BASE = 2056  # user-added projects are numbered CR-2056, CR-2057, …
 _optimize_cache: dict = {}
+_compute_cache: dict = {}
 
 
 # --- read-only baseline (pipeline warehouse) --------------------------------
@@ -194,10 +217,56 @@ _BRANCH_COLS = [
 ]
 
 
-def _scenarios_con() -> duckdb.DuckDBPyConnection:
-    """Open the scenarios DB, creating/migrating its tables and seeding the 'main' branch."""
-    SCENARIOS.parent.mkdir(parents=True, exist_ok=True)
-    con = duckdb.connect(str(SCENARIOS))
+_SCEN_LOCK = threading.RLock()
+_SCEN_DB: duckdb.DuckDBPyConnection | None = None
+
+
+def _init_scenarios_db() -> duckdb.DuckDBPyConnection:
+    """Open the scenarios DB once per process and create/migrate its tables under a lock.
+
+    The planner's boot fires several requests at once; with a brand-new DB, two threads each running
+    CREATE TABLE IF NOT EXISTS made DuckDB raise a catalog write-write conflict (a 500 on first run).
+    Doing the DDL exactly once, serialised, removes that race.
+    """
+    global _SCEN_DB
+    with _SCEN_LOCK:
+        if _SCEN_DB is not None:
+            return _SCEN_DB
+        SCENARIOS.parent.mkdir(parents=True, exist_ok=True)
+        con = duckdb.connect(str(SCENARIOS))
+        _migrate_scenarios(con)
+        _SCEN_DB = con
+        return con
+
+
+@contextmanager
+def _scenarios():
+    """Serialised access to the scenarios DB: a cursor on the shared connection, under the lock.
+    DuckDB cursors are the thread-safe way to share one connection; the lock keeps writers from
+    conflicting with each other (these operations take milliseconds, so contention is moot)."""
+    con = _init_scenarios_db()
+    with _SCEN_LOCK:
+        cur = con.cursor()
+        try:
+            yield cur
+        finally:
+            cur.close()
+
+
+def _use_scenarios_db(path: Path) -> None:
+    """Test hook: point the API at another scenarios DB file (closing the current connection)."""
+    global _SCEN_DB, SCENARIOS
+    with _SCEN_LOCK:
+        if _SCEN_DB is not None:
+            _SCEN_DB.close()
+        _SCEN_DB = None
+        SCENARIOS = path
+    _optimize_cache.clear()
+    _compute_cache.clear()
+
+
+def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
+    """Create/migrate the scenarios tables and seed the 'main' branch (idempotent)."""
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS added_candidates (
@@ -227,7 +296,6 @@ def _scenarios_con() -> duckdb.DuckDBPyConnection:
         """
     )
     _ensure_main_branch(con)
-    return con
 
 
 def _ensure_main_branch(con: duckdb.DuckDBPyConnection) -> None:
@@ -259,13 +327,10 @@ def _registry_rows() -> list[dict]:
 def _candidate_rows(branch_id: str = "main") -> list[dict]:
     """Projects IN a branch's plan = the ones added to it. 'main' has none until something is merged
     into it — it is the as-is plan of record; projects are pulled onto branches from the registry."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         cur = con.execute("SELECT * FROM added_candidates WHERE branch_id = ?", [branch_id])
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
-    finally:
-        con.close()
 
 
 def _to_client(r: dict) -> dict:
@@ -358,11 +423,8 @@ def _insert_candidate(con: duckdb.DuckDBPyConnection, branch_id: str, body: NewC
 @app.post("/optimize/candidates")
 def add_candidate(body: NewCandidate) -> dict:
     """Add a project to a branch (stored in the API scenarios DB; warehouse untouched)."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         row = _insert_candidate(con, body.branch_id, body, _valid_bus_ids())
-    finally:
-        con.close()
     _optimize_cache.clear()  # candidate set changed
     _compute_cache.clear()
     return _to_client(row)
@@ -431,8 +493,6 @@ def _candidates(branch_id: str = "main") -> list[Candidate]:
         for r in _candidate_rows(branch_id)
     ]
 
-
-_compute_cache: dict = {}
 
 
 def _cand_key(cands: list[Candidate]) -> str:
@@ -618,8 +678,7 @@ class BranchOptimizeRequest(BaseModel):
 @app.post("/branches")
 def create_branch(body: BranchCreate) -> dict:
     """Create a branch (copy-on-create): snapshot the parent's projects, then apply the change."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         parent = _require_branch(con, body.from_branch)
         bid = "br-" + uuid.uuid4().hex[:8]
         con.execute(
@@ -641,33 +700,25 @@ def create_branch(body: BranchCreate) -> dict:
         for p in body.added_projects:
             _insert_candidate(con, bid, p, valid)
         out = _branch_to_client(con, _branch_row(con, bid))
-    finally:
-        con.close()
     return out
 
 
 @app.get("/branches")
 def list_branches() -> dict:
     """All branches, main first then newest-created."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         ids = [r[0] for r in con.execute(
             "SELECT branch_id FROM branches ORDER BY (branch_id = 'main') DESC, created_at"
         ).fetchall()]
         branches = [_branch_to_client(con, _branch_row(con, i)) for i in ids]
-    finally:
-        con.close()
     return {"branches": branches}
 
 
 @app.post("/branches/{branch_id}/optimize")
 def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -> dict:
     """Run the optimizer on a branch's scenario + candidate set."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         row = _require_branch(con, branch_id)
-    finally:
-        con.close()
     req = _branch_request(row)
     req.with_justification = bool(body and body.with_justification)
     return _optimize_payload(req, branch_id)
@@ -683,8 +734,7 @@ def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
     row = {r["request_id"]: r for r in _registry_rows()}.get(body.request_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"registry project '{body.request_id}' not found")
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         _require_branch(con, branch_id)
         exists = con.execute(
             "SELECT 1 FROM added_candidates WHERE branch_id = ? AND request_id = ?",
@@ -698,8 +748,6 @@ def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
                  row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
                  row.get("commissioning_year"), None, branch_id],
             )
-    finally:
-        con.close()
     _optimize_cache.clear()
     _compute_cache.clear()
     return _to_client({**row, "branch_id": branch_id})
@@ -720,8 +768,7 @@ def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
     next /optimize just reports it alongside the recommendation (and flags any conflict)."""
     if body.year is not None and not (2026 <= body.year <= 2035):
         raise HTTPException(status_code=422, detail="year must be between 2026 and 2035")
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         _require_branch(con, branch_id)
         hit = con.execute(
             "SELECT 1 FROM added_candidates WHERE branch_id = ? AND request_id = ?",
@@ -736,8 +783,6 @@ def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
             "UPDATE added_candidates SET scheduled_year = ? WHERE branch_id = ? AND request_id = ?",
             [body.year, branch_id, body.request_id],
         )
-    finally:
-        con.close()
     _optimize_cache.clear()  # the payload carries scheduled_year; the engine result is unaffected
     return {"branch_id": branch_id, "request_id": body.request_id, "scheduled_year": body.year}
 
@@ -745,12 +790,9 @@ def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
 @app.get("/branches/{branch_id}/diff")
 def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     """Consequence diff of a branch (head) vs its parent (base, default main)."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         head_row = _require_branch(con, branch_id)
         base_row = _branch_row(con, head_row["parent_id"] or "main") or _branch_row(con, "main")
-    finally:
-        con.close()
     head_cands = _candidates(branch_id)
     base_cands = _candidates(base_row["branch_id"])
     head = _compute(_branch_request(head_row), head_cands, _cand_key(head_cands))
@@ -774,8 +816,7 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
     into = (body.into if body else "main") or "main"
     if branch_id == into:
         raise HTTPException(status_code=400, detail="cannot merge a branch into itself")
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         b = _require_branch(con, branch_id)
         _require_branch(con, into)
         if b["status"] != "open":
@@ -794,8 +835,6 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
         )
         con.execute("UPDATE branches SET status='merged', merged_at=? WHERE branch_id=?", [_now(), branch_id])
         out = _branch_to_client(con, _branch_row(con, into))
-    finally:
-        con.close()
     _optimize_cache.clear()
     _compute_cache.clear()
     return out
@@ -806,13 +845,10 @@ def discard_branch(branch_id: str) -> dict:
     """Soft-discard a branch (kept for audit; main cannot be discarded)."""
     if branch_id == "main":
         raise HTTPException(status_code=400, detail="cannot discard main")
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         _require_branch(con, branch_id)
         con.execute("UPDATE branches SET status='discarded' WHERE branch_id=?", [branch_id])
         out = _branch_to_client(con, _branch_row(con, branch_id))
-    finally:
-        con.close()
     return out
 
 
@@ -836,11 +872,8 @@ def _summarize_suggestion(s, base) -> str:
 @app.get("/branches/{branch_id}/suggestions")
 def branch_suggestions(branch_id: str, limit: int = MAX_SUGGESTIONS, with_narration: bool = False) -> dict:
     """The copilot: concrete, quantified unblocks for the projects this branch defers on the grid."""
-    con = _scenarios_con()
-    try:
+    with _scenarios() as con:
         row = _require_branch(con, branch_id)
-    finally:
-        con.close()
     cands = _candidates(branch_id)
     ckey = _cand_key(cands)
     req = _branch_request(row)
