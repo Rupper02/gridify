@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { OptimizeResult, PhaseResult, QueueItem } from "../types";
-import { alertGroupsFor, bindingSets, buildProjList, effYearOf, filterSortQueue, isStale, readyFromForm, timelineRollup, violationCount } from "./derive";
+import { alertGroupsFor, bindingSets, buildProjList, effYearOf, filterSortQueue, interpolateGrowthForYear, isStale, readyFromForm, timelineRollup, violationCount } from "./derive";
 
 const item = (over: Partial<QueueItem>): QueueItem => ({
   rank: 1, request_id: "X", bus_id: 1, technology: "solar", rating_mw: 10, readiness_score: 0.5, strategic_fit: 0.5,
@@ -78,22 +78,83 @@ describe("alertGroupsFor", () => {
     params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
     queue: [item({ request_id: "D", status: "Deferred", reason: { type: "trafo", element_id: 3, value: 110, message: "m", kind: "grid", element: null, short: "Overloads transformer 3", why: "w", action: "a" } })],
     phases: {
-      "2030": phase({ line_loading: { 1: 95, 2: 50 } }),
-      "2035": phase({
+      "2028": phase({ line_loading: { 1: 95, 2: 50 } }),
+      "2032": phase({
         overloaded_line_ids: [1], line_loading: { 1: 120 }, voltage_violation_bus_ids: [9], bus_vm: { 9: 1.12 },
         n1_screened: 27, n1_violations: [{ outage_type: "line", outage_id: 5, outage_name: "L1", type: "voltage", element_id: 75, value: 0.928, message: "m" }],
       }),
     },
     justification: "", snapshot_id: "s", branch_id: "main",
   };
-  it("groups violations, grid deferrals and near-limit lines, and counts what needs attention", () => {
-    const groups = alertGroupsFor(r, 1.08, 1.35);
-    expect(groups.map((g) => g.key)).toEqual(["viol", "n1", "dg", "watch"]);
-    expect(groups[0].items.map((a) => a.title)).toEqual(["Line 1 overloaded · 120%", "Voltage breach at bus 9"]);
-    expect(groups[1].items[0].title).toBe("Line 5 out → bus 75 at 0.928 pu"); // the N-1 screen is reported, not a gate
-    expect(groups[3].items[0].title).toBe("Line 1 at 95%"); // 2030: 95% is within 12% of the rating
-    expect(violationCount(groups)).toBe(3);
-    expect(alertGroupsFor(null, 1, 1)).toEqual([]);
+  it("groups violations, grid deferrals and near-limit lines for the given phase, and counts what needs attention", () => {
+    const groups2032 = alertGroupsFor(r, "2032", 1.25);
+    expect(groups2032.map((g) => g.key)).toEqual(["viol", "n1", "dg"]);
+    expect(groups2032[0].items.map((a) => a.title)).toEqual(["Line 1 overloaded · 120%", "Voltage breach at bus 9"]);
+    expect(groups2032[1].items[0].title).toBe("Line 5 out → bus 75 at 0.928 pu"); // the N-1 screen is reported, not a gate
+    expect(violationCount(groups2032)).toBe(4); // 1 overload + 1 voltage + 1 N-1 + 1 deferred = 4
+    
+    const groups2028 = alertGroupsFor(r, "2028", 1.08);
+    expect(groups2028.map((g) => g.key)).toEqual(["dg", "watch"]);
+    expect(groups2028[1].items[0].title).toBe("Line 1 at 95%"); // 2028: 95% is within 12% of the rating
+    expect(violationCount(groups2028)).toBe(1); // only the deferred project
+    
+    expect(alertGroupsFor(null, "2030", 1.0)).toEqual([]);
+  });
+  
+  it("fails if alerts badge count ignores N-1 violations", () => {
+    // Regression: N-1 violations must be included in the alerts badge count
+    const groups = alertGroupsFor(r, "2032", 1.25);
+    const n1Group = groups.find(g => g.key === "n1");
+    expect(n1Group).toBeDefined();
+    expect(n1Group!.items.length).toBeGreaterThan(0);
+    
+    const count = violationCount(groups);
+    // If N-1 is excluded, count would be 3 (overload + voltage + deferred)
+    // With N-1 included, count is 4
+    expect(count).toBe(4);
+    expect(count).toBeGreaterThan(3); // must be > count without N-1
+  });
+});
+
+describe("interpolateGrowthForYear", () => {
+  it("returns 1.0 before base year", () => {
+    expect(interpolateGrowthForYear(2024, 1.08, 1.35)).toBe(1.0);
+    expect(interpolateGrowthForYear(2026, 1.08, 1.35)).toBe(1.0);
+  });
+  
+  it("interpolates linearly between base and 2030", () => {
+    const g2027 = interpolateGrowthForYear(2027, 1.08, 1.35);
+    expect(g2027).toBeGreaterThan(1.0);
+    expect(g2027).toBeLessThan(1.08);
+    
+    const g2028 = interpolateGrowthForYear(2028, 1.08, 1.35);
+    expect(g2028).toBeGreaterThan(g2027);
+    expect(g2028).toBeLessThan(1.08);
+  });
+  
+  it("returns exact anchor values at 2030 and 2035", () => {
+    expect(interpolateGrowthForYear(2030, 1.08, 1.35)).toBe(1.08);
+    expect(interpolateGrowthForYear(2035, 1.08, 1.35)).toBe(1.35);
+  });
+  
+  it("interpolates linearly between 2030 and 2035", () => {
+    const g2032 = interpolateGrowthForYear(2032, 1.08, 1.35);
+    expect(g2032).toBeGreaterThan(1.08);
+    expect(g2032).toBeLessThan(1.35);
+    // 2032 is 2/5 of the way from 2030 to 2035
+    expect(g2032).toBeCloseTo(1.08 + (1.35 - 1.08) * 0.4, 4);
+  });
+  
+  it("holds at 2035 value after 2035", () => {
+    expect(interpolateGrowthForYear(2040, 1.08, 1.35)).toBe(1.35);
+    expect(interpolateGrowthForYear(2050, 1.08, 1.35)).toBe(1.35);
+  });
+  
+  it("fails if 2028 shows the 2035 growth factor", () => {
+    // Regression test: 2028 must not use 1.35 (the 2035 factor)
+    const g2028 = interpolateGrowthForYear(2028, 1.08, 1.35);
+    expect(g2028).not.toBe(1.35);
+    expect(g2028).toBeLessThan(1.08);
   });
   
   it("handles single-year phase keys without crashing or inventing 2030/2035 data", () => {

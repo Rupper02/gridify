@@ -9,7 +9,7 @@ type GspFiguresPlanner = PlannerSlice<"boundary", never, "ph">;
 export type StatsBarPlanner = PlannerSlice<
   "result" | "model" | "timelineYear" | "boundary" | "showBoundary",
   never,
-  "ph" | "q" | "eg30" | "eg35" | "phase"
+  "ph" | "q" | "egYear"
 > &
   WithPatch;
 export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", never, "ph"> & WithPatch;
@@ -87,9 +87,9 @@ function gspFigures(planner: GspFiguresPlanner) {
 
 export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
   const { s, patch, derived } = planner;
-  const { ph, q, eg30, eg35, phase } = derived;
+  const { ph, q, egYear } = derived;
   const r = s.result;
-  const growth = phase === "2030" ? eg30 : eg35;
+  const growth = egYear;
   const tl = timelineRollup(q, s.timelineYear);
   const { lim, exp, imp, fg } = gspFigures(planner);
   const gens = s.model?.generators ?? [];

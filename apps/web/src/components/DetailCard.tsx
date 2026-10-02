@@ -9,7 +9,7 @@ import type { Model, OptimizeResult, QueueItem, Sel } from "../types";
 export type DetailCardPlanner = PlannerSlice<
   "model" | "result" | "sel",
   "newApplicationAt" | "selectProject" | "setSchedule",
-  "q" | "phase" | "eg30" | "eg35"
+  "q" | "phase" | "egYear"
 > &
   WithPatch;
 
@@ -121,13 +121,12 @@ function projectDetail({ planner, selQ }: Ctx): Detail | null {
 }
 
 function lineDetail({ planner, m, r, over }: Ctx, id: number): Detail | null {
-  const { q, phase, eg30, eg35 } = planner.derived;
-  const growth = phase === "2030" ? eg30 : eg35;
+  const { q, phase, egYear } = planner.derived;
+  const growth = egYear;
   const l = m.lines.find((x) => x.line_id === id);
   if (!l) return null;
   const binds = q.filter((x) => x.reason?.element?.line_id === l.line_id);
-  const v30 = loadPct(r, "2030", l.line_id);
-  const v35 = loadPct(r, "2035", l.line_id);
+  const vCurrent = loadPct(r, phase, l.line_id);
   const isO = over.has(l.line_id);
   const d: Detail = {
     kind: "Line",
@@ -138,8 +137,7 @@ function lineDetail({ planner, m, r, over }: Ctx, id: number): Detail | null {
       { k: "Thermal rating", v: `${l.rating_a} A` },
       { k: "Capacity", v: lineMva(l) },
       { k: "Length", v: `${(l.length_km || 0).toFixed(2)} km` },
-      { k: "Loading 2030", v: v30 == null ? "—" : `${v30.toFixed(1)}%`, color: v30 != null && v30 > 100 ? "#dc2626" : undefined },
-      { k: "Loading 2035", v: v35 == null ? "—" : `${v35.toFixed(1)}%`, color: v35 != null && v35 > 100 ? "#dc2626" : undefined },
+      { k: `Loading ${phase}`, v: vCurrent == null ? "—" : `${vCurrent.toFixed(1)}%`, color: vCurrent != null && vCurrent > 100 ? "#dc2626" : undefined },
     ],
   };
   if (binds.length)
@@ -151,9 +149,9 @@ function lineDetail({ planner, m, r, over }: Ctx, id: number): Detail | null {
 
 function busDetail({ planner, m, r, vv, busProjects }: Ctx, id: number): Detail {
   const ps = busProjects[id] ?? [];
+  const { phase } = planner.derived;
   const b = m.buses.find((x) => x.bus_id === id);
-  const v30 = vmAt(r, "2030", id);
-  const v35 = vmAt(r, "2035", id);
+  const vCurrent = vmAt(r, phase, id);
   return {
     kind: "Bus",
     title: `Bus ${id}`,
@@ -161,8 +159,7 @@ function busDetail({ planner, m, r, vv, busProjects }: Ctx, id: number): Detail 
     chip: vv.has(id) ? { label: "Voltage breach", bg: "#fee2e2", fg: "#991b1b" } : undefined,
     rows: [
       { k: "Statutory band", v: voltageBandLabel(b?.vn_kv) },
-      { k: "Voltage 2030", v: v30 == null ? "—" : `${v30.toFixed(3)} pu` },
-      { k: "Voltage 2035", v: v35 == null ? "—" : `${v35.toFixed(3)} pu` },
+      { k: `Voltage ${phase}`, v: vCurrent == null ? "—" : `${vCurrent.toFixed(3)} pu` },
       { k: "Projects here", v: ps.length ? ps.map((x) => x.request_id).join(", ") : "None" },
     ],
     action: { label: "New application at this bus", onClick: () => planner.actions.newApplicationAt(id) },
