@@ -33,6 +33,7 @@ class OptimizeRequest(BaseModel):
     w_need: float | None = None
     w_strategic: float | None = None
     with_justification: bool = True
+    study_year: int | None = None  # optional: run for a specific year (overrides two-phase logic)
 
 
 class BranchOptimizeRequest(BaseModel):

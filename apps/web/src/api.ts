@@ -74,7 +74,7 @@ export const api = {
       `/branches/${branchId}/schedule`,
       { request_id: requestId, year },
     ),
-  optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean }) =>
+  optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean; study_year?: number | null }) =>
     applyReasons(await postJson<OptimizeResult>("/optimize", body)),
   /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway). */
   getForecasts: async () => {
