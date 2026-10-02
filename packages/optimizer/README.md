@@ -25,6 +25,7 @@ Nothing in `optimize()` or `suggest_unblock()` makes a network call, so the same
 |---|---|
 | `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context. |
 | `editions.py` | `edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (rows, model, physics). `diff_ecr_editions(prev, cur)`: site-level changes between two fetches of the Embedded Capacity Register. Pure. |
+| `cim.py` | `export_cgmes(net, model, snapshot_id)`: the network as CIM/CGMES 2.4.15 RDF/XML (EQ, TP, SSH, GL profiles), deterministic ids; `cgmes_zip_bytes` / `write_cgmes_zip`. Round-trips through pandapower's `from_cim` (tested). |
 | `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen`, per-element results, `apply_reinforcement`. |
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
@@ -148,14 +149,18 @@ NGED-specific values live in `nged.py`: `DEMAND_DIVERSITY = 0.55`, `GSP_BOUNDARY
 ## Tests
 
 ```bash
-cd packages/optimizer && uv run pytest -q     # 30 tests
+cd packages/optimizer && uv run pytest -q     # 50 tests on 4 workers (pytest-xdist); ~2 min
 ```
+
+The N-1 screen is stubbed in every test except the one that tests it (`conftest.py`, marker `n1`): it costs ~2 s per phase inside `optimize()` and would otherwise dominate the suite.
 
 Tests are **grid-agnostic**. `tests/_grid.py` derives every fixture from the network `build_base_net()` returns:
 - a stiff bus, the weakest buses, and a saturating queue sized from the local circuits' thermal rating (not from any policy cap);
 - no hard-coded bus ids.
 
 What they cover:
+- the CGMES export: well-formed, fully linked, deterministic, and re-imported by pandapower to the same network and power flow (`test_cim.py`);
+- the trial cache is exact and saves solves; progress is reported in order (`test_cache.py`);
 - statutory voltage bands by level, tap-changer regulation, per-case dispatch, fleet siting and the N-1 screen (`test_physics.py`);
 - feasibility and the worst-case envelope;
 - the summer-minimum case raising export;

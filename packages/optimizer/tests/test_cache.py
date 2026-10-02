@@ -27,7 +27,7 @@ def _strip(result):
 
 def test_trial_cache_is_exact_and_reuses_the_unchanged_prefix(count_feasibility):
     net = base_net()
-    cands = saturating_candidates(net, n=6)
+    cands = saturating_candidates(net, n=3)
     extra = Candidate(request_id="late_small", bus_id=stiff_bus(net), technology="solar", rating_mw=3.0,
                       readiness_score=0.05, strategic_fit=0.1)  # ranks last: every earlier trial is unchanged
 

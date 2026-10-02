@@ -12,7 +12,15 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "lxml>=6.1.3",
+    "pytest>=8",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-n 4"  # modules in parallel (pytest-xdist); each worker pays numba's JIT once
+markers = ["n1: runs the real N-1 screen inside optimize (stubbed elsewhere for speed)"]
 
 [build-system]
 requires = ["hatchling"]

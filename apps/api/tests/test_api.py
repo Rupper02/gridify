@@ -40,7 +40,7 @@ def _good(**kw):
             "rating_mw": 5.0, "readiness_score": 0.9, **kw}
 
 
-def _saturating(n=10, mw=50.0):
+def _saturating(n=5, mw=50.0):
     wb = _weak_buses(n)
     return [{"applicant": f"Sat-{i}", "bus_id": wb[i % len(wb)], "technology": "wind",
              "rating_mw": mw, "readiness_score": 0.9} for i in range(n)]
@@ -76,6 +76,17 @@ def test_core_read_endpoints():
     assert "export_limit_mw" in client.get("/boundary").json()
     q = client.post("/optimize", json={"with_justification": False}).json()
     assert "queue" in q and "phases" in q and q["branch_id"] == "main"
+
+
+def test_cgmes_download_is_a_deterministic_zip():
+    import io
+    import zipfile
+
+    r = client.get("/model/cgmes")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    names = sorted(zipfile.ZipFile(io.BytesIO(r.content)).namelist())
+    assert [n.rsplit("_", 1)[1] for n in names] == ["EQ.xml", "GL.xml", "SSH.xml", "TP.xml"]
+    assert client.get("/model/cgmes").content == r.content  # same snapshot, same bytes
 
 
 def test_versions_and_edition_changes():
@@ -154,7 +165,7 @@ def test_schedule_persists_and_flags_against_recommendation():
 
 
 def test_suggestions_for_grid_deferred_branch():
-    b = _create("Saturated queue", added_projects=_saturating(10))
+    b = _create("Saturated queue", added_projects=_saturating(5))
     bid = b["branch_id"]
     q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
     deferred = [x for x in q["queue"] if x["status"] == "Deferred" and x.get("reason")

@@ -133,6 +133,8 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 - **`main` is a branch row too.** Merging squashes a branch into it, last write wins.
 - **Results are cached durably.** A run is a pure function of the model snapshot, the parameters, the branch's candidate set and the engine's code, so every result is stored in the scenarios DB under that key: the same run never happens twice, not even after a restart, and two branches can never serve each other's queue. Inside a run, the engine keeps an exact trial cache: when a branch gains one project, only the trials whose state changed are solved again.
 - **Runs are background jobs.** The planner starts a job and polls it; the overlay shows the engine's real stage (ranking, each phase's trials, the N-1 screen). `main` is precomputed when the API starts.
+- **The model speaks CIM.** `gridforge_optimizer.cim` serialises the network to CGMES 2.4.15 (equipment, topology, steady-state hypothesis and geography profiles) with deterministic identifiers, so two exports diff like any other versioned artefact. The pipeline writes one per edition (`nged_model_cgmes`); the API serves it at `GET /model/cgmes`. The export is verified by re-importing it with pandapower's CGMES importer: same elements, same ratings, same tap steps, same power-flow solution.
+- **Postgres or DuckDB for the scenarios store.** Branches, added projects, schedules and the result cache live in a DuckDB file by default; set `GRIDFORGE_SCENARIOS_URL=postgresql://…` and they live in Postgres instead, through the same SQL (one small dialect layer). The warehouse stays DuckDB.
 
 ---
 
@@ -144,6 +146,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 |---|---|
 | `GET /health` | Liveness, and whether the warehouse exists |
 | `GET /model` | Buses, lines, transformers, loads and the existing fleet, with coordinates |
+| `GET /model/cgmes` | Today's network as a CIM/CGMES 2.4.15 exchange (EQ, TP, SSH, GL in one zip); re-imports with pandapower's CGMES importer to the same power flow |
 | `GET /boundary` | GSP export limit, export today, and transmission projects (with registry ids where optional) |
 | `GET /forecasts` | NESO FES 2025 demand pathways, plus the intake cap |
 | `GET /snapshots` | The model's version history (`network@<snapshot_id>`, newest first, with the LTDS edition of each) |
@@ -188,6 +191,7 @@ Open **http://localhost:3000**. You land on `main`, today's network. Open **Revi
 - **Shell quoting:** quote `'ltds_tables*'`, or the shell may expand it. It selects the root asset and everything downstream.
 - **Dagster UI:** `uv run dg dev` shows lineage and check results. It also uses port 3000, so don't run it alongside the web app.
 - **Narration (optional):** put `OPENROUTER_API_KEY=…` in `apps/pipeline/.env`.
+- **Postgres (optional):** `GRIDFORGE_SCENARIOS_URL=postgresql://user@host:5432/dbname` before starting the API moves the scenarios store to Postgres (tables are created on first use). The API tests run the same workflow against Postgres when `GRIDFORGE_TEST_PG_URL` is set.
 
 ---
 
@@ -232,8 +236,8 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 ```bash
 pnpm test                                     # everything, via Turborepo
 # or individually
-cd packages/optimizer && uv run pytest -q     # engine: 36 tests
-cd apps/api && uv run --with pytest pytest tests -q   # API: 12 tests (each run uses its own temp scenarios DB)
+cd packages/optimizer && uv run pytest -q     # engine: 50 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
+cd apps/api && uv run --with pytest pytest tests -q   # API: 16 tests (each run uses its own temp scenarios DB; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
 cd apps/web && pnpm test                      # UI: 13 vitest unit tests (reason wording, timeline/queue/alert derivations)
 ```
 

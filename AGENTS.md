@@ -16,9 +16,9 @@ Deep docs (they are the spec, so keep them current):
 
 | Path | Owns |
 |---|---|
-| `packages/optimizer` (`gridforge_optimizer`) | **The single source of truth** for the network build (`nged.py`), the physics (`network.py` feasibility), ranking and greedy loop (`greedy.py`), "what would it take" (`suggest.py`), the diff (`diff.py`), the pydantic contract (`types.py`) and every tunable (`config.py`). Bundled open data lives in `src/gridforge_optimizer/data/nged/`. |
+| `packages/optimizer` (`gridforge_optimizer`) | **The single source of truth** for the network build (`nged.py`), the physics (`network.py` feasibility), ranking and greedy loop (`greedy.py`), "what would it take" (`suggest.py`), the diff (`diff.py`), editions (`editions.py`), the CIM/CGMES export (`cim.py`), the pydantic contract (`types.py`) and every tunable (`config.py`). Bundled open data lives in `src/gridforge_optimizer/data/nged/`. |
 | `apps/pipeline` (`grid_simulator`) | Dagster. `defs/nged.py` (group `ltds`): `ltds_tables` (pinned snapshot, passed INTO the builder) → `nged_model_canonical` + `nged_connection_queue` + `ltds_edition_changes` → 3 asset checks → `served_nged` → DuckDB warehouse `apps/pipeline/warehouse/gridforge.duckdb` with an append-only `snapshots` history. `defs/registers.py` (group `registers`): scheduled fetches of the ECR (monthly) and OSM coords (quarterly) into append-only edition tables + `ecr_changes`; `pin_*` assets promote an edition into the bundled snapshot (manual). Warehouse writers carry a retry policy (DuckDB = one writer). |
-| `apps/api` (`gridforge_api`) | FastAPI on :8000. Reads the warehouse **read-only**; branches, added projects and scheduled years go to `apps/api/data/scenarios.duckdb` (`GRIDFORGE_SCENARIOS_DB` overrides; `GRIDFORGE_DB_PATH` overrides the warehouse). |
+| `apps/api` (`gridforge_api`) | FastAPI on :8000. Reads the warehouse **read-only**; branches, added projects, scheduled years and the result cache go to the scenarios store: `apps/api/data/scenarios.duckdb` by default (`GRIDFORGE_SCENARIOS_DB`), or Postgres when `GRIDFORGE_SCENARIOS_URL=postgresql://…` is set (`_Store` / `_Cursor` translate `?`→`%s` and `DOUBLE`→`DOUBLE PRECISION`; everything else is common SQL, so write DuckDB-style SQL with `?` placeholders and `ON CONFLICT` upserts, never `INSERT OR REPLACE` or `PRAGMA`). `GRIDFORGE_DB_PATH` overrides the warehouse. `GET /model/cgmes` serves the CIM export. |
 | `apps/web` | Vite + React 19 + TypeScript single-page planner. `src/hooks/usePlanner.ts` is the controller (state + actions), `src/api.ts` the typed client (+ `normReason`), `src/lib/` pure derivations with vitest, `src/components/` the UI, `MapView.tsx` owns MapLibre. Live-only against the API (`VITE_API_BASE`, default `http://localhost:8000`). |
 
 Both Python apps consume `packages/optimizer` as an editable uv path dependency. Never duplicate network-building or physics logic in the pipeline, the API or the client; import it from the engine.
@@ -45,7 +45,10 @@ pnpm test                                         # everything, via Turborepo
 cd packages/optimizer && uv run pytest -q         # engine
 cd apps/api && uv run --with pytest pytest tests -q   # API (uses a temp scenarios DB)
 cd apps/web && pnpm test && pnpm typecheck        # UI unit tests + tsc
+GRIDFORGE_TEST_PG_URL=postgresql://user@host:5499/db  cd apps/api && uv run --with pytest pytest tests -q   # + the Postgres store test
 ```
+
+Keep suites fast: the engine suite stubs the N-1 screen (`tests/conftest.py`, opt in with `@pytest.mark.n1`), shares expensive runs per module and runs on 4 xdist workers (~2 min); the API suite uses small saturating fixtures (~2 min). Run suites one at a time, not alongside browser sessions.
 
 - `uv run dg dev` (Dagster UI) also binds **port 3000**: don't run it alongside the web app.
 - Re-materialise after changing `nged.py` or bundled data, and restart the API: it caches optimize results and the GSP boundary in memory.

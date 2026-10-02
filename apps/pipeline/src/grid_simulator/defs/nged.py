@@ -21,6 +21,7 @@ import networkx as nx
 import pandas as pd
 
 from grid_simulator.config import DB_PATH
+from gridforge_optimizer.cim import write_cgmes_zip
 from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.editions import edition_changeset
 from gridforge_optimizer.network import feasibility, voltage_limits
@@ -179,6 +180,23 @@ def single_connected_network(nged_model_canonical: dict) -> dg.AssetCheckResult:
         severity=dg.AssetCheckSeverity.WARN,
         metadata={"connected_components": components, "buses": g.number_of_nodes()},
     )
+
+
+# --- exchange: the model as CIM/CGMES ------------------------------------------------------
+@dg.asset(group_name="ltds", kinds={"xml"})
+def nged_model_cgmes(context: dg.AssetExecutionContext, ltds_tables: dict, nged_model_canonical: dict) -> dg.MaterializeResult:
+    """Today's network as a CGMES 2.4.15 exchange (EQ/TP/SSH/GL in one zip), written next to the
+    warehouse as `exports/GridForge_<edition>_CGMES.zip`. Deterministic: the same edition gives the
+    same bytes, so two exports can be diffed like any other versioned artefact."""
+    edition = tables_hash(ltds_tables)
+    net = build_nged_net(ltds_tables)
+    feasibility(net)  # settle the tap changers
+    out_dir = DB_PATH.parent / "exports"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"GridForge_{edition}_CGMES.zip"
+    sizes = write_cgmes_zip(path, net, nged_model_canonical, edition)
+    return dg.MaterializeResult(metadata={"path": str(path), "ltds_edition": edition,
+                                          **{k: v for k, v in sizes.items()}, "zip_bytes": path.stat().st_size})
 
 
 # --- served: write the warehouse the API reads ----------------------------------------------

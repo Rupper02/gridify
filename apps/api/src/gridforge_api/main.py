@@ -9,6 +9,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -21,6 +22,7 @@ import duckdb
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -58,6 +60,9 @@ WAREHOUSE = Path(
 SCENARIOS = Path(
     os.getenv("GRIDFORGE_SCENARIOS_DB", str(Path(__file__).resolve().parents[2] / "data" / "scenarios.duckdb"))
 )
+# a postgresql:// URL here puts branches, added projects, schedules and the result cache in Postgres
+# instead of the DuckDB file (same schema, same SQL; see _Store)
+SCENARIOS_URL: str | None = os.getenv("GRIDFORGE_SCENARIOS_URL") or None
 
 # reuse the pipeline's OPENROUTER_API_KEY for the LLM justification (dev)
 load_dotenv(_REPO_ROOT / "apps" / "pipeline" / ".env")
@@ -184,7 +189,8 @@ def _table_exists(name: str) -> bool:
 @app.get("/health")
 def health() -> dict:
     """Liveness probe: reports whether the warehouse DB is present."""
-    return {"ok": True, "warehouse_exists": WAREHOUSE.exists()}
+    return {"ok": True, "warehouse_exists": WAREHOUSE.exists(),
+            "scenarios_store": "postgres" if SCENARIOS_URL else "duckdb"}
 
 
 @app.get("/model")
@@ -194,6 +200,31 @@ def get_model() -> dict:
 
 
 _boundary_cache: dict = {}
+
+
+_cgmes_cache: dict[str, bytes] = {}
+
+
+@app.get("/model/cgmes")
+def model_cgmes() -> Response:
+    """Today's network as a CIM/CGMES 2.4.15 exchange (EQ, TP, SSH, GL profiles in one zip), the
+    common model standard GB networks exchange planning models in. Deterministic ids: the same
+    snapshot always serialises to the same bytes. Re-imports with pandapower's CGMES importer."""
+    from gridforge_optimizer.cim import cgmes_zip_bytes, export_cgmes
+    from gridforge_optimizer.network import build_base_net, feasibility
+    from gridforge_optimizer.nged import nged_model
+
+    sid = baseline_id()
+    key = f"{sid}:{_ENGINE}"
+    if key not in _cgmes_cache:
+        net = build_base_net()
+        feasibility(net)  # settle the tap changers so the SSH carries today's regulated steps
+        _cgmes_cache.clear()
+        _cgmes_cache[key] = cgmes_zip_bytes(export_cgmes(net, nged_model(), sid))
+    return Response(
+        content=_cgmes_cache[key], media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="GridForge_{sid}_CGMES.zip"'},
+    )
 
 
 @app.get("/boundary")
@@ -283,11 +314,78 @@ _BRANCH_COLS = [
 
 
 _SCEN_LOCK = threading.RLock()
-_SCEN_DB: duckdb.DuckDBPyConnection | None = None
+_SCEN_DB = None  # the open store (a _Store), created on first use
+_DOUBLE_RE = re.compile(r"\bDOUBLE\b(?! PRECISION)")  # DuckDB's DOUBLE is Postgres's DOUBLE PRECISION
 
 
-def _init_scenarios_db() -> duckdb.DuckDBPyConnection:
-    """Open the scenarios DB once per process and create/migrate its tables under a lock.
+class _Cursor:
+    """A cursor that speaks our SQL to either engine. We write DuckDB-style SQL with `?` placeholders;
+    for Postgres the placeholders become `%s` and `DOUBLE` becomes `DOUBLE PRECISION`. Everything
+    else used here (ON CONFLICT upserts, IS NOT DISTINCT FROM, information_schema) is common SQL."""
+
+    def __init__(self, cur, dialect: str):
+        self._c = cur
+        self.dialect = dialect
+
+    def _sql(self, sql: str) -> str:
+        if self.dialect == "postgres":
+            return _DOUBLE_RE.sub("DOUBLE PRECISION", sql.replace("?", "%s"))
+        return sql
+
+    def execute(self, sql: str, params=None):
+        self._c.execute(self._sql(sql), params if params is not None else [])
+        return self
+
+    def executemany(self, sql: str, seq):
+        if seq:
+            self._c.executemany(self._sql(sql), seq)
+        return self
+
+    def fetchone(self):
+        return self._c.fetchone()
+
+    def fetchall(self):
+        return self._c.fetchall()
+
+    @property
+    def description(self):
+        return self._c.description
+
+    def columns(self, table: str) -> list[str]:
+        """Column names of a table (the migration helper)."""
+        if self.dialect == "postgres":
+            self._c.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position", [table])
+            return [r[0] for r in self._c.fetchall()]
+        self._c.execute(f"PRAGMA table_info('{table}')")
+        return [r[1] for r in self._c.fetchall()]
+
+    def close(self) -> None:
+        self._c.close()
+
+
+class _Store:
+    """The scenarios database: a DuckDB file (default) or Postgres (`GRIDFORGE_SCENARIOS_URL`)."""
+
+    def __init__(self, target: str | Path):
+        self.target = str(target)
+        self.dialect = "postgres" if self.target.startswith(("postgresql://", "postgres://")) else "duckdb"
+        if self.dialect == "postgres":
+            import psycopg  # optional dependency: only needed for a Postgres store
+
+            self._con = psycopg.connect(self.target, autocommit=True)
+        else:
+            Path(self.target).parent.mkdir(parents=True, exist_ok=True)
+            self._con = duckdb.connect(self.target)
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self._con.cursor(), self.dialect)
+
+    def close(self) -> None:
+        self._con.close()
+
+
+def _init_scenarios_db() -> _Store:
+    """Open the scenarios store once per process and create/migrate its tables under a lock.
 
     The planner's boot fires several requests at once; with a brand-new DB, two threads each running
     CREATE TABLE IF NOT EXISTS made DuckDB raise a catalog write-write conflict (a 500 on first run).
@@ -297,40 +395,48 @@ def _init_scenarios_db() -> duckdb.DuckDBPyConnection:
     with _SCEN_LOCK:
         if _SCEN_DB is not None:
             return _SCEN_DB
-        SCENARIOS.parent.mkdir(parents=True, exist_ok=True)
-        con = duckdb.connect(str(SCENARIOS))
-        _migrate_scenarios(con)
-        _SCEN_DB = con
-        return con
+        store = _Store(SCENARIOS_URL or SCENARIOS)
+        cur = store.cursor()
+        try:
+            _migrate_scenarios(cur)
+        finally:
+            cur.close()
+        _SCEN_DB = store
+        return store
 
 
 @contextmanager
 def _scenarios():
-    """Serialised access to the scenarios DB: a cursor on the shared connection, under the lock.
-    DuckDB cursors are the thread-safe way to share one connection; the lock keeps writers from
-    conflicting with each other (these operations take milliseconds, so contention is moot)."""
-    con = _init_scenarios_db()
+    """Serialised access to the scenarios store: a cursor on the shared connection, under the lock.
+    Cursors are the thread-safe way to share one connection; the lock keeps writers from conflicting
+    with each other (these operations take milliseconds, so contention is moot)."""
+    store = _init_scenarios_db()
     with _SCEN_LOCK:
-        cur = con.cursor()
+        cur = store.cursor()
         try:
             yield cur
         finally:
             cur.close()
 
 
-def _use_scenarios_db(path: Path) -> None:
-    """Test hook: point the API at another scenarios DB file (closing the current connection)."""
-    global _SCEN_DB, SCENARIOS
+def _use_scenarios_db(target: Path | str) -> None:
+    """Test hook: point the API at another scenarios store (a DuckDB path or a postgresql:// URL),
+    closing the current connection."""
+    global _SCEN_DB, SCENARIOS, SCENARIOS_URL
     with _SCEN_LOCK:
         if _SCEN_DB is not None:
             _SCEN_DB.close()
         _SCEN_DB = None
-        SCENARIOS = path
+        if str(target).startswith(("postgresql://", "postgres://")):
+            SCENARIOS_URL = str(target)
+        else:
+            SCENARIOS_URL = None
+            SCENARIOS = Path(target)
     _optimize_cache.clear()
     _compute_cache.clear()
 
 
-def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
+def _migrate_scenarios(con: _Cursor) -> None:
     """Create/migrate the scenarios tables and seed the 'main' branch (idempotent)."""
     con.execute(
         """
@@ -343,7 +449,7 @@ def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
         """
     )
     # migrate the pre-branch schema: existing global rows become main's (idempotent)
-    cols = [r[1] for r in con.execute("PRAGMA table_info('added_candidates')").fetchall()]
+    cols = con.columns("added_candidates")
     if "branch_id" not in cols:
         con.execute("ALTER TABLE added_candidates ADD COLUMN branch_id VARCHAR DEFAULT 'main'")
     if "commissioning_year" not in cols:
@@ -376,7 +482,7 @@ def _migrate_scenarios(con: duckdb.DuckDBPyConnection) -> None:
     _ensure_main_branch(con)
 
 
-def _ensure_main_branch(con: duckdb.DuckDBPyConnection) -> None:
+def _ensure_main_branch(con: _Cursor) -> None:
     """Seed the 'main' branch (the plan of record) once, with the default demand pathway."""
     if con.execute("SELECT 1 FROM branches WHERE branch_id = 'main'").fetchone():
         return
@@ -388,7 +494,7 @@ def _ensure_main_branch(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def _branch_row(con: duckdb.DuckDBPyConnection, branch_id: str) -> dict | None:
+def _branch_row(con: _Cursor, branch_id: str) -> dict | None:
     """One branch as a dict keyed by _BRANCH_COLS, or None if it doesn't exist."""
     r = con.execute(
         f"SELECT {', '.join(_BRANCH_COLS)} FROM branches WHERE branch_id = ?", [branch_id]
@@ -475,7 +581,7 @@ def _triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
     return ("auto_accept" if not reasons else "needs_review"), ", ".join(reasons)
 
 
-def _insert_candidate(con: duckdb.DuckDBPyConnection, branch_id: str, body: NewCandidate,
+def _insert_candidate(con: _Cursor, branch_id: str, body: NewCandidate,
                       valid_bus_ids: set[int]) -> dict:
     """Validate + insert a project on a branch; returns the stored row (client fields)."""
     status, review = _triage(body, valid_bus_ids)
@@ -620,7 +726,9 @@ def _cache_get(key: str) -> str | None:
 def _cache_put(key: str, kind: str, compute_ms: int, result_json: str) -> None:
     with _scenarios() as con:
         con.execute(
-            "INSERT OR REPLACE INTO result_cache VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO result_cache VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (cache_key) DO UPDATE SET result_json = EXCLUDED.result_json, created_at = EXCLUDED.created_at, "
+            "compute_ms = EXCLUDED.compute_ms",
             [key, kind, baseline_id(), _ENGINE, _now(), compute_ms, result_json],
         )
 
@@ -858,7 +966,7 @@ def _branch_request(row: dict) -> OptimizeRequest:
     return OptimizeRequest(with_justification=False, **_branch_params(row))
 
 
-def _branch_to_client(con: duckdb.DuckDBPyConnection, row: dict) -> dict:
+def _branch_to_client(con: _Cursor, row: dict) -> dict:
     """A branch shaped for the UI (params + added count + status + timestamps)."""
     n_added = con.execute(
         "SELECT count(*) FROM added_candidates WHERE branch_id = ?", [row["branch_id"]]
@@ -871,7 +979,7 @@ def _branch_to_client(con: duckdb.DuckDBPyConnection, row: dict) -> dict:
     }
 
 
-def _require_branch(con: duckdb.DuckDBPyConnection, branch_id: str) -> dict:
+def _require_branch(con: _Cursor, branch_id: str) -> dict:
     row = _branch_row(con, branch_id)
     if not row:
         raise HTTPException(status_code=404, detail=f"branch '{branch_id}' not found")

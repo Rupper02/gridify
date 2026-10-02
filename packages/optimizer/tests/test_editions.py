@@ -19,6 +19,11 @@ def tables():
     return load_bundled_tables()
 
 
+@pytest.fixture(scope="module")
+def changeset(tables):
+    return edition_changeset(tables)
+
+
 def test_previous_edition_keeps_removed_rows_and_drops_new_ones(tables):
     counts = status_counts(tables)
     assert counts["t2a"].get("removed", 0) > 0 and counts["t2a"].get("new", 0) > 0  # the data has both
@@ -45,8 +50,8 @@ def test_tables_passed_in_are_what_gets_built(tables):
     assert tables_hash(tables) == tables_hash(load_bundled_tables())  # content-stable
 
 
-def test_changeset_is_consistent_with_ngeds_flags(tables):
-    cs = edition_changeset(tables)
+def test_changeset_is_consistent_with_ngeds_flags(tables, changeset):
+    cs = changeset
     counts = cs["status_counts"]
     rows = cs["rows"]
     for table, col_counts in counts.items():
@@ -65,9 +70,10 @@ def test_changeset_is_consistent_with_ngeds_flags(tables):
     assert cs["caveats"]
 
 
-def test_changeset_is_deterministic(tables):
-    assert edition_changeset(tables) == edition_changeset(tables)
-    assert change_rows(tables) == change_rows(tables)
+def test_changeset_is_deterministic(tables, changeset):
+    # the row-level part is cheap to recompute; the physics part is memoised by the builder cache
+    assert change_rows(tables) == change_rows(tables) == changeset["rows"]
+    assert edition_changeset(tables)["model"] == changeset["model"]
 
 
 def _site(name, status="Accepted to connect", mw=10.0, date="01/06/2028", lat=52.9, lon=-0.2, src="Solar"):

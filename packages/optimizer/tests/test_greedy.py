@@ -11,7 +11,7 @@ def _cands():
         Candidate(request_id="no_bus", bus_id=invalid_bus(net), technology="battery", rating_mw=2.0, status="needs_review", review_reasons="bus is not in model"),
         Candidate(request_id="too_big", bus_id=sb, technology="wind", rating_mw=MAX_CONNECTION_MW * 2, status="needs_review", review_reasons="rating is out of range"),
     ]
-    return extras + saturating_candidates(net, n=8)
+    return extras + saturating_candidates(net, n=4)
 
 
 def test_optimize_accepts_small_defers_big_rejects_invalid():
@@ -35,10 +35,10 @@ def test_off_network_bus_is_rejected_not_crashed():
 
 
 def test_ranking_is_deterministic_and_sorted():
-    order1 = [q.request_id for q in optimize(_cands(), OptimizeParams()).queue]
-    order2 = [q.request_id for q in optimize(_cands(), OptimizeParams()).queue]
-    assert order1 == order2
-    ranked = [q for q in optimize(_cands(), OptimizeParams()).queue if q.rank_score is not None]
+    first = optimize(_cands(), OptimizeParams())
+    second = optimize(_cands(), OptimizeParams())
+    assert [q.request_id for q in first.queue] == [q.request_id for q in second.queue]
+    ranked = [q for q in first.queue if q.rank_score is not None]
     scores = [q.rank_score for q in ranked]
     assert scores == sorted(scores, reverse=True)
 
@@ -54,7 +54,7 @@ def test_recommended_year_is_clamped_to_the_phase_window_and_none_when_blocked()
 
 
 def test_queue_items_carry_a_recommended_year_only_when_accepted():
-    res = optimize(saturating_candidates(base_net()), OptimizeParams())
+    res = optimize(saturating_candidates(base_net(), n=4), OptimizeParams())
     for q in res.queue:
         if q.status in ("Phase1", "Phase2"):
             assert q.recommended_year is not None

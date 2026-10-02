@@ -112,6 +112,7 @@ def test_existing_fleet_is_sited_at_its_named_substation():
     assert float(net.sgen["p_mw"].sum()) == pytest.approx(sum(g["rating_mw"] for g in ctx["existing"]), rel=1e-6)
 
 
+@pytest.mark.n1
 def test_n1_screen_reports_backbone_outages_without_gating():
     net = build_base_net()
     out = n1_screen(net)
