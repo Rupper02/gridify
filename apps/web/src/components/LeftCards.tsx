@@ -59,7 +59,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
         <ProfileGlyph bars={resultProfile.bars} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : gspHot ? C.amber : C.ink2 }}>
-          Export {computing ? "..." : gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
+          Export{yr?.gsp_export_case ? ` (${yr.gsp_export_case === "winter_peak" ? "W" : "S"})` : ""} {computing ? "..." : gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : winterHot ? C.amber : C.ink2 }}>
           W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/{winterLimit != null ? Math.round(winterLimit) : "–"}
@@ -290,7 +290,9 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
     <div className="card glass" style={{ padding: "8px 12px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px 12px", fontSize: 11 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: C.mute }}>GSP export</span>
+          <span style={{ color: C.mute }}>
+            GSP export{yr?.gsp_export_case ? ` (${yr.gsp_export_case === "winter_peak" ? "W" : "S"})` : ""}
+          </span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : gspHot ? C.amber : C.ink }}>
             {computing ? "..." : gsp != null && limit != null ? `${Math.round(gsp)} / ${Math.round(limit)}` : "–"}
           </span>
