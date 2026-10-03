@@ -3,7 +3,9 @@ outputs (QueueItem, PhaseResult, OptimizeResult, Reason)."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import Field, BaseModel
 
 from .config import (
     DEFAULT_SCENARIO,
@@ -364,3 +366,101 @@ class Suggestion(BaseModel):
     extra_solves: int = 0  # power-flow solves this suggestion cost (observability)
     caveat: str = ""
     narration: str = ""  # filled by the API via llm.narrate_suggestion (grounded in the figures)
+
+
+# --- the geolocated model of a network (any source), and what an import is judged on -------------------------------
+class ModelBus(BaseModel):
+    bus_id: int
+    name: str
+    vn_kv: float
+    lon: float
+    lat: float
+
+
+class ModelLine(BaseModel):
+    line_id: int
+    line_name: str
+    rating_a: float | None  # None: the file left it unrated (its loading is not checked)
+    voltage_kv: float
+    from_bus: int
+    to_bus: int
+    length_km: float
+    from_lon: float
+    from_lat: float
+    to_lon: float
+    to_lat: float
+
+
+class ModelTransformer(BaseModel):
+    trafo_id: int
+    name: str
+    sn_mva: float
+    hv_bus: int
+    lv_bus: int
+    hv_kv: float
+    lv_kv: float
+    hv_name: str
+    hv_lon: float
+    hv_lat: float
+    lv_lon: float
+    lv_lat: float
+
+
+class ModelLoad(BaseModel):
+    load_id: int
+    bus_id: int
+    p_mw: float
+    region_id: str | None = None
+    lon: float
+    lat: float
+
+
+class ModelGenerator(BaseModel):
+    """An existing (connected) generator: part of the base network, shown on the map."""
+
+    request_id: str
+    bus_id: int
+    rating_mw: float
+    technology: str
+    applicant: str
+    lon: float
+    lat: float
+
+
+class GridModel(BaseModel):
+    """The map's view of a network: every source shapes one (`gridmodel.model_from_net`). `crs` is
+    `wgs84` when the positions are real and `synthetic` when the file carried none (a layout)."""
+
+    buses: list[ModelBus]
+    lines: list[ModelLine]
+    transformers: list[ModelTransformer]
+    loads: list[ModelLoad]
+    generators: list[ModelGenerator]
+    regions: list[dict] = []  # the demand groups (demand.regions_of), when the net carries them
+    crs: Literal["wgs84", "synthetic"] = "wgs84"
+
+
+class ImportMeta(BaseModel):
+    """What the operator knows about an imported grid that its file does not carry. Each is applied
+    uniformly and recorded as an operator-entered assumption; none is required."""
+
+    gsp_export_limit_mw: float | None = Field(default=None, gt=0)
+    gsp_name: str | None = None
+    min_demand_factor: float | None = Field(default=None, gt=0, le=1)  # minimum demand as a share of maximum
+    summer_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)  # summer / winter line rating
+    intermediate_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)
+
+
+class ValidationReport(BaseModel):
+    """Can the engine plan on an imported grid? Errors stop the import; warnings and assumptions are shown."""
+
+    ok: bool
+    errors: list[str] = []
+    warnings: list[str] = []
+    counts: dict[str, int] = {}
+    islands: int = 0
+    converged: bool = False
+    feasible: bool | None = None  # the base case against the limits (None when it did not solve)
+    reason: str | None = None  # the first limit the base case breaks, if any
+    cases: list[str] = []  # the study cases this grid can be studied in
+    assumptions: list[ModelAssumption] = []

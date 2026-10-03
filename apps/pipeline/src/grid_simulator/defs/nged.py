@@ -26,6 +26,7 @@ from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.editions import edition_changeset
 from gridforge_optimizer.network import feasibility, voltage_limits
 from gridforge_optimizer.nged import (
+    NGED_CGMES_META,
     TABLE_NAMES,
     build_nged_net,
     load_bundled_coords,
@@ -196,7 +197,7 @@ def nged_model_cgmes(context: dg.AssetExecutionContext, ltds_tables: dict, nged_
     out_dir = DB_PATH.parent / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"GridForge_{edition}_CGMES.zip"
-    sizes = write_cgmes_zip(path, net, nged_model_canonical, edition)
+    sizes = write_cgmes_zip(path, net, nged_model_canonical, edition, meta=NGED_CGMES_META)
     return dg.MaterializeResult(metadata={"path": str(path), "ltds_edition": edition,
                                           **{k: v for k, v in sizes.items()}, "zip_bytes": path.stat().st_size})
 

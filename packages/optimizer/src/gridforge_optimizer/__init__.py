@@ -26,10 +26,14 @@ from .findings import against_recommendation, extract_findings
 from .gate import merge_verdict
 from .greedy import optimize
 from .network import apply_reinforcement
+from .sources import SOURCES, GridSource, NgedSource, SourceSpec, default_source, source_from_file, validate_net
 from .studies import STUDIES, StudyContext, chunk_study, merge_chunks, run_study
 from .suggest import suggest_unblock
 from .types import (
     Candidate,
+    ValidationReport,
+    ImportMeta,
+    GridModel,
     OptimizeParams,
     OptimizeResult,
     Curtailment,
@@ -97,6 +101,16 @@ __all__ = [
     "extract_findings",
     "against_recommendation",
     "merge_verdict",
+    "SOURCES",
+    "GridSource",
+    "NgedSource",
+    "SourceSpec",
+    "default_source",
+    "source_from_file",
+    "validate_net",
+    "GridModel",
+    "ImportMeta",
+    "ValidationReport",
     "STUDIES",
     "StudyContext",
     "run_study",

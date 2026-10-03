@@ -1,8 +1,8 @@
 """Export the network as CIM / CGMES (IEC 61970 CIM16, ENTSO-E CGMES 2.4.15 profiles).
 
 CIM is the common model standard GB networks exchange planning models in (Squid sits on the GB CIM
-Advisory Group; Squid's canonical model is CIM/CGMES). This module serialises a pandapower network
-plus the geolocated model into four RDF/XML profile files:
+Advisory Group; Squid's canonical model is CIM/CGMES). This module serialises any pandapower network
+(with a `substation` column on its buses) plus its geolocated model into four RDF/XML profile files:
 
   EQ   equipment: regions, base voltages, substations, voltage levels, connectivity nodes,
        AC line segments (+ current limits), power transformers (+ ends, ratio tap changers),
@@ -24,9 +24,8 @@ import math
 import uuid
 import zipfile
 from datetime import datetime, timezone
+from typing import NamedTuple
 from xml.etree import ElementTree as ET
-
-from .nged import _substation
 
 CIM = "http://iec.ch/TC57/2013/CIM-schema-cim16#"
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -43,6 +42,26 @@ _UNIT_KINDS = {"solar": "SolarGeneratingUnit", "wind": "WindGeneratingUnit", "ba
                "other": "ThermalGeneratingUnit"}
 
 
+class CgmesMeta(NamedTuple):
+    """Who the model is from: the modelling authority URI and the regions the export names. Each
+    source carries its own (`nged.NGED_CGMES_META`); an imported grid gets GridForge's generic one."""
+
+    authority_uri: str = "http://gridforge.example/network"
+    region_name: str = "Imported network"
+    region_key: str = "import"
+    subregion_name: str = "GridForge import"
+    subregion_key: str = "gridforge"
+
+
+def _sub_of(net, b: int, bus_name: str) -> str:
+    """The substation a bus belongs to: the net's `substation` column when it carries one, else the bus itself."""
+    if "substation" in net.bus.columns:
+        s = net.bus.at[b, "substation"]
+        if s is not None and s == s and str(s).strip():
+            return str(s)
+    return bus_name
+
+
 def _id(*parts) -> str:
     """A stable mRID-style id for an object, from the parts that identify it."""
     return "_" + str(uuid.uuid5(_NS, "|".join(str(p) for p in parts)))
@@ -51,7 +70,7 @@ def _id(*parts) -> str:
 class _Doc:
     """One profile document: an rdf:RDF root with a FullModel header, and helpers to add objects."""
 
-    def __init__(self, profile: str, model_id: str, description: str, created: str, deps: list[str]):
+    def __init__(self, profile: str, model_id: str, description: str, created: str, deps: list[str], authority: str):
         ET.register_namespace("cim", CIM)
         ET.register_namespace("rdf", RDF)
         ET.register_namespace("md", MD)
@@ -66,7 +85,7 @@ class _Doc:
             ET.SubElement(fm, f"{{{MD}}}Model.profile").text = p
         for d in deps:
             ET.SubElement(fm, f"{{{MD}}}Model.DependentOn", {f"{{{RDF}}}resource": f"urn:uuid:{d}"})
-        ET.SubElement(fm, f"{{{MD}}}Model.modelingAuthoritySet").text = "http://gridforge.example/ngedd-bickerfen"
+        ET.SubElement(fm, f"{{{MD}}}Model.modelingAuthoritySet").text = authority
 
     def obj(self, cls: str, oid: str, *, about: bool = False, name: str | None = None) -> ET.Element:
         key = f"{{{RDF}}}about" if about else f"{{{RDF}}}ID"
@@ -100,25 +119,26 @@ def _fmt(v) -> str:
     return str(v)
 
 
-def export_cgmes(net, model: dict | None = None, snapshot_id: str = "network") -> dict[str, bytes]:
-    """Serialise `net` (a pandapower network) to CGMES. `model` (the geolocated model from
-    `nged_model`) supplies substation coordinates for the GL profile; without it GL has no points.
+def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta = CgmesMeta()) -> dict[str, bytes]:
+    """Serialise `net` (a pandapower network) to CGMES. `model` (the geolocated model, a `GridModel` or
+    its dict) supplies the positions for the GL profile; without it GL has no points. `meta` names
+    the modelling authority and the regions. Substations come from the net's `substation` column.
 
     Returns {file name: xml bytes} for the EQ, TP, SSH and GL profiles.
     """
     created = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     tag = f"GridForge network@{snapshot_id}"
     mids = {p: str(uuid.uuid5(_NS, f"{snapshot_id}|{p}")) for p in PROFILES}
-    eq = _Doc("EQ", mids["EQ"], f"{tag} · equipment", created, [])
-    tp = _Doc("TP", mids["TP"], f"{tag} · topology", created, [mids["EQ"]])
-    ssh = _Doc("SSH", mids["SSH"], f"{tag} · steady state hypothesis", created, [mids["EQ"]])
-    gl = _Doc("GL", mids["GL"], f"{tag} · geographical location", created, [mids["EQ"]])
+    eq = _Doc("EQ", mids["EQ"], f"{tag} · equipment", created, [], meta.authority_uri)
+    tp = _Doc("TP", mids["TP"], f"{tag} · topology", created, [mids["EQ"]], meta.authority_uri)
+    ssh = _Doc("SSH", mids["SSH"], f"{tag} · steady state hypothesis", created, [mids["EQ"]], meta.authority_uri)
+    gl = _Doc("GL", mids["GL"], f"{tag} · geographical location", created, [mids["EQ"]], meta.authority_uri)
 
     # regions
-    region = _id("region", "GB")
-    e = eq.obj("GeographicalRegion", region, name="Great Britain")
-    subregion = _id("subregion", "NGED")
-    e = eq.obj("SubGeographicalRegion", subregion, name="NGED East Midlands licence area")
+    region = _id("region", meta.region_key)
+    e = eq.obj("GeographicalRegion", region, name=meta.region_name)
+    subregion = _id("subregion", meta.subregion_key)
+    e = eq.obj("SubGeographicalRegion", subregion, name=meta.subregion_name)
     eq.ref(e, "SubGeographicalRegion.Region", region)
 
     # base voltages
@@ -136,7 +156,7 @@ def export_cgmes(net, model: dict | None = None, snapshot_id: str = "network") -
     vl_of_bus: dict[int, str] = {}
     for b in net.bus.index:
         bus_name = str(net.bus.at[b, "name"] or f"bus {b}")
-        sub = _substation(bus_name) or bus_name
+        sub = _sub_of(net, int(b), bus_name)
         kv = round(float(net.bus.at[b, "vn_kv"]), 3)
         if sub not in sub_ids:
             sid = _id("substation", sub)
@@ -225,7 +245,7 @@ def export_cgmes(net, model: dict | None = None, snapshot_id: str = "network") -
         z_base = u_hv ** 2 / sn
         r = vkr / 100.0 * z_base
         x = math.sqrt(max(vk ** 2 - vkr ** 2, 0.0)) / 100.0 * z_base
-        sub_name = _substation(str(net.bus.at[hv, "name"] or "")) or str(net.bus.at[hv, "name"])
+        sub_name = _sub_of(net, hv, str(net.bus.at[hv, "name"] or f"bus {hv}"))
         e = eq.obj("PowerTransformer", tid, name=f"{sub_name} {name} ({i})")
         eq.ref(e, "Equipment.EquipmentContainer", sub_ids[sub_name])
         ends = []
@@ -291,7 +311,8 @@ def export_cgmes(net, model: dict | None = None, snapshot_id: str = "network") -
         p_rated = float(net.sgen.at[i, "p_rated_mw"]) if "p_rated_mw" in net.sgen.columns and net.sgen.at[i, "p_rated_mw"] == net.sgen.at[i, "p_rated_mw"] else float(net.sgen.at[i, "p_mw"])
         uid = _id("genunit", int(i))
         e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
-        eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_substation(str(net.bus.at[b, "name"] or "")) or str(net.bus.at[b, "name"])])
+        eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
+        eq.attr(e, "IdentifiedObject.description", f"gridforge.tech={tech}")  # so our own export round-trips battery / hybrid
         eq.attr(e, "GeneratingUnit.initialP", float(net.sgen.at[i, "p_mw"]))
         eq.attr(e, "GeneratingUnit.maxOperatingP", p_rated)
         eq.attr(e, "GeneratingUnit.minOperatingP", 0.0)
@@ -348,11 +369,13 @@ def export_cgmes(net, model: dict | None = None, snapshot_id: str = "network") -
     e = gl.obj("CoordinateSystem", crs, name="WGS 84")
     gl.attr(e, "CoordinateSystem.crsUrn", "urn:ogc:def:crs:EPSG::4326")
     if model:
+        buses = model["buses"] if isinstance(model, dict) else [b.model_dump() for b in model.buses]
+        at: dict[int, tuple[float, float]] = {int(bus["bus_id"]): (float(bus["lon"]), float(bus["lat"])) for bus in buses if bus.get("lon") is not None}
         pos: dict[str, tuple[float, float]] = {}
-        for bus in model.get("buses", []):
-            sub = _substation(str(bus.get("name") or "")) or str(bus.get("name"))
-            if sub in sub_ids and sub not in pos and bus.get("lon") is not None:
-                pos[sub] = (float(bus["lon"]), float(bus["lat"]))
+        for b in net.bus.index:
+            sub = _sub_of(net, int(b), str(net.bus.at[b, "name"] or f"bus {b}"))
+            if sub in sub_ids and sub not in pos and int(b) in at:
+                pos[sub] = at[int(b)]
         for sub, (lon, lat) in pos.items():
             loc = _id("location", sub)
             e = gl.obj("Location", loc, name=f"{sub} location")
@@ -377,9 +400,9 @@ def cgmes_zip_bytes(files: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-def write_cgmes_zip(path, net, model: dict | None = None, snapshot_id: str = "network") -> dict[str, int]:
+def write_cgmes_zip(path, net, model=None, snapshot_id: str = "network", meta: CgmesMeta = CgmesMeta()) -> dict[str, int]:
     """Export to a zip at `path`; returns {file name: bytes}."""
-    files = export_cgmes(net, model, snapshot_id)
+    files = export_cgmes(net, model, snapshot_id, meta)
     with open(path, "wb") as f:
         f.write(cgmes_zip_bytes(files))
     return {k: len(v) for k, v in files.items()}

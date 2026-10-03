@@ -32,7 +32,12 @@ from pathlib import Path
 import pandapower as pp
 import pandas as pd
 
+from .cim import CgmesMeta
 from .config import OLTC_TAP_STEP_PERCENT
+from .geometry import h01 as _h01
+from .geometry import interpolate_positions
+from .gridmodel import model_from_net
+from .types import ModelAssumption
 
 _DATA = Path(__file__).resolve().parent / "data" / "nged"
 BUNDLED_DATA_DIR = _DATA  # where the pipeline's "pin" assets write a promoted edition
@@ -231,6 +236,7 @@ def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[
         for n in members:
             busid[n] = bid
         bus_code[bid] = rep
+    net.bus["substation"] = [_substation(str(nm)) for nm in net.bus["name"]]  # the site a busbar belongs to (the CIM export groups by it)
     return busid, bus_code
 
 
@@ -628,6 +634,29 @@ def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURR
     return copy.deepcopy(_ctx(tables, edition)["net"])
 
 
+# the planning assumptions this network is judged under (the README's register, as records the data-quality
+# study and an import report list alongside the builder's own)
+PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
+    ModelAssumption(key="tap_target", message="Tap changers step 1.25% and regulate towards 1.02 pu with a 0.01 pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),
+    ModelAssumption(key="dispatch_factors", message="Per-case dispatch is assumed: PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum (config.GENERATION_FACTORS)"),
+    ModelAssumption(key="demand_coincidence", message="Winter-peak demand is each LTDS maximum scaled by published coincidence (its BSP's maximum, then NESO's GSP peak); the summer minimum uses the LTDS minimum-demand factor, not grown"),
+    ModelAssumption(key="gsp_sign", message="The GSP export limit's direction is assumed: 'export' read as distribution to transmission (NGED does not document the sign)"),
+    ModelAssumption(key="firm_capacity_units", message="LTDS Table 3 firm capacity is read as MVA and converted to MW at the row's power factor (the table states no unit)"),
+    ModelAssumption(key="fault_levels_unchecked", message="Fault levels are not checked: the published units are undocumented and some breaker ratings sit below the calculated fault current"),
+    ModelAssumption(key="transmission_context", message="The 400 kV network and wider transmission boundaries are context only; the GSP export limit is the only transmission constraint"),
+)
+
+# how the CIM export names this model: its authority and regions (cim.CgmesMeta)
+NGED_CGMES_META = CgmesMeta(authority_uri="http://gridforge.example/nged-bickerfen", region_name="Great Britain", region_key="GB",
+                            subregion_name="NGED East Midlands licence area", subregion_key="NGED")
+
+
+def builder_assumptions(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> list[ModelAssumption]:
+    """What the builder had to assume for this edition, one record per kind with the elements it touched."""
+    recs = _ctx(tables, edition)["net"]["assumptions"]
+    return [ModelAssumption(**r, count=len(r["element_ids"]) or None) for r in recs.values()]
+
+
 def substation_names(tables: LtdsTables | None = None) -> list[str]:
     """The distinct substation names in the built network (what the OSM geocoder matches against)."""
     net = _ctx(tables)["net"]
@@ -648,11 +677,6 @@ def gsp_boundary(tables: LtdsTables | None = None) -> dict:
 def _substation(name: str) -> str:
     """'Horncastle 11kV 1T0' -> 'Horncastle' (the substation, for coord/name joins)."""
     return (name or "").split(" 132")[0].split(" 66")[0].split(" 33")[0].split(" 11")[0].strip() or (name or "")
-
-
-def _h01(s: str) -> float:
-    import hashlib
-    return int(hashlib.md5(s.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
 
 
 def load_bundled_coords() -> list[dict]:
@@ -688,39 +712,13 @@ def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None) -> di
     """
     real = coords if coords is not None else _coords_index(None)
     jit = lambda b: ((_h01(str(b) + "jx") - 0.5) * 0.006, (_h01(str(b) + "jy") - 0.5) * 0.004)
-    pos: dict[int, tuple[float, float]] = {}
+    fixed: dict[int, tuple[float, float]] = {}
     for b in net.bus.index:
         hit = real.get(_substation(net.bus.at[b, "name"]).lower())
         if hit:
             dx, dy = jit(int(b))
-            pos[int(b)] = (hit[0] + dx, hit[1] + dy)
-    fixed = set(pos)
-    adj: dict[int, set[int]] = {int(b): set() for b in net.bus.index}
-    for a, c in list(zip(net.line.from_bus, net.line.to_bus)) + list(zip(net.trafo.hv_bus, net.trafo.lv_bus)):
-        adj[int(a)].add(int(c)); adj[int(c)].add(int(a))
-    for _ in range(200):  # harmonic interpolation: each free bus -> mean of its placed neighbours
-        moved = 0.0
-        for b in adj:
-            if b in fixed:
-                continue
-            nb = [pos[n] for n in adj[b] if n in pos]
-            if nb:
-                new = (sum(p[0] for p in nb) / len(nb), sum(p[1] for p in nb) / len(nb))
-                old = pos.get(b)
-                moved = max(moved, 1.0 if old is None else abs(new[0] - old[0]) + abs(new[1] - old[1]))
-                pos[b] = new
-        if moved < 1e-7:
-            break
-    out = {}
-    for b in net.bus.index:
-        b = int(b)
-        lon, lat = pos.get(b) or (GSP_CENTER[0] + (_h01(str(b) + "x") - 0.5) * 0.5,
-                                  GSP_CENTER[1] + (_h01(str(b) + "y") - 0.5) * 0.32)
-        if b not in fixed:  # keep interpolated buses from stacking exactly on each other
-            dx, dy = jit(b)
-            lon, lat = lon + dx * 0.5, lat + dy * 0.5
-        out[b] = (round(lon, 6), round(lat, 6))
-    return out
+            fixed[int(b)] = (hit[0] + dx, hit[1] + dy)
+    return interpolate_positions(net, fixed, GSP_CENTER)  # the rest between their neighbours (geometry.py)
 
 
 def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
@@ -731,39 +729,7 @@ def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT)
     ctx = _ctx(tables, edition)
     net = ctx["net"]
     xy = _bus_coords(net, _coords_index(tables))
-    buses = [{"bus_id": int(i), "name": net.bus.at[i, "name"], "vn_kv": float(net.bus.at[i, "vn_kv"]),
-              "lon": xy[int(i)][0], "lat": xy[int(i)][1]} for i in net.bus.index]
-    lines = []
-    for i in net.line.index:
-        f, t = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
-        lines.append({"line_id": int(i), "line_name": net.line.at[i, "name"] or f"L{i}",
-                      "rating_a": round(float(net.line.at[i, "max_i_ka"]) * 1000, 0),
-                      "voltage_kv": float(net.bus.at[f, "vn_kv"]), "from_bus": f, "to_bus": t,
-                      "length_km": round(float(net.line.at[i, "length_km"]), 3),
-                      "from_lon": xy[f][0], "from_lat": xy[f][1], "to_lon": xy[t][0], "to_lat": xy[t][1]})
-    transformers = []
-    for i in net.trafo.index:
-        hv, lv = int(net.trafo.at[i, "hv_bus"]), int(net.trafo.at[i, "lv_bus"])
-        transformers.append({"trafo_id": int(i), "name": net.trafo.at[i, "name"] or f"T{i}",
-                             "sn_mva": float(net.trafo.at[i, "sn_mva"]), "hv_bus": hv, "lv_bus": lv,
-                             "hv_kv": float(net.bus.at[hv, "vn_kv"]), "lv_kv": float(net.bus.at[lv, "vn_kv"]),
-                             "hv_name": net.bus.at[hv, "name"],
-                             "hv_lon": xy[hv][0], "hv_lat": xy[hv][1], "lv_lon": xy[lv][0], "lv_lat": xy[lv][1]})
-    loads = []
-    for n, i in enumerate(net.load.index):
-        b = int(net.load.at[i, "bus"])
-        loads.append({"load_id": n, "bus_id": b, "p_mw": round(float(net.load.at[i, "p_mw"]), 3),
-                      "region_id": net.load.at[i, "region_id"], "lon": xy[b][0], "lat": xy[b][1]})
-    # the existing/connected fleet (baked into the base network), for the map
-    generators = []
-    for g in ctx["existing"]:
-        b = int(g["bus_id"])
-        generators.append({"request_id": g["request_id"], "bus_id": b, "rating_mw": g["rating_mw"],
-                           "technology": g["technology"], "applicant": g["applicant"],
-                           "lon": xy[b][0], "lat": xy[b][1]})
-    from .demand import regions_of  # the demand groups (LTDS Table 3 rows), as the engine judges them
-    return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads,
-            "generators": generators, "regions": regions_of(net)}
+    return model_from_net(net, xy, ctx["existing"], "wgs84").model_dump()  # shaped like every source's (gridmodel.py)
 
 
 _FUEL_TECH = {"photovoltaic": "solar", "solar": "solar", "solar pv": "solar",

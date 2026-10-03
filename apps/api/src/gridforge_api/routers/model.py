@@ -35,7 +35,7 @@ def model_cgmes() -> Response:
     snapshot always serialises to the same bytes. Re-imports with pandapower's CGMES importer."""
     from gridforge_optimizer.cim import cgmes_zip_bytes, export_cgmes
     from gridforge_optimizer.network import build_base_net, feasibility
-    from gridforge_optimizer.nged import nged_model
+    from gridforge_optimizer.nged import NGED_CGMES_META, nged_model
 
     sid = warehouse.baseline_id()
     key = f"{sid}:{cache.engine}"
@@ -43,7 +43,7 @@ def model_cgmes() -> Response:
         net = build_base_net()
         feasibility(net)  # settle the tap changers so the SSH carries today's regulated steps
         _cgmes_cache.clear()
-        _cgmes_cache[key] = cgmes_zip_bytes(export_cgmes(net, nged_model(), sid))
+        _cgmes_cache[key] = cgmes_zip_bytes(export_cgmes(net, nged_model(), sid, meta=NGED_CGMES_META))
     return Response(
         content=_cgmes_cache[key], media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="GridForge_{sid}_CGMES.zip"'},

@@ -36,9 +36,10 @@ from .types import Outage, Reason, Reinforcement
 
 
 def build_base_net():
-    """The canonical base network: the real NGED Bicker Fen 132 kV GSP region (from LTDS open data)."""
-    from .nged import build_nged_net
-    return build_nged_net()
+    """The canonical base network: the default source's (`sources.default_source`: NGED's Bicker Fen
+    132 kV GSP region from LTDS open data). Every engine function takes `net_factory=` for any other."""
+    from .sources import default_source
+    return default_source().build_net()
 
 
 # --- demand growth ----------------------------------------------------------

@@ -26,9 +26,12 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 
 | Module | Responsibility |
 |---|---|
-| `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context. |
+| `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context; `builder_assumptions()` what it had to assume and `PLANNING_ASSUMPTIONS` the register's planning assumptions as records. Behind `sources.NgedSource`, unchanged. |
 | `editions.py` | `edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (rows, model, physics). `diff_ecr_editions(prev, cur)`: site-level changes between two fetches of the Embedded Capacity Register. Pure. |
-| `cim.py` | `export_cgmes(net, model, snapshot_id)`: the network as CIM/CGMES 2.4.15 RDF/XML (EQ, TP, SSH, GL profiles), deterministic ids; `cgmes_zip_bytes` / `write_cgmes_zip`. Round-trips through pandapower's `from_cim` (tested). |
+| `sources.py` | **Where a grid comes from.** The `GridSource` Protocol (`build_net`, `model`, `candidates`, `boundary`, `fingerprint`, `assumptions`, `capabilities`) and the `SOURCES` registry: `nged` (`NgedSource`, the builder below behind the seam), `cgmes` (a zip of CGMES profiles through pandapower's importer), `pandapower_json`, `matpower` (`.mat`). The grid-agnostic steps every import takes: `normalise_net` (a slack, PQ generators, the engine's `sgen` / tap / rating columns, each step recorded), `apply_import_meta` (limits the operator enters), `inspect_net` (what the file did not carry, stated), `validate_net` (a `ValidationReport`). `source_from_file` picks the kind by extension; `default_source()` is NGED. See *Adapting a grid*. |
+| `geometry.py` | Where buses sit: `interpolate_positions` (harmonic interpolation between the buses a source places), `synthetic_positions` (a deterministic Kamada-Kawai layout for a file with no coordinates; the model is then `crs: synthetic`). |
+| `gridmodel.py` | `model_from_net`: the geolocated `GridModel` (buses, lines, transformers, loads, the existing fleet, demand groups when the net carries them) shaped the same way for every source; `fleet_of` reads a net's existing generators. |
+| `cim.py` | `export_cgmes(net, model, snapshot_id, meta)`: any network (with a `substation` column on its buses) as CIM/CGMES 2.4.15 RDF/XML (EQ, TP, SSH, GL profiles), deterministic ids; `CgmesMeta` names the authority and regions (NGED's is `nged.NGED_CGMES_META`); generating units carry a `gridforge.tech=` tag so battery / hybrid round-trip; `cgmes_zip_bytes` / `write_cgmes_zip`. Round-trips through pandapower's `from_cim` (tested) and re-imports as a project through `sources.cgmes_source`. |
 | `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`, `grow_demand`, `interpolate_growth_for_year`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen` (with an optional seasonal `rating_ratio`) over `n1_elements` + `outage_results` (the single-outage iterator the contingency ranking shares), outage appliers (`OUTAGE_APPLIERS`), per-element results, `apply_reinforcement`. |
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its works windows and earlier repowers; `year_order`, `energisation_years`. |
@@ -42,7 +45,7 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `gate.py` | `merge_verdict(head, base, diff, fresh=…)`: may this branch become the plan of record? A pure policy over two results: blocks what the branch introduces or worsens in any plan year, warns on the rest, reports what the parent already carries as context. `MERGE_CHECKS` is the registry; every level lives in `config.MERGE_GATE_LEVELS`. Never solves. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`), `StudyItem`, `StudyResult`, `ModelAssumption`. `YearResult.converged` says whether the year's intact power flow converged. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`), `StudyItem`, `StudyResult`, `ModelAssumption`, `GridModel` (+ `ModelBus` … `ModelGenerator`, `crs`), `ImportMeta`, `ValidationReport`. `YearResult.converged` says whether the year's intact power flow converged. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -250,6 +253,28 @@ Connections stay ungated (N-1 and planned works are reported, never a connection
 
 ---
 
+### Adapting a grid (`sources.py`)
+
+Every engine function takes `net_factory=` and reads the network through a handful of columns, so any grid the seam can produce is planned on the same way. What the engine reads from a pandapower net:
+
+| Table / key | Column | Who fills it | Without it |
+|---|---|---|---|
+| `net.load` | `scaling` | pandapower (growth multiplies it) | required (pandapower default 1) |
+| `net.load` | `min_scale` | NGED from the LTDS minimum-demand factor; an import from `ImportMeta.min_demand_factor` | the summer-minimum case is not studied |
+| `net.load` | `peak_mw`, `region_id`, `region`, `bsp`, `primary`, `firm_mva`, `firm_mw`, `bsp_*` | NGED from LTDS Table 3 | no demand groups: no firm-capacity alerts, `regions` empty |
+| `net.load` | `type` | the file (`wye`, `MV Load`, …) | growth spread without a residential / industrial shape |
+| `net.line` | `max_i_ka`, `parallel` | the file | an unrated line gets `UNRATED_I_KA` so its loading reads near zero, and an `unrated_lines` assumption says it is **not checked**; nothing is filled in |
+| `net.line` | `summer_ratio`, `intermediate_ratio` | NGED from LTDS seasonal ratings; an import from `ImportMeta` | summer / spring / autumn cases not studied |
+| `net.trafo` | `tap_side`, `tap_min/max/neutral/pos`, `tap_step_percent`, `tap_changer_type="Ratio"` | the file; `normalise_net` enables the changer where a range exists | a fixed-tap transformer (`no_oltc`) |
+| `net.sgen` | `p_rated_mw`, `import_mw`, `fleet_id`, `type` | NGED's builder; `normalise_net` from `max_p_mw` / `p_mw`, `EX-<idx>`, the file's type or our `gridforge.tech=` tag | technology `other`, dispatched as firm in every case (`tech_unknown`) |
+| `net.ext_grid` | the slack | the file; `normalise_net` from a slack generator, else the largest generator, else the best-connected highest-voltage bus | recorded as `slack_from_generator` / `slack_from_largest_generator` / `slack_assumed` |
+| `net.gen` | voltage-controlled generators | `normalise_net` makes them PQ `sgen`s (`gen_to_sgen`) | their voltage support is not modelled, so voltage problems show |
+| `net["gsp_export_limit_mw"]`, `gsp_name`, `gsp_sgt_mw` | the export limit | NGED's `GSP_BOUNDARY`; an import from `ImportMeta.gsp_export_limit_mw` | export to the slack is reported, never limited |
+| `net.bus` | `substation`, `geo` | NGED's name parsing / OSM join; an import from `zone` (CGMES substation) and the GL profile or `bus.geo` | buses stand for themselves; a file with no positions gets a synthetic layout |
+| `net["assumptions"]` | one record per kind of fallback | the builder's `_assume`, `normalise_net`, `apply_import_meta` | the data-quality study and the import report list them |
+
+`validate_net` runs the structural checks (buses, a slack, voltages, dangling lines, islands) and then one `feasibility()` pass: a base case that already breaks a limit is a warning that every project would be deferred for it, a non-convergent file an error. GB statutory bands (`VOLTAGE_BANDS`), the N-1 scope (`N1_MIN_KV`) and `MAX_CONNECTION_MW` are listed as assumptions for every imported grid, not made configurable. A source's `fingerprint()` is the content identity results are cached under (for an import: the bytes, the kind, `IMPORTER_VERSION` and the entered limits).
+
 ## Demand growth (`network.per_bus_growth`)
 
 A NESO FES 2025 pathway (`FORECASTS`: `ht` default, `ee`, `he`, `fb`) sets the network-wide multiplier for 2030 and 2035. Growth is then spread per load so the **total equals the pathway exactly**, while individual buses differ:
@@ -328,6 +353,7 @@ Tests are **grid-agnostic**. `tests/_grid.py` derives every fixture from the net
 
 What they cover:
 - the CGMES export: well-formed, fully linked, deterministic, and re-imported by pandapower to the same network and power flow (`test_cim.py`);
+- the sources: NGED through the seam is the same network and model; the NGED CGMES export re-imports as a grid with the same elements, a converging base case, the technology tag intact and its missing data stated; operator-entered limits enable the summer case and the boundary and change the fingerprint; a pandapower JSON with no coordinates gets a deterministic synthetic layout and a slack; an unrated line is flagged, not filled; a network nobody can feed fails validation; a MATPOWER `.mat` imports (`test_sources.py`);
 - the trial cache is exact and saves solves; progress is reported in order (`test_cache.py`);
 - statutory voltage bands by level, tap-changer regulation, per-case dispatch, fleet siting and the N-1 screen (`test_physics.py`);
 - feasibility and the worst-case envelope;
