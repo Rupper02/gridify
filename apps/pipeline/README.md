@@ -30,7 +30,7 @@ The **`apps/pipeline`** slice of GridForge: a [Dagster](https://dagster.io) asse
 | `nged_connection_queue` | `nged_candidates(max_mw, tables)`: the optional projects, each mapped to a bus. |
 | `ltds_edition_changes` | `editions.edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (see below). |
 | `nged_model_cgmes` | The network as a CIM/CGMES 2.4.15 zip (EQ/TP/SSH/GL), written to `warehouse/exports/GridForge_<edition>_CGMES.zip`. Deterministic per edition. |
-| `served_nged` | Writes the model tables (incl. `regions`: one demand group per live LTDS Table 3 row with its firm capacity, P2/8 class and demand today; `loads.region_id` ties each load, and so each bus, to its group), the registry and the change-set to DuckDB, and **appends** a snapshot row when the content changed. `snapshot_id` is a content hash, so `network@<snapshot_id>` names a version; each row carries the edition it was built from. |
+| `served_nged` | Writes the model tables (incl. `regions`: the demand groups, one per live LTDS Table 3 primary and one per BSP over its primaries (`level`), with their firm capacity, P2/8 class, demand today and the buses the engine places them at; `loads.region_id` ties each load to its primary group), the registry and the change-set to DuckDB, and **appends** a snapshot row when the content changed. `snapshot_id` is a content hash, so `network@<snapshot_id>` names a version; each row carries the edition it was built from. |
 
 **One builder, one truth.** The pipeline and the optimizer's `build_base_net()` run the same `gridforge_optimizer.nged` builder on the same bundled snapshot, so the warehouse the map reads and the network the engine solves can't drift apart.
 

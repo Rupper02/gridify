@@ -36,15 +36,32 @@ def _region_loads(net, rid):
     return net.load.index[net.load["region_id"] == rid]
 
 
+def _primaries(net):
+    return [r for r in regions_of(net) if r["level"] == "primary"]
+
+
 def test_regions_cover_every_load_exactly_once(net):
     regions = regions_of(net)
     assert regions, "the base network's loads carry their demand group"
     ids = [r["region_id"] for r in regions]
     assert len(ids) == len(set(ids))
-    assert set(net.load["region_id"]) == set(ids)  # every load in one region, every region has loads
-    assert sum(r["base_demand_mw"] for r in regions) == pytest.approx(float(net.load["p_mw"].sum()), abs=0.01 * len(ids))
-    for r in regions:
+    primaries = _primaries(net)
+    assert set(net.load["region_id"]) == {r["region_id"] for r in primaries}  # every load in one primary group
+    assert sum(r["base_demand_mw"] for r in primaries) == pytest.approx(float(net.load["p_mw"].sum()), abs=0.01 * len(ids))
+    for r in primaries:
         assert set(r["buses"]) == {int(b) for b in net.load.loc[_region_loads(net, r["region_id"]), "bus"]}
+
+
+def test_a_bsp_group_is_its_primaries_seen_from_above_never_extra_demand(net):
+    bsps = [r for r in regions_of(net) if r["level"] == "bsp"]
+    if not bsps:
+        pytest.skip("this network tags no BSP groups")
+    for r in bsps:
+        members = net.load.index[net.load["bsp_region_id"] == r["region_id"]]
+        assert len(members), "a BSP group is made of the loads of its primaries"
+        # its demand is theirs (no load of its own), at its own busbar
+        assert r["base_demand_mw"] == pytest.approx(float(net.load.loc[members, "p_mw"].sum()), abs=1e-3)
+        assert r["buses"], "it sits at its own busbar(s)"
 
 
 def test_demand_grows_with_the_years(years):
@@ -79,7 +96,8 @@ def test_p2_8_class_bands():
 
 
 def _biggest_region(net):
-    return max(regions_of(net), key=lambda r: r["peak_demand_mw"])
+    """The biggest primary-level group (its buses are its loads' buses)."""
+    return max(_primaries(net), key=lambda r: r["peak_demand_mw"])
 
 
 def test_a_group_whose_firm_capacity_is_below_its_demand_raises_the_firm_alert():
@@ -103,8 +121,8 @@ def test_a_group_whose_firm_capacity_is_below_its_demand_raises_the_firm_alert()
 
 def test_a_demand_connection_counts_toward_its_group(net):
     bus = _biggest_region(net)["buses"][0]
-    # a bus shared by several groups counts its projects toward the first (by region id)
-    region = min((r for r in regions_of(net) if bus in r["buses"]), key=lambda r: r["region_id"])
+    # a bus shared by several groups of a level counts its projects toward the first (by region id)
+    region = min((r for r in _primaries(net) if bus in r["buses"]), key=lambda r: r["region_id"])
     dc = Candidate(request_id="DC", bus_id=bus, technology="demand", rating_mw=0.0, import_mw=10.0)
     without = next(r for r in evaluate_year(2030, [], PARAMS, {}, n1=False).regions if r.region_id == region["region_id"])
     with_dc = next(r for r in evaluate_year(2030, [dc], PARAMS, {"DC": 2030}, n1=False).regions
@@ -124,7 +142,8 @@ def test_n1_stranding_is_attributed_to_the_islanded_group():
     assert hit.n1_at_risk_mw == pytest.approx(hit.demand_mw, abs=0.02) and hit.n1_outage == "line 7"
     island = set(region["buses"])
     for r in regions.values():
-        if not island & set(next(x["buses"] for x in regions_of(n) if x["region_id"] == r.region_id)):
+        if not island & set(next(x["buses"] for x in regions_of(n) if x["region_id"] == r.region_id)) \
+                and not any(x["region_id"] == r.region_id and x["level"] == "bsp" for x in regions_of(n)):
             assert r.n1_at_risk_mw == 0.0 and r.n1_outage is None
 
 

@@ -1,11 +1,14 @@
 """The demand side: the customers (homes, farms, factories) the network exists to supply, judged
 region by region and year by year.
 
-A region is a demand group as the LTDS publishes it (Table 3): one primary substation, or a bulk
-supply point's own 33 kV group, with its firm capacity. The builder tags every load with its group
-(`region_id`, `region`, `bsp`, `firm_mw`, `peak_mw` columns on net.load, see nged._add_loads); this
-module only reads the net, so it works for any network that carries those columns (and reports no
-regions for one that does not).
+A region is a demand group as the LTDS publishes it (Table 3), at one of two levels (`LEVELS`): a
+primary substation (or a customer's own connection), with its firm capacity; and a bulk supply
+point over the primaries it feeds, with the firm capacity of its 132/33 kV transformers. The builder
+tags every load with its groups (`region_id`, `region`, `bsp`, `firm_mw`, `peak_mw`, and `bsp_*` for
+the parent BSP, columns on net.load, see nged._add_loads); this module only reads the net, so it
+works for any network that carries those columns (and reports no regions for one that does not).
+A load belongs to one primary-level group and at most one BSP: a BSP's demand is its primaries',
+never counted twice.
 
 Per year (`assess_demand`, called by years.evaluate_year on the year's solved net):
   * demand: the group's own peak (LTDS maximum demand grown to the year, plus any plan project that
@@ -32,7 +35,24 @@ from .config import HEADROOM_WARN_FRACTION, N1_ISLAND_MIN_MW, P2_8_CLASSES
 from .network import dispatch_for_case, solve_case, voltage_limits
 from .types import Alert, RegionYear
 
-REGION_COLUMNS = ("region_id", "region", "firm_mw")  # what a net must carry to have regions
+
+class _Level(NamedTuple):
+    """Where one level of demand group lives on net.load: the id/name/firm columns, the column of
+    its site buses (None: the group's own load buses) and of the factor that scales its members' own
+    peaks to the group's peak (None: 1, the group's peak is the sum of its loads' own)."""
+    name: str
+    id: str
+    label: str
+    firm_mw: str
+    firm_mva: str
+    sites: str | None
+    scale: str | None
+
+
+LEVELS = (
+    _Level("primary", "region_id", "region", "firm_mw", "firm_mva", None, None),
+    _Level("bsp", "bsp_region_id", "bsp_region", "bsp_firm_mw", "bsp_firm_mva", "bsp_sites", "bsp_coincidence"),
+)
 
 
 # --- P2/8 demand classes ---------------------------------------------------------------------------
@@ -58,31 +78,43 @@ class _Group(NamedTuple):
     region_id: str
     name: str
     bsp: str
+    level: str
     loads: pd.Index  # net.load rows
-    buses: list[int]
+    buses: list[int]  # its site: where it is drawn, its voltage is judged and its transformers feed
+    area: list[int]  # the buses whose new project demand counts toward it (load buses and site)
     firm_mw: float
     firm_mva: float | None
+    scale: float  # members' own peaks x scale = the group's peak
+
+
+def _level_groups(net, lv: _Level) -> list[_Group]:
+    load = net.load
+    if lv.id not in load.columns or lv.label not in load.columns or lv.firm_mw not in load.columns:
+        return []
+    load = load[load[lv.id].notna()]
+    firm = pd.to_numeric(load[lv.firm_mw], errors="coerce").fillna(0.0)
+    mva = pd.to_numeric(load[lv.firm_mva], errors="coerce") if lv.firm_mva in load.columns else None
+    bsp = load["bsp"] if "bsp" in load.columns else pd.Series("", index=load.index)
+    out = []
+    for rid, idx in sorted(load.groupby(lv.id).groups.items()):
+        i0 = idx[0]
+        m = mva.loc[idx].min() if mva is not None else float("nan")
+        own = {int(b) for b in load.loc[idx, "bus"]}
+        sites = sorted({int(b) for b in load.at[i0, lv.sites] if int(b) in net.bus.index}) if lv.sites else []
+        scale = float(pd.to_numeric(load.at[i0, lv.scale], errors="coerce")) if lv.scale else 1.0
+        out.append(_Group(
+            region_id=str(rid), name=str(load.at[i0, lv.label]), bsp=str(bsp.at[i0] or ""), level=lv.name, loads=idx,
+            buses=sites or sorted(own), area=sorted(own | set(sites)), firm_mw=float(firm.loc[idx].min()),
+            firm_mva=None if m != m else float(m), scale=scale if scale == scale else 1.0,
+        ))
+    return out
 
 
 def _groups(net) -> list[_Group]:
-    """The demand groups tagged on net.load, in region_id order (deterministic)."""
-    load = net.load
-    if not len(load) or any(c not in load.columns for c in REGION_COLUMNS):
+    """The demand groups tagged on net.load, level by level, each in region_id order (deterministic)."""
+    if not len(net.load):
         return []
-    load = load[load["region_id"].notna()]
-    firm = pd.to_numeric(load["firm_mw"], errors="coerce").fillna(0.0)
-    mva = pd.to_numeric(load["firm_mva"], errors="coerce") if "firm_mva" in load.columns else None
-    bsp = load["bsp"] if "bsp" in load.columns else pd.Series("", index=load.index)
-    out = []
-    for rid, idx in sorted(load.groupby("region_id").groups.items()):
-        i0 = idx[0]
-        m = mva.loc[idx].min() if mva is not None else float("nan")
-        out.append(_Group(
-            region_id=str(rid), name=str(load.at[i0, "region"]), bsp=str(bsp.at[i0] or ""), loads=idx,
-            buses=sorted({int(b) for b in load.loc[idx, "bus"]}), firm_mw=float(firm.loc[idx].min()),
-            firm_mva=None if m != m else float(m),
-        ))
-    return out
+    return [g for lv in LEVELS for g in _level_groups(net, lv)]
 
 
 def _peak(net) -> pd.Series:
@@ -97,8 +129,8 @@ def regions_of(net) -> list[dict]:
     peak, base = _peak(net), net.load["p_mw"].astype(float)
     out = []
     for g in _groups(net):
-        peak_mw = float(peak.loc[g.loads].sum())
-        out.append({"region_id": g.region_id, "name": g.name, "bsp": g.bsp, "buses": g.buses,
+        peak_mw = float(peak.loc[g.loads].sum()) * g.scale
+        out.append({"region_id": g.region_id, "name": g.name, "bsp": g.bsp, "level": g.level, "buses": g.buses,
                     "firm_mw": round(g.firm_mw, 3), "firm_mva": g.firm_mva,
                     "base_demand_mw": round(float(base.loc[g.loads].sum()), 3),
                     "peak_demand_mw": round(peak_mw, 3), "p2_class": p2_class(peak_mw)})
@@ -119,13 +151,19 @@ def _project_import_by_bus(net) -> pd.Series:
     return (-p[sel]).groupby(net.sgen.loc[sel, "bus"].astype(int)).sum()
 
 
-def _bus_owner(groups: list[_Group]) -> dict[int, str]:
-    """Which group a bus's project demand counts toward: the first (by region_id) with a load there."""
-    owner: dict[int, str] = {}
+def _bus_owner(groups: list[_Group]) -> dict[tuple[str, int], str]:
+    """Which group of each level a bus's project demand counts toward: the first (by region_id)
+    whose area has the bus, so one project is counted once per level."""
+    owner: dict[tuple[str, int], str] = {}
     for g in groups:
-        for b in g.buses:
-            owner.setdefault(b, g.region_id)
+        for b in g.area:
+            owner.setdefault((g.level, b), g.region_id)
     return owner
+
+
+def _owned(g: _Group, buses, imports: pd.Series, owner) -> float:
+    """MW of project demand on `buses` that counts toward group `g`."""
+    return sum(float(imports.get(b, 0.0)) for b in buses if owner.get((g.level, b)) == g.region_id)
 
 
 def _stranded(net, groups, own: pd.Series, imports: pd.Series, owner, n1_violations) -> dict[str, tuple[float, str]]:
@@ -139,8 +177,8 @@ def _stranded(net, groups, own: pd.Series, imports: pd.Series, owner, n1_violati
         label = f"{v.get('outage_type')} {v.get('outage_id')}"
         for g in groups:
             on = [i for i in g.loads if int(net.load.at[i, "bus"]) in island]
-            mw = float(own.loc[on].sum()) if on else 0.0
-            mw += sum(float(imports.get(b, 0.0)) for b in island if owner.get(b) == g.region_id)
+            mw = float(own.loc[on].sum()) * g.scale if on else 0.0
+            mw += _owned(g, island, imports, owner)
             if mw > worst.get(g.region_id, (0.0, ""))[0]:
                 worst[g.region_id] = (mw, label)
     return worst
@@ -176,8 +214,8 @@ def assess_regions(net, n1_violations: list[dict] = ()) -> list[RegionYear]:
 
     out = []
     for g in groups:
-        extra = sum(float(imports.get(b, 0.0)) for b in g.buses if owner.get(b) == g.region_id)
-        demand = float(own.loc[g.loads].sum()) + extra
+        extra = _owned(g, g.area, imports, owner)
+        demand = float(own.loc[g.loads].sum()) * g.scale + extra
         headroom = g.firm_mw - demand
         v = vm.reindex(g.buses).dropna() if len(vm) else pd.Series(dtype=float)
         bad = [int(b) for b in v.index if v[b] < vmin[b] or v[b] > vmax[b]]

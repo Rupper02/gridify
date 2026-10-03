@@ -7,7 +7,7 @@ import { Users, X } from "@phosphor-icons/react";
 import type { CSSProperties } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { P2_CLASS, REGION_STATE, alertTitle, alertsFor, classMeaning, firmFill, outagePhrase, regionRows } from "../lib/demand";
+import { LEVEL_LINE, P2_CLASS, REGION_STATE, alertTitle, alertsFor, classMeaning, firmFill, outagePhrase, regionRows } from "../lib/demand";
 import { busLabel, nameElements } from "../lib/derive";
 import { cardSlot, type Layout } from "../lib/layout";
 import { C, fmtMw, tint } from "../theme";
@@ -39,7 +39,7 @@ export function RegionCard({ planner, layout }: { planner: RegionCardPlanner; la
         </span>
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1, lineHeight: 1.3 }}>
           <span style={{ fontSize: 13.5, fontWeight: 600, textWrap: "pretty" }}>{row.name}</span>
-          <span className="ellipsis mono" style={{ fontSize: 11, color: C.mute }}>{row.bsp ? `${row.bsp} BSP · demand group` : "Demand group"}</span>
+          <span className="ellipsis mono" style={{ fontSize: 11, color: C.mute }}>{LEVEL_LINE[row.level](row)}</span>
         </div>
         <button className="icon-btn" onClick={() => actions.select(null)} aria-label="Close">
           <X size={12} />

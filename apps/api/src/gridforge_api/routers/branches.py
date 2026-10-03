@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from gridforge_optimizer.config import MAX_SUGGESTIONS
 
-from .. import narration, repository
+from .. import narration, proposals, repository
 from ..config import now
 from ..deps import cache, jobs, narrator, plans, scenarios, warehouse
 from ..schemas import (
@@ -116,12 +116,17 @@ def update_scenario(branch_id: str, body: dict) -> dict:
 @router.get("/branches/{branch_id}/diff")
 def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     """Consequence diff of a branch (head) vs its parent (base, default main): the queue, the
-    2030/2035 phases, every plan year, and the branch's planned works on the parent's plan vs its own."""
+    2030/2035 phases, every plan year, the branch's planned works on the parent's plan vs its own,
+    and the planned works and reinforcements a merge would add to or remove from the parent."""
     with scenarios.cursor() as con:
         head_row = repository.require_branch(con, branch_id)
         base_row = repository.branch_row(con, head_row["parent_id"] or "main") or repository.branch_row(con, "main")
-    d = plans.diff(branch_id, base_row["branch_id"])
+        base_id = base_row["branch_id"]
+        merge = proposals.on_merge(repository.outage_rows(con, base_id), repository.outage_rows(con, branch_id),
+                                   repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, branch_id))
+    d = plans.diff(branch_id, base_id)
     out = d.model_dump()
+    out["on_merge"] = merge
     out["base_branch"] = base_row["branch_id"]
     out["head_branch"] = branch_id
     out["narration"] = ""

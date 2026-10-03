@@ -43,8 +43,10 @@ def test_trial_cache_is_exact_and_reuses_the_unchanged_prefix(count_feasibility)
     count_feasibility["n"] = 0
     again = optimize(cands, OptimizeParams(), trial_cache=cache)
     assert _strip(again) == _strip(fresh)
-    # every trial came from the cache: only the two end-of-phase intact solves per phase remain
-    assert count_feasibility["n"] <= 2 * len(greedy._PHASES)
+    # every trial came from the cache: per phase, only the two end-of-phase intact solves remain, plus
+    # at most one solve that settles the taps when the phase's first trial is an accepted project
+    # (a cached acceptance is reused only once the taps are regulated, see greedy._Run._trial)
+    assert count_feasibility["n"] <= 3 * len(greedy._PHASES)
 
     count_feasibility["n"] = 0
     grown = optimize(cands + [extra], OptimizeParams(), trial_cache=cache)

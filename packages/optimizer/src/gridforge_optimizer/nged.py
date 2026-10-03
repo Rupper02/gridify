@@ -30,6 +30,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import pandapower as pp
+import pandas as pd
 
 from .config import OLTC_TAP_STEP_PERCENT
 
@@ -311,52 +312,136 @@ def _demand_group(d: dict) -> str:
     return p if p and p != "-" else str(d.get("BSP Group") or d.get("Node") or "").strip()
 
 
+def _is_bsp_row(d: dict) -> bool:
+    return str(d.get("Primary Substation") or "").strip() in ("", "-")
+
+
+def _bsp_base(bsp_group: str) -> str:
+    """A BSP group's name without its transformer suffix: "Sleaford (GT1)" -> "Sleaford"."""
+    return re.sub(r"\s*\(GT\d+\)\s*$", "", bsp_group or "").strip()
+
+
+def _bsp_aggregates(dem) -> set[str]:
+    """The BSP groups whose own Table 3 rows are aggregates of the primaries below them.
+
+    Table 3 lists a BSP's 132/33 kV transformer group as rows of its own (BSP Group "Sleaford
+    (GT1)", "Sleaford (GT2)", Primary Substation "-", on the BSP's 33 kV busbars), and every primary
+    that BSP feeds as rows under BSP Group "Sleaford". The BSP rows are the group demand those
+    transformers carry, split equally between them (30.78 + 30.78 MW against 66.2 MW of primary
+    maxima in the bundled edition): the same customers seen one level up, not extra demand. A BSP
+    row is an aggregate when primaries are listed under its base name; a BSP-level row with no
+    primaries under it (a customer's own 132/33 kV connection) is real demand."""
+    with_primaries = {_bsp_base(str(d.get("BSP Group") or "")) for d in dem if not _is_bsp_row(d)}
+    return {str(d.get("BSP Group") or "").strip() for d in dem
+            if _is_bsp_row(d) and _bsp_base(str(d.get("BSP Group") or "")) in with_primaries}
+
+
 def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "region"
 
 
+class _RegionIds:
+    """Unique, stable region ids (slugs) by group name."""
+
+    def __init__(self):
+        self.ids: dict[str, str] = {}
+
+    def __call__(self, name: str) -> str:
+        if name not in self.ids:
+            rid, k = _slug(name), 2
+            while rid in self.ids.values():
+                rid, k = f"{_slug(name)}-{k}", k + 1
+            self.ids[name] = rid
+        return self.ids[name]
+
+
+def _pf(d: dict) -> float:
+    return min(max(_num(d["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
+
+
+def _bsp_groups(dem, aggregates: set[str], gb, region_id) -> dict[str, dict]:
+    """The parent group of each BSP whose own rows are aggregates, by base name: its firm capacity
+    (MVA, read as for a primary; the smallest its rows state), its published maximum demand (the
+    sum of its transformer rows) and its 33 kV busbars (where it sits on the map)."""
+    out: dict[str, dict] = {}
+    for d in dem:
+        if str(d.get("BSP Group") or "").strip() not in aggregates:
+            continue
+        base = _bsp_base(str(d["BSP Group"]))
+        g = out.setdefault(base, {"bsp_region_id": region_id(f"{base} BSP"), "bsp_region": f"{base} BSP",
+                                  "bsp_firm_mva": None, "bsp_firm_mw": None, "published_mw": 0.0, "sites": []})
+        firm_mva = float(_num(d.get("Firm Capacity of Substation")) or 0.0)
+        if g["bsp_firm_mva"] is None or firm_mva < g["bsp_firm_mva"]:
+            g["bsp_firm_mva"], g["bsp_firm_mw"] = firm_mva, round(firm_mva * _pf(d), 3)
+        g["published_mw"] += _num(d["Current Year Max Demand"]) or 0.0
+        g["sites"] += [gb(n) for n in _demand_nodes(d) if gb(n) not in g["sites"]]
+    return out
+
+
+_LOAD_GROUP_COLS = ("region_id", "region", "bsp", "primary", "firm_mva", "firm_mw", "peak_mw")
+_LOAD_BSP_COLS = ("bsp_region_id", "bsp_region", "bsp_firm_mva", "bsp_firm_mw", "bsp_sites", "bsp_coincidence")
+
+
+def _bsp_membership(dem, aggregates: set[str], parents: dict[str, dict]) -> dict[str, dict]:
+    """Per BSP base name, the `bsp_*` columns its primaries' loads carry. `bsp_coincidence` =
+    the BSP's published maximum / the sum of its primaries' own maxima, so the members' peaks sum
+    to the BSP's own published figure today (the BSP's peak is not the sum of theirs)."""
+    total = {b: 0.0 for b in parents}
+    for d in dem:
+        b = _bsp_base(str(d.get("BSP Group") or ""))
+        if b in total and str(d.get("BSP Group") or "").strip() not in aggregates:
+            total[b] += _num(d["Current Year Max Demand"]) or 0.0
+    return {b: {"bsp_region_id": g["bsp_region_id"], "bsp_region": g["bsp_region"],
+                "bsp_firm_mva": g["bsp_firm_mva"], "bsp_firm_mw": g["bsp_firm_mw"],
+                "bsp_sites": tuple(int(x) for x in g["sites"]),
+                "bsp_coincidence": g["published_mw"] / total[b] if total[b] > 0 else 1.0}
+            for b, g in parents.items()}
+
+
 def _add_loads(net, dem, gb) -> None:
     """LTDS Table 3 demand (after diversity), with each load's summer-minimum scaling and the demand
-    group it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
+    groups it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
     dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
     maximum demand (MW), its power factor and the "Firm Capacity of Substation". We read the firm
     capacity as MVA (the usual unit for a transformer group's firm rating; the table does not state
     it) and convert it to MW at the row's own power factor, so comparing it with demand in MW is the
     same as comparing apparent powers. `peak_mw` keeps the row's own maximum demand (no diversity):
-    a substation's firm capacity is set against its own peak, not the GSP-coincident share."""
+    a substation's firm capacity is set against its own peak, not the GSP-coincident share.
+
+    A BSP's own rows are aggregates of its primaries (`_bsp_aggregates`), so they add no load: the
+    BSP becomes a parent group of those primaries instead (the `bsp_*` columns)."""
+    aggregates = _bsp_aggregates(dem)
+    region_id = _RegionIds()
+    member = _bsp_membership(dem, aggregates, _bsp_groups(dem, aggregates, gb, region_id))
     min_scale: dict[int, float | None] = {}
     groups: dict[int, dict] = {}
-    ids: dict[str, str] = {}  # group name -> region id (unique slug)
     for d in dem:
         p = _num(d["Current Year Max Demand"])
-        if not p:
+        if not p or str(d.get("BSP Group") or "").strip() in aggregates:
             continue
         nodes_d = _demand_nodes(d)
-        pf = _num(d["Current Year Power Factor"]) or 0.95
+        pf = _pf(d)
         p *= DEMAND_DIVERSITY / len(nodes_d)
-        q = p * math.tan(math.acos(min(max(pf, 0.5), 1.0)))
+        q = p * math.tan(math.acos(pf))
         # LTDS "Minimum demand Scaling Factor" = minimum demand as a share of maximum demand. Our
         # p_mw is max × DEMAND_DIVERSITY, so the summer-minimum case scales p_mw by f / diversity.
         # Held at today's level (not grown): forecast growth is winter-evening EV/heat load.
         f = _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%"))
         name = _demand_group(d)
-        if name not in ids:
-            rid, k = _slug(name), 2
-            while rid in ids.values():
-                rid, k = f"{_slug(name)}-{k}", k + 1
-            ids[name] = rid
-        firm_mva = _num(d.get("Firm Capacity of Substation")) or 0.0
-        group = {"region_id": ids[name], "region": name, "bsp": str(d.get("BSP Group") or "").strip(),
-                 "primary": str(d.get("Primary Substation") or "").strip(), "firm_mva": float(firm_mva),
-                 "firm_mw": round(float(firm_mva) * min(max(pf, 0.5), 1.0), 3),
-                 "peak_mw": p / DEMAND_DIVERSITY}
+        firm_mva = float(_num(d.get("Firm Capacity of Substation")) or 0.0)
+        bsp = str(d.get("BSP Group") or "").strip()
+        group = {"region_id": region_id(name), "region": name, "bsp": bsp,
+                 "primary": str(d.get("Primary Substation") or "").strip(), "firm_mva": firm_mva,
+                 "firm_mw": round(firm_mva * pf, 3), "peak_mw": p / DEMAND_DIVERSITY,
+                 **member.get(_bsp_base(bsp), {})}
         for n in nodes_d:
             idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
             min_scale[int(idx)] = (f / 100.0) / DEMAND_DIVERSITY if f else None
             groups[int(idx)] = group
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
-    for col in ("region_id", "region", "bsp", "primary", "firm_mva", "firm_mw", "peak_mw"):
-        net.load[col] = [groups[int(i)][col] if int(i) in groups else None for i in net.load.index]
+    for col in _LOAD_GROUP_COLS + _LOAD_BSP_COLS:
+        net.load[col] = pd.Series([groups.get(int(i), {}).get(col) for i in net.load.index],
+                                  index=net.load.index, dtype=object)
 
 
 def _add_existing_fleet(net, tables) -> list[dict]:

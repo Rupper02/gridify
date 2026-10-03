@@ -3,7 +3,7 @@
 // branch, what changed), the reinforcements proposed on it, then Merge into main or Discard. main has
 // nothing to review.
 
-import { ArrowRight, Check, GitMerge, LockSimple, Trash, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowRight, Check, GitMerge, LockSimple, Minus, Plus, Trash, Warning, Wrench } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { lineName, nameElements, trafoName } from "../lib/derive";
@@ -13,6 +13,8 @@ import {
   VERDICT,
   WORK_CHANGE,
   flaggedYears,
+  mergeChangeCount,
+  outageTitle,
   verdictOnBranch,
   verdictOnMain,
   workTitle,
@@ -20,7 +22,7 @@ import {
   yearEffect,
 } from "../lib/diff";
 import { C, PLAN_YEARS, ST, fmtMw, profileOf, signed, tint } from "../theme";
-import type { Diff, Status, WorkDelta, YearDelta } from "../types";
+import type { Diff, OnMerge, Status, WorkDelta, YearDelta } from "../types";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
@@ -80,6 +82,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
           <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} onPick={actions.setYear} />
           <Changed d={d} name={(t) => nameElements(t, ix)} />
+          <MergeChanges m={d.on_merge} hue={hue} title={(o) => outageTitle(o, ix)} />
         </>
       )}
       {s.reinforcements.length > 0 && (
@@ -106,6 +109,29 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         </button>
       </div>
       {!open && <span className="mute" style={{ fontSize: 11.5 }}>This branch is {branch?.status}. Open a new one to propose more.</span>}
+    </div>
+  );
+}
+
+/** What merging replaces on main: the planned works and reinforcements it adds, and those it removes. */
+function MergeChanges({ m, hue, title }: { m: OnMerge | undefined; hue: string; title: (o: OnMerge["works_added"][number]) => string }) {
+  if (!m || !mergeChangeCount(m)) return null;
+  const rows = [
+    ...m.works_added.map((o) => ({ key: o.outage_id, add: true, text: `${title(o)} · ${o.season} ${o.year}` })),
+    ...m.works_removed.map((o) => ({ key: o.outage_id, add: false, text: `${title(o)} · ${o.season} ${o.year}` })),
+    ...m.reinforcements_added.map((r) => ({ key: r.reinforcement_id, add: true, text: r.label || `${r.action} ${r.kind} ${r.element_id}` })),
+    ...m.reinforcements_removed.map((r) => ({ key: r.reinforcement_id, add: false, text: r.label || `${r.action} ${r.kind} ${r.element_id}` })),
+  ];
+  return (
+    <div className="merge-changes">
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merging changes on main</span>
+      <span className="mute" style={{ fontSize: 11.5 }}>Main takes this branch's planned works and reinforcements, so it gains and loses these.</span>
+      {rows.map((r) => (
+        <div key={r.key} className="mrow">
+          {r.add ? <Plus size={12} color={hue} weight="bold" /> : <Minus size={12} color={C.redInk} weight="bold" />}
+          <span className="ellipsis" style={{ fontSize: 12, color: r.add ? C.ink : C.mute }}>{r.text}</span>
+        </div>
+      ))}
     </div>
   );
 }

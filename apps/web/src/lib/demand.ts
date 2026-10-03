@@ -6,7 +6,7 @@
 import type { Feature, Point } from "geojson";
 
 import { C } from "../theme";
-import type { Alert, AlertLevel, Model, Region, RegionYear, Sel, YearResult } from "../types";
+import type { Alert, AlertLevel, Model, Region, RegionLevel, RegionYear, Sel, YearResult } from "../types";
 
 /** A region's state in a year: its worst alert, ok, or not solved yet (no year result). */
 export type RegionState = AlertLevel | "ok" | "unsolved";
@@ -46,11 +46,18 @@ export function regionLevels(alerts: Alert[] | undefined): Map<string, AlertLeve
   return out;
 }
 
+/** What kind of group a region is, in a line (the region card's subtitle). */
+export const LEVEL_LINE: Record<RegionLevel, (r: Pick<RegionRow, "bsp">) => string> = {
+  primary: (r) => (r.bsp ? `${r.bsp} BSP · demand group` : "Demand group"),
+  bsp: () => "BSP · every primary it feeds",
+};
+
 /** A region as the map and card show it: today's group, overlaid with the year's figures if solved. */
 export interface RegionRow {
   region_id: string;
   name: string;
   bsp: string;
+  level: RegionLevel;
   buses: number[];
   demand_mw: number;
   firm_mw: number;
@@ -73,6 +80,7 @@ export function regionRows(model: Pick<Model, "regions"> | null, yr: YearResult 
         region_id: r.region_id,
         name: r.name,
         bsp: r.bsp,
+        level: r.level ?? "primary",
         buses: r.buses,
         demand_mw: y?.demand_mw ?? r.peak_demand_mw,
         firm_mw: y?.firm_mw ?? r.firm_mw,

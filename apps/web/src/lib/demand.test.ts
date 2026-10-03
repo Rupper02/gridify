@@ -17,11 +17,12 @@ import {
   regionFigure,
   regionLevels,
   regionRows,
+  LEVEL_LINE,
   regionSites,
 } from "./demand";
 
 const region = (over: Partial<Region>): Region => ({
-  region_id: "R1", name: "Alpha", bsp: "BSP", buses: [1], firm_mw: 20, firm_mva: 21, base_demand_mw: 10,
+  region_id: "R1", name: "Alpha", bsp: "BSP", level: "primary", buses: [1], firm_mw: 20, firm_mva: 21, base_demand_mw: 10,
   peak_demand_mw: 12, p2_class: "C", ...over,
 });
 const ry = (over: Partial<RegionYear>): RegionYear => ({
@@ -150,5 +151,12 @@ describe("wording", () => {
   it("leaves unlabelled a group with no firm figure and no alert", () => {
     const rows = regionRows(model([region({ firm_mw: 0 }), region({ region_id: "R2", buses: [3], firm_mw: 0 })]), year([ry({ firm_mw: 0 }), ry({ region_id: "R2", firm_mw: 0 })], [alert({ region_id: "R2" })]));
     expect(labelOrder(rows).map((r) => r.region_id)).toEqual(["R2"]);
+  });
+});
+
+describe("region levels", () => {
+  it("says what kind of group a region is", () => {
+    expect(LEVEL_LINE.primary({ bsp: "Sleaford" })).toBe("Sleaford BSP · demand group");
+    expect(LEVEL_LINE.bsp({ bsp: "Sleaford" })).toBe("BSP · every primary it feeds");
   });
 });

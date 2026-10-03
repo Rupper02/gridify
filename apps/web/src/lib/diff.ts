@@ -3,7 +3,7 @@
 // Pure: given the API's diff (engine: diff.diff_results), no React.
 
 import { C } from "../theme";
-import type { Diff, LoadingDelta, Outage, WorkChange, WorkDelta, WorkVerdict, YearDelta } from "../types";
+import type { Diff, LoadingDelta, OnMerge, Outage, WorkChange, WorkDelta, WorkVerdict, YearDelta } from "../types";
 import { type ModelIndex, lineName, trafoName } from "./derive";
 
 /** A loading change (percentage points) below this is not drawn on the map (its tag would read 0%). */
@@ -143,8 +143,12 @@ const WORK_LABEL: Record<string, string> = { maintenance: "Maintenance", repower
 
 /** A window's title: the work and the element it takes out, by name ("Maintenance · Boston to Spalding 132 kV"). */
 export function workTitle(w: WorkDelta, o: Outage | undefined, ix: ModelIndex | null): string {
-  const work = WORK_LABEL[w.work] ?? w.work;
-  if (!o) return `${work} · ${w.outage_id}`;
+  return o ? outageTitle(o, ix, w.work) : `${WORK_LABEL[w.work] ?? w.work} · ${w.outage_id}`;
+}
+
+/** A planned window's title from the window itself (`work`: the work to name, the window's own by default). */
+export function outageTitle(o: Outage, ix: ModelIndex | null, w: string = o.work): string {
+  const work = WORK_LABEL[w] ?? w;
   const id = o.element_id;
   const g = ix?.gen.get(id);
   const element = !ix
@@ -158,6 +162,10 @@ export function workTitle(w: WorkDelta, o: Outage | undefined, ix: ModelIndex | 
           : id;
   return `${work} · ${element}`;
 }
+
+/** How many planned works and reinforcements merging adds to or removes from the base. */
+export const mergeChangeCount = (m: OnMerge | undefined): number =>
+  m ? m.works_added.length + m.works_removed.length + m.reinforcements_added.length + m.reinforcements_removed.length : 0;
 
 /** The branch's windows for the Review tab: the viewed year's first, then the ones made worse, then by year. */
 export function worksInOrder(works: WorkDelta[], year: number): WorkDelta[] {

@@ -41,7 +41,7 @@ _CAND_COLS = [
     "grid_connection_agreement", "financing", "commissioning_year", "strategic_fit",
     "strategic_rationale", "status", "review_reasons", "import_mw",
 ]
-_REGION_COLS = ("region_id", "name", "bsp", "firm_mw", "firm_mva", "base_demand_mw", "peak_demand_mw", "p2_class")
+_REGION_COLS = ("region_id", "name", "bsp", "level", "firm_mw", "firm_mva", "base_demand_mw", "peak_demand_mw", "p2_class", "buses")
 _SNAPSHOT_COLS = {
     "snapshot_id": "VARCHAR", "created_at": "VARCHAR", "ltds_edition": "VARCHAR",
     "buses": "INTEGER", "lines": "INTEGER", "transformers": "INTEGER", "loads": "INTEGER", "candidates": "INTEGER",
@@ -232,8 +232,10 @@ def served_nged(
     trafos = pd.DataFrame(m["transformers"])[["trafo_id", "name", "sn_mva", "hv_bus", "lv_bus"]]
     loads = pd.DataFrame([{"bus_id": ld["bus_id"], "p_mw": ld["p_mw"], "region_id": ld.get("region_id")}
                           for ld in m["loads"]])
-    # the demand groups (LTDS Table 3 rows); a region's buses are its loads' buses (the loads table)
-    regions = pd.DataFrame([{k: r[k] for k in _REGION_COLS} for r in m.get("regions", [])], columns=list(_REGION_COLS))
+    # the demand groups (LTDS Table 3 primaries, and each BSP over its primaries), with the buses the
+    # engine places them at (a BSP's own busbars), stored as "id,id" text
+    regions = pd.DataFrame([{**{k: r[k] for k in _REGION_COLS if k != "buses"}, "buses": ",".join(map(str, r["buses"]))}
+                            for r in m.get("regions", [])], columns=list(_REGION_COLS))
     gens = pd.DataFrame([{"request_id": g["request_id"], "bus_id": g["bus_id"], "rating_mw": g["rating_mw"],
                          "technology": g["technology"], "applicant": g["applicant"]} for g in m["generators"]])
     cdf = pd.DataFrame([{k: c.get(k) for k in _CAND_COLS} for c in nged_connection_queue])

@@ -7,6 +7,8 @@ import {
   diffColor,
   diffMapFor,
   flaggedYears,
+  mergeChangeCount,
+  outageTitle,
   verdictOnBranch,
   verdictOnMain,
   workTitle,
@@ -110,5 +112,17 @@ describe("planned works in the diff", () => {
     const o: Outage = { outage_id: "mw-1", element_kind: "gen", element_id: "EX-9", season: "Summer", year: 2032, weeks: 4, kind: "outage", work: "maintenance", repower: null, factor: null };
     expect(workTitle(work({ work: "repowering" }), o, null)).toBe("Repowering · gen EX-9");
     expect(workTitle(work(), undefined, null)).toBe("Maintenance · mw-1");
+  });
+});
+
+describe("what merging changes on main", () => {
+  const o = { outage_id: "mw-2", element_kind: "gen", element_id: "EX-9", season: "Winter", year: 2031, weeks: 4, kind: "outage", work: "replacement", repower: null, factor: null } as Outage;
+  it("titles a window from the window itself", () => {
+    expect(outageTitle(o, null)).toBe("Replacement · gen EX-9");
+  });
+  it("counts what is added and removed", () => {
+    expect(mergeChangeCount(undefined)).toBe(0);
+    const r = { reinforcement_id: "rf-1", kind: "gsp", element_id: 0, action: "add_parallel", factor: 2, label: "Third SGT" };
+    expect(mergeChangeCount({ works_added: [o], works_removed: [], reinforcements_added: [r], reinforcements_removed: [] })).toBe(2);
   });
 });

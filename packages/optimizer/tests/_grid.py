@@ -43,12 +43,15 @@ def invalid_bus(net):
 
 
 def _local_thermal_mva(net, buses):
-    """Median thermal capacity (MVA) of the circuits touching `buses` — the local wires' size."""
+    """Median thermal capacity (MVA) of the circuits and transformers touching `buses` — the local
+    wires' size (a busbar fed only by its transformers is sized by them)."""
     touch = net.line[net.line.from_bus.isin(buses) | net.line.to_bus.isin(buses)]
-    if touch.empty:
-        return None
     kv = net.bus.loc[touch.from_bus, "vn_kv"].to_numpy()
-    mva = (3 ** 0.5) * kv * touch.max_i_ka.to_numpy() * touch.parallel.to_numpy()
+    mva = list((3 ** 0.5) * kv * touch.max_i_ka.to_numpy() * touch.parallel.to_numpy())
+    tr = net.trafo[net.trafo.hv_bus.isin(buses) | net.trafo.lv_bus.isin(buses)]
+    mva += list(tr.sn_mva.astype(float) * tr.parallel.astype(float))
+    if not mva:
+        return None
     return float(sorted(mva)[len(mva) // 2])
 
 

@@ -66,7 +66,8 @@ def _feeder_hops(net) -> tuple[dict[int, int], int]:
     sources = [int(b) for b in net.trafo["lv_bus"].unique() if int(b) in graph]
     if not sources:
         return {}, 1
-    dist = nx.multi_source_shortest_path_length(graph, sources)
+    # hop count: every branch weighs 1 (networkx has no unweighted multi-source BFS)
+    dist = nx.multi_source_dijkstra_path_length(graph, set(sources), weight=lambda u, v, d: 1)
     d_max = max(dist.values()) if dist else 1
     return {int(b): int(d) for b, d in dist.items()}, max(d_max, 1)
 
@@ -103,10 +104,7 @@ def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
     Fully deterministic in (scenario, horizon, network structure).
     """
     load = net.load
-    try:
-        hops, d_max = _feeder_hops(net)
-    except Exception:
-        hops, d_max = {}, 1
+    hops, d_max = _feeder_hops(net)
 
     weights: dict[int, float] = {}
     for idx, row in load.iterrows():

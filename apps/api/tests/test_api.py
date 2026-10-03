@@ -162,6 +162,34 @@ def test_branch_diff_is_year_aware_and_compares_planned_works_with_main():
     assert _t.perf_counter() - t0 < 5.0
 
 
+def test_the_diff_previews_what_a_merge_adds_to_and_removes_from_the_parent():
+    """Merge replaces the parent's planned works and reinforcements with the branch's: the diff says
+    which it adds and which it removes, and the merge does exactly that (into a branch, so main and
+    the other tests are untouched)."""
+    line = _first("line")
+    parent = _create("Merge parent")["branch_id"]
+    kept = client.post(f"/branches/{parent}/outages", json={"element_kind": "line", "element_id": line,
+                                                            "season": "Summer", "year": 2030}).json()["outage_id"]
+    gone = client.post(f"/branches/{parent}/outages", json={"element_kind": "line", "element_id": line,
+                                                            "season": "Winter", "year": 2031}).json()["outage_id"]
+    child = _create("Merge child", from_branch=parent)["branch_id"]
+    assert {o["outage_id"] for o in client.get(f"/branches/{child}/outages").json()["outages"]} == {kept, gone}
+    assert client.delete(f"/branches/{child}/outages/{gone}").status_code == 200
+    new = client.post(f"/branches/{child}/outages", json={"element_kind": "line", "element_id": line,
+                                                          "season": "Spring", "year": 2032}).json()["outage_id"]
+    rid = client.post(f"/branches/{child}/reinforcements", json={"kind": "gsp", "element_id": 0, "label": "Third SGT"}).json()["reinforcement_id"]
+
+    m = client.get(f"/branches/{child}/diff").json()["on_merge"]
+    assert [w["outage_id"] for w in m["works_added"]] == [new]
+    assert [w["outage_id"] for w in m["works_removed"]] == [gone]
+    assert [r["reinforcement_id"] for r in m["reinforcements_added"]] == [rid] and not m["reinforcements_removed"]
+    assert m["works_added"][0]["season"] == "Spring" and "created_at" not in m["works_added"][0]
+
+    assert client.post(f"/branches/{child}/merge", json={"into": parent}).status_code == 200
+    assert {o["outage_id"] for o in client.get(f"/branches/{parent}/outages").json()["outages"]} == {kept, new}
+    assert [r["reinforcement_id"] for r in client.get(f"/branches/{parent}/reinforcements").json()["reinforcements"]] == [rid]
+
+
 def test_two_branches_do_not_share_cache():
     # regression: _compute must key on the candidate set, not just scenario params
     wb = _weak_buses(1)[0]

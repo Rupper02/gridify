@@ -69,10 +69,16 @@ export interface Model {
 }
 
 /** A demand group (one LTDS Table 3 row: a primary, or a BSP's own 33 kV group), GET /model. */
+/** A demand group's level: a primary substation (or a customer's own connection), or a bulk supply
+ * point over the primaries it feeds (its demand is theirs, never counted twice). */
+export type RegionLevel = "primary" | "bsp";
+
 export interface Region {
   region_id: string;
   name: string;
   bsp: string;
+  level: RegionLevel;
+  /** Where it sits: its loads' buses (a primary) or the BSP's own busbars. */
   buses: number[];
   firm_mw: number;
   firm_mva: number | null;
@@ -520,9 +526,18 @@ export interface Diff {
   years: Record<string, YearDelta>;
   /** The branch's planned works: verdict on main's plan vs the branch's. */
   works: WorkDelta[];
+  /** What merging replaces in the base: the planned works and reinforcements it adds and removes. */
+  on_merge?: OnMerge;
   base_branch: string;
   head_branch: string;
   narration: string;
+}
+
+export interface OnMerge {
+  works_added: Outage[];
+  works_removed: Outage[];
+  reinforcements_added: BranchReinforcement[];
+  reinforcements_removed: BranchReinforcement[];
 }
 
 export interface Suggestion {

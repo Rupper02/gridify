@@ -90,17 +90,15 @@ class Warehouse:
                 "generators": generators, "regions": self.regions()}
 
     def regions(self) -> list[dict]:
-        """The demand groups (one per live LTDS Table 3 row), each with the buses its loads sit on.
-        Empty for a warehouse that predates them (re-materialise the pipeline)."""
+        """The demand groups (LTDS Table 3 primaries, and each BSP over its primaries), each with the
+        buses the engine places it at. Empty for a warehouse that predates them (re-materialise the
+        pipeline)."""
         if not self.table_exists("regions"):
             return []
-        rows = self.query("SELECT * FROM regions ORDER BY region_id")
-        buses: dict[str, set[int]] = {}
-        for ld in self.query("SELECT region_id, bus_id FROM loads WHERE region_id IS NOT NULL"):
-            buses.setdefault(ld["region_id"], set()).add(int(ld["bus_id"]))
         nan_to_none = lambda v: None if isinstance(v, float) and v != v else v  # noqa: E731 (JSON has no NaN)
-        return [{**{k: nan_to_none(v) for k, v in r.items()}, "buses": sorted(buses.get(r["region_id"], ()))}
-                for r in rows]
+        return [{**{k: nan_to_none(v) for k, v in r.items()},
+                 "buses": [int(b) for b in str(r.get("buses") or "").split(",") if b.strip()]}
+                for r in self.query("SELECT * FROM regions ORDER BY region_id")]
 
     def bus_coords(self) -> dict[int, tuple[float, float]]:
         """Map every geolocated bus id to its (lon, lat), for attaching coords to queue items."""
