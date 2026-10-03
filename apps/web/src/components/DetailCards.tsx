@@ -145,7 +145,16 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
       />
       <div className="kv">
         <span>Rating</span><span className="mono">{info.rating}</span>
-        <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
+        {info.winterLoadPct != null && info.summerLoadPct != null && sel.kind !== "gen" ? (
+          <>
+            <span>Winter peak</span><span className="mono" style={{ color: loadColor(info.winterLoadPct) }}>{Math.round(info.winterLoadPct)}%</span>
+            <span>Summer min</span><span className="mono" style={{ color: loadColor(info.summerLoadPct) }}>{Math.round(info.summerLoadPct)}%</span>
+          </>
+        ) : (
+          <>
+            <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
+          </>
+        )}
       </div>
       {repowered.map((t) => (
         <span key={t} className="repowered">{t}</span>

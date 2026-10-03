@@ -440,12 +440,24 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
     reason: Reason | None = None
     gsp_export = gsp_import = 0.0
     export_case = binding_case = None
+    winter_line = winter_trafo = summer_line = summer_trafo = None
+    winter_import = summer_import = 0.0
+    winter_vm = summer_vm = None
     for case, load_scale, rating_ratio in _study_cases(net):
         res = _run_case(net, case, load_scale, rating_ratio)
         if res is None:
             return False, Reason(type="non_convergent", case=case,
                                  message=f"power flow did not converge at {_CASE_LABEL[case]}"), {}
         vm, line_pct, trafo_pct, p = res["vm"], res["line_pct"], res["trafo_pct"], res["p_ext_mw"]
+        # Capture per-case loading, import, and voltage
+        if case == "winter_peak":
+            winter_line, winter_trafo = line_pct, trafo_pct
+            winter_import = p
+            winter_vm = vm
+        elif case == "summer_min":
+            summer_line, summer_trafo = line_pct, trafo_pct
+            summer_import = p
+            summer_vm = vm
         if -p > gsp_export:
             gsp_export, export_case = -p, case
         gsp_import = max(gsp_import, p)
@@ -472,8 +484,18 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
         "max_trafo_pct": float(env_trafo.max()) if len(env_trafo) else 0.0,
         "gsp_export_mw": round(gsp_export, 1),
         "gsp_import_mw": round(gsp_import, 1),
+        "gsp_import_winter_mw": round(winter_import, 1),
+        "gsp_import_summer_mw": round(summer_import, 1),
         "gsp_limit_mw": gsp_export_limit(net),
         "binding_case": binding_case,
+        "line_loading_winter": winter_line,
+        "line_loading_summer": summer_line,
+        "trafo_loading_winter": winter_trafo,
+        "trafo_loading_summer": summer_trafo,
+        "min_vm_winter": float(winter_vm.min()) if winter_vm is not None else 0.0,
+        "max_vm_winter": float(winter_vm.max()) if winter_vm is not None else 0.0,
+        "min_vm_summer": float(summer_vm.min()) if summer_vm is not None else 0.0,
+        "max_vm_summer": float(summer_vm.max()) if summer_vm is not None else 0.0,
     }
     return reason is None, reason, metrics
 
@@ -490,10 +512,16 @@ def line_loadings(net) -> dict[int, float]:
     return {int(i): round(float(v), 1) for i, v in lp.items()}
 
 
+def _loading_dict(series) -> dict[int, float]:
+    """Convert a pandas Series of loading_percent to a dict, filtering NaN."""
+    if series is None:
+        return {}
+    return {int(i): round(float(v), 1) for i, v in series.items() if v == v}
+
+
 def trafo_loadings(net) -> dict[int, float]:
     """Per-transformer loading_percent from the last solve."""
-    tp = net.res_trafo["loading_percent"]
-    return {int(i): round(float(v), 1) for i, v in tp.items() if v == v}
+    return _loading_dict(net.res_trafo["loading_percent"])
 
 
 def bus_voltages(net) -> dict[int, float]:

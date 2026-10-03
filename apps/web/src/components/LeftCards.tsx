@@ -32,20 +32,34 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const worstPct = worst ? Math.round(worst.pct) : null;
   
   if (layout.narrow) {
+    const computing = s.refreshing || s.running;
+    const winterImport = yr?.gsp_import_winter_mw ?? null;
+    const summerImport = yr?.gsp_import_summer_mw ?? null;
+    const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
+    const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
+    const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
+    const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+    
     return (
       <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
         <ProfileGlyph bars={resultProfile.bars} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
-        <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
-          GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
+        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : gspHot ? C.amber : C.ink2 }}>
+          Export {computing ? "..." : gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
-        <span className="mono" style={{ fontSize: 11, color: C.ink2 }}>
-          V {vMin}–{vMax}
+        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : winterHot ? C.amber : C.ink2 }}>
+          W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/{winterLimit != null ? Math.round(winterLimit) : "–"}
         </span>
-        <span className="mono" style={{ fontSize: 11, color: worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink2 }}>
-          Worst {worstPct != null ? `${worstPct}%` : "–"}
+        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : summerHot ? C.amber : C.ink2 }}>
+          S.import {computing ? "..." : summerImport != null ? Math.round(summerImport) : "–"}/{summerLimit != null ? Math.round(summerLimit) : "–"}
         </span>
-        {s.refreshing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
+        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : C.ink2 }}>
+          V {computing ? "..." : `${vMin}–${vMax}`}
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink2 }}>
+          Worst {computing ? "..." : worstPct != null ? `${worstPct}%` : "–"}
+        </span>
+        {computing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
         {showStale && (
           <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()}>
             Out of date · re-run
@@ -108,21 +122,58 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
   const worst = worstElement(yr, ix);
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
+  const computing = s.refreshing || s.running;
+  
+  // Winter and summer imports with their distinct limits
+  const winterImport = yr?.gsp_import_winter_mw ?? null;
+  const summerImport = yr?.gsp_import_summer_mw ?? null;
+  const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
+  const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
+  const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
+  const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+  
+  // Voltage range with season attribution
+  const minVoltSeason = yr?.min_vm_winter !== undefined && yr?.min_vm_summer !== undefined 
+    ? (yr.min_vm_winter <= yr.min_vm_summer ? "winter peak" : "summer min")
+    : null;
+  const maxVoltSeason = yr?.max_vm_winter !== undefined && yr?.max_vm_summer !== undefined
+    ? (yr.max_vm_winter >= yr.max_vm_summer ? "winter peak" : "summer min")
+    : null;
+  
   return (
     <div className="card glass" style={{ gap: 14 }}>
       <button className="gsp-btn" onClick={actions.toggleBoundary} title="Beyond the GSP: limits and transmission projects">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontSize: 11.5, color: C.mute }}>GSP export</span>
-          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: gspHot ? C.amber : C.ink }}>
-            {gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
+          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : gspHot ? C.amber : C.ink }}>
+            {computing ? "..." : gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
           </span>
         </div>
-        <Gauge ticks={gspTicks(gsp ?? 0, limit)} />
+        <Gauge ticks={computing ? [] : gspTicks(gsp ?? 0, limit)} />
         <span style={{ fontSize: 10.5, color: C.mute2 }}>
           Worst case{sgt && sgtMw ? ` · ${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
           {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
         </span>
       </button>
+      
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 11.5, color: C.mute }}>Winter import</span>
+          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : winterHot ? C.amber : C.ink }}>
+            {computing ? "..." : winterImport != null ? fmtMw(winterImport) : "–"} / {winterLimit != null ? fmtMw(winterLimit) : "–"} MW
+          </span>
+        </div>
+        <Gauge ticks={computing ? [] : gspTicks(winterImport ?? 0, winterLimit)} />
+        
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6 }}>
+          <span style={{ fontSize: 11.5, color: C.mute }}>Summer import</span>
+          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
+            {computing ? "..." : summerImport != null ? fmtMw(summerImport) : "–"} / {summerLimit != null ? fmtMw(summerLimit) : "–"} MW
+          </span>
+        </div>
+        <Gauge ticks={computing ? [] : gspTicks(summerImport ?? 0, summerLimit)} />
+      </div>
+      
       <div className="readings">
         <button
           className="reading reading-btn"
@@ -131,25 +182,31 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           title={worst ? `Show the ${worst.name} on the map` : undefined}
         >
           <span className="k">Worst element</span>
-          <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
-            {worst ? `${Math.round(worst.pct)}%` : "–"}
+          <span className="v" style={{ color: computing ? C.mute2 : worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
+            {computing ? "..." : worst ? `${Math.round(worst.pct)}%` : "–"}
           </span>
           <span className="n">{worst?.name ?? "not solved yet"}</span>
         </button>
         <div className="reading">
           <span className="k">Voltage band</span>
-          <span className="v">{yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
-          <span className="n">to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "statutory bands"}</span>
+          <span className="v">{computing ? "..." : yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
+          <span className="n">
+            {computing ? "computing" : minVoltSeason && maxVoltSeason ? (
+              <>({minVoltSeason}) to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu ({maxVoltSeason})</>
+            ) : (
+              <>to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "statutory bands"}</>
+            )}
+          </span>
         </div>
         <div className="reading">
           <span className="k">Peak demand</span>
-          <span className="v">×{yr ? yr.growth.toFixed(2) : "–"}</span>
+          <span className="v">×{computing ? "..." : yr ? yr.growth.toFixed(2) : "–"}</span>
           <span className="n">vs today, by {yr?.year ?? s.year}</span>
         </div>
         <div className="reading">
           <span className="k">N-1 findings</span>
-          <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
-            {yr ? `${yr.n1_violations.length} / ${yr.n1_screened}` : "–"}
+          <span className="v" style={{ color: computing ? C.mute2 : yr?.n1_violations.length ? C.amber : C.ink }}>
+            {computing ? "..." : yr ? `${yr.n1_violations.length} / ${yr.n1_screened}` : "–"}
           </span>
           <span className="n">132 kV outages screened, reported only</span>
         </div>
@@ -171,21 +228,50 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
   vMax: string;
   worstPct: number | null;
 }) {
-  const { s } = planner;
+  const { s, derived } = planner;
+  const { yr } = derived;
   const computing = s.refreshing || s.running;
+  
+  const winterImport = yr?.gsp_import_winter_mw ?? null;
+  const summerImport = yr?.gsp_import_summer_mw ?? null;
+  const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
+  const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
+  const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
+  const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+  
+  // Voltage range with season info
+  const minVoltSeason = yr?.min_vm_winter !== undefined && yr?.min_vm_summer !== undefined 
+    ? (yr.min_vm_winter <= yr.min_vm_summer ? "W" : "S")
+    : "";
+  const maxVoltSeason = yr?.max_vm_winter !== undefined && yr?.max_vm_summer !== undefined
+    ? (yr.max_vm_winter >= yr.max_vm_summer ? "W" : "S")
+    : "";
+  
   return (
     <div className="card glass" style={{ padding: "8px 12px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px 12px", fontSize: 11 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: C.mute }}>GSP</span>
+          <span style={{ color: C.mute }}>GSP export</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : gspHot ? C.amber : C.ink }}>
             {computing ? "..." : gsp != null && limit != null ? `${Math.round(gsp)} / ${Math.round(limit)}` : "–"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: C.mute }}>Winter import</span>
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : winterHot ? C.amber : C.ink }}>
+            {computing ? "..." : winterImport != null && winterLimit != null ? `${Math.round(winterImport)} / ${Math.round(winterLimit)}` : "–"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: C.mute }}>Summer import</span>
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
+            {computing ? "..." : summerImport != null && summerLimit != null ? `${Math.round(summerImport)} / ${Math.round(summerLimit)}` : "–"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Voltage</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : C.ink }}>
-            {computing ? "..." : `${vMin}–${vMax}`}
+            {computing ? "..." : minVoltSeason && maxVoltSeason ? `${vMin}(${minVoltSeason})–${vMax}(${maxVoltSeason})` : `${vMin}–${vMax}`}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>

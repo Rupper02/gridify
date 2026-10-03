@@ -185,11 +185,21 @@ export interface PhaseResult {
   max_vm_pu: number;
   overloaded_line_ids: number[];
   line_loading: Record<string, number>;
+  line_loading_winter?: Record<string, number>;
+  line_loading_summer?: Record<string, number>;
+  trafo_loading_winter?: Record<string, number>;
+  trafo_loading_summer?: Record<string, number>;
   bus_vm: Record<string, number>;
   voltage_violation_bus_ids: number[];
   gsp_export_mw: number;
   gsp_import_mw: number;
+  gsp_import_winter_mw?: number;
+  gsp_import_summer_mw?: number;
   gsp_limit_mw: number | null;
+  min_vm_winter?: number;
+  max_vm_winter?: number;
+  min_vm_summer?: number;
+  max_vm_summer?: number;
   n1_screened: number;
   n1_violations: N1Violation[];
 }

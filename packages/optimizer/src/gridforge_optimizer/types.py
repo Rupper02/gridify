@@ -83,12 +83,22 @@ class PhaseResult(BaseModel):
     min_vm_pu: float
     max_vm_pu: float
     overloaded_line_ids: list[int]
-    line_loading: dict[int, float] = {}  # line_id -> loading_percent, for the map heat overlay
+    line_loading: dict[int, float] = {}  # line_id -> loading_percent (envelope), for the map heat overlay
+    line_loading_winter: dict[int, float] = {}  # line_id -> loading at winter_peak
+    line_loading_summer: dict[int, float] = {}  # line_id -> loading at summer_min
+    trafo_loading_winter: dict[int, float] = {}  # trafo_id -> loading at winter_peak
+    trafo_loading_summer: dict[int, float] = {}  # trafo_id -> loading at summer_min
     bus_vm: dict[int, float] = {}  # bus_id -> voltage pu, for the map voltage overlay
     voltage_violation_bus_ids: list[int] = []  # buses outside the voltage band
     gsp_export_mw: float = 0.0  # peak power pushed UP through the GSP to transmission (worst case)
     gsp_import_mw: float = 0.0  # peak power drawn DOWN from transmission (worst case)
+    gsp_import_winter_mw: float = 0.0  # import at winter_peak
+    gsp_import_summer_mw: float = 0.0  # import at summer_min
     gsp_limit_mw: float | None = None  # the GSP's export limit to transmission; None = unlimited
+    min_vm_winter: float = 0.0  # minimum voltage at winter_peak
+    max_vm_winter: float = 0.0  # maximum voltage at winter_peak
+    min_vm_summer: float = 0.0  # minimum voltage at summer_min
+    max_vm_summer: float = 0.0  # maximum voltage at summer_min
     n1_screened: int = 0  # EHV elements outaged one at a time in the N-1 screen
     n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, type, element_id, value, message}
 

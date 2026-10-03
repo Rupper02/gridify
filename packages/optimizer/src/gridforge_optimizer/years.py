@@ -101,6 +101,10 @@ def evaluate_year(
     studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if n1 else None)
     screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
     _, _, m = feasibility(net)  # the intact envelope the map and readings show
+    # Helper to convert pandas Series to dict[int, float]
+    def _loading_dict(s):
+        return {int(k): round(float(v), 1) for k, v in s.items()} if s is not None else {}
+    
     yr = YearResult(
         year=year,
         growth=round(growth, 4),
@@ -112,12 +116,22 @@ def evaluate_year(
         max_vm_pu=round(m.get("max_vm", 0.0), 4),
         overloaded_line_ids=overloaded_line_ids(net),
         line_loading=line_loadings(net),
+        line_loading_winter=_loading_dict(m.get("line_loading_winter")),
+        line_loading_summer=_loading_dict(m.get("line_loading_summer")),
         trafo_loading=trafo_loadings(net),
+        trafo_loading_winter=_loading_dict(m.get("trafo_loading_winter")),
+        trafo_loading_summer=_loading_dict(m.get("trafo_loading_summer")),
         bus_vm=bus_voltages(net),
         voltage_violation_bus_ids=voltage_violation_bus_ids(net),
         gsp_export_mw=m.get("gsp_export_mw", 0.0),
         gsp_import_mw=m.get("gsp_import_mw", 0.0),
+        gsp_import_winter_mw=m.get("gsp_import_winter_mw", 0.0),
+        gsp_import_summer_mw=m.get("gsp_import_summer_mw", 0.0),
         gsp_limit_mw=m.get("gsp_limit_mw"),
+        min_vm_winter=round(m.get("min_vm_winter", 0.0), 4),
+        max_vm_winter=round(m.get("max_vm_winter", 0.0), 4),
+        min_vm_summer=round(m.get("min_vm_summer", 0.0), 4),
+        max_vm_summer=round(m.get("max_vm_summer", 0.0), 4),
         n1_screened=screen["screened"],
         n1_violations=screen["violations"],
         outage_studies=studies,

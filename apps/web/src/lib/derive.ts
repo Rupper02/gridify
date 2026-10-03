@@ -296,6 +296,8 @@ export interface ElementInfo {
   loadLabel: string;
   load: string;
   loadPct: number | null;
+  winterLoadPct: number | null;
+  summerLoadPct: number | null;
   ll: [number, number] | null;
 }
 export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | null, year: number): ElementInfo | null {
@@ -303,14 +305,18 @@ export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | nu
     const l = ix.line.get(sel.id);
     if (!l) return null;
     const pct = yr?.line_loading?.[sel.id] ?? null;
+    const winterPct = yr?.line_loading_winter?.[sel.id] ?? null;
+    const summerPct = yr?.line_loading_summer?.[sel.id] ?? null;
     return {
       name: lineName(ix, sel.id),
       short: lineShort(ix, sel.id),
       kindLabel: `Circuit · ${+l.voltage_kv} kV`,
       rating: `${fmtMw(lineMva(l))} MVA`,
-      loadLabel: `Loading · winter peak & summer min`,
+      loadLabel: `Loading in ${year}`,
       load: pct == null ? "–" : `${Math.round(pct)}%`,
       loadPct: pct,
+      winterLoadPct: winterPct,
+      summerLoadPct: summerPct,
       ll: [(l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2],
     };
   }
@@ -318,14 +324,18 @@ export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | nu
     const t = ix.trafo.get(sel.id);
     if (!t) return null;
     const pct = yr?.trafo_loading?.[sel.id] ?? null;
+    const winterPct = yr?.trafo_loading_winter?.[sel.id] ?? null;
+    const summerPct = yr?.trafo_loading_summer?.[sel.id] ?? null;
     return {
       name: trafoName(ix, sel.id),
       short: `${trafoSub(t).slice(0, 8)} T${t.trafo_id}`,
       kindLabel: `Transformer · ${trafoRatio(t)}`,
       rating: `${fmtMw(t.sn_mva)} MVA`,
-      loadLabel: `Loading · winter peak & summer min`,
+      loadLabel: `Loading in ${year}`,
       load: pct == null ? "–" : `${Math.round(pct)}%`,
       loadPct: pct,
+      winterLoadPct: winterPct,
+      summerLoadPct: summerPct,
       ll: [t.hv_lon, t.hv_lat],
     };
   }
@@ -339,6 +349,8 @@ export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | nu
     loadLabel: "Output at summer min",
     load: g.technology === "battery" ? "exporting" : "full",
     loadPct: null,
+    winterLoadPct: null,
+    summerLoadPct: null,
     ll: [g.lon, g.lat],
   };
 }
