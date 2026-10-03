@@ -74,6 +74,28 @@ class ScenarioUpdate(BaseModel):
     growth_2035: float
 
 
+class EventIn(BaseModel):
+    """An event for the project's agents (agents.events.TRIGGERS)."""
+
+    type: str
+    payload: dict = {}
+    dedup_id: str | None = None
+
+
+class ThreadCreate(BaseModel):
+    branch_id: str | None = None
+    title: str = ""
+
+
+class MessageIn(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+
+
+class ApprovalDecision(BaseModel):
+    decision: Literal["approve", "deny"]
+    note: str = ""
+
+
 class FindingStatusSet(BaseModel):
     """The operator's call on a finding: acknowledge it (default), resolve it by hand, or reopen it."""
 

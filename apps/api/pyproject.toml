@@ -8,6 +8,8 @@ dependencies = [
     "gridforge-optimizer",
     "python-dotenv>=1.2",
     "psycopg[binary]>=3.3.6",
+    "dbos>=3.2.0",
+    "pydantic-ai-slim[dbos,openrouter]>=2.54.0",
 ]
 
 [tool.uv.sources]

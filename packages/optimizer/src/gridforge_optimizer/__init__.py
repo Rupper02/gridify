@@ -26,7 +26,7 @@ from .findings import against_recommendation, extract_findings
 from .gate import merge_verdict
 from .greedy import optimize
 from .network import apply_reinforcement
-from .studies import STUDIES, StudyContext, run_study
+from .studies import STUDIES, StudyContext, chunk_study, merge_chunks, run_study
 from .suggest import suggest_unblock
 from .types import (
     Candidate,
@@ -100,6 +100,8 @@ __all__ = [
     "STUDIES",
     "StudyContext",
     "run_study",
+    "chunk_study",
+    "merge_chunks",
     "ModelAssumption",
     "StudyItem",
     "StudyResult",

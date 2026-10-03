@@ -3,7 +3,8 @@
 from fastapi import APIRouter
 
 from .. import repository
-from ..deps import cache, jobs, plans, scenarios
+from ..agents import events
+from ..deps import agents, cache, jobs, plans, scenarios
 from ..schemas import BranchOptimizeRequest, OptimizeRequest
 
 router = APIRouter()
@@ -12,7 +13,13 @@ router = APIRouter()
 @router.post("/optimize")
 def run_optimize(body: OptimizeRequest) -> dict:
     """Run the optimizer on the main plan and return the enriched queue + per-phase results."""
-    return plans.optimize_payload(body, "main")
+    return _ran("main", plans.optimize_payload(body, "main"))
+
+
+def _ran(branch_id: str, out: dict) -> dict:
+    """A run finished: the agents hear about it (a no-op when they are off; deduplicated by the result's identity)."""
+    events.emit(agents, "run.finished", {"branch_id": branch_id, "run_key": out.get("run_key", "")})
+    return out
 
 
 @router.post("/branches/{branch_id}/optimize")
@@ -22,7 +29,7 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
         row = repository.require_branch(con, branch_id)
     req = repository.branch_request(row)
     req.with_justification = bool(body and body.with_justification)
-    return plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None)
+    return _ran(branch_id, plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None))
 
 
 @router.post("/branches/{branch_id}/optimize/jobs")
@@ -34,8 +41,8 @@ def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None
         row = repository.require_branch(con, branch_id)
     req = OptimizeRequest(with_justification=bool(body and body.with_justification), **repository.branch_params(row))
     view_year = body.view_year if body else None
-    return jobs.start("optimize", lambda progress, publish: plans.optimize_payload(
-        req, branch_id, progress=progress, publish=publish, view_year=view_year))
+    return jobs.start("optimize", lambda progress, publish: _ran(branch_id, plans.optimize_payload(
+        req, branch_id, progress=progress, publish=publish, view_year=view_year)))
 
 
 @router.post("/jobs/{job_id}/cancel")

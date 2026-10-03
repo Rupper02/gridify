@@ -7,6 +7,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from gridforge_optimizer import engine_fingerprint
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 WAREHOUSE = Path(
     os.getenv("GRIDFORGE_DB_PATH", str(REPO_ROOT / "apps" / "pipeline" / "warehouse" / "gridforge.duckdb"))
@@ -42,7 +44,15 @@ AGENT_BUDGET_DAILY = {"credits": 5.0, "tokens": 2_000_000, "solves": 3_000}
 # per agent run: tool calls, solves and wall time before it is cut short
 AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
 SOLVER_GATE_MAX_WAIT_S = 180.0  # how long an agent study waits for an operator's job before it gives up
-AGENT_STEP_RETENTION_DAYS = 90  # recorded tool steps older than this are dropped unless an open finding cites them
+OPENROUTER_APP = {"app_url": "https://github.com/Rupper02/gridforge", "app_title": "GridForge"}  # OpenRouter attribution headers
+# the durable runtime's own database (DBOS): SQLite beside the scenarios file by default, Postgres when the
+# scenarios store is Postgres (or GRIDFORGE_DBOS_URL). Recovery after a restart is pinned to an application
+# version: the engine fingerprint by default, so a code change that retires cached physics also retires
+# in-flight runs; set GRIDFORGE_DBOS_APP_VERSION to keep runs across `--reload` restarts in dev
+DBOS_URL: str = os.getenv("GRIDFORGE_DBOS_URL") or (
+    SCENARIOS_URL if SCENARIOS_URL and SCENARIOS_URL.startswith(("postgresql://", "postgres://"))
+    else "sqlite:///" + str(SCENARIOS.parent / "dbos.sqlite").replace("\\", "/"))
+AGENTS_APP_VERSION: str = os.getenv("GRIDFORGE_DBOS_APP_VERSION") or engine_fingerprint()
 
 
 def now() -> str:

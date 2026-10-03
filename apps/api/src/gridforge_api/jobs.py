@@ -33,8 +33,11 @@ class JobRunner:
         self.solver_lock = solver_lock or threading.RLock()
 
     def submit(self, fn: Callable[[], None]) -> None:
-        """Run a fire-and-forget task on the worker (warm-up)."""
-        self._pool.submit(fn)
+        """Run a fire-and-forget task on the worker (warm-up), under the solver lock like a job."""
+        def run() -> None:
+            with self.solver_lock:
+                fn()
+        self._pool.submit(run)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)

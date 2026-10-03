@@ -17,7 +17,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .config import log
-from .deps import jobs, plans, scenarios, warehouse
+from .deps import agents, jobs, plans, scenarios, warehouse
+from .routers import agents as agents_router
 from .routers import branches, findings, model, optimize, registry, studies
 
 
@@ -26,6 +27,8 @@ async def _lifespan(_app: FastAPI):
     """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests
     never race on DDL), then warm pandapower's numba JIT and pre-compute main on every demand profile."""
     scenarios.init()
+    if agents.enabled:  # the durable runtime: workflows interrupted by the last shutdown resume from their last step
+        agents.launch()
 
     def _warm() -> None:
         try:
@@ -33,11 +36,13 @@ async def _lifespan(_app: FastAPI):
             feasibility(build_base_net())
             if warehouse.exists():
                 plans.warm("main", idle=jobs.idle)
+                agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
         except Exception:  # warming is best-effort; a broken network surfaces on the first real call
             log.exception("warm-up failed")
 
     jobs.submit(_warm)
     yield
+    agents.destroy()
     jobs.shutdown()
 
 
@@ -58,5 +63,5 @@ async def _json_errors(request: Request, call_next):
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router):
+for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, agents_router.router):
     app.include_router(_router)

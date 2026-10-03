@@ -29,6 +29,8 @@ from gridforge_optimizer import (
     evaluate_years,
     extract_findings,
     merge_verdict,
+    chunk_study,
+    merge_chunks,
     optimize,
     run_study,
     suggest_unblock,
@@ -342,27 +344,39 @@ class PlanService:
         )
 
     # --- studies (the agents' tools and POST /branches/{id}/studies/{kind}) --------------------------------------------
-    def study(self, branch_id: str, kind: str, params=None, progress=None) -> StudyResult:
+    def study_key(self, branch_id: str, kind: str, p) -> str:
+        """The cache key of a study on a branch: the branch's inputs, the study's parameters, and the plan
+        years' key for the studies that read them (what an agent's recorded step points at)."""
+        b = self.inputs(branch_id)
+        extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if STUDIES[kind].needs_plan else "")
+        return self.cache.key(f"study:{kind}", resolve_params(b.req), b.ckey, extra=extra)
+
+    def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False) -> StudyResult:
         """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
         the plan years for the studies that read them. Cached like everything else, under the branch's inputs
-        and the study's parameters, so an agent asking twice costs one solve; a chunk is a study with its own
-        parameters, so chunks cache on their own."""
+        and the study's parameters, so an agent asking twice costs one solve. `chunked` runs the study's
+        independent parts one by one (each a study with its own parameters, cached on its own, so a retry
+        after a crash recomputes only the parts that are not in the cache) and stores the merged result
+        under the whole study's key."""
         spec = STUDIES[kind]
         p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
         b = self.inputs(branch_id)
         engine_params = resolve_params(b.req)
-        extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if spec.needs_plan else "")
+
+        def context() -> StudyContext:
+            result = self.result_with_years(b) if spec.needs_plan else None
+            return StudyContext(net_factory=reinforced_factory(b.reinforcements), params=engine_params, candidates=b.cands,
+                                result=result, progress=progress or (lambda _s, _f: None))
 
         def compute() -> StudyResult:
-            result = self.result_with_years(b) if spec.needs_plan else None
-            ctx = StudyContext(net_factory=reinforced_factory(b.reinforcements), params=engine_params, candidates=b.cands,
-                               result=result, progress=progress or (lambda _s, _f: None))
-            return run_study(kind, ctx, p)
+            if chunked:
+                parts = chunk_study(kind, context(), p)
+                if len(parts) > 1:
+                    return merge_chunks(kind, p, [self.study(branch_id, kind, part, progress) for part in parts])
+            return run_study(kind, context(), p)
 
-        return self.cache.through(
-            self.cache.key(f"study:{kind}", engine_params, b.ckey, extra=extra), f"study:{kind}",
-            parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json(),
-        )
+        return self.cache.through(self.study_key(branch_id, kind, p), f"study:{kind}", parse=StudyResult.model_validate_json,
+                                  compute=compute, dump=lambda r: r.model_dump_json())
 
     # --- the payload the planner renders -------------------------------------------------------------------
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:

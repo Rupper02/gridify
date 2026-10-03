@@ -49,6 +49,11 @@ class EvidenceLedger:
         self._store = store
         self._cache = cache
 
+    @property
+    def engine(self) -> str:
+        """The engine fingerprint evidence is recorded under."""
+        return self._cache.engine
+
     def record_step(self, *, run_id: str, step_id: str, seq: int, tool: str, args: dict, cache_key: str | None = None,
                     result: dict | list | None = None, solves: int = 0, started_at: str, finished_at: str,
                     cost_credits: float | None = None, error: str | None = None) -> None:

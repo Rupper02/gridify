@@ -9,8 +9,9 @@ from gridforge_optimizer import MergeVerdict
 from gridforge_optimizer.config import MAX_SUGGESTIONS
 
 from .. import ledger, narration, proposals, repository
+from ..agents import events
 from ..config import now
-from ..deps import jobs, narrator, plans, scenarios, warehouse
+from ..deps import agents, jobs, narrator, plans, scenarios, warehouse
 from ..schemas import (
     BestWindowRequest,
     BranchCreate,
@@ -30,19 +31,8 @@ def create_branch(body: BranchCreate) -> dict:
     """Create a branch (copy-on-create): snapshot the parent's projects, then apply the change."""
     with scenarios.cursor() as con:
         parent = repository.require_branch(con, body.from_branch)
-        bid = "br-" + uuid.uuid4().hex[:8]
-        pick = repository.pick
-        con.execute(
-            "INSERT INTO branches (branch_id, name, parent_id, scenario, growth_2030, growth_2035, "
-            "w_readiness, w_need, w_strategic, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)",
-            [bid, body.name, parent["branch_id"],
-             pick(body.scenario, parent["scenario"]), pick(body.growth_2030, parent["growth_2030"]),
-             pick(body.growth_2035, parent["growth_2035"]), pick(body.w_readiness, parent["w_readiness"]),
-             pick(body.w_need, parent["w_need"]), pick(body.w_strategic, parent["w_strategic"]), now()],
-        )
-        repository.copy_projects(con, parent["branch_id"], bid)
-        repository.copy_branch_extras(con, parent["branch_id"], bid)
+        bid = repository.open_branch(con, parent, body.name, created_by="operator",
+                                     overrides=body.model_dump(include={"scenario", "growth_2030", "growth_2035", "w_readiness", "w_need", "w_strategic"}))
         valid = warehouse.valid_bus_ids()
         for p in body.added_projects:
             repository.insert_candidate(con, bid, p, valid)
@@ -188,6 +178,7 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
         repository.merge_into(con, head, base["branch_id"])
         out = repository.branch_to_client(con, repository.branch_row(con, base["branch_id"]))
     plans.invalidate("plan")
+    events.emit(agents, "branch.merged", {"branch_id": branch_id, "into": base["branch_id"], "run_key": evidence.get("head_years_key", "")})
     return out
 
 

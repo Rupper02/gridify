@@ -42,7 +42,10 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
     assert {s["kind"] for s in cat} >= {"hosting_capacity", "contingency_ranking", "structural_weak_points", "tap_margin", "gsp_margin_by_year", "data_quality"}
     hosting = next(s for s in cat if s["kind"] == "hosting_capacity")
     assert "bus_ids" in hosting["params_schema"]["properties"] and hosting["cost_hint_solves"] > 0 and not hosting["needs_plan"]
-    bid = client.post("/branches", json={"name": "studies"}).json()["branch_id"]
+    # a branch with its own project, so no earlier run of main can have cached its plan
+    stiff = max(client.get("/model").json()["buses"], key=lambda b: b["vn_kv"])["bus_id"]
+    project = {"applicant": "Studies", "bus_id": stiff, "technology": "solar", "rating_mw": 5.0, "readiness_score": 0.9}
+    bid = client.post("/branches", json={"name": "studies", "added_projects": [project]}).json()["branch_id"]
     assert client.post(f"/branches/{bid}/studies/nope", json={}).status_code == 404
     assert client.post(f"/branches/{bid}/studies/hosting_capacity", json={"step_mw": 0}).status_code == 422
     assert client.post(f"/branches/{bid}/studies/gsp_margin_by_year", json={}).status_code == 422  # reads the plan: run first
