@@ -5,6 +5,7 @@ import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
 import { C, loadColor, voltColor } from "../theme";
 import type { MapLayer, Model, Sel, YearResult } from "../types";
+import { regionFeatures } from "./demand";
 import { voltageBand } from "./derive";
 
 export interface GeoInputs {
@@ -27,9 +28,11 @@ export interface Geo {
   openpts: FeatureCollection;
   trafos: FeatureCollection;
   existing: FeatureCollection;
+  /** Demand regions (the Demand layer only): a halo per region site. */
+  regions: FeatureCollection;
 }
 
-export const GEO_SOURCES = ["lines", "buses", "loads", "openpts", "trafos", "existing"] as const;
+export const GEO_SOURCES = ["lines", "buses", "loads", "openpts", "trafos", "existing", "regions"] as const;
 
 const FC = (features: Feature[]): FeatureCollection => ({ type: "FeatureCollection", features });
 const pt = (lo: number, la: number, props: Record<string, unknown>): Feature<Point> => ({
@@ -59,7 +62,7 @@ export function buildGeo(g: GeoInputs): Geo {
     if (layer === "loading" && pct != null) color = loadColor(pct);
     if (isOver) color = C.red;
     const dl = diffDeltas?.get(id);
-    let op = layer === "voltage" ? 0.45 : 0.92;
+    let op = layer === "voltage" || layer === "demand" ? 0.45 : 0.92;
     if (diffDeltas) {
       color = dl ? (dl.head > 100 ? C.red : C.amber) : C.dimmed;
       op = dl ? 1 : 0.5;
@@ -126,7 +129,9 @@ export function buildGeo(g: GeoInputs): Geo {
       }),
     );
 
-  return { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing) };
+  const regions: Feature[] = layer === "demand" ? regionFeatures(m, yr, sel) : [];
+
+  return { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing), regions: FC(regions) };
 }
 
 /** The flow animation: a dash pattern stepped every 70 ms so the cyan dashes appear to travel. */

@@ -8,6 +8,7 @@ import { Header } from "./components/Header";
 import { LeftCards } from "./components/LeftCards";
 import { DiffBanner, LayerToggle, MapCorner } from "./components/MapControls";
 import { MapView } from "./components/MapView";
+import { RegionCard } from "./components/RegionCard";
 import { Roadmap } from "./components/Roadmap";
 import { RunOverlay } from "./components/RunOverlay";
 import { SidePanel } from "./components/SidePanel";
@@ -89,6 +90,7 @@ export function App() {
       <LayerToggle planner={planner} layout={layout} />
       <MapCorner planner={planner} layout={layout} />
       <DetailCards planner={planner} layout={layout} />
+      {s.sel?.kind === "region" && <RegionCard planner={planner} layout={layout} />}
       {layout.showDock && <Roadmap planner={planner} layout={layout} />}
       <SidePanel planner={planner} layout={layout} />
       {s.running && <RunOverlay planner={planner} layout={layout} />}

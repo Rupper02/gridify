@@ -1,11 +1,12 @@
-// Over the map: the layer toggle (Flow / Loading / Voltage) with the Deferred switch, the legend and
+// Over the map: the layer toggle (Flow / Loading / Voltage / Demand) with the Deferred switch, the legend and
 // zoom (+ / − / FIT), and the diff-mode banner.
 
-import { ArrowRight, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, WaveSine, Wrench, X } from "@phosphor-icons/react";
+import { ArrowRight, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import type { Layout } from "../lib/layout";
-import { C } from "../theme";
+import { REGION_STATE } from "../lib/demand";
+import { C, tint } from "../theme";
 import type { MapLayer, Tech } from "../types";
 import { Switch, TechIcon } from "./ui";
 
@@ -15,6 +16,7 @@ const LAYERS: [MapLayer, string, typeof WaveSine][] = [
   ["flow", "Flow", WaveSine],
   ["loading", "Loading", Gauge],
   ["voltage", "Voltage", Lightning],
+  ["demand", "Demand", Users],
 ];
 
 export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; layout: Layout }) {
@@ -46,6 +48,8 @@ const LEGEND_TECH: [Tech, string][] = [
   ["gas", "Gas (CCGT, OCGT, engines)"], ["biomass", "Biomass / EfW"], ["electrolyser", "Hydrogen electrolyser"], ["demand", "Demand connection"],
 ];
 
+const DEMAND_KEY = [REGION_STATE.breach.c, REGION_STATE.warn.c, REGION_STATE.ok.c];
+
 export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
   return (
@@ -75,6 +79,10 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
             <span><Wrench size={12} color={C.line132} />Planned outage</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${C.red}`, background: "rgba(255,107,107,0.15)" }} />Voltage breach</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${derived.hue}` }} />Only on this branch</span>
+            <span className="legend-demand">
+              {DEMAND_KEY.map((c) => <span key={c} style={{ borderColor: c, background: tint(c, "29") }} />)}
+              Demand region: breach · warn · ok
+            </span>
           </div>
           <div className="foot">
             <span><span style={{ width: 9, height: 9, borderRadius: 2, background: C.phase1 }} />Phase 1</span>
