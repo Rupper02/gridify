@@ -2,38 +2,56 @@
 
 import { useMemo } from "react";
 
-import { interpolateGrowthForYear } from "../../lib/derive";
-import type { PhaseResult, QueueItem } from "../../types";
+import {
+  branchHue,
+  diffPhaseFor,
+  indexModel,
+  preliminaryOf,
+  staleness,
+  yearResultFor,
+} from "../../lib/derive";
+import { profileOf } from "../../theme";
+import type { QueueItem } from "../../types";
 import type { PlannerState } from "./core";
 
 export function useDerived(s: PlannerState) {
-  return useMemo(() => {
-    const onMainView = !s.activeBranch || s.activeBranch === "main";
-    const activeB = onMainView ? null : (s.branches.find((b) => b.branch_id === s.activeBranch) ?? null);
-    const eg30 = activeB ? activeB.growth_2030 : s.g30;
-    const eg35 = activeB ? activeB.growth_2035 : s.g35;
-    
-    // For year-specific studies, use the timeline year as the phase key
-    const phaseKey = String(s.timelineYear);
-    
-    // Get year-specific phase ONLY - no fallback to legacy 2030/2035
-    // Year Y must use year-Y results only
-    const ph: PhaseResult | null = s.result && s.result.phases[phaseKey] 
-      ? s.result.phases[phaseKey]
-      : null;
-    
-    const phase = phaseKey;  // expose the actual phase key being used
-    
-    // Interpolate growth for the timeline year
-    const egYear = interpolateGrowthForYear(s.timelineYear, eg30, eg35);
-    
+  const ix = useMemo(() => (s.model ? indexModel(s.model) : null), [s.model]);
+
+  const view = useMemo(() => {
+    const onMain = !s.activeBranch || s.activeBranch === "main";
+    const branch = s.branches.find((b) => b.branch_id === (s.activeBranch || "main")) ?? null;
+    const hue = branchHue(s.branches, s.activeBranch);
+    const profile = profileOf(branch?.scenario ?? "ht");
+    const resultProfile = s.result ? profileOf(s.result.params.scenario) : profile;
     const q: QueueItem[] = s.result ? s.result.queue : [];
     const qById: Record<string, QueueItem> = Object.fromEntries(q.map((x) => [x.request_id, x]));
-    const fc = s.forecasts.find((x) => x.id === s.forecastId);
-    const fcEff = activeB ? (s.forecasts.find((x) => x.id === activeB.scenario) ?? fc) : fc;
-    const reviewB = s.branches.find((b) => b.branch_id === s.activeBranch) ?? null;
-    const hasReviewBranch = !!(reviewB && reviewB.branch_id !== "main");
-    const manualIds = new Set(s.cands.filter((c) => c.manual).map((c) => c.request_id));
-    return { onMainView, activeB, eg30, eg35, egYear, phase, ph, q, qById, fc, fcEff, reviewB, hasReviewBranch, manualIds };
-  }, [s.activeBranch, s.branches, s.cands, s.forecastId, s.forecasts, s.g30, s.g35, s.result, s.timelineYear]);
+    const prelim = preliminaryOf(s.added[s.activeBranch] ?? [], s.result);
+    const stale = staleness(s.result, branch, s.outages, s.reinforcements, prelim.length);
+    const yearsSolved = s.result ? Object.keys(s.result.years ?? {}).length : 0;
+    const yearsTotal = s.result?.years_total ?? 10;
+    // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
+    const branchOnly = new Set<string>(prelim.map((p) => p.request_id));
+    if (!onMain && s.diff) s.diff.projects.forEach((p) => p.base_status == null && branchOnly.add(p.request_id));
+    const bindLines = new Set<number>();
+    q.forEach((x) => x.status === "Deferred" && x.reason?.element?.line_id != null && bindLines.add(x.reason.element.line_id));
+    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines };
+  }, [s.activeBranch, s.added, s.branches, s.diff, s.outages, s.reinforcements, s.result]);
+
+  const year = useMemo(() => {
+    const { yr, exact } = yearResultFor(s.result, s.year);
+    const studied = new Set(s.result?.studied?.outage_ids ?? []);
+    const outLines = new Set<number>();
+    s.outages.forEach((o) => o.year === s.year && o.element_kind === "line" && studied.has(o.outage_id) && outLines.add(Number(o.element_id)));
+    // diff mode: the loading change per line vs main, from the diff phase that stands for this year
+    let diffDeltas: Map<number, { delta: number; head: number }> | null = null;
+    const diffPhase = diffPhaseFor(s.year);
+    if (s.diffMode && s.diff) {
+      diffDeltas = new Map();
+      const ph = s.diff.phases.find((p) => p.phase === diffPhase);
+      ph?.top_line_deltas.forEach((d) => Math.abs(d.delta) >= 0.5 && diffDeltas!.set(d.line_id, { delta: d.delta, head: d.head_pct }));
+    }
+    return { yr, exact, outLines, diffDeltas, diffPhase };
+  }, [s.diff, s.diffMode, s.outages, s.result, s.year]);
+
+  return { ix, ...view, ...year };
 }

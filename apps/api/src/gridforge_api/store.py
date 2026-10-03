@@ -1,4 +1,5 @@
-"""The scenarios store: branches, added projects, schedules and the durable result cache.
+"""The scenarios store: branches, added projects, schedules, planned outages, simulated
+reinforcements and the durable result cache.
 
 One class owns the connection and the lock; the SQL dialect adapter and the schema migrations live
 beside it. Nothing here knows about HTTP, the engine or the cache's policy.
@@ -20,6 +21,8 @@ ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
     "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw"
 )
+OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "weeks", "kind", "created_at"]
+REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "factor", "label", "created_at"]
 BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
     "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by",
@@ -184,6 +187,24 @@ def migrate(con: Cursor) -> None:
             scenario VARCHAR, growth_2030 DOUBLE, growth_2035 DOUBLE,
             w_readiness DOUBLE, w_need DOUBLE, w_strategic DOUBLE,
             status VARCHAR DEFAULT 'open', created_at VARCHAR, merged_at VARCHAR, created_by VARCHAR
+        )
+        """
+    )
+    # planned maintenance windows and simulated reinforcements ("Try on branch"), per branch; both
+    # copy on branch create and merge like the projects do
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branch_outages (
+            branch_id VARCHAR, outage_id VARCHAR, element_kind VARCHAR, element_id VARCHAR,
+            season VARCHAR, year INTEGER, weeks INTEGER, kind VARCHAR, created_at VARCHAR
+        )
+        """
+    )
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS branch_reinforcements (
+            branch_id VARCHAR, reinforcement_id VARCHAR, kind VARCHAR, element_id INTEGER,
+            action VARCHAR, factor DOUBLE, label VARCHAR, created_at VARCHAR
         )
         """
     )

@@ -150,11 +150,11 @@ def test_gsp_export_limit_binds_and_a_new_sgt_relieves_it():
 def test_growing_to_a_horizon_adds_no_generation():
     # the base is what exists today; anything not built yet enters only as a queue project —
     # bringing the network to 2035 grows demand but never pre-loads generation
-    from gridforge_optimizer.greedy import _grow
+    from gridforge_optimizer.network import grow_demand
 
     net = build_base_net()
     n0, p0 = len(net.sgen), float(net.sgen.p_mw.sum())
-    _grow(net, 1.35, "ht", 2035)
+    grow_demand(net, 1.35, "ht", 2035)
     assert len(net.sgen) == n0 and float(net.sgen.p_mw.sum()) == pytest.approx(p0)
 
 

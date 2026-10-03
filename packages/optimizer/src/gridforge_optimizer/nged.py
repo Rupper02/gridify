@@ -231,6 +231,7 @@ def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[
 def _add_lines(net, circ, gb) -> None:
     """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with a summer rating."""
     summer_ratio: dict[int, float | None] = {}  # line idx -> LTDS summer / winter rating
+    inter_ratio: dict[int, float | None] = {}  # line idx -> LTDS intermediate-warm / winter rating
     for c in circ:
         if not _is_line(c):
             continue
@@ -252,11 +253,20 @@ def _add_lines(net, circ, gb) -> None:
         )
         w, s = _num(c["Winter"]), _num(c.get("Summer"))
         summer_ratio[int(li)] = (s / w) if (w and s and w > 0) else None
+        iw = _num(c.get("Intermediate Warm"))
+        inter_ratio[int(li)] = (iw / w) if (w and iw and w > 0) else None
     # summer ratings run lower (warm ambient, no wind cooling). Where LTDS leaves a circuit's
     # summer rating blank, use this network's own median summer/winter ratio rather than assume none.
-    known = sorted(v for v in summer_ratio.values() if v)
+    net.line["summer_ratio"] = _ratio_column(net, summer_ratio)
+    # spring/autumn (LTDS "Intermediate Warm"): used only to study planned outages in those seasons
+    net.line["intermediate_ratio"] = _ratio_column(net, inter_ratio)
+
+
+def _ratio_column(net, ratio: dict[int, float | None]) -> list[float]:
+    """Per-line rating ratios, with blanks filled by this network's own median ratio."""
+    known = sorted(v for v in ratio.values() if v)
     median_ratio = known[len(known) // 2] if known else 1.0
-    net.line["summer_ratio"] = [summer_ratio.get(int(i)) or median_ratio for i in net.line.index]
+    return [ratio.get(int(i)) or median_ratio for i in net.line.index]
 
 
 def _add_transformers(net, t2a, gb) -> None:
@@ -339,6 +349,7 @@ def _add_existing_fleet(net, tables) -> list[dict]:
             idx = pp.create_sgen(net, bus=int(bus), p_mw=share, q_mvar=0.0, name=f"EX-{n}" + (f"-{k}" if k else ""), type=tech)
             net.sgen.at[idx, "p_rated_mw"] = share
             net.sgen.at[idx, "import_mw"] = share
+            net.sgen.at[idx, "fleet_id"] = f"EX-{3000 + n}"  # the model's generator id (planned outages)
         bus = buses[0]
         site = primary or bsp
         existing.append({"request_id": f"EX-{3000 + n}", "bus_id": int(bus), "rating_mw": r,

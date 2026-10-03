@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>html,body{margin:0;background:#0b111a;color:#eaf0f7;font-family:"Geist",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}a{color:#7ce3ff}a:hover{color:#b5efff}button{font-family:inherit;color:inherit;cursor:pointer}</style>
+</helmet>
+<div style="min-height:100vh;padding:40px;background:radial-gradient(1000px 600px at 15% -10%,#2b3d57 0%,rgba(43,61,87,0) 62%),linear-gradient(180deg,#121b28,#0b111a);display:flex;flex-direction:column;gap:28px">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:720px">
+    <h1 style="margin:0;font-size:30px;font-weight:600;letter-spacing:-0.02em">GridForge components</h1>
+    <p style="margin:0;font-size:14px;line-height:1.55;color:#9aa9bc">Every building block used in GridForge Glass v2, with its states. Each label names the component the app should own.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:16px">
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">GlassPanel</span>
+      <div style="height:90px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22),0 6px 18px rgba(2,6,14,0.28)"></div>
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#9aa9bc;line-height:1.5">bg 140deg rgba(30,42,60,.97) to rgba(18,26,39,.97) · border white/14 · inset 0 1px white/22 · shadow 0 6 18 rgba(2,6,14,.28) · no blur</span>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">Button</span>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <button style="white-space:nowrap;display:flex;align-items:center;gap:8px;height:36px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,0.35);background:linear-gradient(180deg,#9aeaff,#5fd0ef);color:#062030;font-size:12.5px;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,0.6),0 8px 24px rgba(95,208,239,0.25)"><i class="ph-bold ph-play" style="font-size:13px"></i>Run on High</button>
+        <button style="white-space:nowrap;height:32px;padding:0 10px;border-radius:9px;border:1px solid rgba(255,255,255,0.14);background:rgba(255,255,255,0.05);font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px"><i class="ph ph-git-diff" style="font-size:14px"></i>Diff</button>
+        <button style="white-space:nowrap;height:32px;padding:0 10px;border-radius:9px;border:1px solid #7ce3ff80;background:#7ce3ff1f;color:#7ce3ff;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px"><i class="ph-bold ph-git-merge" style="font-size:14px"></i>Merge</button>
+        <button style="white-space:nowrap;height:28px;padding:0 11px;border-radius:999px;border:1px solid rgba(255,195,107,0.55);background:rgba(255,195,107,0.16);color:#ffd99a;font-size:11.5px;font-weight:600">Re-run on High</button>
+        <button style="white-space:nowrap;height:38px;padding:0 14px;border-radius:12px;border:1px solid rgba(255,107,107,0.4);background:rgba(255,107,107,0.08);color:#ff9b9b;font-size:12.5px;font-weight:600">Discard</button>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#9aa9bc">primary · secondary · branch-hue · warning pill · destructive · active: scale(.98)</span>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">BranchCapsule</span>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;height:36px;padding:0 10px 0 5px;border-radius:10px;border:1px solid #7ce3ff80;background:#7ce3ff1f">
+          <span style="width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:#7ce3ff2e"><i class="ph-bold ph-git-branch" style="font-size:15px;color:#7ce3ff"></i></span>
+          <span style="display:flex;flex-direction:column;line-height:1.2"><span style="font-family:'Geist Mono',monospace;font-size:13.5px;font-weight:600">sleaford-batteries</span><span style="font-size:10.5px;color:#9aa9bc">from main · 2 added</span></span>
+          <i class="ph ph-caret-down" style="font-size:13px;color:#9aa9bc;margin-left:6px"></i>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;height:36px;padding:0 10px 0 5px;border-radius:10px;border:1px solid rgba(255,255,255,0.16);background:rgba(255,255,255,0.06)">
+          <span style="width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:rgba(255,255,255,0.1)"><i class="ph-bold ph-lock-simple" style="font-size:15px;color:#c9d6e8"></i></span>
+          <span style="display:flex;flex-direction:column;line-height:1.2"><span style="font-family:'Geist Mono',monospace;font-size:13.5px;font-weight:600">main</span><span style="font-size:10.5px;color:#9aa9bc">plan of record · read-only</span></span>
+        </div>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#9aa9bc">tints: hue + 1f bg, 80 border, 2e chip, 1c frame glow</span>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">DemandProfileControl · ProfileGlyph</span>
+      <div style="display:flex;gap:2px;padding:3px;border-radius:999px;background:rgba(5,10,18,0.35);border:1px solid rgba(255,255,255,0.1);align-self:flex-start">
+        <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="3">
+          <span style="display:flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:999px;border:1px solid {{ p.bd }};background:{{ p.bg }};color:{{ p.fg }};font-size:12px;font-weight:600">
+            <span style="display:flex;align-items:flex-end;gap:2px;height:11px"><span style="width:3px;height:5px;border-radius:1px;background:{{ p.b1 }}"></span><span style="width:3px;height:8px;border-radius:1px;background:{{ p.b2 }}"></span><span style="width:3px;height:11px;border-radius:1px;background:{{ p.b3 }}"></span></span>{{ p.label }}
+          </span>
+        </sc-for>
+      </div>
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#9aa9bc">compact below 1180px: L / S / H · disabled + lock on main</span>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">SegmentedTabs · LayerToggle · Switch</span>
+      <div style="display:flex;gap:3px;padding:3px;border-radius:999px;background:rgba(5,10,18,0.35);border:1px solid rgba(255,255,255,0.08)">
+        <span style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;border-radius:999px;border:1px solid rgba(255,255,255,0.26);background:rgba(255,255,255,0.14);font-size:12.5px;font-weight:600;box-shadow:inset 0 1px 0 rgba(255,255,255,0.28)"><i class="ph ph-chat-circle-dots" style="font-size:14px"></i>Copilot</span>
+        <span style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;color:#9aa9bc;font-size:12.5px;font-weight:600"><i class="ph ph-list-numbers" style="font-size:14px"></i>Queue</span>
+        <span style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:32px;color:#9aa9bc;font-size:12.5px;font-weight:600"><i class="ph ph-wrench" style="font-size:14px"></i>Outages</span>
+      </div>
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:3px;padding:4px;border-radius:14px;background:rgba(5,10,18,0.3);border:1px solid rgba(255,255,255,0.1)">
+          <span style="display:flex;align-items:center;gap:7px;height:32px;padding:0 11px;border-radius:10px;border:1px solid rgba(255,255,255,0.26);background:rgba(255,255,255,0.14);font-size:11.5px;font-weight:600"><i class="ph ph-wave-sine" style="font-size:14px"></i>Flow</span>
+          <span style="display:flex;align-items:center;gap:7px;height:32px;padding:0 11px;color:#9aa9bc;font-size:11.5px;font-weight:600"><i class="ph ph-gauge" style="font-size:14px"></i>Loading</span>
+        </div>
+        <span style="display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;color:#9aa9bc">Off <span style="position:relative;width:26px;height:15px;border-radius:999px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18)"><span style="position:absolute;top:1px;left:1px;width:11px;height:11px;border-radius:50%;background:#9aa9bc"></span></span></span>
+        <span style="display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:600;color:#ffd99a">On <span style="position:relative;width:26px;height:15px;border-radius:999px;background:rgba(255,195,107,0.35);border:1px solid rgba(255,195,107,0.7)"><span style="position:absolute;top:1px;left:12px;width:11px;height:11px;border-radius:50%;background:#ffc36b"></span></span></span>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">ProjectMarker (map)</span>
+      <div style="display:flex;flex-wrap:wrap;gap:18px;padding:14px;border-radius:12px;background:#0e1520">
+        <sc-for list="{{ markers }}" as="m" hint-placeholder-count="5">
+          <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <div style="display:flex;align-items:center;gap:6px;opacity:{{ m.op }}">
+              <div style="position:relative;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:{{ m.fill }};border:1.5px {{ m.style }} {{ m.bd }};box-shadow:{{ m.sh }}"><i class="{{ m.icon }}" style="font-size:14px;color:{{ m.ink }}"></i></div>
+              <span style="font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:600;color:{{ m.c }}">CR-2057</span>
+            </div>
+            <span style="font-size:10.5px;color:#9aa9bc">{{ m.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:13px;font-weight:600">TechIcon (Phosphor)</span>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <sc-for list="{{ techs }}" as="t" hint-placeholder-count="8">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px 4px;border-radius:12px;background:rgba(5,10,18,0.3);border:1px solid rgba(255,255,255,0.08)">
+            <span style="width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:rgba(94,230,168,0.14)"><i class="{{ t.icon }}" style="font-size:16px;color:#5ee6a8"></i></span>
+            <span style="font-size:10.5px;color:#c9d6e8;text-align:center">{{ t.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">QueueRow</span>
+      <div style="display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:9px 10px;border-radius:12px;background:#7ce3ff0d;border:1px solid #7ce3ff40">
+        <span style="width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:#5ee6a81f"><i class="ph ph-battery-charging" style="font-size:15px;color:#5ee6a8"></i></span>
+        <div style="display:flex;flex-direction:column;line-height:1.3;min-width:0"><span style="display:flex;align-items:center;gap:6px"><span style="font-family:'Geist Mono',monospace;font-size:12.5px;font-weight:600">CR-2056</span><span style="padding:0 6px;border-radius:999px;border:1px solid #7ce3ff;color:#7ce3ff;font-size:9.5px;font-weight:600">this branch</span></span><span style="font-size:12px;color:#c9d6e8">Sleaford Fen Battery</span><span style="font-size:11px;color:#9aa9bc">Battery · bus 1210</span></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.3"><span style="font-family:'Geist Mono',monospace;font-size:13px;font-weight:600">40 MW</span><span style="font-size:10.5px;color:#5ee6a8">energises 2029</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:4px 10px;align-items:center;padding:9px 10px;border-radius:12px;background:rgba(5,10,18,0.22);border:1px solid rgba(255,255,255,0.07)">
+        <span style="width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:#ffc36b1f"><i class="ph ph-wind" style="font-size:15px;color:#ffc36b"></i></span>
+        <div style="display:flex;flex-direction:column;line-height:1.3;min-width:0"><span style="font-family:'Geist Mono',monospace;font-size:12.5px;font-weight:600">CR-2024</span><span style="font-size:12px;color:#c9d6e8">Wrangle Wind</span><span style="font-size:11px;color:#9aa9bc">Onshore wind · bus 1160</span></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.3"><span style="font-family:'Geist Mono',monospace;font-size:13px;font-weight:600">18 MW</span><span style="font-size:10.5px;color:#ffc36b">no year</span></div>
+        <div style="grid-column:2 / -1;display:flex;gap:6px;align-items:baseline;font-size:11.5px;color:#ffd99a"><i class="ph ph-warning-diamond" style="font-size:12px"></i>GSP export at the 527 MW limit at summer minimum</div>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">ChatBubble · QuickReply · Composer</span>
+      <div style="align-self:flex-end;max-width:80%;padding:9px 12px;border-radius:14px 14px 4px 14px;background:rgba(124,227,255,0.16);border:1px solid rgba(124,227,255,0.32);font-size:12.5px">Battery</div>
+      <div style="display:flex;gap:9px;align-items:flex-start">
+        <span style="flex:none;width:24px;height:24px;border-radius:8px;display:grid;place-items:center;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14)"><i class="ph-fill ph-lightning" style="font-size:12px;color:#7ce3ff"></i></span>
+        <span style="font-size:12.5px;line-height:1.5;color:#dbe4ef">Export capacity in MW? The intake cap at Bicker Fen is 300 MW.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px"><span style="height:28px;padding:0 11px;border-radius:999px;border:1px solid rgba(255,255,255,0.16);background:rgba(255,255,255,0.05);color:#c9d6e8;font-size:11.5px;display:flex;align-items:center">49.9</span><span style="height:28px;padding:0 11px;border-radius:999px;border:1px solid rgba(124,227,255,0.6);background:rgba(124,227,255,0.14);font-size:11.5px;display:flex;align-items:center;gap:6px"><i class="ph-fill ph-check-square" style="font-size:12px"></i>Land rights</span></div>
+      <div style="display:flex;align-items:center;gap:8px;height:42px;padding:0 5px 0 13px;border-radius:12px;background:rgba(5,10,18,0.45);border:1px solid rgba(255,255,255,0.14)"><span style="flex:1;font-size:12.5px;color:#7d8da3">Type an answer, or pick one above</span><span style="width:32px;height:32px;border-radius:9px;background:#7ce3ff;color:#062030;display:grid;place-items:center"><i class="ph-bold ph-arrow-up" style="font-size:14px"></i></span></div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">DraftSlot · ModeCard</span>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">
+        <div style="display:flex;flex-direction:column;gap:2px;padding:7px 9px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:rgba(5,10,18,0.25)"><span style="font-size:10px;color:#9aa9bc">Export</span><span style="font-family:'Geist Mono',monospace;font-size:11.5px;font-weight:600">49.9 MW</span></div>
+        <div style="display:flex;flex-direction:column;gap:2px;padding:7px 9px;border-radius:10px;border:1px solid rgba(124,227,255,0.6);background:rgba(124,227,255,0.08)"><span style="font-size:10px;color:#9aa9bc">Import (load)</span><span style="font-family:'Geist Mono',monospace;font-size:11.5px;font-weight:600;color:#7ce3ff">asking…</span></div>
+        <div style="display:flex;flex-direction:column;gap:2px;padding:7px 9px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);background:rgba(5,10,18,0.25)"><span style="font-size:10px;color:#9aa9bc">Connection</span><span style="font-family:'Geist Mono',monospace;font-size:11.5px;font-weight:600;color:#7d8da3">—</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:40px minmax(0,1fr);gap:4px 12px;padding:14px;border-radius:16px;border:1px solid rgba(255,255,255,0.14);background:linear-gradient(150deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))">
+        <span style="grid-row:span 2;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:rgba(255,195,107,0.14);border:1px solid rgba(255,195,107,0.4)"><i class="ph ph-lightbulb" style="font-size:20px;color:#ffd99a"></i></span>
+        <span style="font-size:14px;font-weight:600">Recommendations</span>
+        <span style="font-size:12px;color:#c9d6e8;line-height:1.45">Find what would unblock deferred projects. Each lever is re-solved.</span>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">LeverCard</span>
+      <div style="display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:rgba(5,10,18,0.3);border:1px solid rgba(255,255,255,0.1)">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:12.5px;font-weight:600;flex:1">Parallel circuit, Spalding 33 kV</span><span style="padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:600;background:rgba(94,230,168,0.16);color:#8ef0c2">connects</span></div>
+        <span style="font-family:'Geist Mono',monospace;font-size:12px;font-weight:600;color:#8ef0c2">≈34 MW by 2030</span>
+        <span style="font-size:11.5px;color:#c9d6e8">Connects CR-2031</span>
+        <span style="font-size:11px;color:#9aa9bc">Distribution reinforcement. The line goes from 108% to 71% at summer minimum.</span>
+        <span style="align-self:flex-start;height:28px;padding:0 11px;border-radius:9px;border:1px solid #7ce3ff80;background:#7ce3ff1f;color:#7ce3ff;font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:6px"><i class="ph ph-git-branch" style="font-size:12px"></i>Try on sleaford-batteries</span>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">MaintenanceRow · OutageTag · YearStepper</span>
+      <div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:8px 10px;border-radius:10px;background:rgba(5,10,18,0.3);border:1px solid rgba(255,255,255,0.1)">
+        <i class="ph ph-wrench" style="font-size:13px;color:#dce6f2"></i><span style="font-size:12px">Summer 2029 · 6 wk · outage</span><i class="ph ph-trash" style="font-size:12px;color:#9aa9bc"></i>
+        <span style="grid-column:2 / -1;font-size:11px;color:#ffc36b">Summer min: the other circuit reaches 118%. CR-1987 and CR-2024 curtailed.</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:#0e1520;border:1px dashed #c9d6e8;font:600 10.5px 'Geist Mono',monospace"><i class="ph ph-wrench" style="font-size:11px"></i>OUT · Summer</span>
+        <span style="display:flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:#0e1520;border:1px dashed #7ce3ff;font:600 10.5px 'Geist Mono',monospace">50% · Winter</span>
+        <span style="display:flex;align-items:center;gap:8px;margin-left:auto"><span style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.16);display:grid;place-items:center"><i class="ph ph-minus" style="font-size:13px"></i></span><span style="font-family:'Geist Mono',monospace;font-size:19px;font-weight:700">2028</span><span style="width:30px;height:30px;border-radius:9px;border:1px solid rgba(255,255,255,0.16);display:grid;place-items:center"><i class="ph ph-plus" style="font-size:13px"></i></span></span>
+      </div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">GspGauge · StaleNotice · DiffTile</span>
+      <div style="display:flex;gap:2px"><sc-for list="{{ ticks }}" as="t" hint-placeholder-count="24"><span style="flex:1;height:10px;border-radius:2px;background:{{ t.c }}"></span></sc-for></div>
+      <div style="padding:10px 12px;border-radius:12px;background:rgba(255,195,107,0.1);border:1px solid rgba(255,195,107,0.4);font-size:12px;color:#ffd99a;line-height:1.4">This result was solved on Standard demand. The branch is now set to High.</div>
+      <div style="padding:11px 12px;border-radius:12px;background:rgba(5,10,18,0.3);border:1px solid rgba(255,255,255,0.1);display:flex;flex-direction:column;gap:4px"><span style="font-size:11px;color:#9aa9bc">MW by 2030</span><span style="display:flex;align-items:baseline;gap:6px"><span style="font-family:'Geist Mono',monospace;font-size:13px;color:#7d8da3">99.9</span><i class="ph ph-arrow-right" style="font-size:11px;color:#7d8da3"></i><span style="font-family:'Geist Mono',monospace;font-size:18px;font-weight:600">159.9</span><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11.5px;font-weight:600;color:#8ef0c2">+60</span></span></div>
+    </section>
+
+    <section style="padding:18px;border-radius:18px;background:linear-gradient(140deg,rgba(30,42,60,0.97),rgba(18,26,39,0.97));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:10px">
+      <span style="font-size:13px;font-weight:600">RoadmapYear · YearSlider</span>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:3px;height:96px">
+        <sc-for list="{{ years }}" as="y" hint-placeholder-count="4">
+          <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:4px;padding:5px;border-radius:10px;border:1px solid {{ y.bd }};background:{{ y.bg }}">
+            <sc-if value="{{ y.chip }}" hint-placeholder-val="{{ false }}"><span style="padding:2px 3px;border-radius:999px;background:#5ee6a81f;border:1px solid #5ee6a855;font-family:'Geist Mono',monospace;font-size:9.5px;font-weight:600;color:#5ee6a8;text-align:center">CR-1987</span></sc-if>
+            <span style="height:2px;border-radius:2px;background:{{ y.band }}"></span>
+            <span style="font-family:'Geist Mono',monospace;font-size:11.5px;font-weight:600;color:{{ y.fg }}">{{ y.y }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="position:relative;height:22px"><div style="position:absolute;left:0;right:0;top:9px;height:4px;border-radius:999px;background:rgba(255,255,255,0.12)"></div><div style="position:absolute;left:0;top:9px;height:4px;width:62%;border-radius:999px;background:#7ce3ff;box-shadow:0 0 8px rgba(124,227,255,0.6)"></div><div style="position:absolute;left:calc(62% - 9px);top:2px;width:18px;height:18px;border-radius:50%;background:#eaf0f7;border:3px solid #7ce3ff;box-shadow:0 0 0 4px rgba(124,227,255,0.18)"></div></div>
+    </section>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const off = 'rgba(255,255,255,0.15)';
+    return {
+      profiles: [['Low', 1, false], ['Standard', 2, false], ['High', 3, true]].map(([label, n, on]) => ({ label, bd: on ? 'rgba(255,255,255,0.28)' : 'transparent', bg: on ? 'rgba(255,255,255,0.16)' : 'transparent', fg: on ? '#eaf0f7' : '#9aa9bc', b1: on ? '#7ce3ff' : '#9aa9bc', b2: n >= 2 ? (on ? '#7ce3ff' : '#9aa9bc') : off, b3: n >= 3 ? (on ? '#7ce3ff' : '#9aa9bc') : off })),
+      markers: [
+        { label: 'Phase 1', fill: '#5ee6a8', style: 'solid', bd: 'rgba(255,255,255,0.7)', ink: '#0b111a', c: '#5ee6a8', icon: 'ph ph-battery-charging', op: 1, sh: '0 4px 12px rgba(0,0,0,0.45)' },
+        { label: 'Phase 2', fill: '#8fb4ff', style: 'solid', bd: 'rgba(255,255,255,0.7)', ink: '#0b111a', c: '#8fb4ff', icon: 'ph ph-solar-panel', op: 1, sh: '0 4px 12px rgba(0,0,0,0.45)' },
+        { label: 'Deferred', fill: 'rgba(11,17,26,0.75)', style: 'dashed', bd: '#ffc36b', ink: '#ffc36b', c: '#ffc36b', icon: 'ph ph-wind', op: 1, sh: 'none' },
+        { label: 'Preliminary', fill: 'rgba(11,17,26,0.75)', style: 'dashed', bd: '#7ce3ff', ink: '#7ce3ff', c: '#7ce3ff', icon: 'ph ph-fire', op: 1, sh: 'none' },
+        { label: 'Branch only', fill: '#5ee6a8', style: 'solid', bd: 'rgba(255,255,255,0.7)', ink: '#0b111a', c: '#5ee6a8', icon: 'ph ph-battery-charging', op: 1, sh: '0 0 0 2px #0b111a,0 0 0 3.5px #7ce3ff' },
+        { label: 'Not yet energised', fill: '#8fb4ff', style: 'solid', bd: 'rgba(255,255,255,0.7)', ink: '#0b111a', c: '#8fb4ff', icon: 'ph ph-buildings', op: 0.4, sh: 'none' },
+        { label: 'Selected', fill: '#5ee6a8', style: 'solid', bd: 'rgba(255,255,255,0.7)', ink: '#0b111a', c: '#5ee6a8', icon: 'ph ph-plant', op: 1, sh: '0 4px 12px rgba(0,0,0,0.45),0 0 0 6px rgba(124,227,255,0.45)' },
+      ],
+      techs: [['ph ph-solar-panel', 'Solar PV'], ['ph ph-wind', 'Onshore wind'], ['ph ph-battery-charging', 'Battery'], ['ph ph-solar-roof', 'Solar + battery'], ['ph ph-fire', 'Gas'], ['ph ph-plant', 'Biomass / EfW'], ['ph ph-drop', 'Hydrogen'], ['ph ph-buildings', 'Demand']].map(([icon, label]) => ({ icon, label })),
+      ticks: Array.from({ length: 24 }, (_, i) => ({ c: i < 23 ? (i >= 21 ? '#ffc36b' : '#7ce3ff') : 'rgba(255,255,255,0.09)' })),
+      years: [[2026, '#9aa9bc', false, false], [2028, '#5ee6a8', true, false], [2030, '#5ee6a8', false, true], [2032, '#8fb4ff', false, false]].map(([y, band, chip, sel]) => ({ y, band, chip, fg: sel ? '#eaf0f7' : '#9aa9bc', bd: sel ? 'rgba(124,227,255,0.55)' : 'rgba(255,255,255,0.06)', bg: sel ? 'rgba(124,227,255,0.1)' : 'rgba(5,10,18,0.2)' })),
+    };
+  }
+}
+</script>
+</body>
+</html>

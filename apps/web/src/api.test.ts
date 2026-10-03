@@ -7,7 +7,7 @@ describe("normReason", () => {
     const r = normReason({ type: "line", element_id: 115, value: 157.2, message: "line 115 overloaded at 157% of its rating at winter peak demand", case: "winter_peak" })!;
     expect(r.kind).toBe("grid");
     expect(r.element).toEqual({ line_id: 115 });
-    expect(r.short).toBe("Overloads line 115 to 157% — a grid limit, not the project");
+    expect(r.short).toBe("Overloads line 115 to 157%: a grid limit, not the project");
     expect(r.why).toContain("overload line 115 to 157% (limit 100%)");
     expect(r.why).toContain("This bites at winter peak demand.");
     expect(r.caseLabel).toBe("winter peak");
@@ -26,7 +26,7 @@ describe("normReason", () => {
     const r = normReason({ type: "gsp", value: 540.4, message: "Bicker Fen GSP would export 540 MW to the transmission system at summer minimum demand — above its 527 MW export limit", case: "summer_min" })!;
     expect(r.kind).toBe("grid");
     expect(r.element).toBeNull();
-    expect(r.short).toBe("GSP export limit — the region would push 540 MW up to transmission");
+    expect(r.short).toBe("GSP export limit: the region would push 540 MW up to transmission");
     expect(r.why).toContain("sunny, low-demand day");
     expect(r.why).not.toContain("This bites at"); // the case note is not appended twice
     expect(r.action).toContain("No local reinforcement fixes this");

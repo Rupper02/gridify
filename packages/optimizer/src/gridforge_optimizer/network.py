@@ -27,10 +27,13 @@ from .config import (
     LOAD_TYPE_RESIDENTIAL,
     N1_ISLAND_MIN_MW,
     N1_MIN_KV,
+    OUTAGE_DERATE_FACTOR,
+    PLAN_START_YEAR,
+    SEASON_STUDY,
     TRAFO_LOADING_MAX_PCT,
     VOLTAGE_BANDS,
 )
-from .types import Reason, Reinforcement
+from .types import Outage, OutageStudy, Reason, Reinforcement
 
 
 def build_base_net():
@@ -69,33 +72,27 @@ def _feeder_hops(net) -> tuple[dict[int, int], int]:
     return {int(b): int(d) for b, d in dist.items()}, max(d_max, 1)
 
 
-def interpolate_growth_for_year(year: int, scenario: str, base_year: int = 2026) -> float:
-    """Interpolate demand growth multiplier for a specific year from scenario anchors.
-    
-    Growth is interpolated linearly between anchor years (base → 2030 → 2035) from
-    config.FORECASTS, so intermediate years are physically distinct. Before base_year
-    returns 1.0 (no growth); after the last anchor holds that anchor's multiplier.
-    """
-    from .config import FORECASTS
-    
+def interpolate_growth_for_year(year: int, growth_2030: float, growth_2035: float,
+                                base_year: int = PLAN_START_YEAR) -> float:
+    """The demand multiplier for one year, linear between the plan's anchors: 1.0 in `base_year`,
+    `growth_2030` in 2030 and `growth_2035` in 2035 (held flat outside them)."""
     if year <= base_year:
         return 1.0
-    
-    fc = FORECASTS.get(scenario, FORECASTS["ht"])
-    g_2030 = fc["growth_2030"]
-    g_2035 = fc["growth_2035"]
-    
     if year <= 2030:
-        # Linear interpolation from base_year to 2030
-        t = (year - base_year) / (2030 - base_year)
-        return 1.0 + t * (g_2030 - 1.0)
-    elif year <= 2035:
-        # Linear interpolation from 2030 to 2035
-        t = (year - 2030) / (2035 - 2030)
-        return g_2030 + t * (g_2035 - g_2030)
+        return 1.0 + (year - base_year) / (2030 - base_year) * (growth_2030 - 1.0)
+    if year <= 2035:
+        return growth_2030 + (year - 2030) / 5 * (growth_2035 - growth_2030)
+    return growth_2035
+
+
+def grow_demand(net, m: float, scenario: str, horizon: int) -> None:
+    """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform).
+    Only demand grows here; no generation is pre-loaded: anything not connected today enters the
+    study only as a queue project."""
+    if scenario and scenario != "custom":
+        apply_growth(net, per_bus_growth(net, m, scenario, horizon))
     else:
-        # Beyond 2035: hold at 2035 anchor
-        return g_2035
+        apply_growth(net, m)
 
 
 def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
@@ -496,6 +493,12 @@ def line_loadings(net) -> dict[int, float]:
     return {int(i): round(float(v), 1) for i, v in lp.items()}
 
 
+def trafo_loadings(net) -> dict[int, float]:
+    """Per-transformer loading_percent from the last solve."""
+    tp = net.res_trafo["loading_percent"]
+    return {int(i): round(float(v), 1) for i, v in tp.items() if v == v}
+
+
 def bus_voltages(net) -> dict[int, float]:
     """Per-bus voltage magnitude (pu) from the last solve (for the map voltage overlay)."""
     vm = net.res_bus["vm_pu"]
@@ -510,6 +513,17 @@ def voltage_violation_bus_ids(net) -> list[int]:
 
 
 # --- N-1 screen ---------------------------------------------------------------------------------
+def _islanded_mw(net, vm: pd.Series, with_first: bool = False):
+    """Demand stranded on islands in a solve (buses with no voltage): (MW, buses[, first bus])."""
+    v = vm.reindex(net.bus.index)
+    island = v[v.isna()].index
+    on = net.load["bus"].isin(island)
+    lost = float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum()) if len(island) else 0.0
+    if with_first:
+        return lost, len(island), (int(island[0]) if len(island) else None)
+    return lost, len(island)
+
+
 def n1_screen(net, case: str = "winter_peak") -> dict:
     """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
     above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
@@ -541,21 +555,125 @@ def n1_screen(net, case: str = "winter_peak") -> dict:
                 continue
             # demand stranded on an island: a supply violation only if it is material (a generator
             # spur or a tee-point with no customers is not)
-            island = res["vm"].reindex(net.bus.index)
-            island = island[island.isna()].index
-            if len(island):
-                lost = float((net.load.loc[net.load["bus"].isin(island), "p_mw"] * net.load.loc[net.load["bus"].isin(island), "scaling"]).sum())
-                if lost >= N1_ISLAND_MIN_MW:
-                    violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
-                                       "element_id": int(island[0]), "value": round(lost, 2),
-                                       "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {len(island)} bus(es)"})
-                    continue
+            lost, n_buses, first = _islanded_mw(net, res["vm"], with_first=True)
+            if lost >= N1_ISLAND_MIN_MW:
+                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
+                                   "element_id": first, "value": round(lost, 2),
+                                   "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {n_buses} bus(es)"})
+                continue
             r = _case_reason(net, case, res["vm"], res["line_pct"], res["trafo_pct"])
             if r is not None:
                 violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": r.type,
                                    "element_id": r.element_id, "value": r.value, "message": r.message})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state
     return {"case": case, "screened": len(lines) + len(trafos), "violations": violations}
+
+
+# --- planned outages (maintenance windows) ----------------------------------------------------
+# a transformer's vk / vkr are percentages of its own rating: scaling the rating alone would also scale
+# its impedance in ohms, so they scale with it (a thermal change leaves the impedance as it is)
+_RELATIVE_TO_RATING = {"trafo": ("vk_percent", "vkr_percent")}
+
+
+def _scale_rating(net, table_name: str, eid: int, rating_column: str, k: float):
+    """Multiply an element's thermal rating by k, impedance unchanged. Returns an undo."""
+    table = getattr(net, table_name)
+    cols = [rating_column, *(c for c in _RELATIVE_TO_RATING.get(table_name, ()) if c in table.columns)]
+    before = {c: table.at[eid, c] for c in cols}
+    for c in cols:
+        table.at[eid, c] = float(before[c]) * k
+
+    def undo():
+        for c, v in before.items():
+            table.at[eid, c] = v
+    return undo
+
+
+def _element_outage(table_name: str, rating_column: str):
+    """An outage applier for a line/transformer table: out of service, or derated. Returns an undo."""
+    def apply(net, o: Outage):
+        table = getattr(net, table_name)
+        eid = int(o.element_id)
+        if eid not in table.index:
+            return None
+        if o.kind == "derate":
+            return _scale_rating(net, table_name, eid, rating_column, OUTAGE_DERATE_FACTOR)
+        before = table.at[eid, "in_service"]
+        table.at[eid, "in_service"] = False
+        return lambda: table.at.__setitem__((eid, "in_service"), before)
+    return apply
+
+
+def _generator_outage(net, o: Outage):
+    """An existing generator out of service (a derate halves its output). Returns an undo."""
+    if "fleet_id" not in net.sgen.columns:
+        return None
+    idx = net.sgen.index[net.sgen["fleet_id"] == o.element_id]
+    if not len(idx):
+        return None
+    col = "p_rated_mw" if o.kind == "derate" else "in_service"
+    before = net.sgen.loc[idx, col].copy()
+    net.sgen.loc[idx, col] = before * OUTAGE_DERATE_FACTOR if o.kind == "derate" else False
+    return lambda: net.sgen.loc.__setitem__((idx, col), before)
+
+
+# how each Outage.element_kind changes the net (a new kind of maintenance target is one entry here)
+OUTAGE_APPLIERS = {
+    "line": _element_outage("line", "max_i_ka"),
+    "trafo": _element_outage("trafo", "sn_mva"),
+    "gen": _generator_outage,
+}
+
+
+def study_outage(net, o: Outage) -> OutageStudy:
+    """Solve the net with one planned outage applied, in each case its season stresses (with that
+    season's line ratings), and report the first limit each case breaches. Leaves the net as found
+    (taps included). Demand stranded on an island counts as a violation, as in the N-1 screen."""
+    season = SEASON_STUDY.get(o.season, SEASON_STUDY["Summer"])
+    undo = OUTAGE_APPLIERS[o.element_kind](net, o)
+    if undo is None:
+        return OutageStudy(outage_id=o.outage_id, year=o.year, cases=[], ok=True,
+                           message=f"{o.element_kind} {o.element_id} is not in the network model")
+    cases = {c.name: c for c in _study_cases(net)}
+    violations: list[Reason] = []
+    worst_line = worst_trafo = export = 0.0
+    studied: list[str] = []
+    taps = tap_positions(net)  # the study regulates taps with the element out; the year's own state must not move
+    try:
+        for name in season["cases"]:
+            if name not in cases:
+                continue
+            case = cases[name]
+            ratio = _column(net.line, season["rating_column"]) if season["rating_column"] else case.rating_ratio
+            res = _run_case(net, name, case.load_scale, ratio)
+            studied.append(name)
+            if res is None:
+                violations.append(Reason(type="non_convergent", case=name,
+                                         message=f"power flow does not converge at {_CASE_LABEL[name]}"))
+                continue
+            worst_line = max(worst_line, float(res["line_pct"].max()) if len(res["line_pct"]) else 0.0)
+            worst_trafo = max(worst_trafo, float(res["trafo_pct"].max()) if len(res["trafo_pct"]) else 0.0)
+            export = max(export, -res["p_ext_mw"])
+            lost, n_buses = _islanded_mw(net, res["vm"])
+            if lost >= N1_ISLAND_MIN_MW:
+                violations.append(Reason(type="islanded", value=round(lost, 2), case=name,
+                                         message=f"{lost:.1f} MW of demand at {n_buses} bus(es) is cut off at {_CASE_LABEL[name]}"))
+                continue
+            r = _case_reason(net, name, res["vm"], res["line_pct"], res["trafo_pct"]) or _gsp_reason(net, -res["p_ext_mw"], name)
+            if r is not None:
+                violations.append(r)
+    finally:
+        undo()
+        set_tap_positions(net, taps)
+    if violations:
+        message = "; ".join(v.message for v in violations)
+    else:
+        message = (f"no limit breached; worst line {worst_line:.0f}%, worst transformer {worst_trafo:.0f}% "
+                   f"at {' and '.join(_CASE_LABEL[c] for c in studied)}")
+    return OutageStudy(outage_id=o.outage_id, year=o.year, cases=studied, ok=not violations,
+                       violations=violations, worst_line_loading_pct=round(worst_line, 1),
+                       worst_trafo_loading_pct=round(worst_trafo, 1), gsp_export_mw=round(export, 1),
+                       message=message)
 
 
 # --- reinforcement (for "what would it take" suggestions) -------------------
@@ -574,7 +692,7 @@ def _reinforce_element(table_name: str, rating_column: str):
         if r.action == "add_parallel":
             table.at[r.element_id, "parallel"] = int(table.at[r.element_id, "parallel"]) + 1
         else:
-            table.at[r.element_id, rating_column] = float(table.at[r.element_id, rating_column]) * r.factor
+            _scale_rating(net, table_name, r.element_id, rating_column, r.factor)
     return reinforce
 
 

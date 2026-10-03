@@ -37,7 +37,7 @@ class Warehouse:
         buses = self.query("SELECT bus_id, name, vn_kv, lon, lat FROM buses WHERE lon IS NOT NULL")
         lines = self.query(
             """
-            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv,
+            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv, l.from_bus, l.to_bus,
                    f.lon AS from_lon, f.lat AS from_lat, t.lon AS to_lon, t.lat AS to_lat
             FROM lines l
             JOIN buses f ON l.from_bus = f.bus_id
@@ -85,6 +85,19 @@ class Warehouse:
             int(b["bus_id"]): (b["lon"], b["lat"])
             for b in self.query("SELECT bus_id, lon, lat FROM buses WHERE lon IS NOT NULL")
         }
+
+    def line_ids(self) -> set[str]:
+        return {str(r["line_id"]) for r in self.query("SELECT line_id FROM lines")}
+
+    def trafo_ids(self) -> set[str]:
+        return {str(r["trafo_id"]) for r in self.query("SELECT trafo_id FROM transformers")}
+
+    def generator_ids(self) -> set[str]:
+        """The existing fleet's ids (EX-…), the targets of a generator maintenance window."""
+        try:
+            return {str(r["request_id"]) for r in self.query("SELECT request_id FROM generators")}
+        except Exception:  # warehouse predates the existing-fleet table
+            return set()
 
     def valid_bus_ids(self) -> set[int]:
         return {int(b["bus_id"]) for b in self.query("SELECT bus_id FROM buses")}

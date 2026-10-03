@@ -17,12 +17,16 @@ from .types import (
     Candidate,
     OptimizeParams,
     OptimizeResult,
+    Outage,
+    OutageStudy,
     PhaseResult,
     QueueItem,
     Reason,
     Reinforcement,
     Suggestion,
+    YearResult,
 )
+from .years import PLAN_YEARS, evaluate_years, year_order
 
 @_lru_cache(maxsize=1)
 def engine_fingerprint() -> str:
@@ -45,6 +49,12 @@ __all__ = [
     "OptimizeResult",
     "QueueItem",
     "PhaseResult",
+    "YearResult",
+    "Outage",
+    "OutageStudy",
+    "evaluate_years",
+    "year_order",
+    "PLAN_YEARS",
     "Reason",
     "Reinforcement",
     "Suggestion",

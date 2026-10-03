@@ -30,10 +30,11 @@ The physics is deterministic and reproducible. An LLM is used only to phrase res
 | **`main` = today** | The as-is network: 14 connected generators (376.5 MW), 49 demand points and the GSP. Nothing is pre-loaded for future years. Anything not built yet counts only once you add it. |
 | **Registry** | 20 optional projects (1,691.5 MW): every site NGED lists as *accepted to connect* at this GSP, plus one transmission-registered project that would connect at the GSP itself. |
 | **Branch** | Create a branch, pull projects onto it, and run the optimiser. Phase 1 (by 2030), Phase 2 (2031–35), Deferred or Rejected, with the binding constraint for every deferral. |
-| **Timeline** | A 2026→2035 slider. Projects appear in the year they energise, and the demand lens switches at 2030. |
+| **Timeline** | A 2026→2035 slider. Every year of the plan is solved in the run (demand grown to that year, the projects energised by then), so moving the slider only switches between stored results; it never re-runs. |
+| **Planned maintenance** | Schedule a line, transformer or existing generator out of service (or derated) in a season of a year on a branch. The next run studies it in that season's case and reports what it breaks. |
 | **Energisation year** | The optimiser **recommends** a year for each accepted project. You can set your own: it's saved on the branch, and an earlier-than-recommended year is flagged as *against the recommendation*. |
 | **Review** | A consequence diff of the branch against `main`: who connects or slips, MW by 2030/2035, and lines and buses that become newly overloaded or cleared. |
-| **Copilot** | "What would it take": for deferred projects, the engine tests concrete reinforcements (parallel circuits, reactive power, or a new supergrid transformer) and **measures** the MW each would free. |
+| **Copilot** | A guided **New project** intake, and **Recommendations**: "what would it take" for deferred projects. The engine tests concrete reinforcements (parallel circuits, reactive power, or a new supergrid transformer) and **measures** the MW each would free; a lever can be tried on the branch and the next run measures it against the whole queue. |
 | **Merge / Discard** | Merging adopts the branch as the new plan of record. |
 
 ---
@@ -91,14 +92,26 @@ On top of both cases:
 
 For this region, the GSP boundary, not the local wires, is usually what fills up first.
 
-**N-1 screen.** After each phase, every 132 kV circuit and grid transformer is taken out in turn at winter peak and the result is checked for overloads, band breaches and islanded demand. The findings are shown (Alerts, and the `N-1` count on the map) but do not gate a connection: a firm-connection standard would, and that is a documented next step.
+**N-1 screen.** After each phase, and in every plan year, every 132 kV circuit and grid transformer is taken out in turn at winter peak and the result is checked for overloads, band breaches and islanded demand. The findings are shown in the planner but do not gate a connection: a firm-connection standard would, and that is a documented next step.
+
+**Technologies.** How a project is dispatched in each case depends on what it is:
+- **Solar, wind**: nil at winter peak, full export at summer minimum.
+- **Battery, hybrid (solar + battery)**: charging at its import capacity at winter peak, full export at summer minimum.
+- **Demand, electrolyser** (import-only): export nothing. They draw their import capacity at winter peak and half of it at summer minimum (a planning assumption, close to the LTDS minimum-demand factors). Intake judges them on import capacity, not export rating.
+- **Gas, gas engines, biomass and anything unclassified**: firm, full output in both cases.
 
 **4. Year.** The **recommended** year is the developer's requested date, clamped into the window the grid can host: 2027–30 for Phase 1, 2031–35 for Phase 2. Deferred projects get none.
+
+**Every year, as a fixed plan.** Once the queue is decided, each year from 2026 to 2035 is solved on its own: demand interpolated (today's level in 2026, the pathway's 2030 multiplier in 2030, its 2035 multiplier in 2035), every accepted project whose year (scheduled, else recommended) has arrived, both study cases and the N-1 screen. This never changes who connects; it shows what the network looks like in the year you are viewing. The year in view is solved first, then 2030 and 2035, then the rest, and the planner shows each as it lands.
+
+**Planned maintenance.** A branch can carry maintenance windows: a line, transformer or existing generator out of service, or derated to 50%, in one season of one year. Each is studied in that year's network in the case its season stresses: winter peak in winter, summer minimum (summer ratings) in summer, both in spring and autumn with the LTDS intermediate-warm ratings. Like N-1, the result is reported per year and never gates a connection.
 
 **5. "What would it take".** For each deferred project, the engine tests a concrete lever and re-solves to measure the MW it frees:
 - **Line or transformer bottleneck**: chain parallel circuits.
 - **Voltage limit**: absorb reactive power at a lower power factor.
 - **GSP export limit**: add a supergrid transformer (+263.5 MW). This is transmission work, outside the distribution operator's control. The caveat says so, and suggests flexible connections or storage instead.
+
+**Try a lever on a branch.** A lever can be stored on a branch as a simulated reinforcement. Every later run of that branch applies it before the greedy loop, so its effect is measured against the whole queue, not just the one project; suggestions on that branch are then trialled on the reinforced network. Reinforcements, like outages, are proposals: `main` changes only by merging.
 
 Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 
@@ -121,18 +134,19 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
   packages/optimizer (gridforge_optimizer): the engine,                                          ▼
   shared by pipeline + API    ◄────────────────────────────────  apps/api (FastAPI) ── scenarios.duckdb
                                                                    branches · added projects ·
-                                                                   scheduled years
+                                                                   scheduled years · outages ·
+                                                                   reinforcements · result cache
                                                                                                  │
                                                                                                  ▼
                                                                   apps/web (Vite + React): MapLibre map,
-                                                                  queue, timeline, review, copilot
+                                                                  queue, outages, roadmap, review, copilot
 ```
 
-- **The warehouse is never mutated by the app.** Branches, added projects and chosen years live in a separate scenarios DB.
+- **The warehouse is never mutated by the app.** Branches, added projects, chosen years, planned outages and simulated reinforcements live in a separate scenarios DB. Outages and reinforcements are copied when a branch is created and when it is merged.
 - **Versions, not overwrites.** Every content-distinct materialisation appends a `snapshots` row (`network@<snapshot_id>`, tagged with the LTDS edition it was built from). The pipeline also diffs NGED's previous LTDS edition against the current one and stores the change-set, and keeps every fetched edition of the Embedded Capacity Register with a site-level diff between the last two. See [`apps/pipeline/README.md`](apps/pipeline/README.md).
 - **`main` is a branch row too.** Merging squashes a branch into it, last write wins.
-- **Results are cached durably.** A run is a pure function of the model snapshot, the parameters, the branch's candidate set and the engine's code, so every result is stored in the scenarios DB under that key: the same run never happens twice, not even after a restart, and two branches can never serve each other's queue. Inside a run, the engine keeps an exact trial cache: when a branch gains one project, only the trials whose state changed are solved again.
-- **Runs are background jobs.** The planner starts a job and polls it; the overlay shows the engine's real stage (ranking, each phase's trials, the N-1 screen). `main` is precomputed when the API starts.
+- **Results are cached durably.** A run is a pure function of the model snapshot, the parameters, the branch's candidate set, its reinforcements and the engine's code, so every result is stored in the scenarios DB under that key: the same run never happens twice, not even after a restart, and two branches can never serve each other's queue. The per-year results are cached separately, under a key that adds the outages and the schedule, so changing a year or a maintenance window re-solves the years but not the queue. Inside a run, the engine keeps an exact trial cache: when a branch gains one project, only the trials whose state changed are solved again.
+- **Runs are background jobs that publish as they go.** The planner starts a job and polls it; the overlay shows the engine's real stage (ranking, each phase's trials, the N-1 screen, each year). Once the queue is decided the job publishes partial results (the queue plus the years solved so far, the viewed year first), so the planner fills in before the run finishes. `main` is precomputed when the API starts.
 - **The model speaks CIM.** `gridforge_optimizer.cim` serialises the network to CGMES 2.4.15 (equipment, topology, steady-state hypothesis and geography profiles) with deterministic identifiers, so two exports diff like any other versioned artefact. The pipeline writes one per edition (`nged_model_cgmes`); the API serves it at `GET /model/cgmes`. The export is verified by re-importing it with pandapower's CGMES importer: same elements, same ratings, same tap steps, same power-flow solution.
 - **Postgres or DuckDB for the scenarios store.** Branches, added projects, schedules and the result cache live in a DuckDB file by default; set `GRIDFORGE_SCENARIOS_URL=postgresql://…` and they live in Postgres instead, through the same SQL (one small dialect layer). The warehouse stays DuckDB.
 
@@ -157,12 +171,15 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | `POST /branches` · `GET /branches` | Create and list branches |
 | `POST /branches/{id}/registry` | Pull a registry project onto a branch |
 | `POST /optimize/candidates` | Add a hand-entered project |
-| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, GSP exchange, N-1 findings, recommended and scheduled years |
-| `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs |
+| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, per-year results (`years`, with outage studies), GSP exchange, N-1 findings, recommended and scheduled years. Body: `view_year` (solved first), `with_justification` |
+| `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs; `?partial=true` returns the queue plus the years solved so far (`has_partial` says whether there are any) |
 | `GET /cache` | What the durable result cache holds, per kind and engine fingerprint |
 | `POST /branches/{id}/schedule` | Set or clear a project's energisation year (`against_recommendation` is reported back) |
+| `POST /branches/{id}/scenario` | Change a branch's demand profile (pathway and growth); takes effect on the next run |
+| `GET` · `POST /branches/{id}/outages` · `DELETE /branches/{id}/outages/{outage_id}` | Planned maintenance windows (line, transformer or existing generator; season, year, outage or derate). 409 on `main` or a branch that isn't open; 422 for an unknown element or season |
+| `GET` · `POST /branches/{id}/reinforcements` · `DELETE /branches/{id}/reinforcements/{reinforcement_id}` | Simulated reinforcements (a Copilot lever tried on the branch), applied by every later run. 409 on `main` or a branch that isn't open |
 | `GET /branches/{id}/diff` | Consequence diff against the parent branch |
-| `GET /branches/{id}/suggestions` | "What would it take" levers with measured MW freed |
+| `GET /branches/{id}/suggestions` | "What would it take" levers with measured MW freed, trialled on the branch's reinforced network; `?request_id=` narrows it to one deferred project |
 | `POST /branches/{id}/merge` · `/discard` | Adopt into `main`, or drop |
 
 Narration (`with_justification`, `with_narration`) calls an LLM through OpenRouter if `OPENROUTER_API_KEY` is set. Without a key, everything else works and the narration is simply empty.
@@ -186,7 +203,7 @@ pnpm --filter @gridforge/api dev               # API on http://localhost:8000
 pnpm --filter web dev                          # planner on http://localhost:3000
 ```
 
-Open **http://localhost:3000**. You land on `main`, today's network. Open **Review → New branch**, then **Browse registry** and add projects. The plan re-runs as you add.
+Open **http://localhost:3000**. You land on `main`, today's network. Create a branch (**New branch** in the header or the Review tab), then add projects from the registry in the Queue tab, or describe one to the Copilot. Added projects show as *Preliminary* until you **Run**; the result is marked out of date (**Re-run**) whenever the demand profile, outages, reinforcements, schedule or projects change.
 
 - **Shell quoting:** quote `'ltds_tables*'`, or the shell may expand it. It selects the root asset and everything downstream.
 - **Dagster UI:** `uv run dg dev` shows lineage and check results. It also uses port 3000, so don't run it alongside the web app.
@@ -223,7 +240,7 @@ grid-simulator/                    pnpm workspace + Turborepo
 │  ├─ api/                         FastAPI: model, registry, branches, optimize, diff, suggestions
 │  └─ web/                         Vite + React + TypeScript planner: src/hooks/usePlanner.ts (controller), src/api.ts, src/components/
 └─ packages/
-   └─ optimizer/                   gridforge_optimizer: network build, feasibility, greedy, suggest, diff
+   └─ optimizer/                   gridforge_optimizer: network build, feasibility, greedy, years, suggest, diff
       └─ src/gridforge_optimizer/data/nged/   bundled open data
 ```
 
@@ -236,9 +253,9 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 ```bash
 pnpm test                                     # everything, via Turborepo
 # or individually
-cd packages/optimizer && uv run pytest -q     # engine: 50 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
-cd apps/api && uv run --with pytest pytest tests -q   # API: 16 tests (each run uses its own temp scenarios DB; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
-cd apps/web && pnpm test                      # UI: 13 vitest unit tests (reason wording, timeline/queue/alert derivations)
+cd packages/optimizer && uv run pytest -q     # engine: 65 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
+cd apps/api && uv run --with pytest pytest tests -q   # API: 24 tests (each run uses its own temp scenarios DB; the per-year N-1 screen is stubbed; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
+cd apps/web && pnpm test                      # UI: 28 vitest unit tests (reason wording, queue/timeline derivations, Copilot intake and recommendations, run stages)
 ```
 
 The engine tests are **grid-agnostic**: fixtures are derived from whatever network `build_base_net()` returns, never from hard-coded bus ids. `test_nged.py` adds the NGED data rules:
@@ -254,7 +271,10 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 
 - **The GSP export limit is the only transmission constraint modelled.** The 400 kV network and wider transmission boundaries are not; the 400 kV projects are context only.
 - **Fault levels are not checked.** NGED publishes them, but the units are undocumented and some breaker ratings sit below the calculated fault current, so they can't be used safely as-is.
-- **Generation dispatch per case is a planning assumption.** PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum. Technologies the data doesn't classify (biomass, 'other') are treated as firm in both.
+- **Generation dispatch per case is a planning assumption.** PV and wind at nil and batteries (and hybrids) charging at winter peak; everything at full export at summer minimum. Gas, gas engines, biomass and technologies the data doesn't classify are treated as firm in both.
+- **Demand projects and electrolysers draw a fixed share.** Their full import capacity at winter peak and 50% of it at summer minimum; that 50% is an assumption, not a measured profile.
+- **Planned outages are reported, not enforced.** A maintenance window is studied in its season's case(s) and its breaches are shown, but it never blocks a connection, no curtailment or re-dispatch is modelled to ride through it, and the weeks are recorded but not placed in specific calendar weeks (the season stands in for them).
+- **Every year is a fixed plan.** The per-year solves show the network in each year; they don't change who connects, which is still decided at the two phase horizons. Demand between them is interpolated linearly.
 - **Tap-changer steps are assumed.** The LTDS gives each transformer's tap range but not its step; 1.25% per tap is used. Taps are regulated towards 1.0 pu with a ±0.01 pu deadband.
 - **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.

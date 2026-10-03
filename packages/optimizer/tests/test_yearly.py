@@ -1,256 +1,161 @@
-"""Tests for year-by-year demand interpolation and year-scoped studies."""
+"""The plan year by year (years.py) and planned outages (network.study_outage)."""
 
 import pytest
+from _grid import base_net, stiff_bus
 
-from _grid import saturating_candidates, stiff_bus
-from gridforge_optimizer.greedy import optimize, _eligible_for_year
-from gridforge_optimizer.network import build_base_net, interpolate_growth_for_year
-from gridforge_optimizer.types import Candidate, OptimizeParams
-from gridforge_optimizer.config import FORECASTS, DEFAULT_SCENARIO
+from gridforge_optimizer import Candidate, OptimizeParams, Outage, evaluate_years, optimize, year_order
+from gridforge_optimizer.network import interpolate_growth_for_year
+from gridforge_optimizer.years import energisation_years, evaluate_year
 
-
-def test_default_scenario_is_standard():
-    """Standard (Holistic Transition) is the default scenario."""
-    assert DEFAULT_SCENARIO == "ht"
+PARAMS = OptimizeParams()
 
 
-def test_three_profiles_are_selectable():
-    """Standard (ht), High (ee), and Low (fb) are selectable; Hydrogen Evolution is not."""
-    assert FORECASTS["ht"]["selectable"] is True, "Standard must be selectable"
-    assert FORECASTS["ee"]["selectable"] is True, "High must be selectable"
-    assert FORECASTS["fb"]["selectable"] is True, "Low must be selectable"
-    assert FORECASTS["he"]["selectable"] is False, "Hydrogen Evolution must not be selectable"
+def test_growth_interpolates_between_the_plan_anchors():
+    assert interpolate_growth_for_year(2026, 1.08, 1.35) == 1.0
+    assert interpolate_growth_for_year(2028, 1.08, 1.35) == pytest.approx(1.04)
+    assert interpolate_growth_for_year(2030, 1.08, 1.35) == pytest.approx(1.08)
+    assert interpolate_growth_for_year(2032, 1.08, 1.35) == pytest.approx(1.188)
+    assert interpolate_growth_for_year(2035, 1.08, 1.35) == pytest.approx(1.35)
+    assert interpolate_growth_for_year(2040, 1.08, 1.35) == pytest.approx(1.35)
 
 
-def test_standard_profile_anchors():
-    """Standard (Holistic Transition) has growth ×1.08 at 2030 and ×1.35 at 2035."""
-    assert FORECASTS["ht"]["growth_2030"] == 1.08
-    assert FORECASTS["ht"]["growth_2035"] == 1.35
-    assert FORECASTS["ht"]["cited"] is True, "Standard is the cited anchor"
+def test_year_order_solves_the_viewed_year_first_then_the_horizons():
+    assert year_order(2028) == [2028, 2030, 2035, 2026, 2027, 2029, 2031, 2032, 2033, 2034]
+    assert year_order(None)[:2] == [2030, 2035]
+    assert sorted(year_order(2031)) == list(range(2026, 2036))
 
 
-def test_high_profile_anchors():
-    """High (Electric Engagement) has growth ×1.10 at 2030 and ×1.42 at 2035."""
-    assert FORECASTS["ee"]["growth_2030"] == 1.10
-    assert FORECASTS["ee"]["growth_2035"] == 1.42
-    assert FORECASTS["ee"]["cited"] is False, "High is directional, not cited"
+def test_energisation_follows_the_schedule_else_the_recommendation():
+    sb = stiff_bus(base_net())
+    cands = [Candidate(request_id=f"P{i}", bus_id=sb, technology="solar", rating_mw=5.0, commissioning_year=2028)
+             for i in range(2)]
+    res = optimize(cands, PARAMS)
+    years = energisation_years(res, {"P1": 2033})
+    assert years["P0"] == next(q.recommended_year for q in res.queue if q.request_id == "P0")
+    assert years["P1"] == 2033
 
 
-def test_low_profile_anchors():
-    """Low (Falling Behind) has growth ×1.04 at 2030 and ×1.15 at 2035."""
-    assert FORECASTS["fb"]["growth_2030"] == 1.04
-    assert FORECASTS["fb"]["growth_2035"] == 1.15
-    assert FORECASTS["fb"]["cited"] is False, "Low is directional, not cited"
+@pytest.fixture(scope="module")
+def stiff():
+    return stiff_bus(base_net())
 
 
-def test_2028_interpolated_factors():
-    """In 2028, the three profiles have distinct interpolated factors."""
-    # 2028 is halfway between 2026 (base) and 2030
-    # Standard: 1.0 + 0.5 * (1.08 - 1.0) = 1.04
-    assert interpolate_growth_for_year(2028, "ht") == pytest.approx(1.04, abs=1e-6)
-    # High: 1.0 + 0.5 * (1.10 - 1.0) = 1.05
-    assert interpolate_growth_for_year(2028, "ee") == pytest.approx(1.05, abs=1e-6)
-    # Low: 1.0 + 0.5 * (1.04 - 1.0) = 1.02
-    assert interpolate_growth_for_year(2028, "fb") == pytest.approx(1.02, abs=1e-6)
+def test_a_project_is_in_service_only_from_its_year(stiff):
+    cand = Candidate(request_id="PV", bus_id=stiff, technology="solar", rating_mw=20.0)
+    before = evaluate_year(2028, [cand], PARAMS, {"PV": 2029}, n1=False)
+    after = evaluate_year(2029, [cand], PARAMS, {"PV": 2029}, n1=False)
+    assert before.energised == [] and after.energised == ["PV"]
+    # summer minimum, everything exporting: the 20 MW shows up at the GSP
+    assert after.gsp_export_mw - before.gsp_export_mw == pytest.approx(20.0, abs=3.0)
 
 
-def test_profile_short_labels():
-    """Profiles have short labels for the UI picker."""
-    assert FORECASTS["ht"]["short"] == "Standard"
-    assert FORECASTS["ee"]["short"] == "High"
-    assert FORECASTS["fb"]["short"] == "Low"
-    assert FORECASTS["he"]["short"] == "Hydrogen"
+def test_a_demand_connection_imports_at_winter_peak(stiff):
+    load = Candidate(request_id="DC", bus_id=stiff, technology="demand", rating_mw=0.0, import_mw=40.0)
+    without = evaluate_year(2030, [], PARAMS, {}, n1=False)
+    with_dc = evaluate_year(2030, [load], PARAMS, {"DC": 2030}, n1=False)
+    assert with_dc.gsp_export_mw < without.gsp_export_mw  # it soaks up export at summer minimum too
+    assert with_dc.energised == ["DC"]
 
 
-def test_interpolate_growth_for_year_before_base():
-    """Before base year (2026), no growth."""
-    assert interpolate_growth_for_year(2024, "ht") == 1.0
-    assert interpolate_growth_for_year(2026, "ht") == 1.0
+def test_a_demand_connection_is_rankable_with_zero_export(stiff):
+    load = Candidate(request_id="DC", bus_id=stiff, technology="demand", rating_mw=0.0, import_mw=10.0)
+    res = optimize([load], PARAMS)
+    assert res.queue[0].status in ("Phase1", "Phase2")
 
 
-def test_interpolate_growth_for_year_at_anchors():
-    """At anchor years, returns the anchor multiplier."""
-    # Holistic Transition anchors: 1.08 @ 2030, 1.35 @ 2035
-    assert interpolate_growth_for_year(2030, "ht") == pytest.approx(1.08, abs=1e-6)
-    assert interpolate_growth_for_year(2035, "ht") == pytest.approx(1.35, abs=1e-6)
+def _intact(year=2030):
+    return evaluate_year(year, [], PARAMS, {}, n1=False)
 
 
-def test_interpolate_growth_for_year_between_base_and_2030():
-    """Between base year (2026) and 2030, linear interpolation."""
-    # 2028 is halfway between 2026 and 2030
-    # growth should be 1.0 + 0.5 * (1.08 - 1.0) = 1.04
-    mid = interpolate_growth_for_year(2028, "ht")
-    assert mid == pytest.approx(1.04, abs=1e-6)
-    
-    # 2027 is 1/4 of the way
-    early = interpolate_growth_for_year(2027, "ht")
-    assert early == pytest.approx(1.02, abs=1e-6)
+def test_a_summer_outage_is_studied_at_summer_minimum_only():
+    net = base_net()
+    line = int(net.line.index[0])
+    o = Outage(outage_id="o1", element_kind="line", element_id=str(line), season="Summer", year=2030)
+    yr = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False)
+    assert [s.cases for s in yr.outage_studies] == [["summer_min"]]
 
 
-def test_interpolate_growth_for_year_between_2030_and_2035():
-    """Between 2030 and 2035, linear interpolation."""
-    # 2032 is 2/5 of the way between 2030 and 2035
-    # growth should be 1.08 + 0.4 * (1.35 - 1.08) = 1.08 + 0.108 = 1.188
-    mid = interpolate_growth_for_year(2032, "ht")
-    assert mid == pytest.approx(1.188, abs=1e-6)
+def test_a_winter_outage_is_studied_at_winter_peak_and_spring_at_both():
+    net = base_net()
+    line = str(int(net.line.index[0]))
+    w = Outage(outage_id="w", element_kind="line", element_id=line, season="Winter", year=2030)
+    s = Outage(outage_id="s", element_kind="line", element_id=line, season="Spring", year=2030)
+    yr = evaluate_year(2030, [], PARAMS, {}, outages=[w, s], n1=False)
+    assert [x.cases for x in yr.outage_studies] == [["winter_peak"], ["winter_peak", "summer_min"]]
 
 
-def test_interpolate_growth_for_year_after_2035():
-    """After 2035, holds at 2035 anchor."""
-    assert interpolate_growth_for_year(2040, "ht") == pytest.approx(1.35, abs=1e-6)
-    assert interpolate_growth_for_year(2050, "ht") == pytest.approx(1.35, abs=1e-6)
+def test_derating_the_most_loaded_line_raises_its_loading():
+    intact = _intact()
+    worst = max(intact.line_loading, key=intact.line_loading.get)
+    o = Outage(outage_id="d", element_kind="line", element_id=str(worst), season="Summer", year=2030, kind="derate")
+    study = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies[0]
+    assert study.worst_line_loading_pct > 1.8 * intact.line_loading[worst]
 
 
-def test_interpolate_growth_for_year_different_scenarios():
-    """Different scenarios have different anchors."""
-    # Electric Engagement: growth_2030=1.10, growth_2035=1.42
-    assert interpolate_growth_for_year(2030, "ee") == pytest.approx(1.10, abs=1e-6)
-    assert interpolate_growth_for_year(2035, "ee") == pytest.approx(1.42, abs=1e-6)
-    
-    # Falling Behind: growth_2030=1.04, growth_2035=1.15
-    assert interpolate_growth_for_year(2030, "fb") == pytest.approx(1.04, abs=1e-6)
-    assert interpolate_growth_for_year(2035, "fb") == pytest.approx(1.15, abs=1e-6)
+def test_an_existing_generator_outage_lowers_the_export():
+    intact = _intact()
+    o = Outage(outage_id="g", element_kind="gen", element_id="EX-3000", season="Summer", year=2030)
+    study = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies[0]
+    assert study.gsp_export_mw < intact.gsp_export_mw
 
 
-def test_eligible_for_year_no_commission_year():
-    """Projects with no commission year are eligible for all years."""
-    c = Candidate(request_id="P1", bus_id=1, rating_mw=5.0, commissioning_year=None)
-    assert _eligible_for_year(c, 2027)
-    assert _eligible_for_year(c, 2030)
-    assert _eligible_for_year(c, 2035)
+def test_an_outage_only_counts_in_its_own_year():
+    o = Outage(outage_id="o", element_kind="line", element_id="0", season="Summer", year=2031)
+    assert evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies == []
 
 
-def test_eligible_for_year_with_commission_year():
-    """Projects are only eligible when study year >= commission year."""
-    c = Candidate(request_id="P1", bus_id=1, rating_mw=5.0, commissioning_year=2029)
-    
-    assert not _eligible_for_year(c, 2027)
-    assert not _eligible_for_year(c, 2028)
-    assert _eligible_for_year(c, 2029)
-    assert _eligible_for_year(c, 2030)
-    assert _eligible_for_year(c, 2035)
+def test_evaluate_years_reports_each_year_as_it_lands(stiff):
+    cands = [Candidate(request_id="PV", bus_id=stiff, technology="solar", rating_mw=10.0, commissioning_year=2028)]
+    res = optimize(cands, PARAMS)
+    seen = []
+    years = evaluate_years(res, cands, PARAMS, view_year=2033, years=[2027, 2030, 2033],
+                           on_year=lambda y: seen.append(y.year))
+    assert seen == [2033, 2030, 2027]
+    assert list(years) == ["2027", "2030", "2033"]
+    rec = res.queue[0].recommended_year
+    assert all(("PV" in y.energised) == (int(k) >= rec) for k, y in years.items())
 
 
-def test_single_year_study_filters_candidates_by_commission_year():
-    """A year-scoped study only includes projects with commission year <= study year."""
-    net = build_base_net()
-    sb = stiff_bus(net)
-    
-    cands = [
-        Candidate(request_id="Early", bus_id=sb, rating_mw=5.0, commissioning_year=2027),
-        Candidate(request_id="On-time", bus_id=sb, rating_mw=5.0, commissioning_year=2029),
-        Candidate(request_id="Late", bus_id=sb, rating_mw=5.0, commissioning_year=2032),
-        Candidate(request_id="NoYear", bus_id=sb, rating_mw=5.0, commissioning_year=None),
-    ]
-    
-    # Run for year 2029: should include Early, On-time, and NoYear, but NOT Late
-    params = OptimizeParams(study_year=2029)
-    result = optimize(cands, params)
-    
-    accepted_ids = {item.request_id for item in result.queue if item.status == "Phase1"}
-    
-    assert "Early" in accepted_ids
-    assert "On-time" in accepted_ids
-    assert "NoYear" in accepted_ids
-    assert "Late" not in accepted_ids  # not commissioned yet
+def test_outage_studies_leave_the_years_own_results_untouched():
+    """Regression: a study re-settles the tap changers with the element out; the year's intact
+    results must not depend on whether an outage was studied in it."""
+    net = base_net()
+    outs = [Outage(outage_id=f"t{i}", element_kind="trafo", element_id=str(int(t)), season="Winter", year=2030)
+            for i, t in enumerate(net.trafo.index[:6])]
+    plain = evaluate_year(2030, [], PARAMS, {}, n1=False)
+    studied = evaluate_year(2030, [], PARAMS, {}, outages=outs, n1=False)
+    assert studied.bus_vm == plain.bus_vm and studied.line_loading == plain.line_loading
 
 
-def test_single_year_study_interpolates_demand():
-    """A year-scoped study uses interpolated demand growth for that year."""
-    net = build_base_net()
-    sb = stiff_bus(net)
-    
-    cands = [Candidate(request_id="P1", bus_id=sb, rating_mw=5.0)]
-    
-    # Run for year 2028 (halfway between 2026 and 2030, so growth should be ~1.04)
-    params = OptimizeParams(study_year=2028, scenario="ht")
-    result = optimize(cands, params)
-    
-    # The year-scoped study should use interpolated growth
-    # We can verify this indirectly by checking that the study ran successfully
-    # and that params.study_year was respected
-    assert result is not None
-    assert "2028" in result.phases
-    assert result.params.study_year == 2028
-    
-    # Verify the expected interpolated growth value
-    expected = interpolate_growth_for_year(2028, "ht")
-    assert expected == pytest.approx(1.04, abs=1e-6)
+def test_an_outage_that_strands_demand_is_a_violation():
+    """Regression: islanded demand used to vanish from the solve and read as 'within limits'."""
+    from gridforge_optimizer.network import N1_ISLAND_MIN_MW, _islanded_mw, _run_case, _study_cases
+
+    net = base_net()
+    yr = evaluate_year(2030, [], PARAMS, {}, n1=False)
+    case = next(c for c in _study_cases(net) if c.name == "winter_peak")
+    for lid in net.line.index:  # find a radial circuit whose loss strands material demand
+        net.line.at[lid, "in_service"] = False
+        res = _run_case(net, "winter_peak", case.load_scale, case.rating_ratio)
+        net.line.at[lid, "in_service"] = True
+        if res is not None and _islanded_mw(net, res["vm"])[0] >= N1_ISLAND_MIN_MW:
+            break
+    else:
+        pytest.skip("no radial circuit strands demand on this grid")
+    o = Outage(outage_id="isl", element_kind="line", element_id=str(int(lid)), season="Winter", year=2030)
+    study = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies[0]
+    assert not study.ok and study.violations[0].type == "islanded"
+    assert yr.year == 2030
 
 
-def test_single_year_study_result_structure():
-    """A year-scoped study returns results keyed by str(year)."""
-    net = build_base_net()
-    sb = stiff_bus(net)
-    
-    cands = [Candidate(request_id="P1", bus_id=sb, rating_mw=5.0)]
-    
-    params = OptimizeParams(study_year=2028)
-    result = optimize(cands, params)
-    
-    # Result phases should have a single entry keyed by the study year
-    assert "2028" in result.phases
-    assert len(result.phases) == 1
-    
-    # Queue should still be populated
-    assert len(result.queue) > 0
+def test_a_transformer_derate_keeps_its_impedance():
+    from gridforge_optimizer.network import OUTAGE_APPLIERS
 
-
-def test_single_year_study_vs_two_phase_consistency():
-    """A 2030 year-scoped study should broadly agree with Phase1 from two-phase."""
-    net = build_base_net()
-    sb = stiff_bus(net)
-    
-    # Use small candidates that should connect
-    cands = [
-        Candidate(request_id=f"P{i}", bus_id=sb, rating_mw=5.0, readiness_score=0.9, strategic_fit=0.8)
-        for i in range(5)
-    ]
-    
-    # Two-phase study
-    params_two_phase = OptimizeParams()
-    result_two_phase = optimize(cands, params_two_phase)
-    
-    phase1_ids = {item.request_id for item in result_two_phase.queue if item.status == "Phase1"}
-    
-    # Single-year study for 2030
-    params_single = OptimizeParams(study_year=2030)
-    result_single = optimize(cands, params_single)
-    
-    single_ids = {item.request_id for item in result_single.queue if item.status == "Phase1"}
-    
-    # Both should accept the same small projects at the stiff bus
-    assert len(phase1_ids) > 0, "Two-phase should accept some projects in Phase1"
-    assert len(single_ids) > 0, "Single-year should accept some projects"
-    
-    # Should be identical for these simple cases
-    assert phase1_ids == single_ids
-
-
-def test_year_scoped_study_respects_both_study_cases():
-    """Year-scoped study runs both winter_peak and summer_min cases (verified via CASE_SPECS)."""
-    # Verify both study cases are defined and will be run
-    from gridforge_optimizer.network import CASE_SPECS
-    case_names = {spec.name for spec in CASE_SPECS}
-    assert "winter_peak" in case_names and "summer_min" in case_names, \
-        "Both winter_peak and summer_min must be defined in CASE_SPECS"
-    
-    # Run a year-scoped study and verify it produces valid physics
-    net = build_base_net()
-    sb = stiff_bus(net)
-    cands = [Candidate(request_id=f"P{i}", bus_id=sb, rating_mw=10.0) for i in range(3)]
-    
-    params = OptimizeParams(study_year=2028)
-    result = optimize(cands, params)
-    
-    # Verify results are keyed by the study year
-    assert "2028" in result.phases
-    phase = result.phases["2028"]
-    
-    # Both cases ran successfully (results are the envelope across cases)
-    assert phase.min_vm_pu > 0 and phase.max_vm_pu > 0, "Voltage results present"
-    assert phase.worst_line_loading_pct >= 0, "Line loading present"
-    
-    # No non-convergent failures (both cases solved)
-    non_conv = [item for item in result.queue if item.reason and item.reason.type == "non_convergent"]
-    assert len(non_conv) == 0, "Both study cases must converge successfully"
+    net = base_net()
+    t = int(net.trafo.index[0])
+    vk, sn = float(net.trafo.at[t, "vk_percent"]), float(net.trafo.at[t, "sn_mva"])
+    undo = OUTAGE_APPLIERS["trafo"](net, Outage(outage_id="d", element_kind="trafo", element_id=str(t), season="Summer", year=2030, kind="derate"))
+    # ohmic impedance ~ vk% / sn: unchanged when both halve
+    assert net.trafo.at[t, "vk_percent"] / net.trafo.at[t, "sn_mva"] == pytest.approx(vk / sn)
+    undo()
+    assert net.trafo.at[t, "sn_mva"] == sn and net.trafo.at[t, "vk_percent"] == vk

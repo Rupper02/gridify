@@ -3,14 +3,17 @@
 Plain functions over a store cursor; no HTTP and no engine here (except the request/candidate types).
 """
 
+import uuid
+
 from fastapi import HTTPException
 
-from gridforge_optimizer.config import MAX_CONNECTION_MW
+from gridforge_optimizer import Outage, Reinforcement
+from gridforge_optimizer.config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 from gridforge_optimizer.nged import commission_year
 
-from .config import ADDED_CANDIDATE_ID_BASE
-from .schemas import NewCandidate, OptimizeRequest
-from .store import ADDED_COLS, BRANCH_COLS, Cursor
+from .config import ADDED_CANDIDATE_ID_BASE, now
+from .schemas import NewCandidate, OptimizeRequest, OutageCreate, ReinforcementCreate
+from .store import ADDED_COLS, BRANCH_COLS, OUTAGE_COLS, REINFORCEMENT_COLS, Cursor
 
 
 # --- branches ----------------------------------------------------------------
@@ -95,7 +98,12 @@ def triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
         reasons.append("missing a bus")
     elif int(body.bus_id) not in valid_bus_ids:
         reasons.append("bus is not in model")
-    if body.rating_mw is None:
+    if (body.technology or "").lower() in IMPORT_ONLY_TECHS:  # demand / electrolyser: judged on what it draws
+        if body.import_mw is None:
+            reasons.append("missing import capacity")
+        elif not (0 < body.import_mw <= MAX_CONNECTION_MW):
+            reasons.append("import capacity is out of range")
+    elif body.rating_mw is None:
         reasons.append("missing rating")
     elif not (0 < body.rating_mw <= MAX_CONNECTION_MW):
         reasons.append("rating is out of range")
@@ -106,6 +114,8 @@ def triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
 
 def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_ids: set[int]) -> dict:
     """Validate + insert a project on a branch; returns the stored row (client fields)."""
+    if (body.technology or "").lower() in IMPORT_ONLY_TECHS and body.rating_mw is None:
+        body = body.model_copy(update={"rating_mw": 0.0})  # exports nothing
     status, review = triage(body, valid_bus_ids)
     n = con.execute("SELECT count(*) FROM added_candidates").fetchone()[0]
     request_id = f"CR-{ADDED_CANDIDATE_ID_BASE + n}"
@@ -147,3 +157,66 @@ def add_registry_row(con: Cursor, branch_id: str, row: dict) -> None:
          row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
          row.get("commissioning_year"), None, row.get("import_mw"), branch_id],
     )
+
+
+# --- planned outages and simulated reinforcements on a branch ---------------
+def _rows(con: Cursor, table: str, cols: list[str], branch_id: str) -> list[dict]:
+    cur = con.execute(f"SELECT {', '.join(cols)} FROM {table} WHERE branch_id = ? ORDER BY created_at", [branch_id])
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def outage_rows(con: Cursor, branch_id: str) -> list[dict]:
+    return _rows(con, "branch_outages", OUTAGE_COLS, branch_id)
+
+
+def outages(con: Cursor, branch_id: str) -> list[Outage]:
+    return [Outage(**{k: v for k, v in r.items() if k != "created_at"}) for r in outage_rows(con, branch_id)]
+
+
+def insert_outage(con: Cursor, branch_id: str, body: OutageCreate) -> dict:
+    row = {"outage_id": "mw-" + uuid.uuid4().hex[:8], **body.model_dump(), "created_at": now()}
+    con.execute(
+        f"INSERT INTO branch_outages (branch_id, {', '.join(OUTAGE_COLS)}) VALUES (?, {', '.join('?' * len(OUTAGE_COLS))})",
+        [branch_id, *(row[c] for c in OUTAGE_COLS)],
+    )
+    return row
+
+
+def reinforcement_rows(con: Cursor, branch_id: str) -> list[dict]:
+    return _rows(con, "branch_reinforcements", REINFORCEMENT_COLS, branch_id)
+
+
+def reinforcements(con: Cursor, branch_id: str) -> list[Reinforcement]:
+    return [Reinforcement(kind=r["kind"], element_id=int(r["element_id"]), action=r["action"], factor=float(r["factor"]))
+            for r in reinforcement_rows(con, branch_id)]
+
+
+def insert_reinforcement(con: Cursor, branch_id: str, body: ReinforcementCreate) -> dict:
+    row = {"reinforcement_id": "rf-" + uuid.uuid4().hex[:8], **body.model_dump(), "created_at": now()}
+    con.execute(
+        f"INSERT INTO branch_reinforcements (branch_id, {', '.join(REINFORCEMENT_COLS)}) "
+        f"VALUES (?, {', '.join('?' * len(REINFORCEMENT_COLS))})",
+        [branch_id, *(row[c] for c in REINFORCEMENT_COLS)],
+    )
+    return row
+
+
+def delete_branch_row(con: Cursor, table: str, id_col: str, branch_id: str, row_id: str) -> bool:
+    found = con.execute(f"SELECT 1 FROM {table} WHERE branch_id = ? AND {id_col} = ?", [branch_id, row_id]).fetchone()
+    if found:
+        con.execute(f"DELETE FROM {table} WHERE branch_id = ? AND {id_col} = ?", [branch_id, row_id])
+    return bool(found)
+
+
+def copy_branch_extras(con: Cursor, from_branch: str, to_branch: str) -> None:
+    """Snapshot a branch's planned outages and reinforcements onto another (create and merge)."""
+    for table, cols in (("branch_outages", OUTAGE_COLS), ("branch_reinforcements", REINFORCEMENT_COLS)):
+        con.execute(
+            f"INSERT INTO {table} (branch_id, {', '.join(cols)}) SELECT ?, {', '.join(cols)} FROM {table} WHERE branch_id = ?",
+            [to_branch, from_branch],
+        )
+
+
+def clear_branch_extras(con: Cursor, branch_id: str) -> None:
+    for table in ("branch_outages", "branch_reinforcements"):
+        con.execute(f"DELETE FROM {table} WHERE branch_id = ?", [branch_id])

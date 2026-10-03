@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>html,body{margin:0;background:#0b111a;color:#eaf0f7;font-family:"Geist",ui-sans-serif,system-ui,sans-serif;-webkit-font-smoothing:antialiased}*{box-sizing:border-box}a{color:#7ce3ff}a:hover{color:#b5efff}</style>
+</helmet>
+<div style="min-height:100vh;padding:48px;background:radial-gradient(1000px 600px at 15% -10%,#2b3d57 0%,rgba(43,61,87,0) 62%),linear-gradient(180deg,#121b28,#0b111a);display:flex;flex-direction:column;gap:40px">
+  <div style="display:flex;flex-direction:column;gap:8px;max-width:640px">
+    <h1 style="margin:0;font-size:36px;font-weight:600;letter-spacing:-0.02em">GridForge, night-grid palette</h1>
+    <p style="margin:0;font-size:15px;line-height:1.55;color:#9aa9bc;text-wrap:pretty">A dark control-room base so power flows and constraints glow. Glass panels float over the network. One interactive accent (Arc cyan), four planning states, and a per-branch hue.</p>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Base and glass</h2>
+    <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px">
+      <sc-for list="{{ base }}" as="c" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="height:96px;border-radius:18px;background:{{ c.v }};border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.18)"></div>
+          <span style="font-size:13px;font-weight:600">{{ c.n }}</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:11.5px;color:#9aa9bc">{{ c.hex }}</span>
+          <span style="font-size:12px;color:#9aa9bc;line-height:1.4">{{ c.use }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <h2 style="margin:0;font-size:18px;font-weight:600">Signal colours</h2>
+    <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px">
+      <sc-for list="{{ signal }}" as="c" hint-placeholder-count="6">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="height:96px;border-radius:18px;background:{{ c.v }};border:{{ c.border }}"></div>
+          <span style="font-size:13px;font-weight:600">{{ c.n }}</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:11.5px;color:#9aa9bc">{{ c.v }}</span>
+          <span style="font-size:12px;color:#9aa9bc;line-height:1.4">{{ c.use }}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px">
+    <div style="padding:20px;border-radius:18px;background:linear-gradient(140deg,rgba(255,255,255,0.11),rgba(255,255,255,0.035));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:15px;font-weight:600">Branch hues</span>
+      <span style="font-size:12.5px;color:#9aa9bc;line-height:1.45">Each branch owns a hue. It frames the whole workspace, tints the ribbon, and rings every project that only exists on that branch. main is silver and carries a lock.</span>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <sc-for list="{{ branches }}" as="b" hint-placeholder-count="3">
+          <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:12px;border:1px solid {{ b.bd }};background:{{ b.bg }}"><i class="{{ b.icon }}" style="color:{{ b.v }};font-size:15px"></i><span style="font-family:'Geist Mono',monospace;font-size:12.5px;font-weight:600">{{ b.n }}</span><span style="margin-left:auto;font-family:'Geist Mono',monospace;font-size:11px;color:#9aa9bc">{{ b.v }}</span></div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:18px;background:linear-gradient(140deg,rgba(255,255,255,0.11),rgba(255,255,255,0.035));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:15px;font-weight:600">Demand profiles</span>
+      <span style="font-size:12.5px;color:#9aa9bc;line-height:1.45">Three profiles, one glyph: a rising bar meter. Never colour-coded, so it can't be confused with a planning state. Every result shows the profile it was solved on.</span>
+      <div style="display:flex;gap:10px">
+        <sc-for list="{{ profiles }}" as="p" hint-placeholder-count="3">
+          <div style="flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:12px;border-radius:12px;background:rgba(5,10,18,0.35);border:1px solid rgba(255,255,255,0.1)">
+            <span style="display:flex;align-items:flex-end;gap:3px;height:22px"><span style="width:5px;height:9px;border-radius:1.5px;background:{{ p.b1 }}"></span><span style="width:5px;height:15px;border-radius:1.5px;background:{{ p.b2 }}"></span><span style="width:5px;height:22px;border-radius:1.5px;background:{{ p.b3 }}"></span></span>
+            <span style="font-size:13px;font-weight:600">{{ p.n }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding:20px;border-radius:18px;background:linear-gradient(140deg,rgba(255,255,255,0.11),rgba(255,255,255,0.035));border:1px solid rgba(255,255,255,0.14);box-shadow:inset 0 1px 0 rgba(255,255,255,0.22);display:flex;flex-direction:column;gap:14px">
+      <span style="font-size:15px;font-weight:600">Line language</span>
+      <span style="font-size:12.5px;color:#9aa9bc;line-height:1.45">Voltage sets weight and brightness. State overrides colour. Flow is a moving dash toward the GSP, faster when the circuit is loaded harder.</span>
+      <div style="display:flex;flex-direction:column;gap:10px;font-size:12.5px">
+        <span style="display:flex;align-items:center;gap:12px"><span style="width:60px;height:3px;border-radius:2px;background:#dce6f2"></span>132 kV circuit</span>
+        <span style="display:flex;align-items:center;gap:12px"><span style="width:60px;height:2px;border-radius:2px;background:#6f8ba8"></span>33 kV circuit</span>
+        <span style="display:flex;align-items:center;gap:12px"><span style="width:60px;height:3px;border-radius:2px;background:repeating-linear-gradient(90deg,#ffc36b 0 6px,transparent 6px 10px)"></span>Binding constraint</span>
+        <span style="display:flex;align-items:center;gap:12px"><span style="width:60px;height:4px;border-radius:2px;background:#ff6b6b;box-shadow:0 0 10px rgba(255,107,107,0.6)"></span>Over 100%</span>
+        <span style="display:flex;align-items:center;gap:12px"><span style="width:60px;height:3px;border-radius:2px;background:repeating-linear-gradient(90deg,#bff2ff 0 2px,transparent 2px 14px);box-shadow:0 0 6px rgba(124,227,255,0.8)"></span>Power flow</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const off = 'rgba(255,255,255,0.15)';
+    return {
+      base: [
+        { n: 'Night grid', hex: '#0b111a', v: '#0b111a', use: 'App background, deepest layer' },
+        { n: 'Substation', hex: '#152031', v: '#152031', use: 'Map nodes, solid fallbacks' },
+        { n: 'Slate dusk', hex: '#2b3d57', v: '#2b3d57', use: 'Ambient light behind glass' },
+        { n: 'Glass', hex: 'white 11% to 3.5%', v: 'linear-gradient(140deg,rgba(255,255,255,0.11),rgba(255,255,255,0.035))', use: 'Every floating panel, blur 24px' },
+        { n: 'Ink', hex: '#eaf0f7', v: '#eaf0f7', use: 'Primary text, 132 kV lines' },
+        { n: 'Mute', hex: '#9aa9bc', v: '#9aa9bc', use: 'Secondary text, labels' },
+      ],
+      signal: [
+        { n: 'Arc cyan', v: '#7ce3ff', use: 'The one accent: actions, focus, live flow, preliminary', border: 'none' },
+        { n: 'Phase 1', v: '#5ee6a8', use: 'Connects by 2030', border: 'none' },
+        { n: 'Phase 2', v: '#8fb4ff', use: 'Connects 2031 to 2035', border: 'none' },
+        { n: 'Constrained', v: '#ffc36b', use: 'Deferred, binding element, stale result', border: 'none' },
+        { n: 'Overload', v: '#ff6b6b', use: 'Above 100% or outside the voltage band', border: 'none' },
+        { n: 'Rejected', v: '#7d8da3', use: 'Failed intake', border: 'none' },
+      ],
+      branches: [
+        { n: 'main', v: '#c9d6e8', icon: 'ph-bold ph-lock-simple', bd: 'rgba(255,255,255,0.16)', bg: 'rgba(255,255,255,0.05)' },
+        { n: 'branch hue 1', v: '#7ce3ff', icon: 'ph-bold ph-git-branch', bd: '#7ce3ff80', bg: '#7ce3ff1f' },
+        { n: 'branch hue 2', v: '#ff9f7a', icon: 'ph-bold ph-git-branch', bd: '#ff9f7a80', bg: '#ff9f7a1f' },
+      ],
+      profiles: [['Low', 1], ['Standard', 2], ['High', 3]].map(([n, k]) => ({ n, b1: '#7ce3ff', b2: k >= 2 ? '#7ce3ff' : off, b3: k >= 3 ? '#7ce3ff' : off })),
+    };
+  }
+}
+</script>
+</body>
+</html>

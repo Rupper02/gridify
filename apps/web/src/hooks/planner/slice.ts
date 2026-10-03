@@ -17,4 +17,3 @@ export type PlannerSlice<
 
 export type WithPatch = Pick<Planner, "patch">;
 export type WithMap = Pick<Planner, "mapApi">;
-export type WithFormInvalid = Pick<Planner, "formInvalid">;

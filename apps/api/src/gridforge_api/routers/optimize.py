@@ -22,27 +22,27 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
         row = repository.require_branch(con, branch_id)
     req = repository.branch_request(row)
     req.with_justification = bool(body and body.with_justification)
-    if body and body.study_year is not None:
-        req.study_year = body.study_year
-    return plans.optimize_payload(req, branch_id)
+    return plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None)
 
 
 @router.post("/branches/{branch_id}/optimize/jobs")
 def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None) -> dict:
-    """Start a run of this branch in the background. Poll GET /jobs/{job_id}; a cached run finishes
-    at once. The response is the job record (status, stage, fraction)."""
+    """Start a run of this branch in the background: the queue, then every year of the plan with
+    `view_year` first. Poll GET /jobs/{job_id}?partial=true to show results as they land; a cached
+    run finishes at once. The response is the job record (status, stage, fraction)."""
     with scenarios.cursor() as con:
         row = repository.require_branch(con, branch_id)
     req = OptimizeRequest(with_justification=bool(body and body.with_justification), **repository.branch_params(row))
-    if body and body.study_year is not None:
-        req.study_year = body.study_year
-    return jobs.start("optimize", lambda progress: plans.optimize_payload(req, branch_id, progress=progress))
+    view_year = body.view_year if body else None
+    return jobs.start("optimize", lambda progress, publish: plans.optimize_payload(
+        req, branch_id, progress=progress, publish=publish, view_year=view_year))
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str, with_result: bool = True) -> dict:
-    """A background job's status, stage and (when done) its result."""
-    return jobs.get(job_id, with_result=with_result)
+def get_job(job_id: str, with_result: bool = True, partial: bool = False) -> dict:
+    """A background job's status, stage, its partial result while running (`partial=true`: the
+    queue plus the years solved so far) and its result when done."""
+    return jobs.get(job_id, with_result=with_result, with_partial=partial)
 
 
 @router.get("/cache")

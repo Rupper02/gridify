@@ -21,7 +21,7 @@ def cand_key(cands: list[Candidate]) -> str:
     another branch with different projects (the highest-risk bug of branch-scoping)."""
     sig = sorted(
         (c.request_id, c.bus_id, c.rating_mw, round(c.readiness_score, 4),
-         round(c.strategic_fit, 4), c.status, c.import_mw)
+         round(c.strategic_fit, 4), c.status, c.import_mw, c.technology, c.commissioning_year)
         for c in cands
     )
     return hashlib.md5(json.dumps(sig, default=str).encode()).hexdigest()
@@ -29,7 +29,7 @@ def cand_key(cands: list[Candidate]) -> str:
 
 def params_key(params: OptimizeParams) -> tuple:
     return (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
-            params.w_readiness, params.w_need, params.w_strategic, params.study_year)
+            params.w_readiness, params.w_need, params.w_strategic)
 
 
 class ResultCache:

@@ -1,243 +1,173 @@
-// Review: branches (create / select / diff / suggestions / merge / discard), the registry of
-// projected projects to pull onto a branch, the consequence diff and the copilot suggestions.
+// Review: the branch against main as a consequence diff (the four tiles, the network effect, what
+// changed), the reinforcements proposed on it, then Merge into main or Discard. main has nothing to
+// review.
 
-import type { PlannerSlice, WithPatch } from "../hooks/planner/slice";
+import { ArrowRight, Check, GitMerge, LockSimple, Trash, Warning } from "@phosphor-icons/react";
 
-import { BSTAT, CHG, ST, deltaColor, fmtMw, signed, signedV, techLabel } from "../theme";
-import { TechIcon } from "./TechIcon";
+import type { PlannerSlice } from "../hooks/planner/slice";
+import { lineName, nameElements } from "../lib/derive";
+import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
+import type { Diff, Status } from "../types";
+import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  | "activeBranch" | "branches" | "comparing" | "creatingBranch" | "diff" | "forecasts" | "loadingSuggestions"
-  | "newBranchForecast" | "newBranchName" | "pendingAdds" | "registry" | "registryLoaded" | "registryQuery"
-  | "showNewBranch" | "showRegistry" | "suggestions",
-  | "addRegistryProject" | "createBranchFlow" | "discardBranchFlow" | "mergeBranchFlow" | "runBranchDiff"
-  | "runSuggestions" | "selectBranch" | "selectProject" | "toggleRegistry",
-  "q" | "reviewB" | "hasReviewBranch" | "onMainView"
-> &
-  WithPatch;
+  "branches" | "diff" | "reinforcements",
+  "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement",
+  "branch" | "hue" | "ix" | "onMain"
+>;
+
+const statusLabel = (st: Status | null, year?: number | null): string =>
+  st == null ? "not on main" : st === "Phase1" || st === "Phase2" ? `${ST[st].label}${year ? ` · ${year}` : ""}` : ST[st].label;
 
 export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
-  const { s, patch, actions, derived } = planner;
-  const { q, reviewB, hasReviewBranch, onMainView } = derived;
-  const branchActionsDisabled = !reviewB || reviewB.status !== "open";
-  const scenLabel = (id: string) => s.forecasts.find((y) => y.id === id)?.label ?? (id || "custom");
-  const visibleBranches = s.branches.filter((b) => b.status !== "discarded" || b.branch_id === s.activeBranch);
+  const { s, actions, derived } = planner;
+  const { branch, hue, ix } = derived;
+  if (derived.onMain)
+    return (
+      <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
+        <div className="empty" style={{ padding: 18, gap: 10 }}>
+          <LockSimple size={20} color={C.mute} />
+          <b style={{ fontSize: 13 }}>main has nothing to review</b>
+          <span>It is the plan of record. Open a branch, add projects or change the demand profile, then compare it here.</span>
+          <button className="btn" style={{ borderColor: "rgba(124,227,255,0.45)", background: "rgba(124,227,255,0.12)", color: C.accent }} onClick={() => void actions.createBranch()}>
+            New branch
+          </button>
+        </div>
+      </div>
+    );
 
-  // registry: pull projected projects onto the active branch; hide the ones already on it
-  const onBranchIds = new Set(hasReviewBranch ? [...q.map((x) => x.request_id), ...Object.keys(s.pendingAdds)] : []);
-  const needle = s.registryQuery.toLowerCase();
-  const regList = s.registry.filter(
-    (c) => !onBranchIds.has(c.request_id) && (!needle || `${c.request_id} ${c.applicant || ""} ${c.technology || ""} bus ${c.bus_id}`.toLowerCase().includes(needle)),
-  );
-
+  const main = s.branches.find((b) => b.branch_id === "main");
+  const mismatch = main && branch && main.scenario !== branch.scenario;
   const d = s.diff;
-  const hl = d?.headline;
-  const movers = d ? d.projects.filter((p) => p.change !== "unchanged") : [];
-
+  const open = branch?.status === "open";
   return (
-    <div className="review">
-      <div className="box">
-        <div className="box-head">
-          <div className="col" style={{ lineHeight: 1.3 }}>
-            <span className="t">Branches</span>
-            <span className="d">Branch off <b>main</b>, propose a change, review the consequence, then merge.</span>
-          </div>
-          <button className="btn sm" onClick={() => patch({ showNewBranch: !s.showNewBranch })}>{s.showNewBranch ? "Cancel" : "＋ New branch"}</button>
-        </div>
-        {s.showNewBranch && (
-          <div className="subbox">
-            <input className="field" style={{ height: 32 }} value={s.newBranchName} onChange={(e) => patch({ newBranchName: e.target.value })} placeholder="Branch name, e.g. ‘Connect the Bicker Fen batteries’" />
-            <span className="caps">Demand profile — the scenario this branch is tested against</span>
-            <div className="row" style={{ gap: 6 }}>
-              <select className="field" style={{ flex: 1, minWidth: 0, height: 32, padding: "0 8px" }} value={s.newBranchForecast} onChange={(e) => patch({ newBranchForecast: e.target.value })}>
-                {s.forecasts.map((x) => (
-                  <option key={x.id} value={x.id}>FES 2025 · {x.label}</option>
-                ))}
-              </select>
-              <button className="btn dark md" disabled={s.creatingBranch} style={{ background: s.creatingBranch ? "#9ca3af" : undefined }} onClick={() => void actions.createBranchFlow()}>
-                {s.creatingBranch ? "Creating…" : "Create"}
-              </button>
-            </div>
-            <span style={{ fontSize: 11, color: "var(--mute)" }}>A branch is a safe copy of <b>main</b>. Add projects or change the demand profile, review the consequence, then merge.</span>
-          </div>
-        )}
-        <div className="col" style={{ gap: 4 }}>
-          {visibleBranches.map((b) => {
-            const isMain = b.branch_id === "main";
-            const isSel = b.branch_id === s.activeBranch;
-            const st = BSTAT[b.status] ?? BSTAT.open;
-            return (
-              <button key={b.branch_id} className="branch-row" style={{ borderColor: isSel ? "var(--ink)" : "var(--bd)", background: isSel ? "#f3f4f6" : "#fff", opacity: b.status === "discarded" ? 0.5 : 1 }} onClick={() => actions.selectBranch(b.branch_id)}>
-                <span className="name">{isMain ? "main · plan of record" : b.name}</span>
-                {!isMain && <span className="chip sm" style={{ background: st.bg, color: st.fg, fontSize: 10 }}>{st.label}</span>}
-                <span className="meta">{b.n_added ? `${b.n_added}＋ · ` : ""}FES {scenLabel(b.scenario)}</span>
-              </button>
-            );
-          })}
-        </div>
-        {hasReviewBranch && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingTop: 8, borderTop: "1px solid var(--bd)" }}>
-            <button className="btn dark md" disabled={s.comparing} onClick={() => void actions.runBranchDiff()}>{s.comparing ? "Diffing…" : "Diff vs main"}</button>
-            <button className="btn md" disabled={s.loadingSuggestions} onClick={() => void actions.runSuggestions()}>{s.loadingSuggestions ? "Thinking…" : "Suggestions"}</button>
-            <div className="grow" />
-            <button className="btn green md" disabled={branchActionsDisabled} style={{ background: branchActionsDisabled ? "#9ca3af" : undefined }} onClick={() => void actions.mergeBranchFlow()}>Merge to main</button>
-            <button className="btn md" disabled={branchActionsDisabled} style={{ color: branchActionsDisabled ? "#9ca3af" : "#b91c1c" }} onClick={() => void actions.discardBranchFlow()}>Discard</button>
-          </div>
-        )}
+    <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
+      <div className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+        <span style={{ color: C.mute }}>main</span>
+        <ArrowRight size={12} color={C.mute2} />
+        <span style={{ color: hue, fontWeight: 600 }}>{branch?.name}</span>
       </div>
-
-      <div className="box">
-        <div className="box-head">
-          <div className="col" style={{ lineHeight: 1.3 }}>
-            <span className="t">Registry · projected projects</span>
-            <span className="d">{onMainView ? "Adding a project opens a new branch off main (main stays the plan of record)." : `Projects are added to ${reviewB?.name ?? "this branch"}.`}</span>
-          </div>
-          <button className="btn sm" onClick={actions.toggleRegistry}>{s.showRegistry ? "Hide registry" : "Browse registry"}</button>
-        </div>
-        {s.showRegistry && (
-          <div className="col" style={{ gap: 8 }}>
-            <input className="field sm" value={s.registryQuery} onChange={(e) => patch({ registryQuery: e.target.value })} placeholder="Search registry — ID, applicant, tech, bus…" />
-            <div className="col" style={{ gap: 4, maxHeight: 280, overflow: "auto" }}>
-              {regList.map((c) => (
-                <div key={c.request_id} className="reg-row">
-                  <div style={{ minWidth: 0 }}>
-                    <div className="row" style={{ gap: 6 }}>
-                      <span className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{c.request_id}</span>
-                      <span className="ellipsis" style={{ fontSize: 12, color: "var(--ink2)" }}>{c.applicant || "—"}</span>
-                    </div>
-                    <div className="row" style={{ gap: 5, fontSize: 11, color: "var(--mute2)" }}>
-                      <TechIcon tech={c.technology} />
-                      <span>{techLabel(c.technology) ?? "Unknown tech"} · {fmtMw(c.rating_mw)} MW · bus {c.bus_id ?? "—"} · ready {Math.round((c.readiness_score || 0) * 100)}%</span>
-                    </div>
-                  </div>
-                  <button className="btn dark sm" style={{ padding: "0 13px" }} onClick={() => void actions.addRegistryProject(c.request_id)}>Add</button>
-                </div>
-              ))}
-            </div>
-            {s.registryLoaded && regList.length === 0 && <div className="empty" style={{ padding: 14, fontSize: 12 }}>No registry projects match — or they're all on this branch already.</div>}
-          </div>
-        )}
-      </div>
-
-      {hasReviewBranch && (
-        <div className="banner">
-          <span style={{ fontSize: 15, lineHeight: 1 }}>⎇</span>
-          <span>You're on branch <b>{reviewB?.name}</b> — the map, Queue and roadmap show this <b>proposal</b>. <b>main</b> (the plan of record) stays unchanged until you <b>Merge</b>.</span>
+      {mismatch && (
+        <div className="notice amber">
+          main is tested on {profileOf(main!.scenario).label} and this branch on {profileOf(branch!.scenario).label}. Part of the difference below comes from demand, not from
+          the projects you added.
         </div>
       )}
-      {!d && (
-        <div className="empty" style={{ padding: "24px 14px" }}>
-          {hasReviewBranch ? "Press Diff vs main to see this branch’s consequence." : "Create or select a branch, then Diff vs main to see the consequence."}
-        </div>
+      {!d ? (
+        <span className="mute" style={{ fontSize: 12 }}>Comparing with main…</span>
+      ) : (
+        <>
+          {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
+          <Tiles d={d} />
+          <NetworkEffect d={d} name={(id) => (ix ? lineName(ix, id) : `Line ${id}`)} />
+          <Changed d={d} name={(t) => nameElements(t, ix)} />
+        </>
       )}
-
-      {d && hl && (
-        <div className="col" style={{ gap: 14 }}>
-          <div className="mono" style={{ fontSize: 11, color: "var(--mute)" }}>{reviewB ? `main  →  ${reviewB.name}` : ""}</div>
-          {d.narration && <p className="narration pretty">{d.narration}</p>}
-          <div className="cmp-tiles">
-            {[
-              { key: "mw30", label: "MW by 2030", base: fmtMw(hl.mw_2030_base), head: fmtMw(hl.mw_2030_head), delta: `${signed(hl.mw_2030_delta)} MW`, color: deltaColor(hl.mw_2030_delta, true) },
-              { key: "mw35", label: "MW by 2035", base: fmtMw(hl.mw_2035_base), head: fmtMw(hl.mw_2035_head), delta: `${signed(hl.mw_2035_delta)} MW`, color: deltaColor(hl.mw_2035_delta, true) },
-              { key: "conn", label: "Connected", base: String(hl.n_connected_base), head: String(hl.n_connected_head), delta: signed(hl.n_connected_head - hl.n_connected_base), color: deltaColor(hl.n_connected_head - hl.n_connected_base, true) },
-              { key: "def", label: "Deferred", base: String(hl.n_deferred_base), head: String(hl.n_deferred_head), delta: signed(hl.n_deferred_head - hl.n_deferred_base), color: deltaColor(hl.n_deferred_head - hl.n_deferred_base, false) },
-            ].map((t) => (
-              <div key={t.key} className="cmp-tile">
-                <div className="caps-sm" style={{ letterSpacing: "0.04em", color: "var(--mute)" }}>{t.label}</div>
-                <div className="vals">
-                  <span className="mono" style={{ fontSize: 15, color: "var(--mute2)" }}>{t.base}</span>
-                  <span style={{ color: "var(--mute2)" }}>→</span>
-                  <span className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{t.head}</span>
-                  <span className="mono" style={{ fontSize: 12, fontWeight: 600, color: t.color, marginLeft: "auto" }}>{t.delta}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div>
-            <div className="caps-sm" style={{ marginBottom: 6 }}>Network effect — what needs attention</div>
-            {d.phases.map((pp) => (
-              <div key={pp.phase} className="phase-box">
-                <div className="row" style={{ marginBottom: 6 }}>
-                  <span className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{pp.phase}</span>
-                  <span style={{ fontSize: 11.5, color: "var(--mute)" }}>connected {fmtMw(pp.mw_connected_base)} → {fmtMw(pp.mw_connected_head)} MW</span>
-                  <span className="mono" style={{ fontSize: 11.5, fontWeight: 600, color: deltaColor(pp.mw_connected_delta, true), marginLeft: "auto" }}>{signed(pp.mw_connected_delta)} MW</span>
-                </div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 11.5, color: "var(--ink3)" }}>
-                  <span>Worst line <b className="mono" style={{ color: deltaColor(pp.worst_line_delta, false) }}>{signed(pp.worst_line_delta)}%</b></span>
-                  <span>Voltage <b className="mono" style={{ color: "var(--ink)" }}>min {signedV(pp.min_vm_delta)} · max {signedV(pp.max_vm_delta)} pu</b></span>
-                </div>
-                {pp.newly_overloaded_line_ids.length > 0 && <div style={{ marginTop: 6, fontSize: 11.5, color: "#991b1b" }}>⚠ Newly overloaded lines: {pp.newly_overloaded_line_ids.join(", ")}</div>}
-                {pp.cleared_line_ids.length > 0 && <div style={{ marginTop: 4, fontSize: 11.5, color: "#166534" }}>✓ Cleared lines: {pp.cleared_line_ids.join(", ")}</div>}
-              </div>
-            ))}
-          </div>
-
-          <div>
-            <div className="caps-sm" style={{ marginBottom: 4 }}>Who moved</div>
-            {movers.map((p) => {
-              const cg = CHG[p.change] ?? CHG.unchanged;
-              const bs = p.base_status ? ST[p.base_status] : null;
-              const hs = p.head_status ? ST[p.head_status] : null;
-              const reason = p.head_reason ? p.head_reason.short || p.head_reason.why || p.head_reason.message : "";
-              return (
-                <div key={p.request_id} className="mover" onClick={() => actions.selectProject(p.request_id)}>
-                  <div className="row">
-                    <span className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{p.request_id}</span>
-                    <span className="chip sm" style={{ background: cg.bg, color: cg.fg, fontSize: 10.5, padding: "2px 7px", borderRadius: 5 }}>{cg.label}</span>
-                    <span className="mono" style={{ fontSize: 11, color: "var(--mute)", marginLeft: "auto" }}>
-                      {p.rank_delta != null && p.rank_delta !== 0 ? (p.rank_delta < 0 ? `▲ ${-p.rank_delta}` : `▼ ${p.rank_delta}`) : ""}
-                    </span>
-                  </div>
-                  <div className="row" style={{ gap: 6, fontSize: 11.5, flexWrap: "wrap" }}>
-                    <span className="chip sm" style={{ background: bs?.bg ?? "#f3f4f6", color: bs?.fg ?? "#9ca3af" }}>{bs?.short ?? "—"}</span>
-                    <span style={{ color: "var(--mute2)" }}>→</span>
-                    <span className="chip sm" style={{ background: hs?.bg ?? "#f3f4f6", color: hs?.fg ?? "#9ca3af" }}>{hs?.short ?? "—"}</span>
-                    <span style={{ color: "var(--mute)" }}>{techLabel(p.technology) ?? "—"} · {fmtMw(p.rating_mw)} MW · bus {p.bus_id ?? "—"}</span>
-                  </div>
-                  {reason && <div style={{ fontSize: 11.5, color: "#92400e" }}>{reason}</div>}
-                </div>
-              );
-            })}
-            {movers.length === 0 && <div className="empty" style={{ padding: 16 }}>No projects changed on this branch versus main.</div>}
-          </div>
-        </div>
-      )}
-
-      {s.suggestions != null && (
-        <div className="col" style={{ gap: 8 }}>
-          <div className="row" style={{ gap: 7 }}>
-            <span className="caps-sm">Copilot · what would it take</span>
-            <span style={{ fontSize: 11, color: "var(--mute2)" }}>{reviewB ? `on ${reviewB.name}` : ""}</span>
-          </div>
-          {s.suggestions.length === 0 && <div className="empty" style={{ padding: 16 }}>No grid-constrained deferrals on this branch — nothing to unblock.</div>}
-          {s.suggestions.map((x, i) => (
-            <div key={i} className="sugg">
-              <div className="row">
-                <span style={{ fontSize: 12.5, fontWeight: 600 }}>{x.action}</span>
-                <span className="chip sm" style={{ marginLeft: "auto", background: x.connects_target ? "#dcfce7" : "#fef3c7", color: x.connects_target ? "#166534" : "#92400e", fontSize: 10.5, padding: "2px 7px", borderRadius: 5 }}>{x.connects_target ? "connects" : "partial"}</span>
-              </div>
-              <div className="mono" style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>
-                Frees ≈{fmtMw(x.freed_mw_2035)} MW by 2035{x.freed_mw_2030 !== x.freed_mw_2035 ? ` (≈${fmtMw(x.freed_mw_2030)} by 2030)` : ""}
-              </div>
-              {x.newly_connected_project_ids.length > 0 && (
-                <div className="row" style={{ gap: 5, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: "var(--mute)" }}>Connects</span>
-                  {x.newly_connected_project_ids.map((id) => <span key={id} className="idchip" style={{ fontWeight: 600, background: "#dcfce7", color: "#166534" }}>{id}</span>)}
-                </div>
-              )}
-              {x.blocked_project_ids.length > 0 && (
-                <div className="row" style={{ gap: 5, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: "var(--mute2)" }}>For deferred</span>
-                  {x.blocked_project_ids.map((id) => <span key={id} className="idchip" style={{ background: "#f3f4f6", color: "var(--mute)" }}>{id}</span>)}
-                </div>
-              )}
-              {x.narration && <p className="narration pretty">{x.narration}</p>}
-              <div className="pretty" style={{ fontSize: 10.5, color: "var(--mute2)" }}>{x.caveat}</div>
+      {s.reinforcements.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Proposed reinforcements</span>
+          {s.reinforcements.map((r) => (
+            <div key={r.reinforcement_id} className="mrow">
+              <GitMerge size={13} color={hue} />
+              <span className="ellipsis" style={{ fontSize: 12 }}>{r.label || `${r.action} ${r.kind} ${r.element_id}`}</span>
+              <button className="icon-btn sm" onClick={() => void actions.removeReinforcement(r.reinforcement_id)} title="Remove" aria-label="Remove reinforcement" disabled={!open}>
+                <Trash size={12} />
+              </button>
             </div>
           ))}
         </div>
       )}
+      <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+        <button className="btn solid-hue grow" onClick={() => void actions.mergeBranch()} disabled={!open}>
+          <GitMerge size={14} weight="bold" />
+          Merge into main
+        </button>
+        <button className="btn danger" onClick={() => void actions.discardBranch()} disabled={!open}>
+          Discard
+        </button>
+      </div>
+      {!open && <span className="mute" style={{ fontSize: 11.5 }}>This branch is {branch?.status}. Open a new one to propose more.</span>}
+    </div>
+  );
+}
+
+function Tiles({ d }: { d: Diff }) {
+  const h = d.headline;
+  const tile = (label: string, base: number, head: number, moreIsGood: boolean) => {
+    const delta = head - base;
+    const c = delta === 0 ? C.mute : delta > 0 === moreIsGood ? C.greenInk : C.redInk;
+    return <DiffTile key={label} label={label} base={fmtMw(base)} head={fmtMw(head)} delta={delta === 0 ? "0" : signed(delta)} c={c} />;
+  };
+  return (
+    <div className="tiles">
+      {tile("MW by 2030", h.mw_2030_base ?? 0, h.mw_2030_head ?? 0, true)}
+      {tile("MW by 2035", h.mw_2035_base ?? 0, h.mw_2035_head ?? 0, true)}
+      {tile("Connected", h.n_connected_base ?? 0, h.n_connected_head ?? 0, true)}
+      {tile("Deferred", h.n_deferred_base ?? 0, h.n_deferred_head ?? 0, false)}
+    </div>
+  );
+}
+
+function NetworkEffect({ d, name }: { d: Diff; name: (id: number) => string }) {
+  const items: { bad: boolean; good?: boolean; text: string }[] = [];
+  d.phases.forEach((p) => {
+    p.newly_overloaded_line_ids.forEach((id) => {
+      const td = p.top_line_deltas.find((x) => x.line_id === id);
+      items.push({ bad: true, text: `${name(id)} newly over 100% by ${p.phase}${td ? ` (${Math.round(td.base_pct)}% to ${Math.round(td.head_pct)}%)` : ""}.` });
+    });
+    p.cleared_line_ids.forEach((id) => items.push({ bad: false, good: true, text: `${name(id)} back within its rating by ${p.phase}.` }));
+    p.top_line_deltas
+      .filter((t) => Math.abs(t.delta) >= 5 && !p.newly_overloaded_line_ids.includes(t.line_id))
+      .slice(0, 3)
+      .forEach((t) => items.push({ bad: t.delta > 0 && t.head_pct > 90, good: t.delta < 0, text: `${name(t.line_id)} ${t.delta > 0 ? "rises" : "falls"} from ${Math.round(t.base_pct)}% to ${Math.round(t.head_pct)}% by ${p.phase}.` }));
+    if (Math.abs(p.worst_line_delta) >= 1)
+      items.push({ bad: p.worst_line_delta > 0, good: p.worst_line_delta < 0, text: `Worst line loading ${p.worst_line_delta > 0 ? "rises" : "falls"} ${Math.abs(Math.round(p.worst_line_delta))} points by ${p.phase}.` });
+    if (Math.abs(p.min_vm_delta) >= 0.002)
+      items.push({ bad: p.min_vm_delta < 0, good: p.min_vm_delta > 0, text: `Lowest voltage ${p.min_vm_delta > 0 ? "lifts" : "drops"} ${Math.abs(p.min_vm_delta).toFixed(3)} pu by ${p.phase}.` });
+  });
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Network effect</span>
+      <div className="well" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "11px 12px", fontSize: 12, lineHeight: 1.45 }}>
+        {items.length ? (
+          items.slice(0, 8).map((x, i) => (
+            <span key={i} style={{ color: x.bad ? C.redInk : x.good ? C.greenInk : C.ink2, display: "flex", gap: 6 }}>
+              {x.bad ? <Warning size={12} style={{ flex: "none", marginTop: 3 }} /> : x.good ? <Check size={12} style={{ flex: "none", marginTop: 3 }} /> : <ArrowRight size={12} style={{ flex: "none", marginTop: 3 }} />}
+              {x.text}
+            </span>
+          ))
+        ) : (
+          <span className="mute">No material change to loadings or voltages at 2030 or 2035.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Changed({ d, name }: { d: Diff; name: (t: string) => string }) {
+  const movers = d.projects.filter((p) => p.change !== "unchanged");
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>What changed</span>
+      {!movers.length && <span className="mute" style={{ fontSize: 12 }}>No project moved.</span>}
+      {movers.map((p) => {
+        const to = p.head_status;
+        const c = to ? ST[to].c : C.mute;
+        return (
+          <div key={p.request_id} className="mover">
+            <span className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{p.request_id}</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, whiteSpace: "nowrap", minWidth: 0 }}>
+              <span style={{ padding: "1px 7px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: C.mute }}>{statusLabel(p.base_status)}</span>
+              <ArrowRight size={11} color={C.mute2} />
+              <span style={{ padding: "1px 7px", borderRadius: 999, background: tint(c, "22"), color: c }}>{to ? statusLabel(to) : "dropped"}</span>
+            </span>
+            <span className="mono" style={{ fontSize: 11.5, color: C.mute }}>{fmtMw(p.rating_mw)} MW</span>
+            <span className="ellipsis" style={{ gridColumn: "2 / -1", fontSize: 11, color: C.mute }}>
+              {p.head_reason ? name(p.head_reason.short) : p.rank_delta ? `rank ${p.rank_delta > 0 ? "down" : "up"} ${Math.abs(p.rank_delta)}` : ""}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

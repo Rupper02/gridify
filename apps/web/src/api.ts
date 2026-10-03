@@ -4,12 +4,14 @@
 import type {
   Boundary,
   Branch,
+  BranchReinforcement,
   Diff,
   Forecast,
   Job,
   Model,
   NewCandidate,
   OptimizeResult,
+  Outage,
   RegistryItem,
   Suggestion,
 } from "./types";
@@ -21,27 +23,24 @@ export const BASE: string =
 async function errorText(r: Response): Promise<string> {
   try {
     const j = (await r.json()) as { detail?: unknown };
-    return j.detail ? String(j.detail) : `${r.status} ${r.statusText}`;
+    return j.detail ? String(typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)) : `${r.status} ${r.statusText}`;
   } catch {
     return `${r.status} ${r.statusText}`;
   }
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const r = await fetch(`${BASE}${path}`);
-  if (!r.ok) throw new Error(await errorText(r));
-  return (await r.json()) as T;
-}
-
-async function postJson<T>(path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) throw new Error(await errorText(r));
   return (await r.json()) as T;
 }
+const getJson = <T>(path: string) => request<T>("GET", path);
+const postJson = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
+const del = <T>(path: string) => request<T>("DELETE", path);
 
 // ---- reasons: see lib/reasons.ts ---------------------------------------------------------------
 export { normReason } from "./lib/reasons";
@@ -59,11 +58,17 @@ function applyDiffReasons(d: Diff): Diff {
   return d;
 }
 
+/** What a run reports while it solves: the job's stage and fraction, and partial results. */
+export interface RunProgress {
+  onProgress: (stage: string, fraction: number) => void;
+  /** The queue plus the years solved so far, as soon as the engine has them. */
+  onPartial?: (partial: OptimizeResult) => void;
+}
+
 // ---- endpoints ------------------------------------------------------------------------------
 
 export const api = {
   getModel: () => getJson<Model>("/model"),
-  getCandidates: () => getJson<RegistryItem[]>("/optimize/candidates"),
   addCandidate: (c: NewCandidate) => postJson<RegistryItem>("/optimize/candidates", c),
   getRegistry: () => getJson<RegistryItem[]>("/registry"),
   addFromRegistry: (branchId: string, requestId: string) =>
@@ -74,16 +79,14 @@ export const api = {
       `/branches/${branchId}/schedule`,
       { request_id: requestId, year },
     ),
-  /** Update a branch's demand profile (scenario + growth). Used when profile picker changes. */
+  /** Store a branch's demand profile (scenario + growth). The next run uses it. */
   updateScenario: (branchId: string, scenario: string, growth_2030: number, growth_2035: number) =>
     postJson<Branch>(`/branches/${branchId}/scenario`, { scenario, growth_2030, growth_2035 }),
-  optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean; study_year?: number | null }) =>
-    applyReasons(await postJson<OptimizeResult>("/optimize", body)),
-  /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway). */
+  /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway) and the intake cap. */
   getForecasts: async () => {
     const r = await getJson<{ forecasts?: Forecast[]; max_connection_mw?: number }>("/forecasts");
     if (r.max_connection_mw) setMaxMw(r.max_connection_mw);
-    return Array.isArray(r.forecasts) ? r.forecasts : [];
+    return { forecasts: Array.isArray(r.forecasts) ? r.forecasts : [], maxMw: r.max_connection_mw ?? getMaxMw() };
   },
   /** The GSP boundary: export/import limits to transmission + the transmission projects behind it. */
   getBoundary: async (): Promise<Boundary | null> => {
@@ -93,50 +96,57 @@ export const api = {
       return null;
     }
   },
-  getMaxConnectionMw: async (): Promise<number> => {
-    try {
-      const r = await getJson<{ max_connection_mw?: number }>("/forecasts");
-      if (r.max_connection_mw) {
-        setMaxMw(r.max_connection_mw);
-        return r.max_connection_mw;
-      }
-    } catch {
-      /* fall back to the default cap */
-    }
-    return getMaxMw();
-  },
 
-  // branches ("git for grids") + unblock suggestions. A branch = a scenario (demand pathway) + the projects added on it.
+  // branches ("git for grids"). A branch = a demand profile + the projects, outages and
+  // reinforcements added on it.
   createBranch: (body: { name: string; from_branch: string; scenario: string }) => postJson<Branch>("/branches", body),
   listBranches: async () => (await getJson<{ branches: Branch[] }>("/branches")).branches ?? [],
-  optimizeBranch: async (id: string, opts?: { with_justification?: boolean }) =>
-    applyReasons(await postJson<OptimizeResult>(`/branches/${id}/optimize`, opts ?? {})),
-  /** Start a run in the background; poll `getJob` until it is done. A cached run finishes at once. */
-  startOptimizeJob: (id: string, opts?: { with_justification?: boolean }) => postJson<Job>(`/branches/${id}/optimize/jobs`, opts ?? {}),
-  getJob: (jobId: string) => getJson<Job>(`/jobs/${jobId}`),
-  /** Run a branch as a background job, reporting stage + fraction while it runs. */
-  runBranchJob: async (id: string, opts: { with_justification?: boolean; study_year?: number | null }, onProgress: (stage: string, fraction: number) => void): Promise<OptimizeResult> => {
+  /**
+   * Run a branch as a background job: the queue first, then every year of the plan with
+   * `view_year` first. Partial results are handed over as they land.
+   */
+  runBranchJob: async (id: string, opts: { with_justification?: boolean; view_year?: number | null }, p: RunProgress): Promise<OptimizeResult> => {
     let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
+    let seenYears = -1;
     while (job.status === "queued" || job.status === "running") {
-      onProgress(job.stage, job.fraction);
-      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 700));
-      job = await getJson<Job>(`/jobs/${job.job_id}`);
+      p.onProgress(job.stage, job.fraction);
+      if (job.partial && p.onPartial) {
+        const n = Object.keys(job.partial.years ?? {}).length;
+        if (n !== seenYears) {
+          seenYears = n;
+          p.onPartial(applyReasons(job.partial));
+        }
+      }
+      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 600));
+      job = await getJson<Job>(`/jobs/${job.job_id}?partial=${p.onPartial ? "true" : "false"}`);
     }
     if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the run failed");
-    onProgress("done", 1);
+    p.onProgress("done", 1);
     return applyReasons(job.result);
   },
   diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
     applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
   mergeBranch: (id: string, opts?: { into: string }) => postJson<Branch>(`/branches/${id}/merge`, opts ?? { into: "main" }),
   discardBranch: (id: string) => postJson<Branch>(`/branches/${id}/discard`),
-  getSuggestions: async (id: string, opts?: { limit?: number; with_narration?: boolean }) => {
+  /** The copilot's levers: for the branch's deferred projects, or for one of them (`request_id`). */
+  getSuggestions: async (id: string, opts?: { limit?: number; with_narration?: boolean; request_id?: string }) => {
     const p = new URLSearchParams();
     if (opts?.limit) p.set("limit", String(opts.limit));
     if (opts?.with_narration) p.set("with_narration", "1");
+    if (opts?.request_id) p.set("request_id", opts.request_id);
     const qs = p.toString() ? `?${p}` : "";
     return (await getJson<{ suggestions: Suggestion[] }>(`/branches/${id}/suggestions${qs}`)).suggestions ?? [];
   },
+
+  // planned maintenance and simulated reinforcements on a branch
+  listOutages: async (id: string) => (await getJson<{ outages: Outage[] }>(`/branches/${id}/outages`)).outages ?? [],
+  addOutage: (id: string, o: Omit<Outage, "outage_id" | "created_at">) => postJson<Outage>(`/branches/${id}/outages`, o),
+  removeOutage: (id: string, outageId: string) => del<{ removed: boolean }>(`/branches/${id}/outages/${outageId}`),
+  listReinforcements: async (id: string) =>
+    (await getJson<{ reinforcements: BranchReinforcement[] }>(`/branches/${id}/reinforcements`)).reinforcements ?? [],
+  addReinforcement: (id: string, r: Omit<BranchReinforcement, "reinforcement_id" | "created_at">) =>
+    postJson<BranchReinforcement>(`/branches/${id}/reinforcements`, r),
+  removeReinforcement: (id: string, rid: string) => del<{ removed: boolean }>(`/branches/${id}/reinforcements/${rid}`),
 };
 
 export type Api = typeof api;

@@ -1,8 +1,8 @@
 // Wire types for the GridForge API (apps/api) and the planner's own view types.
 
 export type Status = "Phase1" | "Phase2" | "Deferred" | "Rejected";
-export type Tech = "solar" | "wind" | "battery";
-// PhaseKey can be "2030", "2035", or any year string for year-scoped studies
+/** Engine technology ids (see theme.TECH for labels, icons and study treatment). */
+export type Tech = "solar" | "wind" | "battery" | "hybrid" | "gas" | "gas_engine" | "biomass" | "electrolyser" | "demand";
 export type PhaseKey = string;
 
 export interface Bus {
@@ -17,6 +17,8 @@ export interface Line {
   line_name: string;
   rating_a: number;
   voltage_kv: number;
+  from_bus?: number;
+  to_bus?: number;
   from_lon: number;
   from_lat: number;
   to_lon: number;
@@ -88,6 +90,7 @@ export interface QueueItem {
   bus_id: number | null;
   technology: string | null;
   rating_mw: number | null;
+  import_mw?: number | null;
   readiness_score: number;
   strategic_fit: number;
   grid_need: number;
@@ -103,6 +106,17 @@ export interface QueueItem {
   applicant: string;
   scheduled_year: number | null;
   against_recommendation: boolean;
+}
+
+/** One finding of the single-outage (N-1) screen of the 132 kV backbone. */
+export interface N1Violation {
+  outage_type: "line" | "trafo";
+  outage_id: number;
+  outage_name: string;
+  type: string; // "line" | "trafo" | "voltage" | "islanded" | "non_convergent"
+  element_id: number | null;
+  value: number | null;
+  message: string;
 }
 
 export interface PhaseResult {
@@ -122,15 +136,32 @@ export interface PhaseResult {
   n1_violations: N1Violation[];
 }
 
-/** One finding of the single-outage (N-1) screen of the 132 kV backbone. */
-export interface N1Violation {
-  outage_type: "line" | "trafo";
-  outage_id: number;
-  outage_name: string;
-  type: string; // "line" | "trafo" | "voltage" | "islanded" | "non_convergent"
-  element_id: number | null;
-  value: number | null;
+/** What one planned outage does to its year's network (engine: network.study_outage). */
+export interface OutageStudy {
+  outage_id: string;
+  year: number;
+  cases: string[];
+  ok: boolean;
+  violations: RawReason[];
+  worst_line_loading_pct: number;
+  worst_trafo_loading_pct: number;
+  gsp_export_mw: number;
   message: string;
+}
+
+/** The plan as it stands in one year (engine: years.evaluate_year). */
+export interface YearResult extends PhaseResult {
+  year: number;
+  growth: number;
+  energised: string[];
+  trafo_loading: Record<string, number>;
+  outage_studies: OutageStudy[];
+}
+
+export interface Studied {
+  outage_ids: string[];
+  reinforcements: { kind: string; element_id: number; action: string; factor: number }[];
+  schedule: Record<string, number>;
 }
 
 export interface OptimizeResult {
@@ -144,6 +175,10 @@ export interface OptimizeResult {
   };
   queue: QueueItem[];
   phases: Record<PhaseKey, PhaseResult>;
+  /** Every year of the plan, filled progressively while a run is solving. */
+  years: Record<string, YearResult>;
+  years_total: number;
+  studied: Studied;
   justification: string;
   snapshot_id: string;
   branch_id: string;
@@ -181,6 +216,7 @@ export interface RegistryItem {
   bus_id: number | null;
   technology: string | null;
   rating_mw: number | null;
+  import_mw?: number | null;
   readiness_score: number;
   strategic_fit?: number;
   readiness_rationale?: string;
@@ -188,7 +224,6 @@ export interface RegistryItem {
   review_reasons?: string;
   commissioning_year?: number | null;
   branch_id?: string;
-  manual?: boolean;
 }
 
 export interface NewCandidate {
@@ -196,10 +231,36 @@ export interface NewCandidate {
   bus_id: number;
   technology: Tech;
   rating_mw: number;
+  import_mw: number | null;
   readiness_score: number;
   readiness_rationale: string;
+  commissioning_year: number | null;
   branch_id: string;
-  manual?: boolean;
+}
+
+/** A planned maintenance window on a branch (API: /branches/{id}/outages). */
+export type Season = "Spring" | "Summer" | "Autumn" | "Winter";
+export type ElementKind = "line" | "trafo" | "gen";
+export interface Outage {
+  outage_id: string;
+  element_kind: ElementKind;
+  element_id: string;
+  season: Season;
+  year: number;
+  weeks: number;
+  kind: "outage" | "derate";
+  created_at?: string;
+}
+
+/** A simulated reinforcement proposed on a branch (API: /branches/{id}/reinforcements). */
+export interface BranchReinforcement {
+  reinforcement_id: string;
+  kind: string;
+  element_id: number;
+  action: string;
+  factor: number;
+  label: string;
+  created_at?: string;
 }
 
 export interface TransmissionProject {
@@ -223,14 +284,7 @@ export interface Boundary {
   transmission_projects: TransmissionProject[];
 }
 
-export type Change =
-  | "accelerated"
-  | "slipped"
-  | "moved_up"
-  | "moved_down"
-  | "added"
-  | "dropped"
-  | "unchanged";
+export type Change = "accelerated" | "slipped" | "moved_up" | "moved_down" | "added" | "dropped" | "unchanged";
 export interface ProjectDelta {
   request_id: string;
   technology: string | null;
@@ -244,6 +298,13 @@ export interface ProjectDelta {
   change: Change;
   head_reason: Reason | null;
 }
+export interface LineDelta {
+  line_id: number;
+  base_pct: number;
+  head_pct: number;
+  delta: number;
+  crossed: boolean;
+}
 export interface PhaseDelta {
   phase: string;
   worst_line_delta: number;
@@ -252,6 +313,7 @@ export interface PhaseDelta {
   max_vm_delta: number;
   newly_overloaded_line_ids: number[];
   cleared_line_ids: number[];
+  top_line_deltas: LineDelta[];
   mw_connected_base: number;
   mw_connected_head: number;
   mw_connected_delta: number;
@@ -284,29 +346,15 @@ export interface Suggestion {
 
 // ---- view types ---------------------------------------------------------------------------
 
-export type HitKind = "project" | "existing" | "trafo" | "bus" | "load" | "line";
-export interface Hit {
-  kind: HitKind;
-  id: number | string;
-}
+/** What can be clicked on the map: a project opens the project card, the rest the element card. */
 export type Sel =
   | { kind: "project"; id: string }
   | { kind: "line"; id: number }
-  | { kind: "bus"; id: number }
-  | { kind: "trafo"; id: number };
-export type Tab = "queue" | "alerts" | "compare";
-export type SortKey = "rank" | "id" | "mw" | "ready" | "status";
-
-export interface FormState {
-  name: string;
-  tech: Tech;
-  mw: string;
-  bus: string;
-  land: boolean;
-  planning: boolean;
-  finance: boolean;
-  readiness: number;
-}
+  | { kind: "trafo"; id: number }
+  | { kind: "gen"; id: string };
+export type ElementSel = Exclude<Sel, { kind: "project" }>;
+export type Tab = "copilot" | "queue" | "outages" | "review";
+export type MapLayer = "flow" | "loading" | "voltage";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
 export interface Job {
@@ -319,14 +367,8 @@ export interface Job {
   started_at: string | null;
   finished_at: string | null;
   elapsed_ms: number;
+  has_partial?: boolean;
+  partial?: OptimizeResult | null;
   result?: OptimizeResult | null;
   error?: string | null;
-}
-
-export interface RunParams {
-  g30: number;
-  g35: number;
-  scenario: string;
-  branch: string;
-  n: number;
 }

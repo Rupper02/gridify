@@ -1,321 +1,424 @@
 // Pure view helpers: everything here is a function of API data + UI state, with no side effects,
 // so it is unit-testable without a browser or a map.
 
-import { ORDER, ST, fmtMw, techLabel } from "../theme";
+import { BRANCH_HUES, C, MAIN_HUE, ORDER, PLAN_YEARS, ST, fmtMw, profileOf, techLabel } from "../theme";
 import type {
-  FormState,
+  Branch,
+  BranchReinforcement,
+  ElementSel,
   Line,
+  Model,
   OptimizeResult,
-  PhaseKey,
-  PhaseResult,
+  Outage,
+  OutageStudy,
   QueueItem,
-  RunParams,
-  Sel,
-  SortKey,
+  RegistryItem,
   Status,
   Transformer,
+  YearResult,
 } from "../types";
 
 export const isAccepted = (x: QueueItem): boolean => x.status === "Phase1" || x.status === "Phase2";
 
 /** GB statutory voltage band for a nominal voltage (ESQCR): ±10 % at 132 kV and above, ±6 % below. */
 export const voltageBand = (kv: number | null | undefined): [number, number] => (kv != null && kv >= 132 ? [0.9, 1.1] : [0.94, 1.06]);
-export const voltageBandLabel = (kv: number | null | undefined): string => {
-  const [lo, hi] = voltageBand(kv);
-  return `${lo.toFixed(2)}–${hi.toFixed(2)} pu`;
-};
 
 /**
  * The year a project energises in the plan: the operator's override if set, else the optimizer's
- * recommendation. Only ACCEPTED projects get a year; deferred and rejected ones can't be hosted, so
- * they stay off the timeline.
+ * recommendation. Only ACCEPTED projects get a year; deferred and rejected ones can't be hosted.
  */
 export function effYearOf(x: QueueItem): number | null {
   if (!isAccepted(x)) return null;
   return x.scheduled_year != null ? x.scheduled_year : x.recommended_year;
 }
 
-export const phaseForYear = (year: number): PhaseKey => (year <= 2030 ? "2030" : "2035");
-
-/**
- * Interpolate demand growth multiplier for a specific year, matching the backend logic.
- * Linear interpolation between base (2026) → 2030 → 2035 anchors; holds at 2035 after.
- */
-export function interpolateGrowthForYear(year: number, g30: number, g35: number, baseYear = 2026): number {
-  if (year <= baseYear) return 1.0;
-  if (year <= 2030) {
-    const t = (year - baseYear) / (2030 - baseYear);
-    return 1.0 + t * (g30 - 1.0);
-  }
-  if (year <= 2035) {
-    const t = (year - 2030) / (2035 - 2030);
-    return g30 + t * (g35 - g30);
-  }
-  return g35;
-}
-
-export type ProjVariant = "p1" | "p2" | "ghost" | "rej";
-export interface ProjView {
-  x: QueueItem;
-  variant: ProjVariant;
-  size: number;
-  label: string;
-  online: boolean;
-  isNew: boolean;
-  future: boolean;
-  blocked: boolean;
-  offRec: boolean;
-  fg: string;
-}
-
-/**
- * Map/label view of the geolocated queue items for the given timeline year. Deferred projects are
- * NOT drawn: they have no year, so they would sit on the map at every year as if present. They stay
- * flagged in the Queue, the Roadmap's deferred column and the Alerts tab, and the element blocking
- * them is still highlighted (see bindingSets).
- */
-export function buildProjList(q: QueueItem[], timelineYear: number): ProjView[] {
-  return q
-    .filter((x) => x.lon != null && x.rating_mw != null && x.status !== "Deferred")
-    .map((x) => {
-      const accepted = isAccepted(x);
-      const eff = effYearOf(x);
-      const onTimeline = accepted && eff != null;
-      const future = onTimeline && eff > timelineYear;
-      const isNew = onTimeline && eff === timelineYear;
-      const online = onTimeline && eff <= timelineYear;
-      // scheduled earlier than the grid supports = goes against the recommendation (marked on map)
-      const offRec =
-        accepted && x.scheduled_year != null && x.recommended_year != null && x.scheduled_year < x.recommended_year;
-      const blocked = x.status === "Rejected";
-      const variant: ProjVariant =
-        x.status === "Rejected" ? "rej" : future ? "ghost" : x.status === "Phase1" ? "p1" : "p2";
-      const size =
-        x.status === "Rejected" ? 0.55 : (0.6 + (Math.sqrt(x.rating_mw ?? 0) / Math.sqrt(18)) * 0.5) * (isNew ? 1.12 : 1);
-      const label = blocked
-        ? `${x.request_id} · rejected`
-        : future
-          ? `${x.request_id} · planned ${eff}`
-          : `${x.request_id} · ${fmtMw(x.rating_mw)} MW${isNew ? ` · online ${eff}` : ""}`;
-      return { x, variant, size, label, online, isNew, future, blocked, offRec, fg: future ? "#1e40af" : ST[x.status].fg };
-    });
-}
-
-/** Timeline roll-up: accepted projects online by the slider year, and those energising that year. */
-export function timelineRollup(q: QueueItem[], timelineYear: number) {
-  const accepted = q.filter(isAccepted);
-  const online = accepted.filter((x) => {
-    const y = effYearOf(x);
-    return y != null && y <= timelineYear;
-  });
-  const fresh = accepted.filter((x) => effYearOf(x) === timelineYear);
-  const mw = (xs: QueueItem[]) => xs.reduce((a, x) => a + (x.rating_mw ?? 0), 0);
-  return { online, fresh, onlineMw: mw(online), freshMw: mw(fresh) };
-}
-
-/** Elements named as the binding constraint by any deferred project. */
-export function bindingSets(q: QueueItem[]) {
-  const bindLines = new Set<number>();
-  const bindBuses = new Set<number>();
-  q.forEach((x) => {
-    const el = x.status === "Deferred" && x.reason ? x.reason.element : null;
-    if (el) {
-      if (el.line_id != null) bindLines.add(el.line_id);
-      if (el.bus_id != null) bindBuses.add(el.bus_id);
-    }
-  });
-  return { bindLines, bindBuses };
-}
-
-export function busProjectsOf(q: QueueItem[]): Record<number, QueueItem[]> {
-  const out: Record<number, QueueItem[]> = {};
-  q.forEach((x) => {
-    if (x.bus_id != null) (out[x.bus_id] = out[x.bus_id] ?? []).push(x);
-  });
-  return out;
-}
-
-/** The element the selected project is blocked by, if any (for highlighting). */
-export function selectedElement(sel: Sel | null, qById: Record<string, QueueItem>) {
-  const selQ = sel && sel.kind === "project" ? qById[sel.id] : null;
-  return { selQ: selQ ?? null, selEl: selQ?.reason?.element ?? null };
-}
-
-// ---- real ratings/voltages from the model (no assumed feeder voltage) --------------------------
-/** A transformer's substation is its HV busbar name minus the voltage/bay suffix. */
-export const trafoSub = (t: Transformer): string =>
-  String(t.hv_name || t.name || `T${t.trafo_id}`).replace(/\s*\d+(\.\d+)?\s*kV.*$/i, "").trim();
-export const trafoRatio = (t: Transformer): string => (t.hv_kv && t.lv_kv ? `${+t.hv_kv} / ${+t.lv_kv} kV` : "—");
-/** Capacity of a line = √3 · V · I. */
-export const lineMva = (l: Line): string =>
-  l.voltage_kv ? `${((Math.sqrt(3) * l.voltage_kv * l.rating_a) / 1000).toFixed(1)} MVA` : "—";
-
-export const loadPct = (r: OptimizeResult | null, p: PhaseKey, id: number): number | null =>
-  r?.phases[p]?.line_loading?.[id] ?? null;
-export const vmAt = (r: OptimizeResult | null, p: PhaseKey, id: number): number | null =>
-  r?.phases[p]?.bus_vm?.[id] ?? null;
-
-// ---- queue table ----------------------------------------------------------------------------
-export function filterSortQueue(
-  q: QueueItem[],
-  filter: "All" | Status,
-  query: string,
-  sortKey: SortKey,
-  sortDir: 1 | -1,
-): QueueItem[] {
-  const needle = query.toLowerCase();
-  const filtered = q.filter(
-    (x) =>
-      (filter === "All" || x.status === filter) &&
-      (!needle || `${x.request_id} ${x.applicant || ""} bus ${x.bus_id} ${x.technology}`.toLowerCase().includes(needle)),
-  );
-  const keyFn: Record<SortKey, (x: QueueItem) => number | string> = {
-    rank: (x) => (x.rank == null ? 999 : x.rank),
-    id: (x) => x.request_id,
-    mw: (x) => x.rating_mw ?? -1,
-    ready: (x) => x.readiness_score,
-    status: (x) => ORDER[x.status] * 1000 + (x.rank || 999),
-  };
-  const k = keyFn[sortKey];
-  return [...filtered].sort((a, b) => {
-    const A = k(a);
-    const B = k(b);
-    return (A < B ? -1 : A > B ? 1 : 0) * sortDir;
-  });
-}
-
-export const sumMw = (xs: { rating_mw: number | null }[]): number => xs.reduce((a, b) => a + (b.rating_mw ?? 0), 0);
+export const sumMw = (xs: { rating_mw: number | null }[]): number =>
+  Math.round(xs.reduce((a, b) => a + (b.rating_mw ?? 0), 0) * 10) / 10;
 export const byStatus = (q: QueueItem[], st: Status): QueueItem[] => q.filter((x) => x.status === st);
+/** A project's headline MW: its export, or its import for demand-type projects that export nothing. */
+export const headlineMw = (x: { rating_mw: number | null; import_mw?: number | null }): number =>
+  (x.rating_mw ?? 0) > 0 ? (x.rating_mw ?? 0) : (x.import_mw ?? 0);
 
-// ---- alerts ---------------------------------------------------------------------------------
-export interface AlertItem {
-  key: string;
+// ---- the year being viewed ----------------------------------------------------------------------
+/** The stored result for a year; while a run is still solving, the nearest year already solved. */
+export function yearResultFor(r: OptimizeResult | null, year: number): { yr: YearResult | null; exact: boolean } {
+  if (!r || !r.years) return { yr: null, exact: false };
+  const hit = r.years[String(year)];
+  if (hit) return { yr: hit, exact: true };
+  const solved = Object.keys(r.years).map(Number);
+  if (!solved.length) return { yr: null, exact: false };
+  const near = solved.reduce((a, b) => (Math.abs(b - year) < Math.abs(a - year) ? b : a));
+  return { yr: r.years[String(near)], exact: false };
+}
+
+export const lensFor = (year: number): { label: string; c: string } =>
+  year <= 2026
+    ? { label: "as-is today", c: C.mute }
+    : year <= 2030
+      ? { label: "Phase 1 · Clean Power lens", c: C.phase1 }
+      : { label: "Phase 2 · Strategic lens", c: C.phase2 };
+
+// ---- branches ----------------------------------------------------------------------------------
+/** A branch's identity hue: main is silver; open branches take the hues in creation order. */
+export function branchHue(branches: Branch[], id: string): string {
+  if (!id || id === "main") return MAIN_HUE;
+  const others = branches.filter((b) => b.branch_id !== "main").sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const i = others.findIndex((b) => b.branch_id === id);
+  return BRANCH_HUES[(i < 0 ? 0 : i) % BRANCH_HUES.length];
+}
+
+export interface Staleness {
+  stale: boolean;
+  text: string;
+}
+/**
+ * Whether the result on screen is out of date for the branch as it stands now: the profile changed,
+ * or outages, reinforcements or scheduled years changed since the run (`studied` is what it covered).
+ */
+export function staleness(
+  r: OptimizeResult | null,
+  branch: Pick<Branch, "scenario"> | null,
+  outages: Outage[],
+  reinforcements: BranchReinforcement[],
+  prelimCount: number,
+): Staleness {
+  if (!r || !branch) return { stale: false, text: "" };
+  const was = profileOf(r.params.scenario).label;
+  const now = profileOf(branch.scenario).label;
+  if (r.params.scenario !== branch.scenario)
+    return { stale: true, text: `This result was solved on ${was} demand. The branch is now set to ${now}, so the numbers below are out of date.` };
+  const studied = new Set(r.studied?.outage_ids ?? []);
+  const fresh = outages.filter((o) => !studied.has(o.outage_id)).length;
+  const gone = (r.studied?.outage_ids ?? []).filter((id) => !outages.some((o) => o.outage_id === id)).length;
+  if (fresh || gone)
+    return { stale: true, text: fresh ? `${fresh} new maintenance window${fresh > 1 ? "s have" : " has"} not been studied yet.` : "A studied maintenance window was removed." };
+  const sig = (xs: { kind: string; element_id: number; action: string }[]) =>
+    xs.map((x) => `${x.kind}:${x.element_id}:${x.action}`).sort().join("|");
+  if (sig(r.studied?.reinforcements ?? []) !== sig(reinforcements))
+    return { stale: true, text: "The proposed reinforcements changed since this run." };
+  const sched = r.studied?.schedule ?? {};
+  if (r.queue.some((q) => (q.scheduled_year ?? undefined) !== sched[q.request_id]))
+    return { stale: true, text: "An energisation year changed. The years below still show the old schedule." };
+  if (prelimCount)
+    return { stale: true, text: `${prelimCount} preliminary project${prelimCount > 1 ? "s are" : " is"} not in this run yet.` };
+  return { stale: false, text: "" };
+}
+
+// ---- the queue ----------------------------------------------------------------------------------
+export interface QueueGroup {
+  key: "prelim" | "Phase1" | "Phase2" | "Deferred" | "Rejected";
   title: string;
   meta: string;
-  tag: string;
-  fg: string;
-  target?: { kind: "line" | "bus"; id: number };
-  project?: string;
+  c: string;
+  dashed: boolean;
 }
-export interface AlertGroup {
-  key: "viol" | "n1" | "dg" | "watch" | "dr" | "rj";
-  label: string;
-  color: string;
-  fg: string;
-  items: AlertItem[];
-}
-
-export function alertGroupsFor(r: OptimizeResult | null, phaseKey: string, growth: number): AlertGroup[] {
-  const groups: AlertGroup[] = [];
-  if (!r) return groups;
-  const q = r.queue;
-  
-  // Use only the current phase data (year-specific) for network groups
-  const P = r.phases[phaseKey];
-  
-  // Network groups (violations, N-1, watch) require phase data
-  if (P) {
-    const viol: AlertItem[] = [];
-    P.overloaded_line_ids.forEach((id) =>
-      viol.push({
-        key: `o${phaseKey}${id}`,
-        title: `Line ${id} overloaded · ${P.line_loading?.[id] != null ? P.line_loading[id].toFixed(0) : ">100"}%`,
-        meta: `Demand ×${growth.toFixed(2)} exceeds thermal rating with the ${phaseKey} plan connected`,
-        tag: phaseKey,
-        fg: "#991b1b",
-        target: { kind: "line", id },
-      }),
-    );
-    (P.voltage_violation_bus_ids ?? []).forEach((id) =>
-      viol.push({
-        key: `v${phaseKey}${id}`,
-        title: `Voltage breach at bus ${id}`,
-        meta: `${P.bus_vm?.[id] != null ? P.bus_vm[id].toFixed(3) : ""} pu outside its statutory band`,
-        tag: phaseKey,
-        fg: "#991b1b",
-        target: { kind: "bus", id },
-      }),
-    );
-    if (viol.length) groups.push({ key: "viol", label: "Network violations", color: "#dc2626", fg: "#991b1b", items: viol });
-
-    // single-outage screen of the 132 kV backbone (informational, not a connection gate)
-    const n1: AlertItem[] = [];
-    (P.n1_violations ?? []).forEach((v) =>
-      n1.push({
-        key: `n1${phaseKey}${v.outage_type}${v.outage_id}${v.type}`,
-        title: `${v.outage_type === "trafo" ? "Transformer" : "Line"} ${v.outage_id} out → ${v.type === "islanded" ? `${v.value ?? "?"} MW islanded` : v.type === "voltage" ? `bus ${v.element_id} at ${v.value ?? "?"} pu` : v.type === "non_convergent" ? "no solution" : `${v.type} ${v.element_id} at ${v.value ?? "?"}%`}`,
-        meta: v.message,
-        tag: `N-1 · ${phaseKey}`,
-        fg: "#7c2d12",
-        target: v.type === "voltage" && v.element_id != null ? { kind: "bus", id: v.element_id } : v.outage_type === "line" ? { kind: "line", id: v.outage_id } : undefined,
-      }),
-    );
-    if (n1.length) groups.push({ key: "n1", label: "N-1: one circuit out", color: "#ea580c", fg: "#7c2d12", items: n1 });
-
-    const watch: AlertItem[] = [];
-    const L = P.line_loading ?? {};
-    Object.entries(L)
-      .filter(([, v]) => v > 88 && v <= 100)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 2)
-      .forEach(([id, v]) =>
-        watch.push({
-          key: `w${phaseKey}${id}`,
-          title: `Line ${id} at ${v.toFixed(0)}%`,
-          meta: "Within 12% of thermal rating — little headroom left",
-          tag: phaseKey,
-          fg: "#374151",
-          target: { kind: "line", id: +id },
-        }),
-      );
-    if (watch.length) groups.push({ key: "watch", label: "Approaching limits", color: "#6b7280", fg: "#374151", items: watch });
-  }
-
-  // Queue groups (deferred, rejected) do not depend on phase data
-  const dg = byStatus(q, "Deferred")
-    .filter((x) => x.reason?.kind === "grid")
-    .map<AlertItem>((x) => ({
-      key: x.request_id,
-      title: `${x.request_id} — ${x.reason!.short}`,
-      meta: `${x.applicant} · ${techLabel(x.technology) ?? "—"} ${fmtMw(x.rating_mw)} MW · readiness ${Math.round(x.readiness_score * 100)}%`,
-      tag: `bus ${x.bus_id}`,
-      fg: "#92400e",
-      project: x.request_id,
-    }));
-  if (dg.length) groups.push({ key: "dg", label: "Deferred by grid constraint", color: "#d97706", fg: "#92400e", items: dg });
-
-  const dr = byStatus(q, "Deferred")
-    .filter((x) => x.reason?.kind === "readiness")
-    .map<AlertItem>((x) => ({
-      key: x.request_id,
-      title: `${x.request_id} deferred — not ready`,
-      meta: x.reason!.why || x.reason!.message,
-      tag: `bus ${x.bus_id}`,
-      fg: "#92400e",
-      project: x.request_id,
-    }));
-  if (dr.length) groups.push({ key: "dr", label: "Deferred on readiness", color: "#fcd34d", fg: "#92400e", items: dr });
-
-  const rj = byStatus(q, "Rejected").map<AlertItem>((x) => ({
-    key: x.request_id,
-    title: `${x.request_id} rejected at intake`,
-    meta: x.reason ? x.reason.why || x.reason.message : "Rejected at intake",
-    tag: "intake",
-    fg: "#4b5563",
-    project: x.request_id,
-  }));
-  if (rj.length) groups.push({ key: "rj", label: "Intake rejections", color: "#9ca3af", fg: "#4b5563", items: rj });
+export function queueGroups(q: QueueItem[], prelim: RegistryItem[]) {
+  const groups: { g: QueueGroup; rows: (QueueItem | RegistryItem)[] }[] = [];
+  const add = (g: QueueGroup, rows: (QueueItem | RegistryItem)[]) => rows.length && groups.push({ g, rows });
+  add({ key: "prelim", title: "Preliminary", meta: "not simulated yet", c: ST.Prelim.c, dashed: true }, prelim);
+  const p1 = byStatus(q, "Phase1");
+  const p2 = byStatus(q, "Phase2");
+  const df = byStatus(q, "Deferred");
+  const rj = byStatus(q, "Rejected");
+  const meta = (xs: QueueItem[]) => `${xs.length} · ${sumMw(xs)} MW`;
+  add({ key: "Phase1", title: "Phase 1 · by 2030", meta: meta(p1), c: ST.Phase1.c, dashed: false }, p1);
+  add({ key: "Phase2", title: "Phase 2 · 2031 to 2035", meta: meta(p2), c: ST.Phase2.c, dashed: false }, p2);
+  add({ key: "Deferred", title: "Deferred", meta: meta(df), c: ST.Deferred.c, dashed: true }, df);
+  add({ key: "Rejected", title: "Rejected at intake", meta: `${rj.length}`, c: ST.Rejected.c, dashed: true }, rj);
   return groups;
 }
 
-export const violationCount = (groups: AlertGroup[]): number =>
-  groups.filter((g) => g.key === "viol" || g.key === "n1" || g.key === "dg").reduce((a, g) => a + g.items.length, 0);
+/** Projects added to the branch since the last run (not in its queue yet). */
+export const preliminaryOf = (added: RegistryItem[], r: OptimizeResult | null): RegistryItem[] => {
+  const inRun = new Set((r?.queue ?? []).map((q) => q.request_id));
+  return added.filter((a) => !inRun.has(a.request_id));
+};
 
-// ---- misc -----------------------------------------------------------------------------------
-export function isStale(lp: RunParams | null, activeBranch: string, eg30: number, eg35: number, n: number): boolean {
-  return !!lp && (lp.branch !== (activeBranch || "main") || lp.g30 !== eg30 || lp.g35 !== eg35 || lp.n !== n);
+// ---- the roadmap dock ---------------------------------------------------------------------------
+export interface RoadmapChip {
+  id: string;
+  kind: "project" | "prelim" | "outage";
+  status: Status | "Prelim" | null;
+  tech: string | null;
+  branchOnly: boolean;
+}
+export interface RoadmapYear {
+  y: number;
+  chips: RoadmapChip[];
+  mw: number;
+  band: string;
+  solved: boolean;
+}
+export function roadmapYears(
+  r: OptimizeResult | null,
+  prelim: RegistryItem[],
+  outages: Outage[],
+  branchOnly: Set<string>,
+  shortName: (o: Outage) => string,
+): RoadmapYear[] {
+  const q = r?.queue ?? [];
+  return PLAN_YEARS.map((y) => {
+    const chips: RoadmapChip[] = q
+      .filter((x) => effYearOf(x) === y)
+      .sort((a, b) => ORDER[a.status] - ORDER[b.status])
+      .map((x) => ({ id: x.request_id, kind: "project", status: x.status, tech: x.technology, branchOnly: branchOnly.has(x.request_id) }));
+    prelim
+      .filter((p) => p.commissioning_year === y)
+      .forEach((p) => chips.push({ id: p.request_id, kind: "prelim", status: "Prelim", tech: p.technology, branchOnly: true }));
+    outages
+      .filter((o) => o.year === y)
+      .forEach((o) => chips.push({ id: shortName(o), kind: "outage", status: null, tech: null, branchOnly: false }));
+    const mw = q.filter((x) => {
+      const e = effYearOf(x);
+      return e != null && e <= y;
+    }).reduce((a, x) => a + (x.rating_mw ?? 0), 0);
+    return { y, chips, mw: Math.round(mw), band: y <= 2026 ? C.mute : y <= 2030 ? C.phase1 : C.phase2, solved: !!r?.years?.[String(y)] };
+  });
 }
 
-/** Readiness from the ticked evidence: a 0.1 floor plus the evidence weights (land .3, planning .35, finance .25). */
-export const readyFromForm = (f: Pick<FormState, "land" | "planning" | "finance">): number =>
-  +(0.1 + (f.land ? 0.3 : 0) + (f.planning ? 0.35 : 0) + (f.finance ? 0.25 : 0)).toFixed(2);
+// ---- readings -----------------------------------------------------------------------------------
+/** The model's buses and elements by id, for naming things the engine reports by index. */
+export interface ModelIndex {
+  bus: Map<number, Model["buses"][number]>;
+  line: Map<number, Line>;
+  trafo: Map<number, Transformer>;
+  gen: Map<string, Model["generators"][number]>;
+  /** Where each bus is: its own name, or for a coded busbar ("BOST1_MAIN1") a neighbour's. */
+  place: Map<number, string>;
+}
+/** A busbar code rather than a name: no spaces, and digits or underscores in it. */
+const isCode = (name: string | null | undefined): boolean => !!name && !/\s/.test(name.trim()) && /[\d_]/.test(name);
+export function indexModel(m: Model): ModelIndex {
+  const place = new Map<number, string>();
+  m.buses.forEach((b) => !isCode(b.name) && placeName(b.name) && place.set(b.bus_id, placeName(b.name)));
+  // coded busbars take the place of a transformer on them, else of a named neighbour on a line
+  const borrow = (id: number, other: number) => !place.has(id) && place.has(other) && place.set(id, place.get(other)!);
+  m.transformers.forEach((t) => {
+    borrow(t.hv_bus, t.lv_bus);
+    borrow(t.lv_bus, t.hv_bus);
+  });
+  m.lines.forEach((l) => {
+    if (l.from_bus == null || l.to_bus == null) return;
+    borrow(l.from_bus, l.to_bus);
+    borrow(l.to_bus, l.from_bus);
+  });
+  return {
+    bus: new Map(m.buses.map((b) => [b.bus_id, b])),
+    line: new Map(m.lines.map((l) => [l.line_id, l])),
+    trafo: new Map(m.transformers.map((t) => [t.trafo_id, t])),
+    gen: new Map((m.generators ?? []).map((g) => [g.request_id, g])),
+    place,
+  };
+}
+/** A bus's place name (empty when nothing near it is named). */
+export const busPlace = (ix: ModelIndex, id: number | null | undefined): string =>
+  id == null ? "" : (ix.place.get(id) ?? "");
+
+/** A substation's name from a busbar name ("BOSTON 33kV MAIN1" -> "Boston"). */
+export const placeName = (busName: string | null | undefined): string => {
+  const s = String(busName || "").replace(/\s*\d+(\.\d+)?\s*kV.*$/i, "").replace(/[_-]+/g, " ").trim();
+  return s ? s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+};
+export const busLabel = (ix: ModelIndex, id: number | null | undefined): string => {
+  if (id == null) return "–";
+  const b = ix.bus.get(id);
+  return b ? `Bus ${id} · ${busPlace(ix, id) || "bus"} ${+b.vn_kv} kV` : `Bus ${id}`;
+};
+export const lineName = (ix: ModelIndex, id: number): string => {
+  const l = ix.line.get(id);
+  if (!l) return `Line ${id}`;
+  const a = busPlace(ix, l.from_bus);
+  const b = busPlace(ix, l.to_bus);
+  if (a && b && a !== b) return `${a} to ${b} ${+l.voltage_kv} kV`;
+  return `${a || l.line_name || `Line ${id}`} ${+l.voltage_kv} kV`.trim();
+};
+/** A transformer's substation is its HV busbar name minus the voltage/bay suffix. */
+export const trafoSub = (t: Transformer): string => placeName(t.hv_name || t.name) || `T${t.trafo_id}`;
+export const trafoRatio = (t: Transformer): string => (t.hv_kv && t.lv_kv ? `${+t.hv_kv}/${+t.lv_kv} kV` : "–");
+export const trafoName = (ix: ModelIndex, id: number): string => {
+  const t = ix.trafo.get(id);
+  return t ? `${trafoSub(t)} ${trafoRatio(t)} transformer` : `Transformer ${id}`;
+};
+/** Capacity of a line = √3 · V · I. */
+export const lineMva = (l: Line): number => (l.voltage_kv ? (Math.sqrt(3) * l.voltage_kv * l.rating_a) / 1000 : 0);
+
+export interface WorstElement {
+  pct: number;
+  name: string;
+  sel: ElementSel;
+}
+/** The most loaded line or transformer in a year (worst case across the two study cases). */
+export function worstElement(yr: YearResult | null, ix: ModelIndex | null): WorstElement | null {
+  if (!yr || !ix) return null;
+  let best: WorstElement | null = null;
+  for (const [id, v] of Object.entries(yr.line_loading ?? {}))
+    if (!best || v > best.pct) best = { pct: v, name: lineName(ix, +id), sel: { kind: "line", id: +id } };
+  for (const [id, v] of Object.entries(yr.trafo_loading ?? {}))
+    if (!best || v > best.pct) best = { pct: v, name: trafoName(ix, +id), sel: { kind: "trafo", id: +id } };
+  return best;
+}
+
+/** GSP export gauge: 24 ticks, cyan, the last ones amber above 90 %. */
+export function gspTicks(exportMw: number, limit: number | null, n = 24): string[] {
+  const filled = limit ? Math.round(Math.min(1, Math.max(0, exportMw / limit)) * n) : 0;
+  return Array.from({ length: n }, (_, i) => (i < filled ? (i >= Math.round(n * 0.875) ? C.amber : C.accent) : "rgba(255,255,255,0.09)"));
+}
+
+// ---- elements and planned outages ---------------------------------------------------------------
+export interface ElementInfo {
+  name: string;
+  short: string;
+  kindLabel: string;
+  rating: string;
+  loadLabel: string;
+  load: string;
+  loadPct: number | null;
+  ll: [number, number] | null;
+}
+export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | null, year: number): ElementInfo | null {
+  if (sel.kind === "line") {
+    const l = ix.line.get(sel.id);
+    if (!l) return null;
+    const pct = yr?.line_loading?.[sel.id] ?? null;
+    return {
+      name: lineName(ix, sel.id),
+      short: lineShort(ix, sel.id),
+      kindLabel: `Circuit · ${+l.voltage_kv} kV`,
+      rating: `${fmtMw(lineMva(l))} MVA`,
+      loadLabel: `Loading in ${year}`,
+      load: pct == null ? "–" : `${Math.round(pct)}%`,
+      loadPct: pct,
+      ll: [(l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2],
+    };
+  }
+  if (sel.kind === "trafo") {
+    const t = ix.trafo.get(sel.id);
+    if (!t) return null;
+    const pct = yr?.trafo_loading?.[sel.id] ?? null;
+    return {
+      name: trafoName(ix, sel.id),
+      short: `${trafoSub(t).slice(0, 8)} T${t.trafo_id}`,
+      kindLabel: `Transformer · ${trafoRatio(t)}`,
+      rating: `${fmtMw(t.sn_mva)} MVA`,
+      loadLabel: `Loading in ${year}`,
+      load: pct == null ? "–" : `${Math.round(pct)}%`,
+      loadPct: pct,
+      ll: [t.hv_lon, t.hv_lat],
+    };
+  }
+  const g = ix.gen.get(sel.id);
+  if (!g) return null;
+  return {
+    name: g.applicant || g.request_id,
+    short: g.request_id,
+    kindLabel: `Existing generation · ${techLabel(g.technology)}`,
+    rating: `${fmtMw(g.rating_mw)} MW`,
+    loadLabel: "Output at summer min",
+    load: g.technology === "battery" ? "exporting" : "full",
+    loadPct: null,
+    ll: [g.lon, g.lat],
+  };
+}
+const lineShort = (ix: ModelIndex, id: number): string => {
+  const l = ix.line.get(id);
+  const a = busPlace(ix, l?.from_bus).slice(0, 3).toUpperCase();
+  const b = busPlace(ix, l?.to_bus).slice(0, 3).toUpperCase();
+  return a && b ? `${a}-${b}` : `L${id}`;
+};
+
+export const outageSel = (o: Outage): ElementSel =>
+  o.element_kind === "gen" ? { kind: "gen", id: o.element_id } : { kind: o.element_kind, id: Number(o.element_id) };
+
+const CASE_LABEL: Record<string, string> = { summer_min: "Summer min", winter_peak: "Winter peak" };
+
+/** One violation an outage study reports, in words with the element's name. */
+function violationText(v: OutageStudy["violations"][number], ix: ModelIndex): string {
+  const id = v.element_id ?? -1;
+  if (v.type === "line") return `${lineName(ix, id)} reaches ${Math.round(v.value ?? 0)}%`;
+  if (v.type === "trafo") return `${trafoName(ix, id)} reaches ${Math.round(v.value ?? 0)}%`;
+  if (v.type === "voltage") return `${busLabel(ix, id)} at ${(v.value ?? 0).toFixed(3)} pu, outside its band`;
+  if (v.type === "gsp") return `GSP export ${Math.round(v.value ?? 0)} MW, over the ${Math.round(v.limit ?? 0)} MW limit`;
+  return v.message;
+}
+
+/** The studied impact of a planned outage, in words, with the colour it reads in. */
+export function outageImpact(o: Outage, r: OptimizeResult | null, ix: ModelIndex | null): { text: string; c: string } {
+  const studied = r?.studied?.outage_ids?.includes(o.outage_id);
+  const study = r?.years?.[String(o.year)]?.outage_studies?.find((s) => s.outage_id === o.outage_id);
+  if (!studied) return { text: "Not studied yet. Re-run to see the effect.", c: C.mute };
+  if (!study) return { text: "Solving this year…", c: C.mute };
+  const der = o.kind === "derate" ? "Derated to 50%. " : "";
+  if (study.ok) {
+    const cases = study.cases.map((c) => CASE_LABEL[c] ?? c).join(" and ");
+    return { text: `${der}${cases}: within limits. Worst line ${Math.round(study.worst_line_loading_pct)}%, worst transformer ${Math.round(study.worst_trafo_loading_pct)}%.`, c: C.greenInk };
+  }
+  const parts = study.violations.map((v) => `${CASE_LABEL[v.case ?? ""] ?? "Studied"}: ${ix ? violationText(v, ix) : v.message}`);
+  const red = study.violations.some((v) => v.type === "voltage" || v.type === "non_convergent" || (v.value ?? 0) > 110);
+  return { text: `${der}${parts.join(". ")}.`, c: red ? C.redInk : C.amber };
+}
+
+export const seasonHint = (season: string): string =>
+  season === "Winter"
+    ? "Studied at winter peak with the branch demand profile."
+    : season === "Summer"
+      ? "Studied at summer minimum, the export-critical case."
+      : "Studied in both cases, with the intermediate seasonal ratings.";
+
+// ---- diff on the map ----------------------------------------------------------------------------
+/** The diff phase that stands for a year (2030 up to it, 2035 after), as the engine compares phases. */
+export const diffPhaseFor = (year: number): string => (year <= 2030 ? "2030" : "2035");
+
+export function projectLabel(x: QueueItem | RegistryItem): string {
+  return x.applicant || techLabel(x.technology);
+}
+
+export const deferredMw = (q: QueueItem[]): number => sumMw(byStatus(q, "Deferred"));
+
+// ---- connection points for the intake -----------------------------------------------------------
+export interface BusOption {
+  id: number;
+  label: string;
+}
+/**
+ * Buses where a new connection would land with the most room: connection-level buses (33 kV and
+ * above) whose most loaded attached circuit is least loaded in the viewed year. A pointer only:
+ * the engine decides feasibility when the project is run.
+ */
+export function busSuggestions(m: Model, ix: ModelIndex, yr: YearResult | null, n = 3): BusOption[] {
+  if (!yr) return [];
+  const worst = new Map<number, number>();
+  m.lines.forEach((l) => {
+    const pct = yr.line_loading?.[l.line_id];
+    if (pct == null) return;
+    [l.from_bus, l.to_bus].forEach((b) => b != null && worst.set(b, Math.max(worst.get(b) ?? 0, pct)));
+  });
+  return m.buses
+    .filter((b) => b.vn_kv >= 33 && worst.has(b.bus_id) && busPlace(ix, b.bus_id))
+    .sort((a, b) => (worst.get(a.bus_id) ?? 0) - (worst.get(b.bus_id) ?? 0))
+    .filter((b, i, xs) => xs.findIndex((x) => busPlace(ix, x.bus_id) === busPlace(ix, b.bus_id)) === i) // one per substation
+    .slice(0, n)
+    .map((b) => ({ id: b.bus_id, label: busLabel(ix, b.bus_id) }));
+}
+
+/** A typed connection point ("1102", "bus 1102", "Boston") to a bus, preferring 33 kV and above. */
+export function findBus(m: Model, ix: ModelIndex, text: string): BusOption | null {
+  const num = text.match(/\b(\d{1,6})\b/);
+  if (num && ix.bus.has(+num[1])) return { id: +num[1], label: busLabel(ix, +num[1]) };
+  const t = text.toLowerCase().replace(/bus|·|\d+(\.\d+)?\s*kv/g, " ").trim();
+  if (!t) return null;
+  const hits = m.buses.filter((b) => {
+    const p = busPlace(ix, b.bus_id).toLowerCase();
+    return !!p && (p.includes(t) || t.includes(p));
+  });
+  const best = hits.sort((a, b) => b.vn_kv - a.vn_kv)[0];
+  return best ? { id: best.bus_id, label: busLabel(ix, best.bus_id) } : null;
+}
+
+/** Engine text names elements by index ("line 16", "transformer 30", "bus 7"): say where they are. */
+export function nameElements(text: string, ix: ModelIndex | null): string {
+  if (!ix || !text) return text;
+  return text
+    .replace(/\b([Ll])ine (\d+)\b/g, (m, _l, id) => (ix.line.has(+id) ? lineName(ix, +id) : m))
+    .replace(/\b([Tt])ransformer (\d+)\b/g, (m, _t, id) => (ix.trafo.has(+id) ? trafoName(ix, +id) : m))
+    .replace(/\b([Bb])us (\d+)\b(?! ·)/g, (m, b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
+}

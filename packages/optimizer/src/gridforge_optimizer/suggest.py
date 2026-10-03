@@ -18,12 +18,13 @@ from __future__ import annotations
 from typing import Callable, NamedTuple
 
 from .config import MAX_REINFORCE_STEPS, MAX_SUGGESTIONS, VOLTAGE_ABSORB_PF_STEPS
-from .greedy import _grow, optimize
+from .greedy import NetFactory, optimize
 from .network import (
     apply_reinforcement,
     build_base_net,
     drop_sgen,
     feasibility,
+    grow_demand,
     inject_sgen,
     upstream_path_lines,
 )
@@ -33,15 +34,19 @@ _THERMAL_TYPES = ("line", "trafo")  # reasons fixed by adding a parallel circuit
 _HARDEST_PHASE = "2035"  # max demand growth -> the binding set that gates the whole horizon
 
 
-def _cand_index(candidates: list[Candidate]) -> dict[str, Candidate]:
-    """Index connectable candidates by request id (needs a bus and a rating to inject)."""
-    return {c.request_id: c for c in candidates if c.bus_id is not None and c.rating_mw is not None}
+class _Candidates(dict):
+    """The connectable candidates by request id, plus the network factory they are trialled on (so a
+    branch's own reinforcements, or another grid, carry through every re-solve here)."""
+
+    def __init__(self, candidates: list[Candidate], net_factory: NetFactory):
+        super().__init__({c.request_id: c for c in candidates if c.bus_id is not None and c.rating_mw is not None})
+        self.net_factory = net_factory
 
 
 def _phase_net(cand_by_id, params, base, phase_key, reinf):
     """A phase net grown + reinforced, with everything the base run already connected replayed in."""
-    net = build_base_net()
-    _grow(net, getattr(params, f"growth_{phase_key}"), params.scenario, int(phase_key))
+    net = cand_by_id.net_factory()
+    grow_demand(net, getattr(params, f"growth_{phase_key}"), params.scenario, int(phase_key))
     for r in reinf:
         apply_reinforcement(net, r)
     for rid in base.phases[phase_key].accepted:
@@ -66,7 +71,7 @@ def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, 
         solves += 1
         if ok:
             newly.append(rid)
-            freed += c.rating_mw
+            freed += c.rating_mw or (c.import_mw or 0.0)  # an import-only project frees its import
         else:
             drop_sgen(net, idx)
     return round(freed, 1), newly, solves
@@ -170,7 +175,7 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
                 ),
             )
     # fall back to one upstream reinforcement on the weakest line of the feeder path
-    probe = build_base_net()
+    probe = cand_by_id.net_factory()
     path = upstream_path_lines(probe, int(bus_id))
     if path:
         lid = max(
@@ -211,7 +216,7 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
 def _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked):
     """GSP-boundary binding: no distribution-side reinforcement helps — the export limit is the
     supergrid transformers above the GSP. Model one more SGT and measure what it frees."""
-    sgt_mw = float(build_base_net().get("gsp_sgt_mw") or 0.0)
+    sgt_mw = float(cand_by_id.net_factory().get("gsp_sgt_mw") or 0.0)
     reinf = [Reinforcement(kind="gsp", element_id=0)]
     f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=reinf)
     f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=reinf)
@@ -283,22 +288,27 @@ def suggest_unblock(
     params: OptimizeParams | None = None,
     base: OptimizeResult | None = None,
     max_suggestions: int = MAX_SUGGESTIONS,
+    *,
+    request_id: str | None = None,
+    net_factory: NetFactory = build_base_net,
 ) -> list[Suggestion]:
     """Propose concrete unblocks for the highest-ranked projects the optimizer deferred on the grid.
 
     For each (up to `max_suggestions`), returns what it would take to connect it — a reinforcement
     chain or a reactive-power lever — plus the MW that action frees by 2030/2035 and the projects it
-    connects. Deterministic; reuses the cached `base` run when provided.
+    connects. Deterministic; reuses the cached `base` run when provided. `request_id` narrows it to
+    the levers for one deferred project; `net_factory` is the network they are trialled on.
     """
     params = params or OptimizeParams()
     if base is None:
-        base = optimize(candidates, params)
+        base = optimize(candidates, params, net_factory=net_factory)
 
-    cand_by_id = _cand_index(candidates)
+    cand_by_id = _Candidates(candidates, net_factory)
     deferred_ids = [q.request_id for q in base.queue if q.status == "Deferred"]
     bound = [  # already in rank order
         q for q in base.queue
         if q.status == "Deferred" and q.reason is not None and q.reason.type in LEVERS
+        and (request_id is None or q.request_id == request_id)
     ]
 
     out: list[Suggestion] = []

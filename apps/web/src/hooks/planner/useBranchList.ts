@@ -5,7 +5,7 @@ import { useCallback } from "react";
 import { api } from "../../api";
 import type { Core } from "./core";
 
-export function useBranchList({ patch, ref, toastMsg }: Core) {
+export function useBranchList({ patch }: Core) {
   const refreshBranches = useCallback(async () => {
     try {
       const branches = await api.listBranches();
@@ -16,15 +16,5 @@ export function useBranchList({ patch, ref, toastMsg }: Core) {
     }
   }, [patch]);
 
-  const ensureBranches = useCallback(async () => {
-    if (ref.current.branchesLoaded) return;
-    try {
-      const branches = await api.listBranches();
-      patch({ branches, branchesLoaded: true });
-    } catch {
-      toastMsg("Could not load branches — check the API is running.");
-    }
-  }, [patch, ref, toastMsg]);
-
-  return { refreshBranches, ensureBranches };
+  return { refreshBranches };
 }

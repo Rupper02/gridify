@@ -3,16 +3,18 @@
 //
 // This file only composes. The state and shared core live in planner/core.ts; each concern is its
 // own hook under planner/ (run + boot, branch list, branch flows, registry, selection, project
-// edits, derived values), taking the core plus only the other hooks' actions it needs.
+// edits, maintenance, copilot, derived values), taking the core plus only the other hooks' actions
+// it needs.
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
-import { api } from "../api";
-import type { Tab } from "../types";
+import type { ElementSel, MapLayer, Tab } from "../types";
 import { useCore } from "./planner/core";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
+import { useCopilot } from "./planner/useCopilot";
 import { useDerived } from "./planner/useDerived";
+import { useMaintenance } from "./planner/useMaintenance";
 import { useProjectEdits } from "./planner/useProjectEdits";
 import { useRegistry } from "./planner/useRegistry";
 import { useRun } from "./planner/useRun";
@@ -24,66 +26,62 @@ export function usePlanner() {
   const { s, core } = useCore();
   const { patch, ref, mapApi } = core;
 
-  const { refreshBranches, ensureBranches } = useBranchList(core);
-  const run = useRun(core, refreshBranches);
-  const { selectProject, setForm, pick, focusSel } = useSelection(core);
-  const {
-    selectBranch, ensureEditableBranch, createBranchFlow, runBranchDiff, runSuggestions, mergeBranchFlow, discardBranchFlow,
-  } = useBranchFlows(core, run, refreshBranches);
-  const { addRegistryProject, loadRegistry } = useRegistry(core, run, ensureEditableBranch, refreshBranches);
-  const { submit, setSchedule } = useProjectEdits(core, run, ensureEditableBranch, refreshBranches, runBranchDiff, selectProject);
-  const derived = useDerived(s);
+  // the run and the branch flows need each other (a run refreshes the diff; a branch switch runs):
+  // the run reaches the flows through this ref, filled once they exist
+  const afterRunRef = useRef<(bid: string) => void>(() => {});
+  const afterRun = useCallback((bid: string) => afterRunRef.current(bid), []);
 
-  const formInvalid = !s.form.bus || !(+s.form.mw > 0);
+  const { refreshBranches } = useBranchList(core);
+  const run = useRun(core, afterRun);
+  const maint = useMaintenance(core);
+  const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras);
+  afterRunRef.current = (bid: string) => {
+    void refreshBranches();
+    void flows.refreshDiff(bid);
+  };
+  const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
+  const { select, selectProject, focusSel } = useSelection(core);
+  const { setSchedule } = useProjectEdits(core);
+  const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever);
+  const derived = useDerived(s);
 
   const actions = useMemo(
     () => ({
-      run, toastMsg: core.toastMsg, selectProject, pick, focusSel, setForm, submit, setSchedule,
-      selectBranch, ensureBranches, refreshBranches, addRegistryProject, loadRegistry,
-      createBranchFlow, runBranchDiff, runSuggestions, mergeBranchFlow, discardBranchFlow,
-      /** Header shortcut: open the Review tab with the new-branch form showing. */
-      newBranchQuick: () => {
-        void ensureBranches();
-        patch({ tab: "compare", showNewBranch: true });
-      },
-      setTab: (tab: Tab) => {
-        patch({ tab });
-        if (tab === "compare") void ensureBranches();
-      },
-      onForecast: async (id: string) => {
-        if (ref.current.activeBranch !== "main") return;
-        const x = ref.current.forecasts.find((y) => y.id === id);
-        if (x) {
-          patch({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
-          // Update the stored scenario on main so subsequent runs use the selected profile
-          // MUST await this before running, or the run reads the old scenario from the database
-          await api.updateScenario("main", id, x.growth_2030, x.growth_2035);
-          // Run with the new forecast parameters immediately
-          void run({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
-        } else {
-          patch({ forecastId: id });
-        }
-      },
-      toggleRegistry: () => {
-        if (!ref.current.registryLoaded) void loadRegistry();
-        patch((st) => ({ showRegistry: !st.showRegistry }));
-      },
+      run, toastMsg: core.toastMsg, select, selectProject, focusSel, setSchedule, loadRegistry, addRegistryProject,
+      ...flows,
+      ...maint,
+      ...copilot,
+      setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
+      setLayer: (layer: MapLayer) => patch({ layer }),
+      setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
+      toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
+      toggleMenu: () => patch((st) => ({ menuOpen: !st.menuOpen })),
+      toggleDeferred: () => patch((st) => ({ showDeferred: !st.showDeferred })),
+      toggleLegend: () => patch((st) => ({ legendOpen: !st.legendOpen })),
+      toggleBoundary: () => patch((st) => ({ showBoundary: !st.showBoundary })),
       zoomIn: () => mapApi.current?.zoomBy(1),
       zoomOut: () => mapApi.current?.zoomBy(-1),
       zoomFit: () => mapApi.current?.fit(true),
-      newApplicationAt: (busId: number) => {
-        setForm({ bus: String(busId) });
-        patch({ drawer: true });
+      /** Schedule maintenance on the selected element; on main this opens a branch for it first. */
+      scheduleOutage: async (sel: ElementSel) => {
+        const bid = await flows.ensureEditableBranch();
+        if (!bid) return;
+        await maint.addOutage(sel, bid);
+        await maint.loadExtras(bid); // a new branch loads its (empty) list too: settle on the API's view
+      },
+      /** Review the branch: open the Review tab (Merge lives there). */
+      goReview: () => {
+        patch({ tab: "review", sideOpen: true });
+        if (!ref.current.diff) void flows.refreshDiff(ref.current.activeBranch);
       },
     }),
-    [
-      addRegistryProject, core.toastMsg, createBranchFlow, discardBranchFlow, ensureBranches, focusSel, loadRegistry,
-      mapApi, mergeBranchFlow, patch, pick, refreshBranches, ref, run, runBranchDiff, runSuggestions, selectBranch,
-      selectProject, setForm, setSchedule, submit,
-    ],
+    // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot)],
   );
 
-  return { s, patch, actions, derived, mapApi, formInvalid };
+  return { s, patch, actions, derived, mapApi };
 }
 
 export type Planner = ReturnType<typeof usePlanner>;

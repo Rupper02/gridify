@@ -1,114 +1,65 @@
-// The MapLibre map plus everything drawn over it: timeline, stats, GSP card, legend, controls,
-// tooltip, detail card, run overlay and the HTML label layer.
+// The MapLibre map (CARTO dark, no labels) and its layers: voltage-weighted lines with binding /
+// overloaded / open-point / outage styles, the animated flow layer, buses, loads, transformers and
+// the existing fleet. Projects, substation names and tags are HTML on top (MapMarkers).
 
 import type { FeatureCollection } from "geojson";
 import maplibregl, { type LayerSpecification, type Map as MLMap, type MapMouseEvent } from "maplibre-gl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { PlannerSlice, WithMap, WithPatch } from "../hooks/planner/slice";
-import type { ProjView } from "../lib/derive";
-import { GEO_SOURCES, type Geo } from "../lib/geo";
+import type { PlannerSlice, WithMap } from "../hooks/planner/slice";
+import { FLOW_DASH_SEQ, GEO_SOURCES, type Geo } from "../lib/geo";
 import { addIcons } from "../lib/icons";
-import { placeLabels } from "../lib/labels";
-import type { Hit, HitKind, QueueItem } from "../types";
-import { BoundaryCard, StatsBar, TimelineBox } from "./MapOverlays";
-import type { BoundaryCardPlanner, StatsBarPlanner, TimelineBoxPlanner } from "./MapOverlays";
-import { DetailCard } from "./DetailCard";
-import type { DetailCardPlanner } from "./DetailCard";
-import { Legend } from "./Legend";
-import { RunOverlay } from "./RunOverlay";
-import type { RunOverlayPlanner } from "./RunOverlay";
-import { Tooltip } from "./Tooltip";
-import type { TooltipPlanner } from "./Tooltip";
+import type { Layout } from "../lib/layout";
+import { C } from "../theme";
+import type { Sel } from "../types";
+import { MapMarkers } from "./MapMarkers";
+import type { MapMarkersPlanner } from "./MapMarkers";
 
-const HIT_LAYERS: [string, HitKind][] = [
-  ["proj-icons", "project"],
-  ["existing-gen", "existing"],
+const STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json";
+const CLICK_LAYERS: [string, Sel["kind"]][] = [
+  ["existing", "gen"],
   ["trafos", "trafo"],
-  ["buses-hit", "bus"],
-  ["loads", "load"],
-  ["lines-hit", "line"],
+  ["line-hit", "line"],
 ];
 
 type Expr = unknown[];
-const zw = (f: number): Expr => ["interpolate", ["linear"], ["zoom"], 9, ["*", ["get", "w"], 0.6 * f], 12, ["*", ["get", "w"], 1 * f], 16, ["*", ["get", "w"], 1.8 * f]];
-// casing = line width + 2px at every zoom. The +2 is baked into each stop: a "zoom" expression may
-// only sit at the top level of an interpolate, never nested inside arithmetic.
-const zwCasing: Expr = ["interpolate", ["linear"], ["zoom"], 9, ["+", ["*", ["get", "w"], 0.6], 2], 12, ["+", ["*", ["get", "w"], 1], 2], 16, ["+", ["*", ["get", "w"], 1.8], 2]];
-const zr = (key: string, f: number): Expr => ["interpolate", ["linear"], ["zoom"], 9, ["*", ["get", key], 0.7 * f], 12, ["*", ["get", key], f], 16, ["*", ["get", key], 1.8 * f]];
+const zw = (add = 0): Expr => ["interpolate", ["linear"], ["zoom"], 8, ["+", ["*", ["get", "w"], 0.8], add], 11, ["+", ["get", "w"], add], 15, ["+", ["*", ["get", "w"], 1.8], add]];
 
 function addLayers(map: MLMap): void {
   const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
   GEO_SOURCES.forEach((id) => map.addSource(id, { type: "geojson", data: empty }));
   const L = (spec: Record<string, unknown>) => map.addLayer(spec as unknown as LayerSpecification);
-  L({ id: "lines-halo", type: "line", source: "lines", filter: ["==", ["get", "halo"], 1], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "haloColor"], "line-width": 14, "line-opacity": 0.22, "line-blur": 2 } });
-  L({ id: "lines-casing", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], layout: { "line-cap": "round" }, paint: { "line-color": "#ffffff", "line-width": zwCasing, "line-opacity": 0.8 } });
-  L({ id: "lines-solid", type: "line", source: "lines", filter: ["==", ["get", "kind"], "solid"], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": zw(1) } });
-  L({ id: "lines-tie", type: "line", source: "lines", filter: ["==", ["get", "kind"], "tie"], paint: { "line-color": "#94a3b8", "line-width": zw(1), "line-dasharray": [2, 2] } });
-  L({ id: "lines-bind", type: "line", source: "lines", filter: ["==", ["get", "kind"], "bind"], paint: { "line-color": "#d97706", "line-width": zw(1), "line-dasharray": [2.2, 1.4] } });
-  L({ id: "lines-over", type: "line", source: "lines", filter: ["==", ["get", "kind"], "over"], layout: { "line-cap": "round" }, paint: { "line-color": "#dc2626", "line-width": zw(1) } });
-  L({ id: "lines-hit", type: "line", source: "lines", paint: { "line-color": "#000", "line-width": 12, "line-opacity": 0 } });
-  L({ id: "openpts", type: "symbol", source: "openpts", layout: { "icon-image": "openpt", "icon-allow-overlap": true, "icon-ignore-placement": true } });
-  L({ id: "loads", type: "symbol", source: "loads", layout: { "icon-image": ["get", "icon"], "icon-size": ["get", "size"], "icon-anchor": "top", "icon-allow-overlap": true, "icon-ignore-placement": true } });
-  L({ id: "bus-ring", type: "circle", source: "buses", filter: ["==", ["get", "hasRing"], 1], paint: { "circle-radius": zr("ringR", 1), "circle-color": ["get", "ringFill"], "circle-stroke-color": ["get", "ring"], "circle-stroke-width": 2 } });
-  L({ id: "buses", type: "circle", source: "buses", paint: { "circle-radius": zr("r", 1), "circle-color": ["get", "fill"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 1 } });
-  L({ id: "buses-hit", type: "circle", source: "buses", paint: { "circle-radius": ["get", "hitR"], "circle-color": "#000", "circle-opacity": 0 } });
+  L({ id: "line-glow", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["bind", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "glow"], "line-width": zw(9), "line-opacity": 0.22, "line-blur": 3 } });
+  L({ id: "line-sel", type: "line", source: "lines", filter: ["==", ["get", "sel"], 1], layout: { "line-cap": "round" }, paint: { "line-color": C.accent, "line-width": zw(8), "line-opacity": 0.28, "line-blur": 2 } });
+  L({ id: "line-solid", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["solid", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": zw(), "line-opacity": ["get", "op"] } });
+  L({ id: "line-bind", type: "line", source: "lines", filter: ["==", ["get", "kind"], "bind"], paint: { "line-color": C.amber, "line-width": zw(), "line-dasharray": [3, 2] } });
+  L({ id: "line-tie", type: "line", source: "lines", filter: ["==", ["get", "kind"], "tie"], paint: { "line-color": C.line33, "line-width": 1.2, "line-dasharray": [2, 2] } });
+  L({ id: "line-flow", type: "line", source: "lines", filter: ["!", ["in", ["get", "kind"], ["literal", ["tie", "maint"]]]], paint: { "line-color": ["get", "flow"], "line-width": zw(1), "line-blur": 0.6, "line-dasharray": [0, 4, 3] } });
+  L({ id: "line-maint", type: "line", source: "lines", filter: ["==", ["get", "kind"], "maint"], layout: { "line-cap": "round" }, paint: { "line-color": C.mute, "line-width": zw(), "line-opacity": 0.75, "line-dasharray": [0.6, 1.4] } });
+  L({ id: "line-hit", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": "#000", "line-opacity": 0, "line-width": 14 } });
+  L({ id: "bus-ring", type: "circle", source: "buses", filter: ["==", ["get", "ring"], 1], paint: { "circle-radius": 12, "circle-color": "rgba(255,107,107,0.15)", "circle-stroke-color": C.red, "circle-stroke-width": 1.8 } });
+  L({ id: "bus", type: "circle", source: "buses", paint: { "circle-radius": ["get", "r"], "circle-color": ["get", "color"], "circle-stroke-color": C.night, "circle-stroke-width": 1 } });
+  L({ id: "loads", type: "symbol", source: "loads", layout: { "icon-image": "load", "icon-size": ["get", "size"], "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-offset": [10, 10] } });
+  L({ id: "openpts", type: "symbol", source: "openpts", layout: { "icon-image": "openpt", "icon-allow-overlap": true } });
+  L({ id: "existing-sel", type: "circle", source: "existing", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": ["+", ["get", "r"], 6], "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
+  L({ id: "existing", type: "circle", source: "existing", paint: { "circle-radius": ["get", "r"], "circle-color": C.existing, "circle-stroke-color": C.ink, "circle-stroke-width": 1.5, "circle-opacity": 0.95 } });
+  L({ id: "trafo-glow", type: "circle", source: "trafos", filter: ["==", ["get", "over"], 1], paint: { "circle-radius": 22, "circle-color": C.red, "circle-opacity": 0.18, "circle-blur": 0.6 } });
+  L({ id: "trafo-ring", type: "circle", source: "trafos", filter: ["==", ["get", "ring"], 1], layout: { "circle-sort-key": ["get", "pct"] }, paint: { "circle-radius": 15, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": ["get", "ringColor"], "circle-stroke-width": 2.4 } });
+  L({ id: "trafo-sel", type: "circle", source: "trafos", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": 17, "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "trafos", type: "symbol", source: "trafos", layout: { "icon-image": "trafo", "icon-allow-overlap": true, "icon-ignore-placement": true } });
-  // existing connected fleet (from model.generators): persistent on main and every branch
-  L({ id: "existing-gen-halo", type: "circle", source: "existing", paint: { "circle-radius": zr("gr", 1.5), "circle-color": "#0d9488", "circle-opacity": 0.18 } });
-  L({ id: "existing-gen", type: "circle", source: "existing", paint: { "circle-radius": zr("gr", 1), "circle-color": ["get", "fill"], "circle-stroke-color": "#ffffff", "circle-stroke-width": 2, "circle-opacity": 1 } });
-  L({ id: "proj-new", type: "circle", source: "projects", filter: ["==", ["get", "newYear"], 1], paint: { "circle-radius": ["+", ["*", ["get", "size"], 18], 7], "circle-color": "rgba(245,158,11,0.12)", "circle-stroke-color": "#f59e0b", "circle-stroke-width": 2.4 } });
-  L({ id: "proj-warn", type: "circle", source: "projects", filter: ["==", ["get", "warn"], 1], paint: { "circle-radius": ["+", ["*", ["get", "size"], 18], 6], "circle-color": "rgba(220,38,38,0.10)", "circle-stroke-color": "#dc2626", "circle-stroke-width": 2, "circle-stroke-opacity": 0.9 } });
-  L({ id: "proj-sel", type: "circle", source: "projects", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": ["+", ["*", ["get", "size"], 18], 5], "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": "#111827", "circle-stroke-width": 2 } });
-  L({ id: "proj-icons", type: "symbol", source: "projects", layout: { "icon-image": ["get", "icon"], "icon-size": ["get", "size"], "icon-allow-overlap": true, "icon-ignore-placement": true, "symbol-sort-key": ["get", "sort"] }, paint: { "icon-opacity": ["case", ["==", ["get", "dim"], 1], 0.5, 1] } });
 }
 
-function collapseAttribution(map: MLMap): void {
-  const a = map.getContainer().querySelector(".maplibregl-ctrl-attrib");
-  if (a) {
-    a.classList.remove("maplibregl-compact-show");
-    a.removeAttribute("open");
-  }
-}
+export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode" | "sideOpen", "select"> & WithMap & MapMarkersPlanner;
 
-/** The map's own reads, plus every overlay and card it renders. */
-export type MapViewPlanner = PlannerSlice<
-  "boundary" | "hover" | "legendHidden" | "loadingMode" | "model" | "pickMode" | "result" | "running" | "sel"
-  | "showBoundary" | "showLabels" | "showLoads" | "size" | "voltageMode",
-  "pick" | "zoomFit" | "zoomIn" | "zoomOut"
-> &
-  WithPatch &
-  WithMap &
-  TimelineBoxPlanner &
-  StatsBarPlanner &
-  BoundaryCardPlanner &
-  DetailCardPlanner &
-  TooltipPlanner &
-  RunOverlayPlanner;
-
-export interface MapViewProps {
-  planner: MapViewPlanner;
-  geo: Geo | null;
-  projList: ProjView[];
-  selQ: QueueItem | null;
-  selEl: { line_id?: number; bus_id?: number } | null;
-  bindLines: Set<number>;
-  busProjects: Record<number, QueueItem[]>;
-  over: Set<number>;
-  vv: Set<number>;
-}
-
-export function MapView(props: MapViewProps) {
-  const { planner, geo, projList } = props;
-  const { s, patch, actions, mapApi } = planner;
+export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapViewPlanner; geo: Geo | null; layout: Layout; reducedMotion: boolean }) {
+  const { s, actions, mapApi } = planner;
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const fitZoom = useRef<number | undefined>(undefined);
   const [ready, setReady] = useState(false);
-  const [tick, setTick] = useState(0); // bumps on every map move so the HTML labels re-project
-  // latest props/state for the (stable) map event handlers
-  const live = useRef({ pickMode: s.pickMode, hover: s.hover, model: s.model, pick: actions.pick });
-  live.current = { pickMode: s.pickMode, hover: s.hover, model: s.model, pick: actions.pick };
+  const [tick, setTick] = useState(0); // bumps on every map move so the HTML markers re-project
+  const live = useRef({ model: s.model, select: actions.select, pad: layout.pad });
+  live.current = { model: s.model, select: actions.select, pad: layout.pad };
 
   // ---- map lifecycle -------------------------------------------------------------------------
   useEffect(() => {
@@ -119,60 +70,47 @@ export function MapView(props: MapViewProps) {
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false,
-      center: [-0.18, 52.85],
-      zoom: 9,
-      maxZoom: 18,
-      style: "https://tiles.openfreemap.org/styles/positron",
+      center: [-0.1, 52.98],
+      zoom: 8.6,
+      maxZoom: 16,
+      style: STYLE,
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), "top-left");
     map.touchZoomRotate.disableRotation();
     let raf = 0;
-    const hitAt = (point: { x: number; y: number }): Hit | null => {
-      if (!map.getSource("lines")) return null;
-      const fs = map.queryRenderedFeatures([point.x, point.y], { layers: HIT_LAYERS.map((h) => h[0]) });
-      for (const [layer, kind] of HIT_LAYERS) {
-        const f = fs.find((x) => x.layer.id === layer);
-        if (f) return { kind, id: f.properties.id as number | string };
-      }
-      return null;
-    };
     map.on("load", () => {
-      collapseAttribution(map);
-      setTimeout(() => collapseAttribution(map), 50);
-      (map.getStyle().layers ?? []).forEach((l) => {
-        if (l.type === "symbol") {
-          map.setPaintProperty(l.id, "text-opacity", 0.55);
-          map.setPaintProperty(l.id, "icon-opacity", 0.4);
-        }
-      });
       map.resize();
       addIcons(map);
       addLayers(map);
+      CLICK_LAYERS.forEach(([id]) => {
+        map.on("mouseenter", id, () => (map.getCanvas().style.cursor = "pointer"));
+        map.on("mouseleave", id, () => (map.getCanvas().style.cursor = ""));
+      });
       setReady(true);
     });
     map.on("move", () => {
-      if (!raf) raf = requestAnimationFrame(() => {
-        raf = 0;
-        setTick((t) => t + 1);
-      });
+      if (!raf)
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          setTick((t) => t + 1);
+        });
     });
-    map.on("mousemove", (e: MapMouseEvent) => {
-      const h = hitAt(e.point);
-      const { pickMode, hover } = live.current;
-      map.getCanvas().style.cursor = pickMode ? (h?.kind === "bus" ? "pointer" : "crosshair") : h && h.kind !== "load" ? "pointer" : "";
-      if (!h && !hover) return;
-      patch({ hover: h, mouse: { x: e.point.x, y: e.point.y } });
+    map.on("click", (e: MapMouseEvent) => {
+      if (!map.getSource("lines")) return;
+      const box: [[number, number], [number, number]] = [[e.point.x - 3, e.point.y - 3], [e.point.x + 3, e.point.y + 3]];
+      const fs = map.queryRenderedFeatures(box, { layers: CLICK_LAYERS.map((c) => c[0]) });
+      for (const [layer, kind] of CLICK_LAYERS) {
+        const f = fs.find((x) => x.layer.id === layer);
+        if (f) {
+          const id = f.properties.id as number | string;
+          live.current.select((kind === "gen" ? { kind, id: String(id) } : { kind, id: Number(id) }) as Sel);
+          return;
+        }
+      }
+      live.current.select(null);
     });
-    map.on("mouseout", () => {
-      if (live.current.hover) patch({ hover: null });
-    });
-    map.on("click", (e: MapMouseEvent) => live.current.pick(hitAt(e.point)));
-    const ro = new ResizeObserver((es) => {
-      const r = es[0].contentRect;
-      patch({ size: { w: Math.round(r.width), h: Math.round(r.height) } });
-      map.resize();
-    });
+    const ro = new ResizeObserver(() => map.resize());
     ro.observe(el);
     return () => {
       ro.disconnect();
@@ -181,7 +119,7 @@ export function MapView(props: MapViewProps) {
       mapRef.current = null;
       setReady(false);
     };
-  }, [patch]);
+  }, []);
 
   // ---- the imperative handle the controller uses (fit / zoom / focus) -------------------------
   useEffect(() => {
@@ -192,10 +130,10 @@ export function MapView(props: MapViewProps) {
         if (!map || !m || !m.buses.length) return;
         const b = new maplibregl.LngLatBounds();
         m.buses.forEach((x) => b.extend([x.lon, x.lat]));
-        const opts = { padding: { top: 96, bottom: 40, left: 60, right: 60 } };
+        const opts = { padding: live.current.pad };
         const cam = map.cameraForBounds(b, opts);
         if (cam?.zoom != null) fitZoom.current = cam.zoom;
-        map.fitBounds(b, { ...opts, duration: anim ? 600 : 0 });
+        map.fitBounds(b, { ...opts, duration: anim ? 450 : 0 });
       },
       zoomBy(d) {
         const map = mapRef.current;
@@ -204,12 +142,9 @@ export function MapView(props: MapViewProps) {
       focusOn(ll, kMin) {
         const map = mapRef.current;
         if (!ll || !map) return;
-        const z = Math.max(map.getZoom(), (fitZoom.current ?? 11) + Math.log2(kMin ?? 1));
-        map.easeTo({ center: ll, zoom: z, duration: 650 });
-      },
-      zoomedIn() {
-        const map = mapRef.current;
-        return !!map && map.getZoom() > (fitZoom.current ?? 11) + 0.3;
+        const z = Math.max(map.getZoom(), (fitZoom.current ?? 9) + Math.log2(kMin ?? 1));
+        // land it left of the detail card that the selection opens (top right of the map)
+        map.easeTo({ center: ll, zoom: z, duration: 600, offset: [-180, 40] });
       },
     };
     return () => {
@@ -217,92 +152,45 @@ export function MapView(props: MapViewProps) {
     };
   }, [mapApi]);
 
-  // frame the network once the map and the model are both there
-  const framed = useRef(false);
+  // frame the network once the map and the model are both there, and again on every layout change
+  const padKey = JSON.stringify(layout.pad);
   useEffect(() => {
-    if (ready && s.model && !framed.current) {
-      framed.current = true;
-      mapApi.current?.fit(false);
-    }
-  }, [ready, s.model, mapApi]);
+    if (ready && s.model) mapApi.current?.fit(true);
+  }, [ready, s.model, padKey, mapApi]);
 
   // ---- push data into the sources -------------------------------------------------------------
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map || !geo) return;
     GEO_SOURCES.forEach((k) => (map.getSource(k) as maplibregl.GeoJSONSource | undefined)?.setData(geo[k]));
-    map.setLayoutProperty("loads", "visibility", s.showLoads ? "visible" : "none");
-  }, [ready, geo, s.showLoads]);
+  }, [ready, geo]);
 
-  // ---- HTML labels (screen space via map.project, with collision avoidance) --------------------
-  const labels = useMemo(() => {
+  // ---- the flow layer: dashes stepped every 70 ms (off under reduced motion and in diff mode) ----
+  const flowOn = s.layer === "flow" && !s.diffMode;
+  useEffect(() => {
     const map = mapRef.current;
-    if (!ready || !map || !s.model) return [];
-    void tick;
-    const showBus = s.showLabels || map.getZoom() >= (fitZoom.current ?? 11) + 2;
-    return placeLabels({
-      project: (lo, la) => {
-        const p = map.project([lo, la]);
-        return [p.x, p.y];
-      },
-      width: s.size.w,
-      height: s.size.h,
-      projList,
-      transformers: s.model.transformers,
-      buses: s.model.buses,
-      showBusLabels: showBus,
-    });
-  }, [ready, tick, s.model, s.showLabels, s.size, projList]);
+    if (!ready || !map) return;
+    map.setLayoutProperty("line-flow", "visibility", flowOn ? "visible" : "none");
+    if (!flowOn || reducedMotion) return;
+    let i = 0;
+    const iv = window.setInterval(() => {
+      i = (i + 1) % FLOW_DASH_SEQ.length;
+      if (map.getLayer("line-flow")) map.setPaintProperty("line-flow", "line-dasharray", FLOW_DASH_SEQ[i]);
+    }, 70);
+    return () => window.clearInterval(iv);
+  }, [ready, flowOn, reducedMotion]);
+
+  const project = (lon: number, lat: number): [number, number] | null => {
+    const map = mapRef.current;
+    if (!map) return null;
+    const p = map.project([lon, lat]);
+    return [p.x, p.y];
+  };
 
   return (
-    <div className="map-wrap">
-      <div ref={elRef} className="map" />
-      <div className="map-labels">
-        {labels.map((t) => (
-          <div key={t.key} className="map-label" style={{ left: t.sx, top: t.sy, fontFamily: t.font, fontSize: t.fs, fontWeight: t.fw, color: t.color }}>
-            <div>{t.text}</div>
-            {t.sub && <div className="sub">{t.sub}</div>}
-          </div>
-        ))}
-      </div>
-
-      <div className="overlay-col">
-        <TimelineBox planner={planner} />
-        <StatsBar planner={planner} />
-        {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
-      </div>
-
-      {s.pickMode && (
-        <div className="pick-banner">
-          Click a bus to set the point of connection
-          <button onClick={() => patch({ pickMode: false })}>Cancel</button>
-        </div>
-      )}
-
-      {s.sel && s.result && <DetailCard planner={planner} selQ={props.selQ} over={props.over} vv={props.vv} busProjects={props.busProjects} />}
-
-      {s.legendHidden ? (
-        <button className="legend-btn" onClick={() => patch({ legendHidden: false })}>Legend</button>
-      ) : (
-        <Legend onClose={() => patch({ legendHidden: true })} />
-      )}
-
-      <div className="map-ctrls">
-        <div className="modes">
-          <button className={`toggle${s.loadingMode ? " on" : ""}`} onClick={() => patch({ loadingMode: !s.loadingMode, voltageMode: false })}>Loading heat</button>
-          <button className={`toggle${s.voltageMode ? " on" : ""}`} onClick={() => patch({ voltageMode: !s.voltageMode, loadingMode: false })}>Voltage heat</button>
-          <button className={`toggle${s.showLoads ? " on" : ""}`} onClick={() => patch({ showLoads: !s.showLoads })}>Loads</button>
-          <button className={`toggle${s.showLabels ? " on" : ""}`} onClick={() => patch({ showLabels: !s.showLabels })}>Bus labels</button>
-        </div>
-        <div className="zoom">
-          <button onClick={actions.zoomIn}>+</button>
-          <button onClick={actions.zoomOut}>−</button>
-          <button onClick={actions.zoomFit}>FIT</button>
-        </div>
-      </div>
-
-      {s.hover && !s.running && <Tooltip planner={planner} bindLines={props.bindLines} busProjects={props.busProjects} />}
-      {s.running && <RunOverlay planner={planner} />}
-    </div>
+    <>
+      <div ref={elRef} className="map" aria-label="Network map" />
+      {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
+    </>
   );
 }

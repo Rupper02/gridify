@@ -29,11 +29,12 @@ class JobRunner:
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    def start(self, kind: str, fn: Callable[[Callable[[str, float], None]], dict]) -> dict:
-        """Queue `fn(progress)` and return the job record."""
+    def start(self, kind: str, fn: Callable[[Callable[[str, float], None], Callable[[dict], None]], dict]) -> dict:
+        """Queue `fn(progress, publish)` and return the job record. `publish(partial)` stores a partial
+        result the planner can show while the job is still running (GET /jobs/{id}?partial=true)."""
         job_id = "job-" + uuid.uuid4().hex[:10]
         rec = {"job_id": job_id, "kind": kind, "status": "queued", "stage": "queued", "fraction": 0.0,
-               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "error": None}
+               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None, "error": None}
         with self._lock:
             self._jobs[job_id] = rec
             if len(self._jobs) > MAX_JOB_RECORDS:
@@ -45,14 +46,18 @@ class JobRunner:
             with self._lock:
                 rec["stage"], rec["fraction"] = stage, round(float(fraction), 3)
 
+        def publish(partial: dict) -> None:
+            with self._lock:
+                rec["partial"] = partial
+
         def run() -> None:
             t0 = time.perf_counter()
             with self._lock:
                 rec["status"], rec["started_at"], rec["stage"] = "running", now(), "starting"
             try:
-                out = fn(progress)
+                out = fn(progress, publish)
                 with self._lock:
-                    rec.update(status="done", stage="done", fraction=1.0, result=out)
+                    rec.update(status="done", stage="done", fraction=1.0, result=out, partial=None)
             except Exception as exc:  # the job records its own failure; nothing escapes the worker
                 log.exception("job %s failed", job_id)
                 with self._lock:
@@ -66,16 +71,20 @@ class JobRunner:
         return self._view(rec)
 
     @staticmethod
-    def _view(rec: dict, with_result: bool = False) -> dict:
-        out = {k: v for k, v in rec.items() if k != "result"}
+    def _view(rec: dict, with_result: bool = False, with_partial: bool = False) -> dict:
+        out = {k: v for k, v in rec.items() if k not in ("result", "partial")}
+        out["has_partial"] = rec["partial"] is not None
         if with_result:
             out["result"] = rec["result"]
+        if with_partial:
+            out["partial"] = rec["partial"]
         return out
 
-    def get(self, job_id: str, with_result: bool = True) -> dict:
-        """A job's status, stage and (when done) its result; 404 if unknown."""
+    def get(self, job_id: str, with_result: bool = True, with_partial: bool = False) -> dict:
+        """A job's status, stage, its partial result while running (if asked) and its result when
+        done; 404 if unknown."""
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:
                 raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
-            return self._view(rec, with_result=with_result)
+            return self._view(rec, with_result=with_result, with_partial=with_partial)

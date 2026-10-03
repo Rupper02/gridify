@@ -1,113 +1,135 @@
-// Branch flows ("git for grids"): switch, open, diff, suggestions, merge, discard.
+// Branch flows ("git for grids"): switch, open, set the demand profile, diff, merge, discard.
 
 import { useCallback } from "react";
 
 import { api } from "../../api";
-import type { Branch } from "../../types";
+import { EMPTY_CHAT } from "./core";
 import type { Core } from "./core";
 import type { RunFn } from "./useRun";
 
 export function useBranchFlows(
   { patch, ref, toastMsg }: Core,
   run: RunFn,
-  refreshBranches: () => Promise<Branch[] | null>,
+  refreshBranches: () => Promise<unknown>,
+  loadExtras: (branchId: string) => Promise<void>,
 ) {
-  /** Switch the active branch: the whole view (map, Queue, tiles, roadmap) follows it. */
+  /** Switch the active branch: the whole view (map, queue, roadmap, panels) follows it. */
   const selectBranch = useCallback(
     (id: string) => {
+      patch({ menuOpen: false });
       if (id === ref.current.activeBranch) return;
-      patch({ activeBranch: id, diff: null, suggestions: null, sel: null, pendingAdds: {} });
+      patch({ activeBranch: id, diff: null, diffMode: false, suggestions: null, sel: null, outages: [], reinforcements: [], chat: EMPTY_CHAT });
+      void loadExtras(id);
       void run({ activeBranch: id });
     },
-    [patch, ref, run],
+    [loadExtras, patch, ref, run],
   );
 
-  /** Adds always target a branch (main is the plan of record). On main, auto-create + switch to one. */
+  /** Open a branch off main (it inherits main's projects, outages and demand profile) and switch to it. */
+  const createBranch = useCallback(
+    async (name?: string): Promise<string | null> => {
+      const st = ref.current;
+      const main = st.branches.find((b) => b.branch_id === "main");
+      const n = st.branches.filter((b) => b.branch_id !== "main").length + 1;
+      const label = (name ?? "").trim() || `draft-${n}`;
+      try {
+        const b = await api.createBranch({ name: label, from_branch: "main", scenario: main?.scenario ?? "ht" });
+        await refreshBranches();
+        patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, sel: null, chat: { ...EMPTY_CHAT } });
+        toastMsg(`Opened ${b.name} off main. Changes stay here until you merge.`);
+        void loadExtras(b.branch_id);
+        void run({ activeBranch: b.branch_id });
+        return b.branch_id;
+      } catch {
+        toastMsg("Could not open a branch. Check the API is running.", "warn");
+        return null;
+      }
+    },
+    [loadExtras, patch, ref, refreshBranches, run, toastMsg],
+  );
+
+  /** Edits always target a branch (main is the plan of record). On main, open one first. */
   const ensureEditableBranch = useCallback(async (): Promise<string | null> => {
     const st = ref.current;
     if (st.activeBranch && st.activeBranch !== "main") return st.activeBranch;
-    try {
-      const b = await api.createBranch({ name: "Draft plan", from_branch: "main", scenario: st.forecastId });
-      await refreshBranches();
-      patch({ activeBranch: b.branch_id, showNewBranch: false, diff: null, suggestions: null });
-      toastMsg(`Opened branch “${b.name}” off main — your changes stay here until you merge.`);
-      return b.branch_id;
-    } catch {
-      toastMsg("Could not open a branch — check the API is running.");
-      return null;
-    }
-  }, [patch, ref, refreshBranches, toastMsg]);
+    const keep = { chat: st.chat, sel: st.sel }; // the action that needed a branch carries on in it
+    const id = await createBranch();
+    if (id) patch(keep);
+    return id;
+  }, [createBranch, patch, ref]);
 
-  const createBranchFlow = useCallback(async () => {
+  /** Store a demand profile on the active branch. The shown result goes stale until the next run. */
+  const setProfile = useCallback(
+    async (scenario: string) => {
+      const st = ref.current;
+      const fc = st.forecasts.find((f) => f.id === scenario);
+      if (!fc) return;
+      const bid = st.activeBranch || "main";
+      const before = st.branches;
+      patch({ branches: st.branches.map((b) => (b.branch_id === bid ? { ...b, scenario, growth_2030: fc.growth_2030, growth_2035: fc.growth_2035 } : b)) });
+      try {
+        await api.updateScenario(bid, scenario, fc.growth_2030, fc.growth_2035);
+      } catch {
+        patch({ branches: before });
+        toastMsg("Could not store the demand profile. Check the API is running.", "warn");
+      }
+    },
+    [patch, ref, toastMsg],
+  );
+
+  /** The consequence diff of the active branch vs main (with the optional narration). */
+  const refreshDiff = useCallback(
+    async (bid: string) => {
+      if (!bid || bid === "main") return;
+      try {
+        const diff = await api.diffBranch(bid, { with_narration: true });
+        if (ref.current.activeBranch === bid) patch({ diff });
+      } catch {
+        /* the review tab shows the diff as unavailable */
+      }
+    },
+    [patch, ref],
+  );
+
+  const toggleDiff = useCallback(() => {
     const st = ref.current;
-    if (st.creatingBranch) return;
-    const name = st.newBranchName.trim() || "Untitled branch";
-    patch({ creatingBranch: true });
-    try {
-      const b = await api.createBranch({ name, from_branch: "main", scenario: st.newBranchForecast });
-      const branches = await refreshBranches();
-      patch({ creatingBranch: false, showNewBranch: false, newBranchName: "", activeBranch: b.branch_id, diff: null, suggestions: null });
-      toastMsg(`Branch “${b.name}” created off main. Add projects, then Diff vs main.`);
-      void run({ activeBranch: b.branch_id, branches: branches ?? undefined });
-    } catch {
-      patch({ creatingBranch: false });
-      toastMsg("Could not create the branch — check the API is running.");
-    }
-  }, [patch, ref, refreshBranches, run, toastMsg]);
+    if (st.activeBranch === "main") return;
+    const on = !st.diffMode;
+    patch({ diffMode: on, ...(on ? { tab: "review" as const, sideOpen: true } : {}) });
+    if (on && !st.diff) void refreshDiff(st.activeBranch);
+  }, [patch, ref, refreshDiff]);
 
-  const runBranchDiff = useCallback(async () => {
-    const st = ref.current;
-    if (st.comparing || !st.activeBranch || st.activeBranch === "main") return;
-    patch({ comparing: true });
-    try {
-      const diff = await api.diffBranch(st.activeBranch, { with_narration: true });
-      patch({ diff, comparing: false });
-    } catch {
-      patch({ comparing: false });
-      toastMsg("Diff failed — check the API is running.");
-    }
-  }, [patch, ref, toastMsg]);
-
-  const runSuggestions = useCallback(async () => {
-    const st = ref.current;
-    if (st.loadingSuggestions || !st.activeBranch || st.activeBranch === "main") return;
-    patch({ loadingSuggestions: true });
-    try {
-      const suggestions = await api.getSuggestions(st.activeBranch, { with_narration: true, limit: 5 });
-      patch({ suggestions, loadingSuggestions: false });
-    } catch {
-      patch({ loadingSuggestions: false });
-      toastMsg("Suggestions failed — check the API is running.");
-    }
-  }, [patch, ref, toastMsg]);
-
-  const mergeBranchFlow = useCallback(async () => {
+  const mergeBranch = useCallback(async () => {
     const st = ref.current;
     if (!st.activeBranch || st.activeBranch === "main") return;
+    const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
     try {
       await api.mergeBranch(st.activeBranch, { into: "main" });
-      const branches = await refreshBranches();
-      toastMsg("Branch merged into main — the new plan of record. Re-running…");
-      patch({ activeBranch: "main", diff: null, suggestions: null });
-      void run({ activeBranch: "main", branches: branches ?? undefined });
-    } catch {
-      toastMsg("Merge failed — check the API is running.");
+      await refreshBranches();
+      toastMsg(`${name} merged into main, the new plan of record.`);
+      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, sel: null, tab: "queue", chat: EMPTY_CHAT });
+      void loadExtras("main");
+      void run({ activeBranch: "main" });
+    } catch (e) {
+      toastMsg(`Merge failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
     }
-  }, [patch, ref, refreshBranches, run, toastMsg]);
+  }, [loadExtras, patch, ref, refreshBranches, run, toastMsg]);
 
-  const discardBranchFlow = useCallback(async () => {
+  const discardBranch = useCallback(async () => {
     const st = ref.current;
     if (!st.activeBranch || st.activeBranch === "main") return;
+    const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
     try {
       await api.discardBranch(st.activeBranch);
-      const branches = await refreshBranches();
-      patch({ activeBranch: "main", diff: null, suggestions: null });
-      void run({ activeBranch: "main", branches: branches ?? undefined });
-      toastMsg("Branch discarded — back on main.");
+      await refreshBranches();
+      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, sel: null, chat: EMPTY_CHAT });
+      void loadExtras("main");
+      void run({ activeBranch: "main" });
+      toastMsg(`${name} discarded. Back on main.`);
     } catch {
-      toastMsg("Discard failed — check the API is running.");
+      toastMsg("Discard failed. Check the API is running.", "warn");
     }
-  }, [patch, ref, refreshBranches, run, toastMsg]);
+  }, [loadExtras, patch, ref, refreshBranches, run, toastMsg]);
 
-  return { selectBranch, ensureEditableBranch, createBranchFlow, runBranchDiff, runSuggestions, mergeBranchFlow, discardBranchFlow };
+  return { selectBranch, createBranch, ensureEditableBranch, setProfile, refreshDiff, toggleDiff, mergeBranch, discardBranch };
 }

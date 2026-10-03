@@ -33,11 +33,38 @@ MAX_CONNECTION_MW = 300.0  # intake plausibility cap for a single DISTRIBUTION c
 # study: PV and wind produce nothing at a winter evening peak, and batteries CHARGE at their import
 # capacity (negative = import), which adds demand. Unknown technologies (biomass, 'other') are
 # treated as firm. Conservative on both sides; stated in the UI and README.
+#
+# Import-only projects (demand connections such as a data centre or EV hub, and hydrogen
+# electrolysers) export nothing: they draw `import_mw` at winter peak and DEMAND_PROJECT_MIN_FACTOR
+# of it at summer minimum (a planning assumption, close to the LTDS minimum-demand factors of ~0.5).
+# A solar + battery hybrid is solar at nil and the battery charging at winter peak, full export in summer.
+DEMAND_PROJECT_MIN_FACTOR = 0.5
+IMPORT_ONLY_TECHS = ("demand", "electrolyser")
 GENERATION_FACTORS = {
-    "winter_peak": {"solar": 0.0, "wind": 0.0, "battery": -1.0},
-    "summer_min": {"solar": 1.0, "wind": 1.0, "battery": 1.0},
+    "winter_peak": {"solar": 0.0, "wind": 0.0, "battery": -1.0, "hybrid": -1.0,
+                    "demand": -1.0, "electrolyser": -1.0},
+    "summer_min": {"solar": 1.0, "wind": 1.0, "battery": 1.0, "hybrid": 1.0,
+                   "demand": -DEMAND_PROJECT_MIN_FACTOR, "electrolyser": -DEMAND_PROJECT_MIN_FACTOR},
 }
-GENERATION_FACTOR_DEFAULT = {"winter_peak": 1.0, "summer_min": 1.0}
+GENERATION_FACTOR_DEFAULT = {"winter_peak": 1.0, "summer_min": 1.0}  # gas, gas engines, biomass/EfW: firm
+
+# --- the plan's years and planned maintenance -----------------------------------------------------
+# Every run solves the plan year by year (years.evaluate_years) so the timeline only switches between
+# stored results. Demand is interpolated linearly: 1.0 in PLAN_START_YEAR -> the 2030 multiplier -> the
+# 2035 multiplier.
+PLAN_START_YEAR = 2026
+PLAN_END_YEAR = 2035
+# A planned outage is studied in the case(s) its season stresses, with that season's line ratings
+# (net.line column of rating multipliers; LTDS publishes Winter / Intermediate Cool / Intermediate
+# Warm / Summer ratings, so spring and autumn take the intermediate-warm rating, the lower of the two).
+# Outages are REPORTED per year, like the N-1 screen, not a connection gate.
+SEASON_STUDY = {
+    "Winter": {"cases": ("winter_peak",), "rating_column": None},
+    "Spring": {"cases": ("winter_peak", "summer_min"), "rating_column": "intermediate_ratio"},
+    "Summer": {"cases": ("summer_min",), "rating_column": "summer_ratio"},
+    "Autumn": {"cases": ("winter_peak", "summer_min"), "rating_column": "intermediate_ratio"},
+}
+OUTAGE_DERATE_FACTOR = 0.5  # a "derate" window runs the element at this fraction of its rating
 
 # --- N-1 screen ---------------------------------------------------------------------------------
 # Single-outage screen of the EHV backbone (every circuit and transformer at or above this kV),

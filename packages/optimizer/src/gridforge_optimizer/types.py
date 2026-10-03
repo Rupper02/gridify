@@ -72,7 +72,6 @@ class OptimizeParams(BaseModel):
     w_readiness: float = W_READINESS
     w_need: float = W_NEED
     w_strategic: float = W_STRATEGIC
-    study_year: int | None = None  # optional: run study for a specific year (overrides phase logic)
 
 
 class PhaseResult(BaseModel):
@@ -94,12 +93,53 @@ class PhaseResult(BaseModel):
     n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, type, element_id, value, message}
 
 
+class Outage(BaseModel):
+    """A planned maintenance window on a branch: an element out of service (or derated) for some weeks
+    of one season of one year. Studied in that season's case(s); reported, never a connection gate."""
+
+    outage_id: str
+    element_kind: str  # "line" | "trafo" | "gen" (an existing generator, by its model id EX-…)
+    element_id: str  # line/trafo index as text, or the generator's request id
+    season: str  # "Winter" | "Spring" | "Summer" | "Autumn" (config.SEASON_STUDY)
+    year: int
+    weeks: int = 4
+    kind: str = "outage"  # "outage" | "derate"
+
+
+class OutageStudy(BaseModel):
+    """What one planned outage does to its year's network, in each case its season stresses."""
+
+    outage_id: str
+    year: int
+    cases: list[str]
+    ok: bool  # True when no limit is breached with the element out
+    violations: list[Reason] = []  # the first limit each case breaches
+    worst_line_loading_pct: float = 0.0
+    worst_trafo_loading_pct: float = 0.0
+    gsp_export_mw: float = 0.0
+    message: str
+
+
+class YearResult(PhaseResult):
+    """The plan as it stands in one year: the projects energised by then (their scheduled or
+    recommended year), demand interpolated to the year, solved in both cases, plus that year's
+    planned outages."""
+
+    year: int
+    growth: float  # the demand multiplier this year was solved at
+    energised: list[str] = []  # projects in service this year
+    trafo_loading: dict[int, float] = {}  # trafo_id -> loading_percent (worst case), for the element card
+    outage_studies: list[OutageStudy] = []
+
+
 class OptimizeResult(BaseModel):
-    """The full optimizer output: the parameters used, the ordered queue, per-phase results, narrative."""
+    """The full optimizer output: the parameters used, the ordered queue, per-phase results, per-year
+    results (filled by years.evaluate_years), narrative."""
 
     params: OptimizeParams
     queue: list[QueueItem]
     phases: dict[str, PhaseResult]
+    years: dict[str, YearResult] = {}
     justification: str = ""
 
 

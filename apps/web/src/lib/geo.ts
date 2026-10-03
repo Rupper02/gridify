@@ -1,29 +1,23 @@
-// Map data → GeoJSON for MapLibre. Pure: given the model, the run and the UI state, build the seven
-// feature collections the map layers read. Rebuilt only when its inputs change (useMemo in App).
+// Map data -> GeoJSON for MapLibre. Pure: given the model, the year's result and the view state,
+// build the feature collections the map layers read. Rebuilt only when its inputs change.
 
 import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
-import { ORDER, mix } from "../theme";
-import type { Hit, Model, Sel } from "../types";
-import type { ProjView } from "./derive";
+import { C, loadColor, voltColor } from "../theme";
+import type { MapLayer, Model, Sel, YearResult } from "../types";
+import { voltageBand } from "./derive";
 
 export interface GeoInputs {
   model: Model;
-  projList: ProjView[];
+  yr: YearResult | null;
+  layer: MapLayer;
   sel: Sel | null;
-  hov: Hit | null;
-  selEl: { line_id?: number; bus_id?: number } | null;
+  /** Lines named as the binding constraint by a deferred project. */
   bindLines: Set<number>;
-  bindBuses: Set<number>;
-  over: Set<number>;
-  lineLoading: Record<string, number>;
-  busVm: Record<string, number>;
-  voltageViolations: Set<number>;
-  pickMode: boolean;
-  loadingMode: boolean;
-  voltageMode: boolean;
-  drawerBus: string; // the bus picked in the add-project form while the drawer is open ('' otherwise)
-  weightByRating: boolean;
+  /** Lines out of service (or derated) by a studied planned outage in the viewed year. */
+  outLines: Set<number>;
+  /** Diff mode: per-line loading change vs main (only changed lines), or null when diff is off. */
+  diffDeltas: Map<number, { delta: number; head: number }> | null;
 }
 
 export interface Geo {
@@ -33,10 +27,9 @@ export interface Geo {
   openpts: FeatureCollection;
   trafos: FeatureCollection;
   existing: FeatureCollection;
-  projects: FeatureCollection;
 }
 
-export const GEO_SOURCES = ["lines", "buses", "loads", "openpts", "trafos", "existing", "projects"] as const;
+export const GEO_SOURCES = ["lines", "buses", "loads", "openpts", "trafos", "existing"] as const;
 
 const FC = (features: Feature[]): FeatureCollection => ({ type: "FeatureCollection", features });
 const pt = (lo: number, la: number, props: Record<string, unknown>): Feature<Point> => ({
@@ -45,44 +38,46 @@ const pt = (lo: number, la: number, props: Record<string, unknown>): Feature<Poi
   properties: props,
 });
 
-/** Voltage heat colour for a per-unit voltage. */
-export const vHeat = (v: number | null | undefined): string =>
-  v == null ? "#475569" : v > 1.05 ? "#dc2626" : v > 1.02 ? "#f97316" : v < 0.95 ? "#2563eb" : v < 0.98 ? "#60a5fa" : "#9ca3af";
+/** Line width and colour by voltage: 132 kV heavy and light, 33 kV medium, lower thin. */
+export const lineStyle = (kv: number): { w: number; c: string } =>
+  kv >= 132 ? { w: 2.8, c: C.line132 } : kv >= 33 ? { w: 1.8, c: C.line33 } : { w: 1.2, c: C.lineLow };
 
 export function buildGeo(g: GeoInputs): Geo {
-  const { model: m, sel, hov, selEl, over, bindLines, bindBuses, lineLoading: ll, busVm, voltageViolations: vv } = g;
+  const { model: m, yr, layer, sel, diffDeltas } = g;
+  const ll = yr?.line_loading ?? {};
+  const over = new Set(yr?.overloaded_line_ids ?? []);
+  const vv = new Set(yr?.voltage_violation_bus_ids ?? []);
 
   const lines: Feature[] = m.lines.map((l) => {
     const id = l.line_id;
+    const base = lineStyle(l.voltage_kv);
+    const pct = ll[id] ?? null;
     const isOver = over.has(id);
-    const isBind = bindLines.has(id);
     const isTie = l.in_service === false;
-    const isSel = (sel?.kind === "line" && sel.id === id) || selEl?.line_id === id;
-    const isHov = hov?.kind === "line" && hov.id === id;
-    let color = "#64748b";
-    let w = g.weightByRating ? (l.rating_a >= 645 ? 3.6 : l.rating_a >= 421 ? 2.7 : 2) : 2.4;
-    if (g.loadingMode && ll[id] != null) {
-      const t = Math.min(1, ll[id] / 100);
-      color = mix("#cbd5e1", "#0f172a", Math.pow(t, 1.3));
-      w = 1.6 + t * 3.6;
+    const isOut = g.outLines.has(id);
+    let color = base.c;
+    if (layer === "loading" && pct != null) color = loadColor(pct);
+    if (isOver) color = C.red;
+    const dl = diffDeltas?.get(id);
+    let op = layer === "voltage" ? 0.45 : 0.92;
+    if (diffDeltas) {
+      color = dl ? (dl.head > 100 ? C.red : C.amber) : C.dimmed;
+      op = dl ? 1 : 0.5;
     }
-    if (isTie) w = 1.6;
-    if (isBind) w = 3.6;
-    if (isOver) w = 4.6;
-    if (isSel || isHov) {
-      w += 1.4;
-      if (!isOver && !isBind) color = "#111827";
-    }
+    const kind = isTie ? "tie" : isOut ? "maint" : isOver ? "over" : g.bindLines.has(id) && !diffDeltas ? "bind" : "solid";
+    const isSel = sel?.kind === "line" && sel.id === id;
     const f: Feature<LineString> = {
       type: "Feature",
       geometry: { type: "LineString", coordinates: [[l.from_lon, l.from_lat], [l.to_lon, l.to_lat]] },
       properties: {
         id,
+        kind,
         color,
-        w,
-        kind: isOver ? "over" : isBind ? "bind" : isTie ? "tie" : "solid",
-        halo: isSel || isOver ? 1 : 0,
-        haloColor: isOver ? "#dc2626" : isBind ? "#d97706" : "#111827",
+        w: base.w + (isSel ? 1.6 : 0),
+        op,
+        glow: isOver ? C.red : C.amber,
+        flow: isOver ? "#ffd0d0" : "#bff2ff",
+        sel: isSel ? 1 : 0,
       },
     };
     return f;
@@ -91,68 +86,51 @@ export function buildGeo(g: GeoInputs): Geo {
   const buses: Feature[] = m.buses
     .filter((b) => b.lon != null)
     .map((b) => {
-      const id = b.bus_id;
-      const isV = vv.has(id);
-      const isB = bindBuses.has(id);
-      const isSel = (sel?.kind === "bus" && sel.id === id) || selEl?.bus_id === id || (g.drawerBus !== "" && String(id) === g.drawerBus);
-      const isHov = hov?.kind === "bus" && hov.id === id;
-      const pk = g.pickMode;
-      const vMode = g.voltageMode && !pk && !isSel && busVm[id] != null;
-      const ring = isV ? "#dc2626" : isB ? "#d97706" : isSel ? "#111827" : null;
-      const fill = pk ? (isHov ? "#1d4ed8" : "#3b82f6") : isSel ? "#111827" : vMode ? vHeat(busVm[id]) : "#475569";
-      const rad = pk ? (isHov ? 5.5 : 3.6) : isHov || isSel ? 3.8 : vMode ? 3.4 : 2.6;
+      const v = yr?.bus_vm?.[b.bus_id] ?? null;
+      const [lo, hi] = voltageBand(b.vn_kv);
+      const vMode = layer === "voltage";
       return pt(b.lon, b.lat, {
-        id,
-        r: rad,
-        fill,
-        hasRing: ring ? 1 : 0,
-        ring: ring ?? "#000",
-        ringR: isV || isB ? 8 : 6.5,
-        ringFill: isV ? "rgba(220,38,38,0.12)" : isB ? "rgba(217,119,6,0.14)" : "rgba(0,0,0,0)",
-        hitR: pk ? 10 : 7,
+        id: b.bus_id,
+        r: vMode ? (b.vn_kv >= 33 ? 5 : 3.5) : b.vn_kv >= 132 ? 3.6 : b.vn_kv >= 33 ? 2.8 : 2,
+        color: vMode ? voltColor(v, lo, hi) : b.vn_kv >= 132 ? C.line132 : "#9fb3c9",
+        ring: vMode && vv.has(b.bus_id) ? 1 : 0,
       });
     });
 
   const maxLoad = m.loads.length ? Math.max(...m.loads.map((l) => l.p_mw)) : 1;
-  const loads: Feature[] = m.loads.map((l) =>
-    pt(l.lon, l.lat, {
-      id: l.load_id,
-      icon: hov?.kind === "load" && hov.id === l.load_id ? "load-h" : "load",
-      size: 0.5 + (l.p_mw / maxLoad) * 0.5,
-    }),
-  );
+  const loads: Feature[] = m.loads.map((l) => pt(l.lon, l.lat, { id: l.load_id, size: 0.5 + (l.p_mw / maxLoad) * 0.5 }));
   const openpts: Feature[] = m.lines
     .filter((l) => l.in_service === false)
     .map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
-  const trafos: Feature[] = m.transformers.map((t) => pt(t.hv_lon, t.hv_lat, { id: t.trafo_id }));
-
-  const projects: Feature[] = g.projList.map((p) =>
-    pt(p.x.lon!, p.x.lat!, {
-      id: p.x.request_id,
-      icon: `${p.x.technology ?? "solar"}-${p.variant}`,
-      size: p.size,
-      sort: ORDER[p.x.status] === 3 ? -1 : p.size * 10,
-      newYear: p.isNew ? 1 : 0,
-      dim: p.blocked ? 1 : 0,
-      warn: p.offRec ? 1 : 0,
-      sel: sel?.kind === "project" && sel.id === p.x.request_id ? 1 : 0,
-    }),
-  );
-  // existing connected fleet: one bold teal colour, sized by MW; shown on main and every branch so
-  // the as-is grid is unmistakable next to the phase-coloured queue
+  // transformers carry their loading: a ring in the loading layer, and a red glow when over 100 % in any
+  const tl = yr?.trafo_loading ?? {};
+  const trafos: Feature[] = m.transformers.map((t) => {
+    const pct = tl[t.trafo_id] ?? null;
+    return pt(t.hv_lon, t.hv_lat, {
+      id: t.trafo_id,
+      sel: sel?.kind === "trafo" && sel.id === t.trafo_id ? 1 : 0,
+      pct: pct ?? 0,
+      ring: pct != null && (layer === "loading" || pct > 100) && !diffDeltas ? 1 : 0,
+      over: pct != null && pct > 100 ? 1 : 0,
+      ringColor: loadColor(pct),
+    });
+  });
+  // the existing connected fleet: teal circles sized by √MW, on main and every branch
   const existing: Feature[] = (m.generators ?? [])
     .filter((x) => x.lon != null && x.lat != null)
     .map((x) =>
       pt(x.lon, x.lat, {
         id: x.request_id,
-        gr: 5 + Math.sqrt(Math.max(1, x.rating_mw || 1)) * 1.0,
-        fill: "#0d9488",
-        rating: x.rating_mw,
-        tech: x.technology,
-        applicant: x.applicant,
-        bus: x.bus_id,
+        r: 4 + Math.sqrt(Math.max(1, x.rating_mw || 1)) * 0.55,
+        sel: sel?.kind === "gen" && sel.id === x.request_id ? 1 : 0,
       }),
     );
 
-  return { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing), projects: FC(projects) };
+  return { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing) };
 }
+
+/** The flow animation: a dash pattern stepped every 70 ms so the cyan dashes appear to travel. */
+export const FLOW_DASH_SEQ: number[][] = [
+  [0, 4, 3], [0.5, 4, 2.5], [1, 4, 2], [1.5, 4, 1.5], [2, 4, 1], [2.5, 4, 0.5], [3, 4, 0],
+  [0, 0.5, 3, 3.5], [0, 1, 3, 3], [0, 1.5, 3, 2.5], [0, 2, 3, 2], [0, 2.5, 3, 1.5], [0, 3, 3, 1], [0, 3.5, 3, 0.5],
+];

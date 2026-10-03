@@ -239,119 +239,160 @@ def test_results_are_cached_durably_and_keyed_by_engine():
     assert _t.perf_counter() - t0 < 5.0  # served from the durable cache, not re-solved
 
 
-def test_different_study_years_do_not_share_cache():
-    """Regression: cache keys must include study_year; wrong-year physics is a correctness bug."""
-    # Run on main with two different study years
-    r2028 = client.post("/optimize", json={"with_justification": False, "study_year": 2028}).json()
-    r2032 = client.post("/optimize", json={"with_justification": False, "study_year": 2032}).json()
-    
-    # Results must differ: different years have different interpolated demand growth
-    # 2028 uses ~1.04× growth (halfway between 2026 and 2030 @ 1.08)
-    # 2032 uses ~1.19× growth (between 2030 @ 1.08 and 2035 @ 1.35)
-    assert r2028["params"]["study_year"] == 2028
-    assert r2032["params"]["study_year"] == 2032
-    
-    # Phase keys should be year-specific
-    assert "2028" in r2028["phases"]
-    assert "2032" in r2032["phases"]
-    
-    # Physics should differ (loading percentages, voltages, etc. change with demand)
-    phase_2028 = r2028["phases"]["2028"]
-    phase_2032 = r2032["phases"]["2032"]
-    
-    # At higher demand (2032), worst line loading should be higher than at 2028
-    # (more demand = more flow = higher loading)
-    assert phase_2032["worst_line_loading_pct"] > phase_2028["worst_line_loading_pct"], \
-        "2032 (higher demand) must have higher line loading than 2028"
-    
-    # Verify cache keys are different by checking params_key includes study_year
-    from gridforge_api.cache import params_key
-    from gridforge_optimizer import OptimizeParams
-    
-    params_2028 = OptimizeParams(**r2028["params"])
-    params_2032 = OptimizeParams(**r2032["params"])
-    
-    key_2028 = params_key(params_2028)
-    key_2032 = params_key(params_2032)
-    assert key_2028 != key_2032, "params_key for different study_years must differ"
+def _run_job(branch_id, **body):
+    """Run a branch as a background job and wait for it (the planner's path)."""
+    import time as _t
+    job = client.post(f"/branches/{branch_id}/optimize/jobs", json={"with_justification": False, **body}).json()
+    for _ in range(2400):
+        if job["status"] not in ("queued", "running"):
+            break
+        _t.sleep(0.25)
+        job = client.get(f"/jobs/{job['job_id']}").json()
+    assert job["status"] == "done", job.get("error")
+    return job["result"]
+
+
+def test_every_year_of_the_plan_is_solved_in_one_run():
+    """One run solves 2026..2035; demand grows with the years, so loading does too."""
+    r = _run_job("main", view_year=2028)
+    assert sorted(r["years"]) == [str(y) for y in range(2026, 2036)] and r["years_total"] == 10
+    assert r["years"]["2028"]["growth"] < r["years"]["2032"]["growth"]
+    assert r["years"]["2032"]["worst_line_loading_pct"] >= r["years"]["2028"]["worst_line_loading_pct"]
+    assert "2030" in r["phases"] and "2035" in r["phases"]  # the queue's two phases are still there
+
+
+def test_a_running_job_publishes_partial_results():
+    import threading
+
+    from gridforge_api.deps import jobs
+
+    gate = threading.Event()
+
+    def fn(progress, publish):
+        publish({"queue": [], "years": {}})
+        gate.wait(10)
+        return {"queue": [], "years": {"2030": {}}}
+
+    rec = jobs.start("test", fn)
+    import time as _t
+    for _ in range(200):
+        j = client.get(f"/jobs/{rec['job_id']}?partial=true").json()
+        if j["has_partial"]:
+            break
+        _t.sleep(0.05)
+    assert j["status"] == "running" and j["partial"] == {"queue": [], "years": {}}
+    gate.set()
+    for _ in range(200):
+        j = client.get(f"/jobs/{rec['job_id']}?partial=true").json()
+        if j["status"] == "done":
+            break
+        _t.sleep(0.05)
+    assert j["partial"] is None and j["result"]["years"] == {"2030": {}}  # the final result replaces it
 
 
 def test_profile_persists_across_runs():
-    """Profile changes on main must persist: scrubs and re-runs use the selected profile, not the
-    originally stored one. Regression: onForecast updates the UI but main's stored scenario stayed
-    at 'ht', so subsequent branch-endpoint runs used Holistic Transition while the UI showed High."""
-    # Update main's profile to High (Electric Engagement: ×1.10 / ×1.42)
-    client.post("/branches/main/scenario", json={
-        "scenario": "ee", "growth_2030": 1.10, "growth_2035": 1.42
-    })
-    
-    # First run with the new profile
-    r1 = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
-    while r1["status"] in ("queued", "running"):
-        r1 = client.get(f"/jobs/{r1['job_id']}").json()
-    assert r1["status"] == "done", "first run must complete"
-    assert r1["result"]["params"]["scenario"] == "ee", "first run must use High (ee)"
-    assert r1["result"]["params"]["growth_2030"] == 1.10
-    
-    # Second run (simulates a scrub or re-run) - must still use High, not snap back to HT
-    r2 = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
-    while r2["status"] in ("queued", "running"):
-        r2 = client.get(f"/jobs/{r2['job_id']}").json()
-    assert r2["status"] == "done", "second run must complete"
-    assert r2["result"]["params"]["scenario"] == "ee", "second run must STILL use High (ee), not revert"
-    assert r2["result"]["params"]["growth_2030"] == 1.10, "growth must stay at High's ×1.10"
-    
-    # Verify physics matches High profile (2028 with ee is ×1.05 interpolated)
-    # Compare to Standard (ht) at 2028 which is ×1.04
+    """Profile changes persist: re-runs use the selected profile, not the originally stored one."""
+    client.post("/branches/main/scenario", json={"scenario": "ee", "growth_2030": 1.10, "growth_2035": 1.42})
+    r1 = _run_job("main", view_year=2028)
+    r2 = _run_job("main", view_year=2028)
+    assert r1["params"]["scenario"] == r2["params"]["scenario"] == "ee"
+    assert r2["params"]["growth_2030"] == 1.10
     client.post("/branches/main/scenario", json={"scenario": "ht", "growth_2030": 1.08, "growth_2035": 1.35})
-    r_std = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
-    while r_std["status"] in ("queued", "running"):
-        r_std = client.get(f"/jobs/{r_std['job_id']}").json()
-    
-    # High demand (ee @ 2028 = ×1.05) must have higher loading than Standard (ht @ 2028 = ×1.04)
-    phase_ee = r2["result"]["phases"]["2028"]
-    phase_ht = r_std["result"]["phases"]["2028"]
-    assert phase_ee["worst_line_loading_pct"] > phase_ht["worst_line_loading_pct"], \
-        "High profile (×1.05) must have higher loading than Standard (×1.04) at same year"
+    r_std = _run_job("main", view_year=2028)
+    # High grows demand faster than Standard, year for year
+    assert r2["years"]["2033"]["growth"] > r_std["years"]["2033"]["growth"]
 
 
 def test_fresh_load_reads_stored_scenario():
-    """Regression: on page reload, the UI must initialize from main's stored scenario, not the
-    hardcoded default. After picking Low, a reload must show Low on the strip and run Low's study."""
-    # Set main to Low (Falling Behind: ×1.04 / ×1.15)
-    update_resp = client.post("/branches/main/scenario", json={
-        "scenario": "fb", "growth_2030": 1.04, "growth_2035": 1.15
-    }).json()
-    assert update_resp["scenario"] == "fb", "scenario update must persist"
-    assert update_resp["growth_2030"] == 1.04
-    assert update_resp["growth_2035"] == 1.15
-    
-    # Simulate a fresh page load: fetch branches and read main's stored scenario
-    branches_resp = client.get("/branches").json()
-    branches = branches_resp["branches"]
-    main_branch = next((b for b in branches if b["branch_id"] == "main"), None)
-    assert main_branch is not None, "main branch must exist"
-    assert main_branch["scenario"] == "fb", "fresh load must read stored scenario (fb), not default (ht)"
-    assert main_branch["growth_2030"] == 1.04
-    assert main_branch["growth_2035"] == 1.15
-    
-    # Run with the stored scenario (simulates the boot sequence after reload)
-    r = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
-    while r["status"] in ("queued", "running"):
-        r = client.get(f"/jobs/{r['job_id']}").json()
-    assert r["status"] == "done"
-    assert r["result"]["params"]["scenario"] == "fb", "run after reload must use stored Low (fb)"
-    assert r["result"]["params"]["growth_2030"] == 1.04
-    
-    # Verify physics: Low at 2028 is ×1.02 interpolated, lower than Standard's ×1.04
-    # Compare to Standard to ensure we're actually running Low's physics
+    """On page reload the UI initialises from main's stored scenario, not the hardcoded default."""
+    update = client.post("/branches/main/scenario", json={"scenario": "fb", "growth_2030": 1.04, "growth_2035": 1.15}).json()
+    assert update["scenario"] == "fb"
+    main = _branch("main")
+    assert main["scenario"] == "fb" and main["growth_2035"] == 1.15
+    r = _run_job("main")
+    assert r["params"]["scenario"] == "fb"
     client.post("/branches/main/scenario", json={"scenario": "ht", "growth_2030": 1.08, "growth_2035": 1.35})
-    r_std = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
-    while r_std["status"] in ("queued", "running"):
-        r_std = client.get(f"/jobs/{r_std['job_id']}").json()
-    
-    # Low demand (fb @ 2028 = ×1.02) must have lower loading than Standard (ht @ 2028 = ×1.04)
-    phase_fb = r["result"]["phases"]["2028"]
-    phase_ht = r_std["result"]["phases"]["2028"]
-    assert phase_fb["worst_line_loading_pct"] < phase_ht["worst_line_loading_pct"], \
-        "Low profile (×1.02) must have lower loading than Standard (×1.04) at same year"
+
+
+def _first(kind):
+    m = client.get("/model").json()
+    if kind == "line":
+        return str(max(m["lines"], key=lambda ln: ln["voltage_kv"])["line_id"])
+    return m["generators"][0]["request_id"]
+
+
+def test_planned_outages_are_studied_in_their_year_and_copy_with_the_branch():
+    b = _create("Maintenance", added_projects=[_good()])
+    bid = b["branch_id"]
+    line = _first("line")
+    r = client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": line,
+                                                     "season": "Summer", "year": 2029, "weeks": 6})
+    assert r.status_code == 200, r.text
+    oid = r.json()["outage_id"]
+    assert [o["outage_id"] for o in client.get(f"/branches/{bid}/outages").json()["outages"]] == [oid]
+
+    res = _run_job(bid, view_year=2029)
+    assert res["studied"]["outage_ids"] == [oid]
+    studies = res["years"]["2029"]["outage_studies"]
+    assert [s["outage_id"] for s in studies] == [oid] and studies[0]["cases"] == ["summer_min"]
+    assert res["years"]["2030"]["outage_studies"] == []
+
+    # a child branch inherits it; guards: main is read-only, unknown elements are refused
+    child = _create("Child", from_branch=bid)["branch_id"]
+    assert [o["outage_id"] for o in client.get(f"/branches/{child}/outages").json()["outages"]] == [oid]
+    assert client.post("/branches/main/outages", json={"element_kind": "line", "element_id": line,
+                                                       "season": "Summer", "year": 2029}).status_code == 409
+    assert client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": "999999",
+                                                        "season": "Summer", "year": 2029}).status_code == 422
+    assert client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": line,
+                                                        "season": "Monsoon", "year": 2029}).status_code == 422
+    assert client.delete(f"/branches/{bid}/outages/{oid}").json()["removed"] is True
+    assert client.get(f"/branches/{bid}/outages").json()["outages"] == []
+
+
+def test_a_generator_outage_can_be_scheduled():
+    bid = _create("Gen maintenance")["branch_id"]
+    gen = _first("gen")
+    r = client.post(f"/branches/{bid}/outages", json={"element_kind": "gen", "element_id": gen,
+                                                     "season": "Winter", "year": 2031, "kind": "derate"})
+    assert r.status_code == 200, r.text
+    res = _run_job(bid)
+    assert res["years"]["2031"]["outage_studies"][0]["cases"] == ["winter_peak"]
+
+
+def test_a_reinforcement_on_a_branch_changes_its_result():
+    """Try on branch: one more supergrid transformer raises the GSP limit in every year."""
+    bid = _create("Reinforced", added_projects=[_good()])["branch_id"]
+    before = _run_job(bid)
+    r = client.post(f"/branches/{bid}/reinforcements", json={"kind": "gsp", "element_id": 0, "label": "Third SGT"})
+    assert r.status_code == 200, r.text
+    after = _run_job(bid)
+    assert after["studied"]["reinforcements"] and not before["studied"]["reinforcements"]
+    lim_b, lim_a = before["years"]["2030"]["gsp_limit_mw"], after["years"]["2030"]["gsp_limit_mw"]
+    assert lim_b is not None and lim_a > lim_b
+    assert client.post("/branches/main/reinforcements", json={"kind": "gsp", "element_id": 0}).status_code == 409
+    rid = r.json()["reinforcement_id"]
+    assert client.delete(f"/branches/{bid}/reinforcements/{rid}").json()["removed"] is True
+
+
+def test_a_demand_connection_is_accepted_at_intake():
+    dc = {"applicant": "DC", "bus_id": _stiff_bus(), "technology": "demand", "import_mw": 20.0, "readiness_score": 0.8}
+    bid = _create("Data centre", added_projects=[dc])["branch_id"]
+    row = next(r for r in client.post(f"/branches/{bid}/optimize", json={}).json()["queue"] if r["technology"] == "demand")
+    assert row["status"] != "Rejected" and row["import_mw"] == 20.0
+
+
+def test_suggestions_can_target_one_project():
+    b = _create("Saturated, one target", added_projects=_saturating(5))
+    bid = b["branch_id"]
+    q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    target = next(x["request_id"] for x in q["queue"] if x["status"] == "Deferred")
+    out = client.get(f"/branches/{bid}/suggestions?request_id={target}").json()
+    assert out["request_id"] == target
+    assert all(target in s["blocked_project_ids"] for s in out["suggestions"])
+
+
+def test_reinforcements_are_validated():
+    bid = _create("Bad lever")["branch_id"]
+    assert client.post(f"/branches/{bid}/reinforcements", json={"kind": "trafo", "element_id": 0, "action": "uprate", "factor": 0}).status_code == 422
+    assert client.post(f"/branches/{bid}/reinforcements", json={"kind": "line", "element_id": 999999}).status_code == 422
