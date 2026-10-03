@@ -58,8 +58,17 @@ function applyDiffReasons(d: Diff): Diff {
   return d;
 }
 
+/** A run that a newer one superseded: not a failure, nothing to report. */
+export class RunCancelled extends Error {
+  constructor() {
+    super("superseded by a newer run");
+  }
+}
+
 /** What a run reports while it solves: the job's stage and fraction, and partial results. */
 export interface RunProgress {
+  /** The job's id as soon as it exists, so a newer run can cancel it. */
+  onStart?: (jobId: string) => void;
   onProgress: (stage: string, fraction: number) => void;
   /** The queue plus the years solved so far, as soon as the engine has them. */
   onPartial?: (partial: OptimizeResult) => void;
@@ -107,6 +116,7 @@ export const api = {
    */
   runBranchJob: async (id: string, opts: { with_justification?: boolean; view_year?: number | null }, p: RunProgress): Promise<OptimizeResult> => {
     let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
+    p.onStart?.(job.job_id);
     let seenYears = -1;
     while (job.status === "queued" || job.status === "running") {
       p.onProgress(job.stage, job.fraction);
@@ -120,10 +130,13 @@ export const api = {
       await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 600));
       job = await getJson<Job>(`/jobs/${job.job_id}?partial=${p.onPartial ? "true" : "false"}`);
     }
+    if (job.status === "cancelled") throw new RunCancelled();
     if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the run failed");
     p.onProgress("done", 1);
     return applyReasons(job.result);
   },
+  /** Stop a job a newer run supersedes (what it already solved stays cached on the API). */
+  cancelJob: (jobId: string) => postJson<Job>(`/jobs/${jobId}/cancel`),
   diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
     applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
   mergeBranch: (id: string, opts?: { into: string }) => postJson<Branch>(`/branches/${id}/merge`, opts ?? { into: "main" }),

@@ -6,13 +6,16 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import { api } from "../../api";
+import { RunCancelled, api } from "../../api";
+import { mergeQuiet } from "../../lib/refresh";
 import type { OptimizeResult, Status } from "../../types";
 import type { Core } from "./core";
 
 /** Values an action may need before React has applied the state it just set (e.g. the branch to run). */
 export interface RunOverride {
   activeBranch?: string;
+  /** An automatic refresh after a cheap edit: no overlay, the stamp shows it updating. */
+  quiet?: boolean;
 }
 
 export type RunFn = (over?: RunOverride) => Promise<void>;
@@ -24,44 +27,59 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branch
   // run finish synchronously, before React has flushed `running: false`
   const inFlight = useRef(false);
   const runAgain = useRef<RunOverride | null>(null);
+  const jobId = useRef<string | null>(null);
 
   /**
-   * Run the plan for the active branch. A run already in flight (a branch switch, a profile change)
-   * is never dropped: it is coalesced into ONE re-run when the current one finishes.
+   * Run the plan for the active branch. A newer request supersedes a run in flight: the job is asked
+   * to stop (what it solved stays cached on the API) and ONE re-run follows with the latest inputs.
+   * Nothing is ever dropped.
    */
   const run: RunFn = useCallback(
     async (over: RunOverride = {}) => {
       const st = ref.current;
       if (inFlight.current) {
-        runAgain.current = { ...(runAgain.current ?? {}), ...over };
+        const pending = runAgain.current ? !!runAgain.current.quiet : undefined;
+        runAgain.current = { ...(runAgain.current ?? {}), ...over, quiet: mergeQuiet(pending, over.quiet) };
+        if (jobId.current) void api.cancelJob(jobId.current).catch(() => {});
         return;
       }
       inFlight.current = true;
+      const quiet = !!over.quiet;
       const bid = over.activeBranch ?? st.activeBranch ?? "main";
       const prev = st.result;
       const prevStatus: Record<string, Status> = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
-      patch({ running: true, solving: true, stage: "queued", fraction: 0, menuOpen: false });
+      patch(quiet ? { solving: true, refreshing: true, stage: "queued", fraction: 0 } : { running: true, solving: true, stage: "queued", fraction: 0, menuOpen: false });
       const current = () => ref.current.activeBranch === bid; // ignore results for a branch we left
 
       const onPartial = (p: OptimizeResult) => {
         if (!current()) return;
         const viewed = !!p.years?.[String(ref.current.year)];
-        patch((x) => ({ result: p, prevStatus, ...(viewed && x.running ? { running: false, resultAt: hhmm() } : {}) }));
+        patch((x) => ({
+          // a quiet refresh keeps the years on screen until their re-solved versions land
+          result: quiet && x.result ? { ...p, years: { ...x.result.years, ...p.years } } : p,
+          prevStatus,
+          ...(viewed && x.running ? { running: false, resultAt: hhmm() } : {}),
+        }));
       };
       let res: OptimizeResult;
       try {
         res = await api.runBranchJob(
           bid,
           { with_justification: true, view_year: st.year },
-          { onProgress: (stage, fraction) => patch({ stage, fraction }), onPartial },
+          { onStart: (id) => (jobId.current = id), onProgress: (stage, fraction) => patch({ stage, fraction }), onPartial },
         );
       } catch (e) {
+        jobId.current = null;
         inFlight.current = false;
+        const again = runAgain.current;
         runAgain.current = null;
-        patch({ running: false, solving: false, stage: "" });
-        toastMsg(`The simulation failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        if (e instanceof RunCancelled && again) return void run(again); // superseded: the newer run takes over
+        patch({ running: false, solving: false, refreshing: false, stage: "" });
+        if (!(e instanceof RunCancelled))
+          toastMsg(`The simulation failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
         return;
       }
+      jobId.current = null;
       if (current()) {
         const inQueue = new Set(res.queue.map((x) => x.request_id));
         patch((x) => ({
@@ -71,6 +89,7 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branch
           prevStatus,
           running: false,
           solving: false,
+          refreshing: false,
           stage: "",
           fraction: 1,
           // projects this run now includes are no longer preliminary

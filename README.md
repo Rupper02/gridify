@@ -174,7 +174,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | `POST /branches/{id}/registry` | Pull a registry project onto a branch |
 | `POST /optimize/candidates` | Add a hand-entered project |
 | `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, per-year results (`years`, with outage studies and the demand side: `regions` and `alerts`), GSP exchange, N-1 findings, recommended and scheduled years. Body: `view_year` (solved first), `with_justification` |
-| `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs; `?partial=true` returns the queue plus the years solved so far (`has_partial` says whether there are any) |
+| `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs; `?partial=true` returns the queue plus the years solved so far (`has_partial` says whether there are any); `POST /jobs/{id}/cancel` stops a job a newer edit supersedes (what it solved stays cached) |
 | `GET /cache` | What the durable result cache holds, per kind and engine fingerprint |
 | `POST /branches/{id}/schedule` | Set or clear a project's energisation year (`against_recommendation` is reported back) |
 | `POST /branches/{id}/scenario` | Change a branch's demand profile (pathway and growth); takes effect on the next run |

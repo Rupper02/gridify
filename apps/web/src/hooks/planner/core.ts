@@ -76,6 +76,7 @@ export interface PlannerState {
   prevStatus: Record<string, Status>;
   running: boolean; // the overlay: until the queue and the viewed year are in
   solving: boolean; // the job is still solving the remaining years in the background
+  refreshing: boolean; // an automatic refresh after a cheap edit is pending or running (no overlay)
   stage: string;
   fraction: number;
   runId: number;
@@ -103,7 +104,7 @@ export const INITIAL: PlannerState = {
   model: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
   outages: [], reinforcements: [], added: {},
-  result: null, resultAt: "", prevStatus: {}, running: false, solving: false, stage: "", fraction: 0, runId: 0,
+  result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
   diff: null, diffMode: false, suggestions: null,
   tab: "copilot", sideOpen: true, layer: "flow", showDeferred: false, legendOpen: false, showBoundary: false,
   year: 2030, sel: null,

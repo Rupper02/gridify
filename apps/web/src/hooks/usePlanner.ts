@@ -14,6 +14,7 @@ import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
 import { useCopilot } from "./planner/useCopilot";
 import { useDerived } from "./planner/useDerived";
+import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
 import { useProjectEdits } from "./planner/useProjectEdits";
 import { useRegistry } from "./planner/useRegistry";
@@ -33,15 +34,16 @@ export function usePlanner() {
 
   const { refreshBranches } = useBranchList(core);
   const run = useRun(core, afterRun);
-  const maint = useMaintenance(core);
-  const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras);
+  const edited = useAutoRefresh(core, run);
+  const maint = useMaintenance(core, edited);
+  const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
     void flows.refreshDiff(bid);
   };
   const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
   const { select, selectProject, focusSel } = useSelection(core);
-  const { setSchedule } = useProjectEdits(core);
+  const { setSchedule } = useProjectEdits(core, edited);
   const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever);
   const derived = useDerived(s);
 

@@ -396,7 +396,7 @@ export type MapLayer = "flow" | "loading" | "voltage";
 export interface Job {
   job_id: string;
   kind: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
   stage: string;
   fraction: number;
   created_at: string;

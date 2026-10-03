@@ -4,8 +4,9 @@ import { useCallback } from "react";
 
 import { api } from "../../api";
 import type { Core } from "./core";
+import type { EditedFn } from "./useAutoRefresh";
 
-export function useProjectEdits({ patch, ref, toastMsg }: Core) {
+export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn) {
   /**
    * Set/override a project's energisation year (null = back to the optimizer's recommendation).
    * Persisted on the branch; applied optimistically, rolled back if the save fails. It doesn't change
@@ -29,12 +30,13 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core) {
       applyYear(year);
       try {
         await api.setSchedule(bid, rid, year);
+        edited("schedule");
       } catch (e) {
         applyYear(prev);
         toastMsg(`Couldn't save the year for ${rid}: ${e instanceof Error ? e.message : "unknown error"}`, "warn");
       }
     },
-    [patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   return { setSchedule };

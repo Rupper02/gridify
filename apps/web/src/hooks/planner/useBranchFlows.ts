@@ -5,6 +5,7 @@ import { useCallback } from "react";
 import { api } from "../../api";
 import { EMPTY_CHAT } from "./core";
 import type { Core } from "./core";
+import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
 
 export function useBranchFlows(
@@ -12,6 +13,7 @@ export function useBranchFlows(
   run: RunFn,
   refreshBranches: () => Promise<unknown>,
   loadExtras: (branchId: string) => Promise<void>,
+  edited: EditedFn,
 ) {
   /** Switch the active branch: the whole view (map, queue, roadmap, panels) follows it. */
   const selectBranch = useCallback(
@@ -69,12 +71,13 @@ export function useBranchFlows(
       patch({ branches: st.branches.map((b) => (b.branch_id === bid ? { ...b, scenario, growth_2030: fc.growth_2030, growth_2035: fc.growth_2035 } : b)) });
       try {
         await api.updateScenario(bid, scenario, fc.growth_2030, fc.growth_2035);
+        edited("profile");
       } catch {
         patch({ branches: before });
         toastMsg("Could not store the demand profile. Check the API is running.", "warn");
       }
     },
-    [patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   /** The consequence diff of the active branch vs main (with the optional narration). */

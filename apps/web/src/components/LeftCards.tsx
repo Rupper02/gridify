@@ -11,7 +11,7 @@ import { C, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "boundary" | "outages" | "result" | "resultAt" | "running" | "showBoundary" | "solving" | "year",
+  "boundary" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showBoundary" | "solving" | "year",
   "focusSel" | "run" | "toggleBoundary",
   "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr"
 >;
@@ -23,16 +23,18 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const gsp = yr?.gsp_export_mw ?? null;
   const gspHot = gsp != null && limit ? gsp / limit > 0.9 : false;
   const runLabel = `${stale.stale ? "Re-run" : "Run"} on ${profile.label}`;
+  const showStale = stale.stale && !s.refreshing; // an automatic refresh is already on its way
 
   if (layout.narrow) {
     return (
-      <div className="narrow-pill glass" style={{ borderColor: stale.stale ? "rgba(255,195,107,0.45)" : undefined }}>
+      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
         <ProfileGlyph bars={resultProfile.bars} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
         <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
           GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
-        {stale.stale && (
+        {s.refreshing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
+        {showStale && (
           <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()}>
             Out of date · re-run
           </button>
@@ -57,7 +59,9 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
   const n = s.outages.length;
   const sub = !s.result
     ? "No run yet"
-    : yearsSolved < yearsTotal
+    : s.refreshing
+      ? "Updating the years your edit touches…"
+      : yearsSolved < yearsTotal
       ? `Solving years · ${yearsSolved} of ${yearsTotal} in`
       : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}`;
   return (
@@ -73,7 +77,7 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
           <span style={{ fontSize: 11, color: C.mute }}>{sub}</span>
         </div>
       </div>
-      {stale.stale && (
+      {stale.stale && !s.refreshing && (
         <div className="box amber">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
           <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={s.running}>
