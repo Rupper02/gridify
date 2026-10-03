@@ -298,7 +298,7 @@ def _over(loading: dict[int, float], limit: float) -> set[int]:
     return {int(i) for i, v in loading.items() if v is not None and v > limit}
 
 
-def _n1_key(v: dict) -> tuple:
+def n1_key(v: dict) -> tuple:
     """A finding's identity: which element was lost and which limit broke on what."""
     return (v.get("outage_type"), str(v.get("outage_id")), v.get("type"), v.get("element_id"))
 
@@ -308,8 +308,8 @@ def diff_year(base: YearResult, head: YearResult) -> YearDelta:
     b_over, h_over = set(base.overloaded_line_ids), set(head.overloaded_line_ids)
     bt_over = _over(base.trafo_loading, TRAFO_LOADING_MAX_PCT)
     ht_over = _over(head.trafo_loading, TRAFO_LOADING_MAX_PCT)
-    b_n1 = {_n1_key(v): v for v in base.n1_violations}
-    h_n1 = {_n1_key(v): v for v in head.n1_violations}
+    b_n1 = {n1_key(v): v for v in base.n1_violations}
+    h_n1 = {n1_key(v): v for v in head.n1_violations}
     return YearDelta(
         year=head.year,
         worst_line_base=base.worst_line_loading_pct,

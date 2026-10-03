@@ -37,9 +37,11 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `windows.py` | `best_windows`: a work's window studied in every (year, season) against the plan that year, ranked (two passes: N-1 for a shortlist only). |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
 | `diff.py` | `diff_results(base, head, works_on_base=)`: the consequence diff between two plans (queue, 2030/2035 phases, every plan year via `diff_years` / `diff_year`, planned works via `diff_works`). Pure. |
+| `findings.py` | `extract_findings(result, scheduled)`: every problem a plan carries as one flat list of `Finding`s with a stable, value-independent `fingerprint` (overloads, voltage breaches, the GSP margin, N-1 findings, demand alerts, works verdicts, deferred and rejected projects, schedules against the recommendation, non-convergent years); `EXTRACTORS` is the registry; `against_recommendation`. Pure. |
+| `gate.py` | `merge_verdict(head, base, diff, fresh=…)`: may this branch become the plan of record? A pure policy over two results: blocks what the branch introduces or worsens in any plan year, warns on the rest, reports what the parent already carries as context. `MERGE_CHECKS` is the registry; every level lives in `config.MERGE_GATE_LEVELS`. Never solves. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`). `YearResult.converged` says whether the year's intact power flow converged. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -210,6 +212,28 @@ Freed MW is first-order: the knock-on of a freed project blocking a later one is
 - **`years`** — `{year: YearDelta}` for every plan year solved on both results (`OptimizeResult.years`; `diff_years` / `diff_year`): worst line and transformer loading base/head/delta, min/max voltage delta, peak GSP export base/head/delta (with the limit), N-1 finding counts and the findings new on head or cleared (`n1_new` / `n1_cleared`, by lost element + breached element), lines AND transformers newly over 100% or cleared, the top 10 line and transformer movers (`LoadingDelta`: `element_id`, `base_pct`, `head_pct`, `delta`, `crossed`, plus any crossing beyond the top 10), and the projects in service on only one side.
 - **`works`** — one `WorkDelta` per head window (`diff_works(on_main, on_branch)`): its verdict and curtailed / at-risk MW on head's plan against the same window (by outage id and year) studied on base's plan, `change` (`worse` / `better` / `unchanged` / `unstudied`; a heavier burden under the same verdict counts as worse, ordered by `VERDICT_SEVERITY`) and a plain-English `consequence` ("Feasible on main, but needs 40.0 MW of curtailment on this branch."). The base-plan study is the caller's: the API solves head's windows on base's energised plan (base's projects, schedule and reinforcements; `evaluate_year(..., n1=False)` for each year with a window) and passes them as `works_on_base`. Without it, head's windows are compared with base's own windows of the same id.
 
+### Merge guardrails and the findings ledger (`gate.py`, `findings.py`)
+
+`merge_verdict(head, base, diff=None, *, fresh, stale_reasons, scheduled, removed_works, removed_reinforcements, base_label) -> MergeVerdict`, pure. The rule: **no merge while the grid would be broken in any plan year**, read against the parent, because the parent is not perfect either. Every check in `MERGE_CHECKS` compares the branch with its parent in the same plan year and emits `GateFinding`s whose level comes from `config.MERGE_GATE_LEVELS`, the only place a level is decided:
+
+| Check | Blocks | Warns | Context |
+|---|---|---|---|
+| `_stale`, `_no_result`, `_unstudied_years` | a result not solved for the branch's current inputs; a missing side; a plan year missing on either side | | |
+| `_non_convergent` | a year that converges on the parent but not on the branch | | both sides fail to converge |
+| `_behind_base` | a project on the parent but not on the branch (it merged after the branch was opened; merging would drop it) | | |
+| `_thermal` | a line or transformer newly over its rating; one already over it loading more than `GATE_WORSEN_PTS` more | | already over it on the parent, unchanged |
+| `_voltage` | a bus newly outside its statutory band | one already outside it drifting more than `GATE_VM_WORSEN_PU` further | already outside it, unchanged |
+| `_gsp` | export newly above the limit; already above it and more than `GATE_GSP_WORSEN_MW` higher | export above `GSP_NEAR_LIMIT_FRACTION` of the limit and higher than the parent's | already above or near it, not added to |
+| `_n1` | a new N-1 finding (islanded demand, or a limit breached after a single outage), keyed by `diff.n1_key`, never capped | a finding whose figure grew | findings already on the parent, summarised per year |
+| `_alerts` | a new `breach` alert, or a warning that became a breach | a new `warn` alert; one further past its threshold | unchanged alerts |
+| `_works` | a window whose verdict becomes `demand_at_risk` or `not_feasible` on the branch | more curtailment under the same verdict; a window infeasible on both plans | |
+| `_schedule`, `_profile`, `_proposals` | | a project scheduled against the recommendation; a changed demand profile; works or reinforcements the merge removes from the parent | |
+| `_deferred` | | | projects the branch still defers on the grid |
+
+Connections stay ungated (N-1 and planned works are reported, never a connection gate); merges are gated, because a supply-security regression is what "the grid would be broken" means. The API decides freshness (its caches know whether the branch was solved for its current inputs) and whether warnings need acknowledging.
+
+`extract_findings(result, scheduled) -> list[Finding]` is the ledger's input: every problem a result carries, breaches first, each with a `fingerprint` of kind + element + year + case (never the value), so a re-run upserts the same finding instead of duplicating it. `EXTRACTORS`: overloads and voltage breaches per year (the worst-case envelope), the GSP over or near its limit, every N-1 finding, every demand alert, every works window that is not simply feasible, deferred (with the binding reason) and rejected projects, schedules against the recommendation, non-convergent years. A gate finding carries the ledger fingerprint it refers to (`finding_fingerprint`).
+
 ---
 
 ## Demand growth (`network.per_bus_growth`)
@@ -246,7 +270,7 @@ How the registry's facts map onto it:
 
 ```python
 VOLTAGE_BANDS                       = ((132, 0.90, 1.10), (1, 0.94, 1.06))   # statutory, by level
-OLTC_SETPOINT_PU / OLTC_DEADBAND_PU = 1.0 / 0.01 ; OLTC_TAP_STEP_PERCENT = 1.25 (assumed)
+OLTC_SETPOINT_PU / OLTC_DEADBAND_PU = 1.02 / 0.01 ; OLTC_TAP_STEP_PERCENT = 1.25 (assumed)
 GENERATION_FACTORS                  = winter: solar 0, wind 0, battery/hybrid -1, demand/electrolyser -1 ;
                                       summer: all 1, demand/electrolyser -DEMAND_PROJECT_MIN_FACTOR
 GENERATION_FACTOR_DEFAULT           = firm (1) in both cases: gas, gas engines, biomass, other
@@ -264,6 +288,9 @@ MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 24
 W_READINESS / W_NEED / W_STRATEGIC  = 0.5 / 0.35 / 0.15
 GROWTH_2030 / GROWTH_2035           = 1.08 / 1.35   # FES 2025 Holistic Transition
 MAX_SUGGESTIONS / MAX_REINFORCE_STEPS = 5 / 4
+MERGE_GATE_LEVELS                   = kind -> blocker | warning | info   # the merge-gate policy (see above)
+GATE_WORSEN_PTS / GATE_GSP_WORSEN_MW / GATE_VM_WORSEN_PU = 1.0 / 1.0 / 0.005   # worsening margins (assumed)
+GSP_NEAR_LIMIT_FRACTION             = 0.9      # GSP export warning band
 ```
 
 NGED-specific values live in `nged.py`: `GSP_PEAK_DEMAND_MW = 149.235` (NESO FES 2024 regional breakdown; today's winter-peak demand sums to it), `GSP_BOUNDARY` (2 × 263.5 MW SGT export limit, with the source resource id), `TRANSMISSION_PROJECTS` and `ECR_MIN_EXPORT_MW = 1`.
@@ -273,7 +300,7 @@ NGED-specific values live in `nged.py`: `GSP_PEAK_DEMAND_MW = 149.235` (NESO FES
 ## Tests
 
 ```bash
-cd packages/optimizer && uv run pytest -q     # 79 tests on 4 workers (pytest-xdist); ~2 min
+cd packages/optimizer && uv run pytest -q     # 132 tests on 4 workers (pytest-xdist); ~2 min
 ```
 
 The N-1 screen is stubbed in every test except the one that tests it (`conftest.py`, marker `n1`): it costs ~2 s per phase inside `optimize()` and would otherwise dominate the suite.
@@ -296,6 +323,8 @@ What they cover:
 - the demand side: regions cover every load once, demand grows with the years, headroom = firm - demand, P2/8 class bands, a starved firm capacity raising the alert, project demand counted in its group, N-1 stranding attributed to the islanded group, and the alert registry (`test_demand.py`; NGED rows in `test_nged.py`);
 - the best-window search: every (year, season) once, ranked, the same study the year reports, combined with same-season windows, probes independent across years, the N-1 shortlist, bad requests (`test_windows.py`);
 - reinforcement, suggestions and the diff;
+- the merge gate: each check against the policy table, pre-existing problems as context, worsening margins, blockers never cut off by the diff's display caps, determinism, and a live pair on the grid (`test_gate.py`);
+- the findings ledger's input: every kind extracted, stable value-independent fingerprints, a clean result has none, real years name elements by index (`test_findings.py`);
 - the readiness rubric.
 
 `test_nged.py` adds the NGED data rules: removed equipment is excluded, every live MW of demand is modelled, and nothing from the registry is pre-loaded.

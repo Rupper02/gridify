@@ -191,6 +191,59 @@ class Alert(BaseModel):
     message: str
 
 
+# how bad a finding is, worst first: the order findings and the merge gate sort by
+SEVERITY_ORDER = {"breach": 0, "warn": 1, "info": 2}
+
+
+class Finding(BaseModel):
+    """One thing wrong (or worth knowing) in a plan: extracted deterministically from a result by
+    `findings.EXTRACTORS`, or filed by an agent against a recorded study step. Its fingerprint is
+    stable across runs (kind + element + year + case, never the value), so a ledger upserts the same
+    finding instead of duplicating it. `value` and `limit` are engine figures; `message` restates them."""
+
+    fingerprint: str
+    kind: str  # overload | voltage | gsp_over_limit | gsp_near_limit | n1 | alert | work | deferred | rejected | against_recommendation | non_convergent
+    severity: str  # "breach" | "warn" | "info" (SEVERITY_ORDER)
+    source: str = "engine"  # "engine" | "agent" | "operator"
+    year: int | None = None
+    case: str | None = None
+    element_kind: str | None = None  # line | trafo | bus | gsp | region | project | outage
+    element_id: str | None = None  # text: project and region ids are strings, line/bus ids are indices
+    value: float | None = None
+    limit: float | None = None
+    message: str
+    context: dict = {}  # identity extras: the N-1 breach, the alert kind, the works verdict, the binding reason
+
+
+class GateFinding(BaseModel):
+    """One reason the merge gate (gate.MERGE_CHECKS) blocks, warns or merely notes. Its level comes
+    from `config.MERGE_GATE_LEVELS`, never from the check itself."""
+
+    kind: str
+    level: str  # "blocker" | "warning" | "info"
+    year: int | None = None
+    case: str | None = None
+    element_kind: str | None = None
+    element_id: str | None = None
+    value: float | None = None  # on the branch
+    base_value: float | None = None  # on the parent, where there is one
+    limit: float | None = None
+    message: str
+    finding_fingerprint: str | None = None  # the ledger finding on the branch this refers to (findings.fingerprint)
+
+
+class MergeVerdict(BaseModel):
+    """May this branch become the plan of record? `ok` means no blockers; warnings may still need
+    acknowledging (an API policy). `context` is what the parent already carries: never a reason to block."""
+
+    ok: bool
+    blockers: list[GateFinding] = []
+    warnings: list[GateFinding] = []
+    context: list[GateFinding] = []
+    years_compared: list[int] = []
+    summary: str = ""
+
+
 class WindowOption(BaseModel):
     """One candidate window for a planned work (windows.best_windows): the element studied out in
     one season of one year against the plan as it stands then, ranked against the others."""
@@ -220,6 +273,7 @@ class YearResult(PhaseResult):
     outage_studies: list[OutageStudy] = []
     regions: list[RegionYear] = []  # the demand side: every demand group this year (demand.py)
     alerts: list[Alert] = []  # demand-side warnings this year (demand.ALERT_CHECKS)
+    converged: bool = True  # False when a study case did not converge this year (the figures are then the last solve's)
 
 
 class OptimizeResult(BaseModel):

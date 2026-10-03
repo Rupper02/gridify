@@ -100,12 +100,13 @@ def evaluate_year(
     feasibility(net)  # settles the taps for the intact state
     studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if n1 else None)
     screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
-    _, _, m = feasibility(net)  # the intact envelope the map and readings show
+    _, intact_reason, m = feasibility(net)  # the intact envelope the map and readings show
     yr = YearResult(
         year=year,
         growth=round(growth, 4),
         energised=energised,
         accepted=energised,
+        converged=intact_reason is None or intact_reason.type != "non_convergent",
         worst_line_loading_pct=round(m.get("max_line_pct", 0.0), 1),
         worst_trafo_loading_pct=round(m.get("max_trafo_pct", 0.0), 1),
         min_vm_pu=round(m.get("min_vm", 0.0), 4),

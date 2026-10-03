@@ -15,8 +15,6 @@ The division of labour is deliberate:
 # in nged.py) that hold their LV busbar near OLTC_SETPOINT_PU, so the tight band below 132 kV is a
 # real planning limit rather than an artefact of fixed taps.
 VOLTAGE_BANDS = ((132.0, 0.90, 1.10), (1.0, 0.94, 1.06))
-VOLTAGE_MIN_PU = 0.9  # the widest (132 kV) band: kept for the pipeline check's headline + docs
-VOLTAGE_MAX_PU = 1.1
 # Tap changers regulate their LV busbar to this voltage. A PLANNING ASSUMPTION: LTDS does not publish
 # AVC target voltages, and GB DNOs set them above nominal so feeder ends stay in band at peak. 1.02 pu
 # is the lowest value at which today's network (LTDS + NESO's GSP peak) meets the statutory band at
@@ -89,6 +87,33 @@ BEST_WINDOW_N1_SHORTLIST = 6
 # reported per phase, not enforced as a connection gate. Roughly ENA P2/8 security of supply.
 N1_MIN_KV = 132.0
 N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a generator spur, a tee) is not a supply violation
+
+# --- merge guardrails (gate.py) -----------------------------------------------------------------
+# Merging a branch into the plan of record is gated by a pure policy over results the engine has
+# already produced: a branch is refused when its result is stale, or when it INTRODUCES or WORSENS a
+# problem relative to its parent in the same plan year. Problems the parent already carries are
+# context, never blockers (main itself is not perfect). Connections are never gated by this.
+# Levels are data: every kind a check can emit is listed here and this is the only place a level
+# is decided, so a policy change is a one-line, registered change (README, Sources and assumptions).
+MERGE_GATE_LEVELS = {
+    "stale": "blocker", "no_result": "blocker", "unstudied_years": "blocker", "non_convergent": "blocker",
+    "behind_base": "blocker",
+    "new_overload": "blocker", "overload_worse": "blocker",
+    "new_voltage_violation": "blocker", "voltage_worse": "warning",
+    "gsp_over_limit": "blocker", "gsp_worse": "blocker", "gsp_near_limit": "warning",
+    "n1_new_islanded": "blocker", "n1_new_limit": "blocker", "n1_worse": "warning",
+    "alert_new_breach": "blocker", "alert_new_warn": "warning", "alert_worse": "warning",
+    "work_worse_severe": "blocker", "work_worse": "warning", "work_infeasible": "warning",
+    "against_recommendation": "warning", "profile_differs": "warning", "proposals_removed": "warning",
+    "preexisting": "info", "deferred_on_grid": "info",
+}
+# An element already past its limit on the parent counts as WORSENED on the branch only beyond these
+# margins (loading points, MW of GSP export, pu of voltage): planning tolerances, chosen, not sourced.
+GATE_WORSEN_PTS = 1.0
+GATE_GSP_WORSEN_MW = 1.0
+GATE_VM_WORSEN_PU = 0.005
+# GSP export above this share of its export limit is a warning (the planner's gauge turns amber here too)
+GSP_NEAR_LIMIT_FRACTION = 0.9
 
 # --- demand-side security (demand.py) -----------------------------------------------------------
 # A SIMPLIFIED P2/8-STYLE check, not a P2/8 assessment: restoration times, switching, transfer

@@ -22,6 +22,8 @@ from .diff import (
     diff_year,
     diff_years,
 )
+from .findings import against_recommendation, extract_findings
+from .gate import merge_verdict
 from .greedy import optimize
 from .network import apply_reinforcement
 from .suggest import suggest_unblock
@@ -32,6 +34,9 @@ from .types import (
     Curtailment,
     N1During,
     Alert,
+    Finding,
+    GateFinding,
+    MergeVerdict,
     Outage,
     OutageStudy,
     PhaseResult,
@@ -85,6 +90,12 @@ __all__ = [
     "apply_reinforcement",
     "suggest_unblock",
     "diff_results",
+    "extract_findings",
+    "against_recommendation",
+    "merge_verdict",
+    "Finding",
+    "GateFinding",
+    "MergeVerdict",
     "ConsequenceDiff",
     "ProjectDelta",
     "PhaseDelta",
