@@ -198,58 +198,93 @@ def test_merge_adopts_branch_into_main():
 
 def test_chat_file_project_validates_all_three():
     """Chat filing requires confirmed MW, an existing bus on this GSP, and a modeled technology."""
+    br = _create("Chat test branch")
+    bid = br["branch_id"]
     stiff = _stiff_bus()
-    # success: all three confirmed
+    # success: all three confirmed (solar = winter factor 0)
     r = client.post("/chat/file-project", json={
-        "rating_mw": 10.0, "bus_id": stiff, "technology": "solar", "branch_id": "main"
+        "rating_mw": 10.0, "bus_id": stiff, "technology": "solar", "branch_id": bid
     })
     assert r.status_code == 200, r.text
     filed = r.json()
     assert filed["rating_mw"] == 10.0 and filed["bus_id"] == stiff and filed["technology"] == "solar"
     assert filed["status"] == "valid"
+    assert filed["commissioning_year"] is None, "chat filing must not set commissioned_year"
+
+    # modeled technologies file and stay firm: 'other' is biomass, gas, synchronous machines
+    for tech in ["other", "battery", "wind"]:
+        r = client.post("/chat/file-project", json={
+            "rating_mw": 5.0, "bus_id": stiff, "technology": tech, "branch_id": bid
+        })
+        assert r.status_code == 200, f"'{tech}' should be accepted"
+        assert r.json()["technology"] == tech
+        assert r.json()["commissioning_year"] is None
+
+    # unknown technology refused: fusion has no meaning
+    r = client.post("/chat/file-project", json={
+        "rating_mw": 10.0, "bus_id": stiff, "technology": "fusion", "branch_id": bid
+    })
+    assert r.status_code == 422, "fusion should be refused"
+    assert "not modeled" in r.text.lower()
 
     # missing/invalid MW
     assert client.post("/chat/file-project", json={
-        "rating_mw": 0, "bus_id": stiff, "technology": "solar"
+        "rating_mw": 0, "bus_id": stiff, "technology": "solar", "branch_id": bid
+    }).status_code == 422
+
+    # rating above MAX_CONNECTION_MW (transmission connection)
+    assert client.post("/chat/file-project", json={
+        "rating_mw": 999.0, "bus_id": stiff, "technology": "solar", "branch_id": bid
     }).status_code == 422
 
     # bus not on this GSP
     assert client.post("/chat/file-project", json={
-        "rating_mw": 10.0, "bus_id": 99999, "technology": "solar"
+        "rating_mw": 10.0, "bus_id": 99999, "technology": "solar", "branch_id": bid
     }).status_code == 422
 
-    # technology not modeled
+    # empty technology
     assert client.post("/chat/file-project", json={
-        "rating_mw": 10.0, "bus_id": stiff, "technology": "fusion"
+        "rating_mw": 10.0, "bus_id": stiff, "technology": "", "branch_id": bid
+    }).status_code == 422
+
+    # no branch_id (filing to main would adopt)
+    assert client.post("/chat/file-project", json={
+        "rating_mw": 10.0, "bus_id": stiff, "technology": "solar"
     }).status_code == 422
 
 
 def test_chat_filed_project_does_not_set_year():
     """Chat filing does not set a commissioned year - the field must be NULL/None."""
+    br = _create("Year test branch")
+    bid = br["branch_id"]
     stiff = _stiff_bus()
     r = client.post("/chat/file-project", json={
-        "rating_mw": 5.0, "bus_id": stiff, "technology": "wind", "applicant": "Chat test"
+        "rating_mw": 5.0, "bus_id": stiff, "technology": "wind", "applicant": "Chat test", "branch_id": bid
     })
     assert r.status_code == 200
     filed = r.json()
     # The chat path must return the project with commissioned_year unset (NULL/None)
     assert filed["commissioning_year"] is None, f"commissioned_year must be None, got {filed['commissioning_year']}"
-    # the project is on main (or the specified branch) but not yet ranked or adopted
-    assert filed["branch_id"] == "main"
+    # the project is on the specified branch, not main (filing to main would be adopting)
+    assert filed["branch_id"] == bid
 
 
 def test_chat_filed_project_preserves_technology_winter_behavior():
-    """Filed projects keep their technology's existing winter behavior (solar/wind zero, battery charging)."""
+    """Filed projects keep their technology's existing winter behavior (solar/wind zero, battery charging, firm=1)."""
+    br = _create("Tech behavior test branch")
+    bid = br["branch_id"]
     stiff = _stiff_bus()
-    # File projects with each modeled technology
-    for tech in ["solar", "wind", "battery"]:
+    # File projects with each modeled technology: specific factors (solar/wind/battery) and firm ('other')
+    for tech in ["solar", "wind", "battery", "other"]:
         r = client.post("/chat/file-project", json={
-            "rating_mw": 10.0, "bus_id": stiff, "technology": tech, "applicant": f"{tech} test"
+            "rating_mw": 10.0, "bus_id": stiff, "technology": tech, "applicant": f"{tech} test", "branch_id": bid
         })
-        assert r.status_code == 200
+        assert r.status_code == 200, f"{tech} should file successfully"
         filed = r.json()
         assert filed["technology"] == tech
+        assert filed["commissioning_year"] is None
         # The technology is stored as-is; winter behavior comes from GENERATION_FACTORS in the engine
+        # solar/wind get factor 0.0, battery gets -1.0, 'other' (biomass, gas, etc.) gets default 1.0
         # We verify the endpoint does not alter the technology or invent new dispatch rules
 
 
