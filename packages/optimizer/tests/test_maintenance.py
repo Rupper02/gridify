@@ -163,3 +163,20 @@ def test_the_n1_screen_runs_with_the_window_in_place(settled):
     assert s.n1_during.screened > 0 and s.n1_during.second_fault_at_risk_mw >= 0.0
     # without a screen (a year solved without N-1) there is no N-1 during the window
     assert study_windows(settled, [_window("n", "line", line)])[0].n1_during is None
+
+
+@pytest.mark.n1
+def test_a_window_that_changes_nothing_adds_no_second_fault_findings(settled):
+    """Regression: the screen during a window used to count every N-1 finding the year already has
+    without the window, so a harmless window read as '19 findings'."""
+    from gridforge_optimizer.network import n1_screen
+
+    fleet = settled.sgen[settled.sgen["fleet_id"].notna() & settled.sgen["type"].isin(["solar", "wind"])]
+    if fleet.empty:
+        pytest.skip("no solar or wind in the existing fleet")
+    gen = str(fleet["fleet_id"].iloc[0])
+    o = Outage(outage_id="g", element_kind="gen", element_id=gen, season="Winter", year=2030, kind="derate")
+    base = n1_screen(settled, "winter_peak")
+    s = study_windows(settled, [o], screen=n1_screen)[0]
+    assert s.n1_during is not None and s.n1_during.findings == 0
+    assert base["screened"] == s.n1_during.screened  # the same screen, the same elements

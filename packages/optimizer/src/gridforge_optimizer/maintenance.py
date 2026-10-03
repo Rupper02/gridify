@@ -370,31 +370,61 @@ def _study_case(net, name: str, load_scale, ratio, out: _GroupResult) -> None:
         out.judge("not_feasible")
 
 
-def _screen_during(net, screen: Screen, solved: dict[str, _CaseState]) -> N1During:
+# what the same N-1 screen finds WITHOUT the window, per case: {(outage, problem, element): MW stranded}
+Baseline = dict[str, dict[tuple, float]]
+
+
+def _finding_key(v: dict) -> tuple:
+    return (v.get("outage_type"), v.get("outage_id"), v.get("type"), None if v.get("type") == "islanded" else v.get("element_id"))
+
+
+def _baseline_screen(net, screen: Screen, season_name: str) -> Baseline:
+    """The N-1 screen of the year as it is (no window), in the season's cases and ratings: what a
+    window's own screen is compared with, so only what the window adds is reported. Taps as found."""
+    season = SEASON_STUDY.get(season_name, SEASON_STUDY["Summer"])
+    cases = {c.name: c for c in _study_cases(net)}
+    taps = tap_positions(net)
+    out: Baseline = {}
+    try:
+        for name in season["cases"]:
+            if name not in cases:
+                continue
+            ratio = _column(net.line, season["rating_column"]) if season["rating_column"] else cases[name].rating_ratio
+            found = screen(net, name, rating_ratio=ratio).get("violations", [])
+            out[name] = {_finding_key(v): float(v.get("value") or 0.0) for v in found}
+    finally:
+        set_tap_positions(net, taps)
+    return out
+
+
+def _screen_during(net, screen: Screen, solved: dict[str, _CaseState], baseline: Baseline) -> N1During:
     """The N-1 screen with the window in place, in each of the window's cases (seasonal ratings).
-    A finding counts when a second fault adds to the window's own state: a breach on another element,
-    or at least N1_ISLAND_MIN_MW of demand stranded beyond what the window strands by itself."""
+    A finding counts only when the window adds it: not already found without the window (`baseline`),
+    not a breach the window causes on its own, and for an island at least N1_ISLAND_MIN_MW of demand
+    beyond what the window or the same fault without the window strands."""
     n1 = N1During()
     worst_mw, worst_msg = 0.0, ""
     for name, own in solved.items():
         s = screen(net, name, rating_ratio=own.ratio)
+        base = baseline.get(name, {})
         n1.cases.append(name)
         n1.screened += int(s.get("screened", 0))
         for v in s.get("violations", []):
+            key = _finding_key(v)
             if v.get("type") == "islanded":
-                extra = float(v.get("value") or 0.0) - own.stranded_mw
+                extra = float(v.get("value") or 0.0) - max(own.stranded_mw, base.get(key, 0.0))
                 if extra < N1_ISLAND_MIN_MW:
                     continue
                 if extra > worst_mw:
                     worst_mw, worst_msg = extra, f"{v['outage_type']} {v['outage_id']} as well, at {_CASE_LABEL[name]}"
-            elif (v.get("type"), v.get("element_id")) in own.breaches:
+            elif key in base or (v.get("type"), v.get("element_id")) in own.breaches:
                 continue
             n1.findings += 1
     n1.second_fault_at_risk_mw, n1.worst = round(worst_mw, 1), worst_msg
     return n1
 
 
-def _study_group(net, season_name: str, screen: Screen | None) -> _GroupResult:
+def _study_group(net, season_name: str, screen: Screen | None, baseline: Baseline) -> _GroupResult:
     season = SEASON_STUDY.get(season_name, SEASON_STUDY["Summer"])
     cases = {c.name: c for c in _study_cases(net)}
     out = _GroupResult()
@@ -405,7 +435,7 @@ def _study_group(net, season_name: str, screen: Screen | None) -> _GroupResult:
         ratio = _column(net.line, season["rating_column"]) if season["rating_column"] else case.rating_ratio
         _study_case(net, name, case.load_scale, ratio, out)
     if screen is not None:
-        out.n1 = _screen_during(net, screen, out.solved)
+        out.n1 = _screen_during(net, screen, out.solved, baseline)
     return out
 
 
@@ -469,6 +499,7 @@ def study_windows(net, windows: list[Outage], *, screen: Screen | None = None) -
     studies: dict[int, OutageStudy] = {}
     pos = {id(o): i for i, o in enumerate(windows)}
     for season, group in by_season.items():
+        baseline = _baseline_screen(net, screen, season) if screen is not None else {}
         taps = tap_positions(net)
         undos, applied = [], []
         try:
@@ -479,7 +510,7 @@ def study_windows(net, windows: list[Outage], *, screen: Screen | None = None) -
                 else:
                     undos.append(undo)
                     applied.append(o)
-            g = _study_group(net, season, screen) if applied else None
+            g = _study_group(net, season, screen, baseline) if applied else None
         finally:
             for undo in reversed(undos):
                 undo()
