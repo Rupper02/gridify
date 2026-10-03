@@ -538,6 +538,42 @@ def solve_case(net, case: str) -> dict | None:
         set_tap_positions(net, taps)
 
 
+class OutageResult(NamedTuple):
+    """One element taken out: the case's results (None when the power flow fails) and the demand it strands."""
+
+    kind: str
+    eid: int
+    name: str
+    res: dict | None
+    lost_mw: float
+    island: list[int]
+
+
+def n1_elements(net, min_kv: float = N1_MIN_KV) -> list[tuple[str, int]]:
+    """The in-service lines and transformers at or above `min_kv` (by from-bus / HV bus), lines first."""
+    kv = net.bus["vn_kv"].astype(float)
+    lines = [("line", int(i)) for i in net.line.index if net.line.at[i, "in_service"] and kv.loc[int(net.line.at[i, "from_bus"])] >= min_kv]
+    trafos = [("trafo", int(i)) for i in net.trafo.index if net.trafo.at[i, "in_service"] and kv.loc[int(net.trafo.at[i, "hv_bus"])] >= min_kv]
+    return lines + trafos
+
+
+def outage_results(net, case: str, load_scale, rating_ratio, elements):
+    """Each element out in turn, solved with the taps as they are (the pre-fault settings: a tap
+    changer does not move in the instant after a fault), restored before the next. Shared by the N-1
+    screen and the contingency ranking (studies.py); callers settle the taps for the case first."""
+    tables = {"line": net.line, "trafo": net.trafo}
+    for kind, eid in elements:
+        table = tables[kind]
+        table.at[eid, "in_service"] = False
+        try:
+            res = _run_case(net, case, load_scale, rating_ratio, regulate=False)
+        finally:
+            table.at[eid, "in_service"] = True
+        name = str(table.at[eid, "name"] or f"{kind} {eid}")
+        lost, island = _islanded_mw(net, res["vm"]) if res is not None else (0.0, [])
+        yield OutageResult(kind, eid, name, res, lost, island)
+
+
 def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
     """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
     above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
@@ -551,39 +587,28 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
     # the pre-fault state is the intact network with its taps regulated for THIS case. feasibility()
     # leaves them as the last study case (summer minimum) settled them, which would make every winter
     # outage look like a voltage breach, so settle them for the screened case first; each outage then
-    # runs with those taps frozen (a tap changer does not move in the instant after a fault).
+    # runs with those taps frozen (outage_results).
     _run_case(net, case, load_scale, rating_ratio, regulate=True)
-    kv = net.bus["vn_kv"].astype(float)
-    lines = [int(i) for i in net.line.index if net.line.at[i, "in_service"] and kv.loc[int(net.line.at[i, "from_bus"])] >= N1_MIN_KV]
-    trafos = [int(i) for i in net.trafo.index if net.trafo.at[i, "in_service"] and kv.loc[int(net.trafo.at[i, "hv_bus"])] >= N1_MIN_KV]
+    elements = n1_elements(net)
     violations: list[dict] = []
-    for kind, ids, table in (("line", lines, net.line), ("trafo", trafos, net.trafo)):
-        for eid in ids:
-            table.at[eid, "in_service"] = False
-            try:
-                res = _run_case(net, case, load_scale, rating_ratio, regulate=False)  # pre-fault tap settings
-            finally:
-                table.at[eid, "in_service"] = True
-            name = str(table.at[eid, "name"] or f"{kind} {eid}")
-            if res is None:
-                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "non_convergent",
-                                   "element_id": None, "value": None, "message": f"power flow does not converge with {kind} {eid} out"})
-                continue
-            # demand stranded on an island: a supply violation only if it is material (a generator
-            # spur or a tee-point with no customers is not)
-            lost, island = _islanded_mw(net, res["vm"])
-            if lost >= N1_ISLAND_MIN_MW:
-                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
-                                   "element_id": island[0], "value": round(lost, 2),
-                                   "islanded_bus_ids": island,  # demand.py attributes it to regions
-                                   "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {len(island)} bus(es)"})
-                continue
-            r = _case_reason(net, case, res["vm"], res["line_pct"], res["trafo_pct"])
-            if r is not None:
-                violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": r.type,
-                                   "element_id": r.element_id, "value": r.value, "message": r.message})
+    for o in outage_results(net, case, load_scale, rating_ratio, elements):
+        head = {"outage_type": o.kind, "outage_id": o.eid, "outage_name": o.name}
+        if o.res is None:
+            violations.append({**head, "type": "non_convergent", "element_id": None, "value": None,
+                               "message": f"power flow does not converge with {o.kind} {o.eid} out"})
+            continue
+        # demand stranded on an island: a supply violation only if it is material (a generator
+        # spur or a tee-point with no customers is not)
+        if o.lost_mw >= N1_ISLAND_MIN_MW:
+            violations.append({**head, "type": "islanded", "element_id": o.island[0], "value": round(o.lost_mw, 2),
+                               "islanded_bus_ids": o.island,  # demand.py attributes it to regions
+                               "message": f"{o.kind} {o.eid} out islands {o.lost_mw:.1f} MW of demand at {len(o.island)} bus(es)"})
+            continue
+        r = _case_reason(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"])
+        if r is not None:
+            violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": r.message})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state
-    return {"case": case, "screened": len(lines) + len(trafos), "violations": violations}
+    return {"case": case, "screened": len(elements), "violations": violations}
 
 
 # --- planned outages (maintenance windows) ----------------------------------------------------

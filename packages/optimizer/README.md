@@ -29,19 +29,20 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context. |
 | `editions.py` | `edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (rows, model, physics). `diff_ecr_editions(prev, cur)`: site-level changes between two fetches of the Embedded Capacity Register. Pure. |
 | `cim.py` | `export_cgmes(net, model, snapshot_id)`: the network as CIM/CGMES 2.4.15 RDF/XML (EQ, TP, SSH, GL profiles), deterministic ids; `cgmes_zip_bytes` / `write_cgmes_zip`. Round-trips through pandapower's `from_cim` (tested). |
-| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`, `grow_demand`, `interpolate_growth_for_year`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen` (with an optional seasonal `rating_ratio`), outage appliers (`OUTAGE_APPLIERS`), per-element results, `apply_reinforcement`. |
+| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`, `grow_demand`, `interpolate_growth_for_year`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen` (with an optional seasonal `rating_ratio`) over `n1_elements` + `outage_results` (the single-outage iterator the contingency ranking shares), outage appliers (`OUTAGE_APPLIERS`), per-element results, `apply_reinforcement`. |
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its works windows and earlier repowers; `year_order`, `energisation_years`. |
 | `maintenance.py` | Planned works: `WORKS` (maintenance, replacement, repowering), `REPOWERERS`, `apply_works_after`, `study_windows` (combined windows, verdict, bounded curtailment search, N-1 during the window). |
 | `demand.py` | The demand side: `regions_of(net)` (the demand groups tagged on `net.load`), `assess_demand(net, year, n1_violations)` (per group per year: demand, firm headroom, P2/8 class, N-1 stranding, voltage, ≈ demand room) and the alert registry `ALERT_CHECKS`. A simplified P2/8-style check. |
 | `windows.py` | `best_windows`: a work's window studied in every (year, season) against the plan that year, ranked (two passes: N-1 for a shortlist only). |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
+| `studies.py` | `STUDIES`, the registry of deterministic analyses an agent or the API runs on a plan: `hosting_capacity` (MW of new export or import per bus before the first limit, by bisection), `contingency_ranking` (every single outage at 33 kV and above in both cases, scored and ranked), `structural_weak_points` (bridges and busbars whose loss islands demand, no power flow), `tap_margin` (regulated transformers at a tap stop), `gsp_margin_by_year` (from the plan years), `data_quality` (what the builder assumed). `run_study`, `chunk_study`, `merge_chunks`; every result says what it did not study. |
 | `diff.py` | `diff_results(base, head, works_on_base=)`: the consequence diff between two plans (queue, 2030/2035 phases, every plan year via `diff_years` / `diff_year`, planned works via `diff_works`). Pure. |
 | `findings.py` | `extract_findings(result, scheduled)`: every problem a plan carries as one flat list of `Finding`s with a stable, value-independent `fingerprint` (overloads, voltage breaches, the GSP margin, N-1 findings, demand alerts, works verdicts, deferred and rejected projects, schedules against the recommendation, non-convergent years); `EXTRACTORS` is the registry; `against_recommendation`. Pure. |
 | `gate.py` | `merge_verdict(head, base, diff, fresh=…)`: may this branch become the plan of record? A pure policy over two results: blocks what the branch introduces or worsens in any plan year, warns on the rest, reports what the parent already carries as context. `MERGE_CHECKS` is the registry; every level lives in `config.MERGE_GATE_LEVELS`. Never solves. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`). `YearResult.converged` says whether the year's intact power flow converged. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`), `StudyItem`, `StudyResult`, `ModelAssumption`. `YearResult.converged` says whether the year's intact power flow converged. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -234,6 +235,19 @@ Connections stay ungated (N-1 and planned works are reported, never a connection
 
 `extract_findings(result, scheduled) -> list[Finding]` is the ledger's input: every problem a result carries, breaches first, each with a `fingerprint` of kind + element + year + case (never the value), so a re-run upserts the same finding instead of duplicating it. `EXTRACTORS`: overloads and voltage breaches per year (the worst-case envelope), the GSP over or near its limit, every N-1 finding, every demand alert, every works window that is not simply feasible, deferred (with the binding reason) and rejected projects, schedules against the recommendation, non-convergent years. A gate finding carries the ledger fingerprint it refers to (`finding_fingerprint`).
 
+### Studies (`studies.py`)
+
+`run_study(kind, StudyContext(net_factory, params, candidates, result, progress), params) -> StudyResult`. Each study is bounded, pure given its network, reports `StudyItem`s with the engine's figures and a stable `fingerprint` (kind + element + case + year, never the value), and lists what it did **not** study. `chunk_study` splits a study into independent parts (one per background step) and `merge_chunks` puts them back. The agents see `STUDIES` as tools; the API caches each study by its params.
+
+| Study | Method | Cost |
+|---|---|---|
+| `hosting_capacity` | Per bus (`bus_ids`, else every bus at or above `HOSTING_MIN_KV`, best connected first, at most `HOSTING_MAX_BUSES`) and study case: a firm generator (export) or a demand connection (import) injected at the bus, the case solved with the taps regulated, bisection between 0 and the intake cap to `HOSTING_STEP_MW`; the net is left exactly as found after every probe. `value` = the MW before the first `LIMIT_CHECKS` or GSP breach, `extra.binding` = that reason. Today's network as the branch reinforces it; demand growth and the plan's projects are not applied. | about 7 solves per bus and case; chunked 4 buses per part |
+| `contingency_ranking` | `n1_elements(net, CONTINGENCY_MIN_KV)` out one at a time through `outage_results` (taps frozen at the pre-fault state settled for the case), in each case: islanded demand (MW), thermal excess (sum of overload above 100% × rating, MVA), worst voltage shortfall (pu), non-convergence. Ranked by that tuple; `value` = the weighted index (`CONTINGENCY_SEVERITY_WEIGHTS`, a ranking heuristic, never a gate). Contingencies that break nothing are not reported. | one solve per element and case; chunked per case |
+| `structural_weak_points` | The network as a simple graph: bridges with a single circuit (no parallel) and articulation busbars whose removal leaves components without the slack; demand and rated generation on them. | none |
+| `tap_margin` | Taps settled per case; every OLTC within `TAP_MARGIN_MIN_STEPS` of a stop (breach at the stop, warning one step away), with its LV busbar voltage. | one solve per case |
+| `gsp_margin_by_year` | From the branch's plan years: limit minus export, warning under `GSP_MARGIN_WARN_FRACTION` of the limit, breach below zero. Needs the plan. | none |
+| `data_quality` | The builder's recorded assumptions (`net["assumptions"]`, `nged._assume`: blank ratings filled, defaulted lengths, median seasonal ratios, assumed tap steps, fixed taps, default power factors) with their element ids, plus transformers with no usable tap changer. | none |
+
 ---
 
 ## Demand growth (`network.per_bus_growth`)
@@ -291,6 +305,9 @@ MAX_SUGGESTIONS / MAX_REINFORCE_STEPS = 5 / 4
 MERGE_GATE_LEVELS                   = kind -> blocker | warning | info   # the merge-gate policy (see above)
 GATE_WORSEN_PTS / GATE_GSP_WORSEN_MW / GATE_VM_WORSEN_PU = 1.0 / 1.0 / 0.005   # worsening margins (assumed)
 GSP_NEAR_LIMIT_FRACTION             = 0.9      # GSP export warning band
+HOSTING_STEP_MW / HOSTING_MIN_KV / HOSTING_MAX_BUSES = 5 / 33 / 24   # hosting-capacity study bounds
+CONTINGENCY_MIN_KV / CONTINGENCY_SEVERITY_WEIGHTS = 33 / {islanded_mw 1, thermal_excess_mva 1, voltage_shortfall_pu 100}  # ranking heuristic
+TAP_MARGIN_MIN_STEPS / GSP_MARGIN_WARN_FRACTION = 1 / 0.10
 ```
 
 NGED-specific values live in `nged.py`: `GSP_PEAK_DEMAND_MW = 149.235` (NESO FES 2024 regional breakdown; today's winter-peak demand sums to it), `GSP_BOUNDARY` (2 × 263.5 MW SGT export limit, with the source resource id), `TRANSMISSION_PROJECTS` and `ECR_MIN_EXPORT_MW = 1`.
@@ -325,6 +342,7 @@ What they cover:
 - reinforcement, suggestions and the diff;
 - the merge gate: each check against the policy table, pre-existing problems as context, worsening margins, blockers never cut off by the diff's display caps, determinism, and a live pair on the grid (`test_gate.py`);
 - the findings ledger's input: every kind extracted, stable value-independent fingerprints, a clean result has none, real years name elements by index (`test_findings.py`);
+- the studies: every registry entry runs twice to the same result, hosting capacity is bounded and names its binding limit and leaves the net as found, the contingency ranking contains every N-1 finding and leaves `n1_screen` unchanged, the structural study makes no power flow and names real bridges, a transformer parked at a stop is flagged, the GSP margin reads the plan, the data-quality study lists the builder's assumptions (`test_studies.py`; one full-scope test marked `slow`);
 - the readiness rubric.
 
 `test_nged.py` adds the NGED data rules: removed equipment is excluded, every live MW of demand is modelled, and nothing from the registry is pre-loaded.

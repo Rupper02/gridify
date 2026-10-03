@@ -26,6 +26,7 @@ from .findings import against_recommendation, extract_findings
 from .gate import merge_verdict
 from .greedy import optimize
 from .network import apply_reinforcement
+from .studies import STUDIES, StudyContext, run_study
 from .suggest import suggest_unblock
 from .types import (
     Candidate,
@@ -37,6 +38,9 @@ from .types import (
     Finding,
     GateFinding,
     MergeVerdict,
+    ModelAssumption,
+    StudyItem,
+    StudyResult,
     Outage,
     OutageStudy,
     PhaseResult,
@@ -93,6 +97,12 @@ __all__ = [
     "extract_findings",
     "against_recommendation",
     "merge_verdict",
+    "STUDIES",
+    "StudyContext",
+    "run_study",
+    "ModelAssumption",
+    "StudyItem",
+    "StudyResult",
     "Finding",
     "GateFinding",
     "MergeVerdict",

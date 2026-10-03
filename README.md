@@ -327,6 +327,7 @@ Every number the engine uses is one of five kinds, and this register lists them 
 | Demand and electrolyser projects at summer minimum | 50% of import capacity | Close to the LTDS minimum-demand factors (~0.5); not a measured profile | `config.DEMAND_PROJECT_MIN_FACTOR` |
 | Power factor where LTDS leaves it blank | 0.95 | A typical lagging demand power factor | `nged._pf` |
 | Line rating where LTDS leaves it blank | 1.0 / 0.7 / 0.6 / 0.5 / 0.4 kA at 132 / 66 / 33 / 20 / 11 kV | Conservative typical ratings by voltage | `nged._RATING_FALLBACK_KA` |
+| Every element a builder fallback touched | Recorded on the network (`net["assumptions"]`: blank ratings, defaulted lengths, median seasonal ratios, assumed tap steps, fixed taps, default power factors) | Stated, never hidden; the `data_quality` study lists them with their element ids | `nged._assume`, `studies.data_quality` |
 | GSP limit direction | "Export" = distribution to transmission | NGED's dataset doesn't document its sign convention | `nged.GSP_BOUNDARY` |
 | Spring and autumn ratings | LTDS Intermediate Warm (the lower intermediate rating) | Conservative for the shoulder seasons | `config.SEASON_STUDY` |
 | Derated element in a works window | 50% of rating | No published derate profile | `config.OUTAGE_DERATE_FACTOR` |
@@ -340,6 +341,10 @@ Every number the engine uses is one of five kinds, and this register lists them 
 | **Merge gate policy** | A branch is refused when it **introduces or worsens** a problem relative to its parent in any plan year: new or worsened overloads, new voltage breaches, the GSP newly over its limit, new N-1 findings, new demand-side breaches, works windows that become infeasible, a year that stops converging, a stale or incomplete result, a parent that moved on. Worsened voltage, GSP export near its limit, new warnings, more curtailment, a schedule against the recommendation, a changed demand profile and removed proposals warn. What the parent already carries is context. | "No merge while the grid would be broken in any plan year", read against the parent because main is not perfect either (otherwise nothing could ever merge). A policy, chosen; each kind's level is one line | `config.MERGE_GATE_LEVELS`, `gate.MERGE_CHECKS` |
 | Worsening margins for the merge gate | 1 loading point, 1 MW of GSP export, 0.005 pu | Below these, an element already past its limit on the parent is not counted as worsened by the branch | `config.GATE_WORSEN_PTS`, `GATE_GSP_WORSEN_MW`, `GATE_VM_WORSEN_PU` |
 | GSP near-limit warning | Export above 90% of the export limit | An early warning; the planner's gauge turns amber at the same point | `config.GSP_NEAR_LIMIT_FRACTION` |
+| Hosting-capacity study | Bisection to 5 MW between 0 and the intake cap, on today's network, buses at 33 kV and above, at most 24 per study; the probe is a firm generator (export) or a demand connection (import) | Bounded cost; a firm probe is the conservative generator in both cases | `config.HOSTING_STEP_MW`, `HOSTING_MIN_KV`, `HOSTING_MAX_BUSES` |
+| Contingency-ranking scope | Every circuit and transformer at 33 kV and above, in both study cases | The N-1 screen's mechanics, wider; bounded by the element count | `config.CONTINGENCY_MIN_KV` |
+| Tap-margin warning | At a tap stop, or one step from it | No voltage control left there | `config.TAP_MARGIN_MIN_STEPS` |
+| GSP margin warning | Export margin under 10% of the limit | The near-limit warning read as a margin, year by year | `config.GSP_MARGIN_WARN_FRACTION` |
 
 ### Heuristics (ranking and growth shape)
 
@@ -355,6 +360,7 @@ These order and spread things. They never decide feasibility, which only the pow
 | Strategic fit | A per-technology prior (storage 0.72 to 0.78, wind 0.72 to 0.75, others 0.66 to 0.68) | `nged.py` registry builders |
 | Grid need | Local demand saturating at 5 MW, blended 50 / 50 with voltage depression | `config.GRID_NEED_*` |
 | Per-bus growth shape | Residential ×1.0 vs industrial ×0.25, ±60% seeded spread, +30% tilt toward feeder ends, top 20% as hotspots ×1.8; the GSP total always equals the pathway's figure | `config.GROWTH_*`, `network.per_bus_growth` |
+| Contingency severity index | islanded MW × 1 + thermal excess MVA × 1 + worst voltage shortfall pu × 100; the components are reported with it | `config.CONTINGENCY_SEVERITY_WEIGHTS`, `studies.contingency_ranking` |
 
 ---
 

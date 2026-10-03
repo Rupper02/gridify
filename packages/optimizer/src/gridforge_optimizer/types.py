@@ -244,6 +244,50 @@ class MergeVerdict(BaseModel):
     summary: str = ""
 
 
+class ModelAssumption(BaseModel):
+    """Something the model had to assume or could not provide, stated rather than hidden: a builder
+    fallback (a blank rating filled, a tap step assumed), an operator-entered limit, or data a file
+    did not carry. `studies.data_quality` reports them; an imported grid lists its own."""
+
+    key: str
+    message: str
+    source: str = "engine-default"  # "engine-default" | "operator-entered" | "file"
+    element_kind: str | None = None
+    count: int | None = None
+    element_ids: list = []
+
+
+class StudyItem(BaseModel):
+    """One row of a study (studies.STUDIES): an element and a figure, with a stable fingerprint so a
+    finding filed against it keeps its identity across runs. Every figure is the engine's."""
+
+    index: int
+    element_kind: str | None = None  # "bus" | "line" | "trafo" | "gsp" | "assumption" | None
+    element_id: int | str | None = None
+    element_name: str = ""
+    case: str | None = None
+    year: int | None = None
+    value: float | None = None
+    limit: float | None = None
+    unit: str = ""  # "MW" | "pu" | "steps" | "index" | "count"
+    severity: str = "info"  # "info" | "warn" | "breach"
+    message: str
+    fingerprint: str
+    extra: dict = {}
+
+
+class StudyResult(BaseModel):
+    """A study's answer: its items, what it cost, and what it deliberately did NOT study (prompted
+    into every agent answer, so the limits of the evidence travel with it)."""
+
+    kind: str
+    params: dict = {}
+    items: list[StudyItem] = []
+    solves: int = 0
+    not_studied: list[str] = []
+    summary: str = ""
+
+
 class WindowOption(BaseModel):
     """One candidate window for a planned work (windows.best_windows): the element studied out in
     one season of one year against the plan as it stands then, ranked against the others."""

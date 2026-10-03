@@ -234,6 +234,26 @@ def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[
     return busid, bus_code
 
 
+# what the builder had to assume, by key: one record per kind of fallback, with the elements it touched.
+# Stated, never hidden: studies.data_quality reports them and the Sources register cites each.
+_ASSUMPTION_TEXT = {
+    "rating_fallback": "LTDS left the winter rating blank: a conservative typical rating for the voltage was used (nged._RATING_FALLBACK_KA)",
+    "length_default": "LTDS gave no usable circuit length: 1 km assumed (impedance comes from %Z, so only the per-km split changes)",
+    "summer_ratio_median": "LTDS left the summer rating blank: this network's median summer/winter ratio was used",
+    "intermediate_ratio_median": "LTDS left the intermediate-warm rating blank: this network's median ratio was used",
+    "tap_step_assumed": "LTDS gives the tap range but not the step: 1.25% per tap assumed, regulated towards 1.02 pu (config.OLTC_*)",
+    "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
+    "pf_default": "LTDS left the power factor blank: 0.95 lagging assumed (nged._pf)",
+}
+
+
+def _assume(net, key: str, element_kind: str, element_id: int) -> None:
+    """Record one element the assumption `key` applies to (net["assumptions"], a ModelAssumption per key)."""
+    rec = net["assumptions"].setdefault(
+        key, {"key": key, "message": _ASSUMPTION_TEXT[key], "source": "engine-default", "element_kind": element_kind, "element_ids": []})
+    rec["element_ids"].append(int(element_id))
+
+
 def _add_lines(net, circ, gb) -> None:
     """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with a summer rating."""
     summer_ratio: dict[int, float | None] = {}  # line idx -> LTDS summer / winter rating
@@ -248,31 +268,43 @@ def _add_lines(net, circ, gb) -> None:
         zbase = v * v / 100.0
         r = _num(c["R1"]) / 100.0 * zbase
         x = _num(c["X1"]) / 100.0 * zbase
-        length = _num(c["Circuit Length (km)"]) or 1.0
-        length = length if length > 0 else 1.0
+        given_length = _num(c["Circuit Length (km)"])
+        length = given_length if given_length and given_length > 0 else 1.0
         imax = (_num(c["Winter"]) or 0.0) / 1000.0
-        if imax <= 0:  # LTDS left the rating blank -> fall back to a plausible rating for its voltage
+        rating_blank = imax <= 0
+        if rating_blank:  # LTDS left the rating blank -> fall back to a plausible rating for its voltage
             imax = _RATING_FALLBACK_KA.get(int(v), 0.5)
         li = pp.create_line_from_parameters(
             net, a, b, length_km=length, r_ohm_per_km=r / length, x_ohm_per_km=x / length,
             c_nf_per_km=0.0, max_i_ka=imax, name=c.get("Circuit Code", ""),
         )
+        if rating_blank:
+            _assume(net, "rating_fallback", "line", int(li))
+        if length != given_length:
+            _assume(net, "length_default", "line", int(li))
         w, s = _num(c["Winter"]), _num(c.get("Summer"))
         summer_ratio[int(li)] = (s / w) if (w and s and w > 0) else None
         iw = _num(c.get("Intermediate Warm"))
         inter_ratio[int(li)] = (iw / w) if (w and iw and w > 0) else None
     # summer ratings run lower (warm ambient, no wind cooling). Where LTDS leaves a circuit's
     # summer rating blank, use this network's own median summer/winter ratio rather than assume none.
-    net.line["summer_ratio"] = _ratio_column(net, summer_ratio)
+    net.line["summer_ratio"] = _ratio_column(net, summer_ratio, "summer_ratio_median")
     # spring/autumn (LTDS "Intermediate Warm"): used only to study planned outages in those seasons
-    net.line["intermediate_ratio"] = _ratio_column(net, inter_ratio)
+    net.line["intermediate_ratio"] = _ratio_column(net, inter_ratio, "intermediate_ratio_median")
 
 
-def _ratio_column(net, ratio: dict[int, float | None]) -> list[float]:
-    """Per-line rating ratios, with blanks filled by this network's own median ratio."""
+def _ratio_column(net, ratio: dict[int, float | None], key: str) -> list[float]:
+    """Per-line rating ratios, with blanks filled by this network's own median ratio (recorded as `key`)."""
     known = sorted(v for v in ratio.values() if v)
     median_ratio = known[len(known) // 2] if known else 1.0
-    return [ratio.get(int(i)) or median_ratio for i in net.line.index]
+    out = []
+    for i in net.line.index:
+        if ratio.get(int(i)):
+            out.append(ratio[int(i)])
+        else:
+            _assume(net, key, "line", int(i))
+            out.append(median_ratio)
+    return out
 
 
 def _add_transformers(net, t2a, gb) -> None:
@@ -298,7 +330,7 @@ def _add_transformers(net, t2a, gb) -> None:
         # OLTC_SETPOINT_PU, as the real AVC relay does: 33/11 kV voltages are held, not left to drift.
         tmin, tmax = _num(t.get("Min Tap")), _num(t.get("Max Tap"))
         has_oltc = tmin is not None and tmax is not None and tmax > tmin
-        pp.create_transformer_from_parameters(
+        ti = pp.create_transformer_from_parameters(
             net, hv, lv, sn_mva=sn, vn_hv_kv=hv_kv, vn_lv_kv=lv_kv,
             vk_percent=vk, vkr_percent=min(abs(r1) * sn / 100.0, vk), pfe_kw=0.0, i0_percent=0.0,
             name=t.get("Vector Group", ""),
@@ -307,6 +339,7 @@ def _add_transformers(net, t2a, gb) -> None:
             tap_step_percent=OLTC_TAP_STEP_PERCENT if has_oltc else 0.0, tap_step_degree=0.0,
             tap_changer_type="Ratio" if has_oltc else None,  # pandapower 3: taps are inert without a changer type
         )
+        _assume(net, "tap_step_assumed" if has_oltc else "no_oltc", "trafo", int(ti))
 
 
 def _demand_group(d: dict) -> str:
@@ -460,6 +493,8 @@ def _add_loads(net, dem, gb) -> None:
                  **member.get(_bsp_base(bsp), {})}
         for n in nodes_d:
             idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
+            if _num(d["Current Year Power Factor"]) is None:
+                _assume(net, "pf_default", "load", int(idx))
             min_scale[int(idx)] = (f / 100.0) / k if f else None
             coincidence[int(idx)] = k
             groups[int(idx)] = group
@@ -546,6 +581,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
 
     uf, groups, node_v = _merge_nodes(circ, t2a, dem)
     net = pp.create_empty_network(name="NGED Bicker Fen 132kV (LTDS)")
+    net["assumptions"] = {}  # what the builder had to assume, per element (_assume; studies.data_quality reads it)
     busid, bus_code = _add_buses(net, groups, node_v, name_by_code)
     gb = lambda n: busid[uf.find(n)]
 

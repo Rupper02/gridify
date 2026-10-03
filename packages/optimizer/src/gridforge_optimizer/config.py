@@ -88,6 +88,26 @@ BEST_WINDOW_N1_SHORTLIST = 6
 N1_MIN_KV = 132.0
 N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a generator spur, a tee) is not a supply violation
 
+# --- studies (studies.py): deterministic analyses the agents and the API run on a plan ----------------
+# Hosting capacity: per bus, the MW of new export (or import) before the first limit breaks, found by
+# bisection on today's network between 0 and the intake cap to this resolution. Scope is bounded:
+# connection-level buses (>= HOSTING_MIN_KV) and at most HOSTING_MAX_BUSES of them per study.
+HOSTING_STEP_MW = 5.0
+HOSTING_MIN_KV = 33.0
+HOSTING_MAX_BUSES = 24
+# Contingency ranking: the N-1 screen's mechanics extended to every circuit and transformer at or above
+# this kV, in both study cases, each contingency scored by what it does. The index is a RANKING
+# HEURISTIC (a weighted sum of islanded demand in MW, thermal excess in MVA and the worst voltage
+# shortfall in pu x 100), never a gate; the components are reported alongside it.
+CONTINGENCY_MIN_KV = 33.0
+CONTINGENCY_SEVERITY_WEIGHTS = {"islanded_mw": 1.0, "thermal_excess_mva": 1.0, "voltage_shortfall_pu": 100.0}
+# Tap margin: a regulated transformer within this many steps of a tap stop has (almost) no voltage
+# control left; at the stop it is reported as a breach of margin, one step away as a warning.
+TAP_MARGIN_MIN_STEPS = 1
+# GSP margin by year: export within this share of the limit is a warning (the gate warns at
+# GSP_NEAR_LIMIT_FRACTION, the same point read as a margin).
+GSP_MARGIN_WARN_FRACTION = 0.10
+
 # --- merge guardrails (gate.py) -----------------------------------------------------------------
 # Merging a branch into the plan of record is gated by a pure policy over results the engine has
 # already produced: a branch is refused when its result is stale, or when it INTRODUCES or WORSENS a
