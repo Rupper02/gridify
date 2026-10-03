@@ -46,6 +46,8 @@ export interface Load {
   p_mw: number;
   lon: number;
   lat: number;
+  /** The demand group (LTDS Table 3 row) this load belongs to; absent on an older warehouse. */
+  region_id?: string | null;
 }
 export interface Generator {
   request_id: string;
@@ -62,6 +64,54 @@ export interface Model {
   transformers: Transformer[];
   loads: Load[];
   generators: Generator[];
+  /** The demand groups as they stand today (before growth); empty on a warehouse that predates them. */
+  regions?: Region[];
+}
+
+/** A demand group (one LTDS Table 3 row: a primary, or a BSP's own 33 kV group), GET /model. */
+export interface Region {
+  region_id: string;
+  name: string;
+  bsp: string;
+  buses: number[];
+  firm_mw: number;
+  firm_mva: number | null;
+  base_demand_mw: number;
+  peak_demand_mw: number;
+  p2_class: string;
+}
+
+/** One demand group in one plan year, judged by a simplified P2/8-style check (engine: demand.py). */
+export interface RegionYear {
+  region_id: string;
+  name: string;
+  bsp: string;
+  demand_mw: number;
+  modelled_mw: number;
+  firm_mw: number;
+  headroom_mw: number;
+  p2_class: string;
+  n1_at_risk_mw: number;
+  /** The single 132 kV outage that strands the most demand, e.g. "line 13". */
+  n1_outage: string | null;
+  voltage_violation_bus_ids: number[];
+  worst_vm_pu: number | null;
+  worst_vm_limit_pu: number | null;
+  /** First-order (≈) room for new demand: min(firm headroom, winter transformer spare). */
+  demand_room_mw: number | null;
+}
+
+export type AlertKind = "firm_capacity" | "n1_stranded" | "voltage" | "headroom";
+export type AlertLevel = "warn" | "breach";
+/** A demand-side warning for one group in one year (engine: demand.ALERT_CHECKS). */
+export interface Alert {
+  kind: AlertKind | string;
+  level: AlertLevel;
+  region_id: string;
+  year: number;
+  value: number | null;
+  limit: number | null;
+  message: string;
 }
 
 /** A deferral/rejection reason as the engine emits it. */
@@ -117,6 +167,8 @@ export interface N1Violation {
   element_id: number | null;
   value: number | null;
   message: string;
+  /** Islanded findings: the buses the outage cuts off. */
+  islanded_bus_ids?: number[];
 }
 
 export interface PhaseResult {
@@ -185,6 +237,9 @@ export interface YearResult extends PhaseResult {
   energised: string[];
   trafo_loading: Record<string, number>;
   outage_studies: OutageStudy[];
+  /** The demand side: every demand group this year, and its alerts (breaches first). */
+  regions?: RegionYear[];
+  alerts?: Alert[];
 }
 
 export interface Studied {
@@ -387,10 +442,12 @@ export type Sel =
   | { kind: "project"; id: string }
   | { kind: "line"; id: number }
   | { kind: "trafo"; id: number }
-  | { kind: "gen"; id: string };
-export type ElementSel = Exclude<Sel, { kind: "project" }>;
+  | { kind: "gen"; id: string }
+  | { kind: "region"; id: string };
+/** The network elements (the element card): not a project, not a demand region. */
+export type ElementSel = Exclude<Sel, { kind: "project" } | { kind: "region" }>;
 export type Tab = "copilot" | "queue" | "outages" | "review";
-export type MapLayer = "flow" | "loading" | "voltage";
+export type MapLayer = "flow" | "loading" | "voltage" | "demand";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
 export interface Job {

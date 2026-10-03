@@ -14,12 +14,14 @@ import { C } from "../theme";
 import type { Sel } from "../types";
 import { MapMarkers } from "./MapMarkers";
 import type { MapMarkersPlanner } from "./MapMarkers";
+import { RegionLabels, type RegionLabelsPlanner } from "./RegionLabels";
 
 const STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json";
 const CLICK_LAYERS: [string, Sel["kind"]][] = [
   ["existing", "gen"],
   ["trafos", "trafo"],
   ["line-hit", "line"],
+  ["region-halo", "region"],
 ];
 
 type Expr = unknown[];
@@ -29,6 +31,10 @@ function addLayers(map: MLMap): void {
   const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
   GEO_SOURCES.forEach((id) => map.addSource(id, { type: "geojson", data: empty }));
   const L = (spec: Record<string, unknown>) => map.addLayer(spec as unknown as LayerSpecification);
+  // demand regions sit under everything: soft halos sized by demand, coloured by their worst alert
+  const zr = (add = 0): Expr => ["interpolate", ["linear"], ["zoom"], 8, ["+", ["*", ["get", "r"], 0.75], add], 11, ["+", ["get", "r"], add], 15, ["+", ["*", ["get", "r"], 2], add]];
+  L({ id: "region-halo", type: "circle", source: "regions", paint: { "circle-radius": zr(), "circle-color": ["get", "color"], "circle-opacity": 0.2, "circle-blur": 0.2, "circle-stroke-color": ["get", "color"], "circle-stroke-width": 1.4, "circle-stroke-opacity": 0.7 } });
+  L({ id: "region-sel", type: "circle", source: "regions", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": zr(5), "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "line-glow", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["bind", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "glow"], "line-width": zw(9), "line-opacity": 0.22, "line-blur": 3 } });
   L({ id: "line-sel", type: "line", source: "lines", filter: ["==", ["get", "sel"], 1], layout: { "line-cap": "round" }, paint: { "line-color": C.accent, "line-width": zw(8), "line-opacity": 0.28, "line-blur": 2 } });
   L({ id: "line-solid", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["solid", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": zw(), "line-opacity": ["get", "op"] } });
@@ -49,7 +55,7 @@ function addLayers(map: MLMap): void {
   L({ id: "trafos", type: "symbol", source: "trafos", layout: { "icon-image": "trafo", "icon-allow-overlap": true, "icon-ignore-placement": true } });
 }
 
-export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode" | "sideOpen", "select"> & WithMap & MapMarkersPlanner;
+export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode" | "sideOpen", "select"> & WithMap & MapMarkersPlanner & RegionLabelsPlanner;
 
 export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapViewPlanner; geo: Geo | null; layout: Layout; reducedMotion: boolean }) {
   const { s, actions, mapApi } = planner;
@@ -104,7 +110,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
         const f = fs.find((x) => x.layer.id === layer);
         if (f) {
           const id = f.properties.id as number | string;
-          live.current.select((kind === "gen" ? { kind, id: String(id) } : { kind, id: Number(id) }) as Sel);
+          live.current.select((kind === "gen" || kind === "region" ? { kind, id: String(id) } : { kind, id: Number(id) }) as Sel);
           return;
         }
       }
@@ -190,6 +196,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
   return (
     <>
       <div ref={elRef} className="map" aria-label="Network map" />
+      {ready && s.layer === "demand" && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
       {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
     </>
   );

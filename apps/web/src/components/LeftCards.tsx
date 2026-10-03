@@ -5,6 +5,7 @@
 import { X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
+import { alertSummary } from "../lib/demand";
 import { gspTicks, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { C, fmtMw } from "../theme";
@@ -12,7 +13,7 @@ import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
   "boundary" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showBoundary" | "solving" | "year",
-  "focusSel" | "run" | "toggleBoundary",
+  "focusSel" | "run" | "setLayer" | "toggleBoundary",
   "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr"
 >;
 
@@ -141,8 +142,33 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           <span className="n">132 kV outages screened, reported only</span>
         </div>
       </div>
+      {yr?.alerts && <CustomerAlerts planner={planner} />}
       {s.solving && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>Solving the remaining years in the background.</span>}
     </div>
+  );
+}
+
+/** One line: the year's demand-side alerts by level; opens the Demand layer on the worst region. */
+function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
+  const { actions, derived } = planner;
+  const { breach, warn, worst } = alertSummary(derived.yr);
+  const open = () => {
+    actions.setLayer("demand");
+    if (worst) actions.focusSel({ kind: "region", id: worst }, 1.6);
+  };
+  return (
+    <button className="cust-alerts" onClick={open} title={worst ? "Show the worst demand region on the map" : "Show the demand regions on the map"}>
+      <span className="k">Customer alerts</span>
+      {breach + warn === 0 ? (
+        <span className="mono" style={{ color: C.greenInk }}>none</span>
+      ) : (
+        <span className="mono">
+          {breach > 0 && <span style={{ color: C.red }}>{breach} breach</span>}
+          {breach > 0 && warn > 0 && <span style={{ color: C.mute2 }}> · </span>}
+          {warn > 0 && <span style={{ color: C.amber }}>{warn} warn</span>}
+        </span>
+      )}
+    </button>
   );
 }
 

@@ -366,3 +366,21 @@ input { font-family: inherit; }
 /* MapLibre attribution stays visible: next to the left cards, or under the pill below 1100px wide */
 .stage .maplibregl-ctrl-top-left { top: 62px !important; left: 264px !important; z-index: 9; }
 .stage.narrow .maplibregl-ctrl-top-left { top: 106px !important; left: 6px !important; }
+
+/* ---- demand side (Demand layer, region card, customer alerts) ---------------------------------- */
+.region-label { all: unset; position: absolute; display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; white-space: nowrap; transform: translate(-100%, -50%); text-shadow: 0 0 3px var(--night), 0 0 6px var(--night), 0 0 10px var(--night); pointer-events: auto; cursor: pointer; }
+.region-label b { font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.region-label span { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+.region-label:hover b, .region-label.on b { color: var(--accent); }
+.region-label:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.firm { display: flex; flex-direction: column; gap: 6px; }
+.firm-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--mute); }
+.firm-bar { position: relative; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.firm-bar > span { position: absolute; inset: 0 auto 0 0; border-radius: 4px; }
+.region-alert { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; border: 1px solid; }
+.cust-alerts { all: unset; cursor: pointer; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); font-size: 12px; }
+.cust-alerts .k { font-size: 11px; color: var(--mute); }
+.cust-alerts:hover .k { color: var(--accent); }
+.cust-alerts:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+.legend-demand > span { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid; margin-right: -4px; }
+.legend-demand > span:last-of-type { margin-right: 0; }

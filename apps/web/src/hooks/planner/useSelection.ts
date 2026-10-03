@@ -3,6 +3,7 @@
 
 import { useCallback } from "react";
 
+import { regionCentroid } from "../../lib/demand";
 import type { Sel } from "../../types";
 import type { Core } from "./core";
 
@@ -20,6 +21,10 @@ export function useSelection({ patch, ref, mapApi }: Core) {
         const x = m.transformers.find((y) => y.trafo_id === t.id);
         return x ? [x.hv_lon, x.hv_lat] : null;
       }
+      if (t.kind === "region") {
+        const r = (m.regions ?? []).find((y) => y.region_id === t.id);
+        return r ? regionCentroid(r.buses, new Map(m.buses.map((b) => [b.bus_id, b]))) : null;
+      }
       if (t.kind === "gen") {
         const g = m.generators.find((y) => y.request_id === t.id);
         return g ? [g.lon, g.lat] : null;
@@ -33,7 +38,7 @@ export function useSelection({ patch, ref, mapApi }: Core) {
   /** Select something (null clears). An element selection seeds the maintenance form's year. */
   const select = useCallback(
     (sel: Sel | null) => {
-      if (sel && sel.kind !== "project") patch((st) => ({ sel, maintDraft: { ...st.maintDraft, year: Math.max(2026, st.year) } }));
+      if (sel && sel.kind !== "project" && sel.kind !== "region") patch((st) => ({ sel, maintDraft: { ...st.maintDraft, year: Math.max(2026, st.year) } }));
       else patch({ sel });
     },
     [patch],

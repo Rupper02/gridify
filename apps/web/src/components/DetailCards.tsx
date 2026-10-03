@@ -32,6 +32,7 @@ export function DetailCards({ planner, layout }: { planner: DetailCardsPlanner; 
   const sel = planner.s.sel;
   if (!sel) return null;
   if (sel.kind === "project") return <ProjectCard planner={planner} layout={layout} id={sel.id} />;
+  if (sel.kind === "region") return null; // RegionCard (App.tsx)
   return <ElementCard planner={planner} layout={layout} sel={sel} />;
 }
 
