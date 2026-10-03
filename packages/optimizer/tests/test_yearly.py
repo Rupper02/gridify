@@ -6,6 +6,60 @@ from _grid import saturating_candidates, stiff_bus
 from gridforge_optimizer.greedy import optimize, _eligible_for_year
 from gridforge_optimizer.network import build_base_net, interpolate_growth_for_year
 from gridforge_optimizer.types import Candidate, OptimizeParams
+from gridforge_optimizer.config import FORECASTS, DEFAULT_SCENARIO
+
+
+def test_default_scenario_is_standard():
+    """Standard (Holistic Transition) is the default scenario."""
+    assert DEFAULT_SCENARIO == "ht"
+
+
+def test_three_profiles_are_selectable():
+    """Standard (ht), High (ee), and Low (fb) are selectable; Hydrogen Evolution is not."""
+    assert FORECASTS["ht"]["selectable"] is True, "Standard must be selectable"
+    assert FORECASTS["ee"]["selectable"] is True, "High must be selectable"
+    assert FORECASTS["fb"]["selectable"] is True, "Low must be selectable"
+    assert FORECASTS["he"]["selectable"] is False, "Hydrogen Evolution must not be selectable"
+
+
+def test_standard_profile_anchors():
+    """Standard (Holistic Transition) has growth ×1.08 at 2030 and ×1.35 at 2035."""
+    assert FORECASTS["ht"]["growth_2030"] == 1.08
+    assert FORECASTS["ht"]["growth_2035"] == 1.35
+    assert FORECASTS["ht"]["cited"] is True, "Standard is the cited anchor"
+
+
+def test_high_profile_anchors():
+    """High (Electric Engagement) has growth ×1.10 at 2030 and ×1.42 at 2035."""
+    assert FORECASTS["ee"]["growth_2030"] == 1.10
+    assert FORECASTS["ee"]["growth_2035"] == 1.42
+    assert FORECASTS["ee"]["cited"] is False, "High is directional, not cited"
+
+
+def test_low_profile_anchors():
+    """Low (Falling Behind) has growth ×1.04 at 2030 and ×1.15 at 2035."""
+    assert FORECASTS["fb"]["growth_2030"] == 1.04
+    assert FORECASTS["fb"]["growth_2035"] == 1.15
+    assert FORECASTS["fb"]["cited"] is False, "Low is directional, not cited"
+
+
+def test_2028_interpolated_factors():
+    """In 2028, the three profiles have distinct interpolated factors."""
+    # 2028 is halfway between 2026 (base) and 2030
+    # Standard: 1.0 + 0.5 * (1.08 - 1.0) = 1.04
+    assert interpolate_growth_for_year(2028, "ht") == pytest.approx(1.04, abs=1e-6)
+    # High: 1.0 + 0.5 * (1.10 - 1.0) = 1.05
+    assert interpolate_growth_for_year(2028, "ee") == pytest.approx(1.05, abs=1e-6)
+    # Low: 1.0 + 0.5 * (1.04 - 1.0) = 1.02
+    assert interpolate_growth_for_year(2028, "fb") == pytest.approx(1.02, abs=1e-6)
+
+
+def test_profile_short_labels():
+    """Profiles have short labels for the UI picker."""
+    assert FORECASTS["ht"]["short"] == "Standard"
+    assert FORECASTS["ee"]["short"] == "High"
+    assert FORECASTS["fb"]["short"] == "Low"
+    assert FORECASTS["he"]["short"] == "Hydrogen"
 
 
 def test_interpolate_growth_for_year_before_base():

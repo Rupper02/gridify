@@ -114,6 +114,7 @@ def registry_changes() -> dict:
 @router.get("/forecasts")
 def get_forecasts() -> dict:
     """The FES 2025 demand pathways + policy horizons (single source of truth for the UI)."""
-    forecasts = [{"id": fid, **f} for fid, f in FORECASTS.items()]
+    # Only expose selectable forecasts to the UI picker
+    forecasts = [{"id": fid, **f} for fid, f in FORECASTS.items() if f.get("selectable", True)]
     return {"default": DEFAULT_SCENARIO, "forecasts": forecasts, "horizons": HORIZONS,
             "max_connection_mw": MAX_CONNECTION_MW}

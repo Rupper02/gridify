@@ -152,6 +152,7 @@ export interface OptimizeResult {
 export interface Forecast {
   id: string;
   label: string;
+  short: string;
   description: string;
   growth_2030: number;
   growth_2035: number;

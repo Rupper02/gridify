@@ -86,6 +86,26 @@ def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
     return {"branch_id": branch_id, "request_id": body.request_id, "scheduled_year": body.year}
 
 
+@router.post("/branches/{branch_id}/scenario")
+def update_scenario(branch_id: str, body: dict) -> dict:
+    """Update a branch's demand profile (scenario + growth). Used when the profile picker changes
+    on main, so subsequent runs use the selected profile instead of reverting to the stored one."""
+    scenario = body.get("scenario")
+    growth_2030 = body.get("growth_2030")
+    growth_2035 = body.get("growth_2035")
+    
+    if not scenario or growth_2030 is None or growth_2035 is None:
+        raise HTTPException(status_code=422, detail="scenario, growth_2030, and growth_2035 are required")
+    
+    with scenarios.cursor() as con:
+        repository.require_branch(con, branch_id)
+        con.execute(
+            "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=? WHERE branch_id=?",
+            [scenario, growth_2030, growth_2035, branch_id],
+        )
+        return repository.branch_to_client(con, repository.branch_row(con, branch_id))
+
+
 @router.get("/branches/{branch_id}/diff")
 def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     """Consequence diff of a branch (head) vs its parent (base, default main)."""

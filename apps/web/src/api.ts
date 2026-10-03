@@ -74,6 +74,9 @@ export const api = {
       `/branches/${branchId}/schedule`,
       { request_id: requestId, year },
     ),
+  /** Update a branch's demand profile (scenario + growth). Used when profile picker changes. */
+  updateScenario: (branchId: string, scenario: string, growth_2030: number, growth_2035: number) =>
+    postJson<Branch>(`/branches/${branchId}/scenario`, { scenario, growth_2030, growth_2035 }),
   optimize: async (body: { scenario: string; growth_2030: number; growth_2035: number; with_justification: boolean; study_year?: number | null }) =>
     applyReasons(await postJson<OptimizeResult>("/optimize", body)),
   /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway). */

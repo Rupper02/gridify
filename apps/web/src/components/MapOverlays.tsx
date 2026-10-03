@@ -4,12 +4,12 @@ import { useRef, useCallback } from "react";
 import { timelineRollup } from "../lib/derive";
 import { fmtMw } from "../theme";
 
-export type TimelineBoxPlanner = PlannerSlice<"timelineYear", "run", "phase"> & WithPatch;
+export type TimelineBoxPlanner = PlannerSlice<"timelineYear" | "activeBranch" | "branches", "run", "phase"> & WithPatch;
 type GspFiguresPlanner = PlannerSlice<"boundary", never, "ph">;
 export type StatsBarPlanner = PlannerSlice<
-  "result" | "model" | "timelineYear" | "boundary" | "showBoundary",
+  "result" | "model" | "timelineYear" | "boundary" | "showBoundary" | "activeBranch" | "branches",
   never,
-  "ph" | "q" | "egYear"
+  "ph" | "q" | "egYear" | "fcEff"
 > &
   WithPatch;
 export type BoundaryCardPlanner = PlannerSlice<"boundary" | "timelineYear", never, "ph"> & WithPatch;
@@ -18,6 +18,11 @@ export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
   const { s, patch, actions, derived } = planner;
   const y = s.timelineYear;
   const debounceTimer = useRef<number | undefined>(undefined);
+  
+  // Branch name display
+  const onMainView = !s.activeBranch || s.activeBranch === "main";
+  const activeBranch = onMainView ? null : s.branches.find((b) => b.branch_id === s.activeBranch);
+  const branchLabel = onMainView ? "main · plan of record" : (activeBranch?.name || "branch");
   
   // Label based on actual year, not legacy phase
   let label: string;
@@ -67,6 +72,9 @@ export function TimelineBox({ planner }: { planner: TimelineBoxPlanner }) {
           <span>2026 · today</span>
           <span>2035</span>
         </div>
+        <div style={{ marginTop: 6, fontSize: 10.5, color: onMainView ? "#6b7280" : "#4f46e5", fontWeight: 600 }}>
+          Branch: {branchLabel}
+        </div>
       </div>
     </div>
   );
@@ -87,15 +95,19 @@ function gspFigures(planner: GspFiguresPlanner) {
 
 export function StatsBar({ planner }: { planner: StatsBarPlanner }) {
   const { s, patch, derived } = planner;
-  const { ph, q, egYear } = derived;
+  const { ph, q, egYear, fcEff } = derived;
   const r = s.result;
   const growth = egYear;
   const tl = timelineRollup(q, s.timelineYear);
   const { lim, exp, imp, fg } = gspFigures(planner);
   const gens = s.model?.generators ?? [];
+  
+  // Profile label for the demand factor
+  const profileLabel = fcEff?.short || "Standard";
+  
   return (
     <div className="stats">
-      <span>Demand <b>×{growth.toFixed(2)}</b></span>
+      <span>Demand <b>×{growth.toFixed(2)}</b> <span style={{ fontSize: 10, color: "var(--mute)" }}>({profileLabel})</span></span>
       <span>Existing fleet <b style={{ color: "#0d9488" }}>{s.model ? `${gens.length} · ${fmtMw(gens.reduce((a, g) => a + (g.rating_mw || 0), 0))} MW` : "—"}</b></span>
       <span>Online by {s.timelineYear} <b>{r ? `${tl.online.length} · ${fmtMw(tl.onlineMw)} MW` : "—"}</b></span>
       <span>New in {s.timelineYear} <b style={{ color: r && tl.fresh.length ? "#b45309" : "var(--mute2)" }}>{r && tl.fresh.length ? `+${tl.fresh.length} · ${fmtMw(tl.freshMw)} MW` : "—"}</b></span>

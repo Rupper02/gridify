@@ -7,6 +7,7 @@
 
 import { useMemo } from "react";
 
+import { api } from "../api";
 import type { Tab } from "../types";
 import { useCore } from "./planner/core";
 import { useBranchFlows } from "./planner/useBranchFlows";
@@ -49,10 +50,19 @@ export function usePlanner() {
         patch({ tab });
         if (tab === "compare") void ensureBranches();
       },
-      onForecast: (id: string) => {
+      onForecast: async (id: string) => {
         if (ref.current.activeBranch !== "main") return;
         const x = ref.current.forecasts.find((y) => y.id === id);
-        patch(x ? { forecastId: id, g30: x.growth_2030, g35: x.growth_2035 } : { forecastId: id });
+        if (x) {
+          patch({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
+          // Update the stored scenario on main so subsequent runs use the selected profile
+          // MUST await this before running, or the run reads the old scenario from the database
+          await api.updateScenario("main", id, x.growth_2030, x.growth_2035);
+          // Run with the new forecast parameters immediately
+          void run({ forecastId: id, g30: x.growth_2030, g35: x.growth_2035 });
+        } else {
+          patch({ forecastId: id });
+        }
       },
       toggleRegistry: () => {
         if (!ref.current.registryLoaded) void loadRegistry();

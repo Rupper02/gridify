@@ -53,14 +53,13 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
       window.clearInterval(stepTimer.current);
       // every run is a background job on the API; its stage + fraction drive the overlay. A run that
       // has happened before (same branch, same inputs, same engine) is served from the durable cache
-      // and finishes at once. The main branch still carries the header's forecast choice.
+      // and finishes at once. The branch endpoint reads the scenario stored in the database, so
+      // profile changes must update main's stored scenario (see onForecast in usePlanner.ts).
       const onProgress = (stage: string, fraction: number) => patch({ stage, step: Math.min(5, Math.floor(fraction * 5 + 1e-9)) });
       let res: OptimizeResult;
       let cands: RegistryItem[];
       try {
-        res = onBranch || scenario === st.forecastId
-          ? await api.runBranchJob(bid || "main", { with_justification: true, study_year: studyYear }, onProgress)
-          : await api.optimize({ scenario, growth_2030: g30, growth_2035: g35, with_justification: true, study_year: studyYear });
+        res = await api.runBranchJob(bid || "main", { with_justification: true, study_year: studyYear }, onProgress);
         cands = await api.getCandidates();
       } catch (e) {
         window.clearInterval(stepTimer.current);
@@ -98,16 +97,26 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
     let cancelled = false;
     (async () => {
       try {
-        const [model, cands, forecasts, maxMw, boundary] = await Promise.all([
-          api.getModel(), api.getCandidates(), api.getForecasts(), api.getMaxConnectionMw(), api.getBoundary(),
+        const [model, cands, forecasts, maxMw, boundary, branches] = await Promise.all([
+          api.getModel(), api.getCandidates(), api.getForecasts(), api.getMaxConnectionMw(), api.getBoundary(), api.listBranches(),
         ]);
         if (cancelled) return;
-        // growth is fixed per pathway (no sliders): sync g30/g35 to the default forecast's cited values
-        const def = forecasts.find((f) => f.id === ref.current.forecastId) ?? forecasts[0];
-        const over: RunOverride = def ? { forecastId: def.id, g30: def.growth_2030, g35: def.growth_2035 } : {};
-        patch({ model, cands, forecasts, maxMw, boundary, ...over });
+        // Load main's stored scenario from the database, not the hardcoded default.
+        // This ensures a reload shows the profile the user last selected.
+        const mainBranch = branches.find((b) => b.branch_id === "main");
+        const storedScenario = mainBranch?.scenario ?? "ht";
+        const storedG30 = mainBranch?.growth_2030 ?? 1.08;
+        const storedG35 = mainBranch?.growth_2035 ?? 1.35;
+        // Validate the stored scenario exists in the fetched forecasts
+        const matchingForecast = forecasts.find((f) => f.id === storedScenario);
+        const forecastId = matchingForecast ? storedScenario : "ht";
+        const g30 = matchingForecast ? storedG30 : 1.08;
+        const g35 = matchingForecast ? storedG35 : 1.35;
+        
+        // Pass branches in override so run() doesn't read stale state
+        const over: RunOverride = { forecastId, g30, g35, branches };
+        patch({ model, cands, forecasts, maxMw, boundary, branches, branchesLoaded: true, forecastId, g30, g35 });
         mapApi.current?.fit(false);
-        void refreshBranches();
         void run(over);
       } catch (e) {
         if (!cancelled) toastMsg(`Could not load the model: ${e instanceof Error ? e.message : "is the API running?"}`);
@@ -115,9 +124,9 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
     })();
     return () => {
       cancelled = true;
-      window.clearInterval(stepTimer.current);
+      window.clearTimeout(stepTimer.current);
     };
-  }, [mapApi, patch, ref, refreshBranches, run, toastMsg]);
+  }, [mapApi, patch, ref, run, toastMsg]);
 
   return run;
 }

@@ -56,16 +56,16 @@ export function Header({ planner }: { planner: HeaderPlanner }) {
       {/* demand forecast: on a branch it is the branch's own (fixed); on main the dropdown drives it */}
       <div className="pill" style={{ gap: 14 }}>
         <div className="col" style={{ gap: 2 }}>
-          <span className="caps">{onMainView ? "Demand forecast" : "Demand forecast · branch"}</span>
+          <span className="caps">{onMainView ? "Demand profile" : "Demand profile · branch"}</span>
           {s.forecasts.length > 0 && (
             <select value={forecastId} disabled={!onMainView} onChange={(e) => actions.onForecast(e.target.value)}>
               {s.forecasts.map((x) => (
-                <option key={x.id} value={x.id}>FES 2025 · {x.label}</option>
+                <option key={x.id} value={x.id}>{x.short} — {x.label}</option>
               ))}
             </select>
           )}
           <span className="hint">
-            {fcEff ? `${fcEff.source || "NESO FES 2025"} · peak demand${fcEff.cited === false ? " (spread indicative)" : ""}` : "NESO FES 2025 · peak demand"}
+            {fcEff ? `${fcEff.label}${fcEff.cited === false ? " (directional)" : ""}` : "NESO FES 2025"}
           </span>
         </div>
         <button className="btn primary" disabled={s.running} onClick={() => void actions.run()} style={{ display: "flex", alignItems: "center", gap: 8 }}>

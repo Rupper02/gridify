@@ -66,35 +66,43 @@ _FES_2025 = "NESO Future Energy Scenarios 2025 (peak demand), Jul 2025"
 FORECASTS = {
     "ht": {
         "label": "Holistic Transition",
+        "short": "Standard",
         "description": "FES 2025 central pathway, aligned with Clean Power 2030. Peak ~65 GW (2030) / ~81 GW (2035).",
         "growth_2030": 1.08,
         "growth_2035": 1.35,
         "source": _FES_2025,
         "cited": True,  # firmly anchored on published FES 2025 peak figures
+        "selectable": True,
     },
     "ee": {
         "label": "Electric Engagement",
+        "short": "High",
         "description": "Highest electrification of heat and transport; top-end demand.",
         "growth_2030": 1.10,
         "growth_2035": 1.42,
         "source": _FES_2025,
         "cited": False,  # directional spread relative to Holistic Transition
+        "selectable": True,
     },
     "he": {
         "label": "Hydrogen Evolution",
+        "short": "Hydrogen",
         "description": "Hydrogen leads heat and transport, so less electricity demand.",
         "growth_2030": 1.07,
         "growth_2035": 1.28,
         "source": _FES_2025,
         "cited": False,
+        "selectable": False,  # fuel-switch story, not a demand envelope point
     },
     "fb": {
         "label": "Falling Behind",
+        "short": "Low",
         "description": "Slow electrification; the only non-net-zero pathway (FES 2025, ex-'Counterfactual').",
         "growth_2030": 1.04,
         "growth_2035": 1.15,
         "source": _FES_2025,
         "cited": False,
+        "selectable": True,
     },
 }
 DEFAULT_SCENARIO = "ht"
