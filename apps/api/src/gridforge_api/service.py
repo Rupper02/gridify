@@ -1,6 +1,7 @@
 """Run the engine for a branch: resolve parameters, build candidates, cache, enrich for the map,
 solve the plan year by year, judge a merge against the parent, and keep the findings ledger."""
 
+from contextlib import nullcontext
 import hashlib
 import json
 from typing import Literal, NamedTuple
@@ -351,13 +352,14 @@ class PlanService:
         extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if STUDIES[kind].needs_plan else "")
         return self.cache.key(f"study:{kind}", resolve_params(b.req), b.ckey, extra=extra)
 
-    def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False) -> StudyResult:
+    def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False, hold=nullcontext) -> StudyResult:
         """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
         the plan years for the studies that read them. Cached like everything else, under the branch's inputs
         and the study's parameters, so an agent asking twice costs one solve. `chunked` runs the study's
         independent parts one by one (each a study with its own parameters, cached on its own, so a retry
         after a crash recomputes only the parts that are not in the cache) and stores the merged result
-        under the whole study's key."""
+        under the whole study's key. `hold` wraps every solve (the agents pass `SolverGate.hold`, so an
+        operator's job gets the solver between chunks, not after the whole study)."""
         spec = STUDIES[kind]
         p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
         b = self.inputs(branch_id)
@@ -372,8 +374,9 @@ class PlanService:
             if chunked:
                 parts = chunk_study(kind, context(), p)
                 if len(parts) > 1:
-                    return merge_chunks(kind, p, [self.study(branch_id, kind, part, progress) for part in parts])
-            return run_study(kind, context(), p)
+                    return merge_chunks(kind, p, [self.study(branch_id, kind, part, progress, hold=hold) for part in parts])
+            with hold():
+                return run_study(kind, context(), p)
 
         return self.cache.through(self.study_key(branch_id, kind, p), f"study:{kind}", parse=StudyResult.model_validate_json,
                                   compute=compute, dump=lambda r: r.model_dump_json())

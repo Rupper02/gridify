@@ -1,8 +1,9 @@
 """The tools the agents may call. Three groups, each a `FunctionToolset` with a stable id:
 
 * `read`: lookups on the project (branches, queue, plan years, diff, merge check, findings, suggestions);
-* `studies`: one tool per `studies.STUDIES` entry, run through `PlanService.study` under the solver
-  gate (one power flow at a time, operators first) and recorded as evidence;
+* `studies`: one tool per `studies.STUDIES` entry, run through `PlanService.study` with the solver gate
+  taken per chunk (one power flow at a time, operators first) and recorded as evidence; a study outside
+  the agent's remit or over its solve budget is refused in the tool's answer, never raised;
 * `proposals`: actions that wait for the operator's approval (a branch, a reinforcement, a works window).
 
 Every tool body runs as a durable step when it is called inside a DBOS workflow and plainly outside one,
@@ -22,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel
-from pydantic_ai import ModelRetry, RunContext
+from pydantic_ai import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
 from gridforge_optimizer import STUDIES
@@ -97,8 +98,8 @@ def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[
     payload with its step id, the handle the model cites and a finding names."""
     deps = ctx.deps
     deps.tool_calls += 1
-    if deps.tool_calls > deps.budget["max_tool_calls"]:
-        raise ModelRetry("the tool-call budget for this run is spent: answer with what you have, and say what was not studied")
+    if deps.tool_calls > deps.budget["max_tool_calls"]:  # an answer, not a retry: the model must now write up what it has
+        return {"refused": "the tool-call budget for this run is spent: answer with what you have, and say what was not studied", "solves": 0}
     step_id = f"{deps.run_id}:{ctx.tool_call_id or uuid.uuid4().hex[:8]}"
     seq = deps.next_seq()
 
@@ -269,16 +270,16 @@ def _study_tool(kind: str):
     def run(ctx: RunContext[AgentDeps], branch_id: str | None = None, params: BaseModel | None = None) -> dict:
         bid = _branch(ctx, branch_id)
         deps = ctx.deps
-        if kind not in deps.allowed_studies:
-            raise ModelRetry(f"{kind} is not in your remit; you may run: {', '.join(deps.allowed_studies)}")
+        if kind not in deps.allowed_studies:  # refusals are answers the model reads, not retries that end the run
+            return {"refused": f"{kind} is not in your remit; you may run: {', '.join(deps.allowed_studies)}", "solves": 0}
         p = params if params is not None else params_model()
-        if deps.solves + spec.cost_hint(p) > deps.budget["max_solves"]:
-            raise ModelRetry(f"{kind} with these parameters would cost about {spec.cost_hint(p)} solves; this run has {deps.budget['max_solves'] - deps.solves} left. Narrow it.")
+        left = deps.budget["max_solves"] - deps.solves
+        if spec.cost_hint(p) > left:
+            return {"refused": f"{kind} with these parameters would cost about {spec.cost_hint(p)} solves; this run has {left} left. Narrow it (fewer buses or elements) or say it was not studied.", "solves": 0}
         h = deps.h
 
         def work():
-            with h.solver_gate.hold():
-                res = h.plans.study(bid, kind, p, chunked=True)
+            res = h.plans.study(bid, kind, p, chunked=True, hold=h.solver_gate.hold)  # the solver per chunk: operators get it between chunks
             return (_compact(res), h.plans.study_key(bid, kind, p), res.solves)
 
         return _recorded(ctx, f"study_{kind}", {"branch_id": bid, "params": p.model_dump()}, work)

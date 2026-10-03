@@ -384,3 +384,17 @@ def test_a_relaunch_keeps_every_result_and_runs_nothing_twice():
     time.sleep(1.5)  # the queue poller's tick: nothing picks anything up
     assert CALLS == calls_before
     assert len(client.get(f"/projects/{PROJECT}/agents/runs").json()["runs"]) == len(runs_before)
+
+
+def test_the_app_lifespan_launches_and_stops_the_runtime_off_the_event_loop(monkeypatch):
+    """What `uvicorn` does: the lifespan starts the agents while the loop is running (DBOS's sync calls
+    refuse that thread, so the lifespan moves them off it) and destroys them on shutdown. The job worker
+    is kept alive for the modules that follow."""
+    monkeypatch.setattr(deps.jobs, "shutdown", lambda: None)
+    deps.agents.destroy()
+    assert not deps.agents.launched
+    with TestClient(app) as c:
+        assert deps.agents.launched
+        assert c.get(f"/projects/{PROJECT}/agents").json()["launched"] is True
+    assert not deps.agents.launched
+

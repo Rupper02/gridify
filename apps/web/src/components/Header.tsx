@@ -1,19 +1,20 @@
-// The floating header: logo, branch capsule + menu, Diff / Merge on a branch, the demand profile
-// control and the Run button ("Re-run" when the shown result is out of date).
+// The floating header: logo, branch capsule + menu, Diff / Merge on a branch, the agents pill, the demand
+// profile control and the Run button ("Re-run" when the shown result is out of date).
 
-import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
+import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Sparkle, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { branchHue } from "../lib/derive";
+import { agentsPill } from "../lib/trace";
 import type { Layout } from "../lib/layout";
 import { PROFILES, profileOf, tint } from "../theme";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "branches" | "diffMode" | "menuOpen" | "running",
-  "createBranch" | "goReview" | "run" | "selectBranch" | "setProfile" | "toggleDiff" | "toggleMenu",
+  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "running",
+  "createBranch" | "goReview" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
   "branch" | "gate" | "hue" | "onMain" | "prelim" | "profile" | "stale"
 >;
 
@@ -24,6 +25,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
   const nAdded = branch?.n_added ?? 0;
   const sub = onMain ? "plan of record" : `from main · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
   const runLabel = wide ? `${stale.stale ? "Re-run" : "Run"} on ${profile.label}` : stale.stale ? "Re-run" : "Run";
+  const pill = agentsPill(s.agents);
 
   return (
     <header className="header glass">
@@ -60,6 +62,11 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
           </button>
         </div>
       )}
+
+      <button className="agents-pill" data-tone={pill.tone} data-live={s.agents?.status === "running" || undefined} title={pill.title} aria-label={pill.title} onClick={() => actions.setTab("ask")}>
+        <Sparkle size={12} weight="fill" />
+        {wide && pill.label}
+      </button>
 
       <div className="grow" />
 

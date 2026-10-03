@@ -95,7 +95,10 @@ def steward_run(project_id: str, event: dict) -> dict:
                 continue
             with SetWorkflowID(f"{run_id}:{req.kind}"):
                 handle = DBOS.start_workflow(specialist_run, project_id, req.kind, {"branch_id": req.branch_id or event.get("branch_id"), "why": req.why, "event": event.get("type")}, run_id)
-            reports.append(handle.get_result())
+            try:
+                reports.append(handle.get_result())
+            except Exception as e:  # one specialist failing is a line in the brief, not the end of the sweep
+                reports.append({"kind": req.kind, "status": "failed", "error": f"{type(e).__name__}: {e}"[:300]})
         brief_prompt = (f"Event: {event.get('type')}. Your triage note: {plan.note}\n"
                         f"Specialist reports: {json.dumps(reports, default=str)}\nWrite the HealthBrief.")
         brief_deps = rt.deps_for(run_id, branch_id=event.get("branch_id"))
@@ -148,9 +151,13 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
     if branch_id == "main":
         return {"run_id": run_id, "status": "skipped", "reason": "main is not reviewed; branches are"}
 
+    def superseded() -> bool:
+        """The branch has moved on (a newer run, or new inputs) since this run: its review is not current."""
+        return rt.harness.plans.freshness(branch_id).years_key != run_key
+
     def gate():
         with rt.harness.store.cursor() as con:
-            if runs.review_exists(con, branch_id, run_key):
+            if runs.review_exists(con, branch_id, run_key) or superseded():
                 return None
             runs.supersede_reviews(con, branch_id, run_key)
             head = repository.require_branch(con, branch_id)
@@ -163,7 +170,7 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
                 "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings], "n_context": len(verdict.context)}
     mc = _step(gate)
     if mc is None:
-        return {"run_id": run_id, "status": "skipped", "reason": "already reviewed"}
+        return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, or superseded by a newer run"}
     begun = _begin(run_id, project_id, kind="review", agent="reviewer", branch_id=branch_id)
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_budget"}
@@ -176,11 +183,16 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
         review: ReviewComment = res.output
 
         def store():
+            if superseded():  # a newer run finished while this review was written: it is not the current one
+                return None
             with rt.harness.store.cursor() as con:
                 return runs.insert_review(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, verdict=review.verdict_restated,
                                           verdict_json=mc, body=review.body, blockers=[b.model_dump() for b in review.blockers],
                                           warnings=[w.model_dump() for w in review.warnings], not_studied=review.not_studied)
         row = _step(store)
+        if row is None:
+            _finish(run_id, project_id, status="skipped", summary="superseded by a newer run before it was stored", usage=_usage(res), solves=deps.solves)
+            return {"run_id": run_id, "status": "skipped", "reason": "superseded by a newer run"}
         _finish(run_id, project_id, status="done", summary=review.body[:200], usage=_usage(res), solves=deps.solves)
         return {"run_id": run_id, "status": "done", "review_id": row["review_id"], "verdict": review.verdict_restated}
     except Exception as e:

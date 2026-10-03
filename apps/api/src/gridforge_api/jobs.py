@@ -33,11 +33,10 @@ class JobRunner:
         self.solver_lock = solver_lock or threading.RLock()
 
     def submit(self, fn: Callable[[], None]) -> None:
-        """Run a fire-and-forget task on the worker (warm-up), under the solver lock like a job."""
-        def run() -> None:
-            with self.solver_lock:
-                fn()
-        self._pool.submit(run)
+        """Run a fire-and-forget task on the worker (the warm-up). It does not take the solver lock: it is
+        background work that yields to jobs by itself (`plans.warm(idle=)`), and holding the lock for its
+        whole length would stall every agent study behind it."""
+        self._pool.submit(fn)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)

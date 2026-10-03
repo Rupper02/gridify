@@ -1,8 +1,8 @@
-// Findings: everything the branch's last run found (the engine's ledger; later the agents' too),
+// Findings: everything the branch's last run found, and what the agents found (with the evidence behind it),
 // grouped by plan year with the breaches first. A row jumps to the element, project or demand group
 // on the map; the operator can acknowledge a finding so it leaves the open list.
 
-import { ArrowCounterClockwise, Check, Warning } from "@phosphor-icons/react";
+import { ArrowCounterClockwise, Check, Receipt, Warning } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -13,7 +13,7 @@ import type { Finding, FindingStatus } from "../types";
 
 export type FindingsTabPlanner = PlannerSlice<
   "activeBranch" | "findings" | "model" | "outages" | "running",
-  "focusSel" | "setFindingStatus" | "setLayer" | "setYear",
+  "focusSel" | "openEvidence" | "setFindingStatus" | "setLayer" | "setYear",
   "branch" | "ix" | "onMain" | "stale"
 >;
 
@@ -77,7 +77,14 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
         <div key={g.year ?? "plan"} className="ygroup">
           <span className="ygroup-head mono">{g.year ?? "Plan-wide"}</span>
           {g.rows.map((f) => (
-            <FindingRow key={f.finding_id} f={f} ix={derived.ix} onOpen={() => open(f)} onStatus={(st) => void actions.setFindingStatus(f.finding_id, st)} />
+            <FindingRow
+              key={f.finding_id}
+              f={f}
+              ix={derived.ix}
+              onOpen={() => open(f)}
+              onStatus={(st) => void actions.setFindingStatus(f.finding_id, st)}
+              onEvidence={f.evidence_kind === "tool_call" ? () => void actions.openEvidence(f.evidence_ref) : undefined}
+            />
           ))}
         </div>
       ))}
@@ -85,7 +92,7 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
   );
 }
 
-function FindingRow({ f, ix, onOpen, onStatus }: { f: Finding; ix: FindingsTabPlanner["derived"]["ix"]; onOpen: () => void; onStatus: (st: FindingStatus) => void }) {
+function FindingRow({ f, ix, onOpen, onStatus, onEvidence }: { f: Finding; ix: FindingsTabPlanner["derived"]["ix"]; onOpen: () => void; onStatus: (st: FindingStatus) => void; onEvidence?: () => void }) {
   const sev = SEVERITY[f.severity] ?? SEVERITY.info;
   const next: { st: FindingStatus; label: string; icon: typeof Check } | null =
     f.status === "open" ? { st: "acknowledged", label: "Acknowledge", icon: Check } : f.status === "acknowledged" ? { st: "open", label: "Reopen", icon: ArrowCounterClockwise } : null;
@@ -103,7 +110,15 @@ function FindingRow({ f, ix, onOpen, onStatus }: { f: Finding; ix: FindingsTabPl
       ) : (
         <span />
       )}
-      <span className="fmsg">{nameElements(f.message, ix)}</span>
+      <span className="fmsg">
+        {nameElements(f.message, ix)}
+        {onEvidence && (
+          <button className="tchip link" data-status="done" style={{ marginLeft: 6, verticalAlign: 1 }} onClick={onEvidence} title="The study behind this finding">
+            <Receipt size={10} />
+            evidence
+          </button>
+        )}
+      </span>
     </div>
   );
 }

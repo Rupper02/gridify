@@ -2,6 +2,8 @@
 // are normalised into the single shape the UI renders everywhere (see normReason).
 
 import type {
+  AgentsStatus,
+  Approval,
   BestWindowRequest,
   BestWindowResult,
   Boundary,
@@ -19,12 +21,19 @@ import type {
   OptimizeResult,
   Outage,
   RegistryItem,
+  Review,
+  StepEvidence,
   Suggestion,
+  Thread,
+  ThreadView,
+  TraceEvent,
 } from "./types";
 import { getMaxMw, normReason, setMaxMw } from "./lib/reasons";
 
 export const BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
+/** The one project today; the agents' routes are keyed by it (a project registry replaces this constant). */
+export const PROJECT_ID = "nged-bickerfen";
 
 /** A failed call: the status and the API's `detail` (a string, or a structured body such as a refused merge's verdict). */
 export class ApiError extends Error {
@@ -211,6 +220,51 @@ export const api = {
   addReinforcement: (id: string, r: Omit<BranchReinforcement, "reinforcement_id" | "created_at">) =>
     postJson<BranchReinforcement>(`/branches/${id}/reinforcements`, r),
   removeReinforcement: (id: string, rid: string) => del<{ removed: boolean }>(`/branches/${id}/reinforcements/${rid}`),
+
+  // the agents: status and the pause switch, conversations with a streamed reply, approvals, reviews, evidence
+  agentsStatus: () => getJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents`),
+  pauseAgents: (reason = "operator") => postJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents/pause`, { reason }),
+  resumeAgents: () => postJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents/resume`),
+  listThreads: async () => (await getJson<{ threads: Thread[] }>(`/projects/${PROJECT_ID}/threads`)).threads ?? [],
+  createThread: (branchId: string | null, title: string) => postJson<Thread>(`/projects/${PROJECT_ID}/threads`, { branch_id: branchId, title }),
+  getThread: (tid: string) => getJson<ThreadView>(`/projects/${PROJECT_ID}/threads/${tid}`),
+  /** Ask: the question is stored, a reply queued and its workflow started; stream the reply by `reply_id`. */
+  postMessage: (tid: string, content: string) =>
+    postJson<{ message_id: string; reply_id: string; workflow_id: string | null; paused: boolean }>(`/projects/${PROJECT_ID}/threads/${tid}/messages`, { content }),
+  /**
+   * Follow a reply as server-sent events (tokens, tool calls with their step ids, results, the final
+   * message). The browser reconnects by itself with the last event id; `onDrop` is told each time so
+   * the caller can stop once the reply has settled. Returns the function that closes the stream.
+   */
+  streamReply: (tid: string, messageId: string, h: { onEvent: (ev: TraceEvent) => void; onEnd: () => void; onDrop?: () => void }): (() => void) => {
+    const es = new EventSource(`${BASE}/projects/${PROJECT_ID}/threads/${tid}/stream?message_id=${encodeURIComponent(messageId)}`);
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
+      es.close();
+      h.onEnd();
+    };
+    for (const kind of ["token", "tool_call", "tool_result", "cite", "final", "error"]) {
+      es.addEventListener(kind, (e) => {
+        if (!(e instanceof MessageEvent)) return; // the browser's own error event, not the server's
+        const ev = JSON.parse(e.data as string) as TraceEvent;
+        h.onEvent(ev);
+        if (ev.t === "final" || ev.t === "error") end();
+      });
+    }
+    es.onerror = (e) => {
+      if (!(e instanceof MessageEvent)) h.onDrop?.();
+    };
+    return end;
+  },
+  listApprovals: async () => (await getJson<{ approvals: Approval[] }>(`/projects/${PROJECT_ID}/approvals`)).approvals ?? [],
+  decideApproval: (aid: string, decision: "approve" | "deny", note = "") =>
+    postJson<Approval & { workflow_id: string }>(`/projects/${PROJECT_ID}/approvals/${aid}`, { decision, note }),
+  /** The reviewer's comments on a branch: the current one, or all with `all`. */
+  listReviews: async (branchId: string, all = false) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews${all ? "?all=true" : ""}`)).reviews ?? [],
+  /** The evidence behind a step an agent cited. */
+  stepEvidence: (stepId: string) => getJson<StepEvidence>(`/projects/${PROJECT_ID}/agents/steps/${encodeURIComponent(stepId)}`),
 };
 
 export type Api = typeof api;

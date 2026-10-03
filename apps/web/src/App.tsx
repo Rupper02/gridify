@@ -12,6 +12,7 @@ import { RegionCard } from "./components/RegionCard";
 import { Roadmap } from "./components/Roadmap";
 import { RunOverlay } from "./components/RunOverlay";
 import { SidePanel } from "./components/SidePanel";
+import { StudyDrawer } from "./components/StudyDrawer";
 import { hueVars } from "./components/ui";
 import { usePlanner } from "./hooks/usePlanner";
 import { buildGeo } from "./lib/geo";
@@ -92,6 +93,7 @@ export function App() {
       <MapCorner planner={planner} layout={layout} />
       <DetailCards planner={planner} layout={layout} />
       {s.sel?.kind === "region" && <RegionCard planner={planner} layout={layout} />}
+      {s.study && <StudyDrawer planner={planner} />}
       {layout.showDock && <Roadmap planner={planner} layout={layout} />}
       <SidePanel planner={planner} layout={layout} />
       {s.running && <RunOverlay planner={planner} layout={layout} />}

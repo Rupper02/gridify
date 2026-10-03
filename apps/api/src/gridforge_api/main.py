@@ -9,6 +9,7 @@ This module only assembles the app: the work lives in `routers/` (HTTP), `servic
 and `narration`; `deps` wires them together.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -28,7 +29,7 @@ async def _lifespan(_app: FastAPI):
     never race on DDL), then warm pandapower's numba JIT and pre-compute main on every demand profile."""
     scenarios.init()
     if agents.enabled:  # the durable runtime: workflows interrupted by the last shutdown resume from their last step
-        agents.launch()
+        await asyncio.to_thread(agents.launch)  # off the event loop: DBOS's sync calls (register_queue, ...) refuse a running loop
 
     def _warm() -> None:
         try:
@@ -42,7 +43,7 @@ async def _lifespan(_app: FastAPI):
 
     jobs.submit(_warm)
     yield
-    agents.destroy()
+    await asyncio.to_thread(agents.destroy)
     jobs.shutdown()
 
 

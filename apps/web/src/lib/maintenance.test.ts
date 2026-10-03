@@ -55,6 +55,7 @@ const year = (y: number, studies: OutageStudy[]): YearResult => ({
 
 const result = (studied: string[], studies: OutageStudy[] = []): OptimizeResult => ({
   params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
+  run_key: "k",
   queue: [], phases: {}, years: studies.length ? { "2030": year(2030, studies) } : {}, years_total: 10,
   studied: { outage_ids: studied, reinforcements: [], schedule: {} }, justification: "", snapshot_id: "s", branch_id: "br",
 });

@@ -3,13 +3,15 @@
 //
 // This file only composes. The state and shared core live in planner/core.ts; each concern is its
 // own hook under planner/ (run + boot, branch list, branch flows, registry, selection, project
-// edits, maintenance, copilot, derived values), taking the core plus only the other hooks' actions
+// edits, maintenance, copilot, the agents, ask, derived values), taking the core plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useMemo, useRef } from "react";
 
 import type { ElementSel, Tab } from "../types";
 import { useCore } from "./planner/core";
+import { useAgents } from "./planner/useAgents";
+import { useAsk } from "./planner/useAsk";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
 import { useCopilot } from "./planner/useCopilot";
@@ -40,9 +42,12 @@ export function usePlanner() {
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const findings = useFindings(core);
+  const agents = useAgents(core);
+  const ask = useAsk(core, refreshBranches);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
     void findings.loadFindings(bid);
+    void agents.loadReviews(bid); // the reviewer comments a few seconds later; the status poll refreshes it
     void (async () => {
       await flows.refreshDiff(bid); // the diff solves main's years if need be; the gate then finds them cached
       await flows.refreshMergeCheck(bid);
@@ -63,6 +68,8 @@ export function usePlanner() {
       ...copilot,
       ...mapView,
       ...findings,
+      ...agents,
+      ...ask,
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
       setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
@@ -90,7 +97,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask)],
   );
 
   return { s, patch, actions, derived, mapApi };

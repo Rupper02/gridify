@@ -46,7 +46,7 @@ def map_event(ev: AgentStreamEvent, deps: AgentDeps) -> dict | None:
                 "args": p.args_as_dict()}
     if isinstance(ev, FunctionToolResultEvent):
         content = ev.content if isinstance(ev.content, dict) else getattr(ev.part, "content", None)
-        summary = content.get("summary") if isinstance(content, dict) else None
+        summary = (content.get("summary") or (f"error: {content['error']}" if content.get("error") else None)) if isinstance(content, dict) else None
         step_id = content.get("step_id") if isinstance(content, dict) else None
         return {"t": "tool_result", "tool": getattr(ev.part, "tool_name", ""), "step_id": step_id or f"{deps.run_id}:{getattr(ev.part, 'tool_call_id', '')}",
                 "summary": summary or "", "solves": content.get("solves", 0) if isinstance(content, dict) else 0}

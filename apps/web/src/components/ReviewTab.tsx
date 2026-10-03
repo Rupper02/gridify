@@ -1,9 +1,9 @@
 // Review: the branch against main as a consequence diff (the four 2030/2035 tiles, the network effect
 // in the viewed year with a year picker tied to the planner's year, the planned works on main vs the
-// branch, what changed), the reinforcements proposed on it, then Merge into main or Discard. main has
-// nothing to review.
+// branch, what changed), the reinforcements proposed on it, the merge gate, the reviewer agent's comment
+// (the gate restated, prepared for engineer review), then Merge into main or Discard. main has nothing to review.
 
-import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Trash, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Sparkle, Trash, Warning, Wrench } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -24,13 +24,13 @@ import {
   yearEffect,
 } from "../lib/diff";
 import { C, PLAN_YEARS, ST, fmtMw, profileOf, signed, tint } from "../theme";
-import type { Diff, MergeCheck, OnMerge, Status, WorkDelta, YearDelta } from "../types";
+import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "year",
+  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "reviews" | "year",
   "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
-  "branch" | "gate" | "hue" | "ix" | "onMain" | "yearDelta"
+  "branch" | "gate" | "hue" | "ix" | "onMain" | "reviewStale" | "yearDelta"
 >;
 
 const statusLabel = (st: Status | null, year?: number | null): string =>
@@ -112,6 +112,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         </div>
       )}
       <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} />
+      <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} ix={ix} />
       {confirm && s.mergeCheck && (
         <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merge with these warnings?</span>
@@ -175,6 +176,53 @@ function MergeReadiness({ mc, gate, ix }: { mc: MergeCheck | null; gate: GateVie
         </details>
       )}
       {v && <span className="mute" style={{ fontSize: 10.5 }}>Judged on {v.years_compared.length} plan years against {mc?.into ?? "main"}; every figure is the engine's.</span>}
+    </div>
+  );
+}
+
+const REVIEW_LABEL: Record<ReviewVerdict, string> = { blocked: "blocked", mergeable_with_warnings: "mergeable with warnings", mergeable: "mergeable" };
+const REVIEW_TONE: Record<ReviewVerdict, { background: string; color: string }> = {
+  blocked: { background: "rgba(255,107,107,0.16)", color: C.redInk },
+  mergeable_with_warnings: { background: "rgba(255,195,107,0.16)", color: C.amberInk },
+  mergeable: { background: "rgba(94,230,168,0.16)", color: C.greenInk },
+};
+
+/** The reviewer agent's comment on the branch's current run, like a PR bot: the gate restated, prepared for engineer review. */
+function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boolean; agents: AgentsStatus | null; ix: ModelIndex | null }) {
+  const rv = reviews.find((r) => r.status === "prepared_for_review") ?? null;
+  const off = !agents || agents.status === "off";
+  const restate = (b: Review["blockers"][number], cls: string, i: number) => (
+    <span key={`${cls}${i}`} className={`gate-row ${cls}`}>
+      <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
+      <span>
+        <b>{gateTitle(b.kind)}</b> · {nameElements(b.restated, ix)}
+      </span>
+    </span>
+  );
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Review</span>
+      {off ? (
+        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>No reviewer: the agents need OPENROUTER_API_KEY on the API. The gate above decides either way.</span>
+      ) : !rv ? (
+        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>
+          {agents.status === "paused" ? "The agents are paused; no review comes until they resume." : "Waiting for the reviewer: it comments a few seconds after every run."}
+        </span>
+      ) : (
+        <div className="review-card">
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Sparkle size={13} color={C.accent} weight="fill" />
+            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>Prepared for engineer review</span>
+            <span className="chip" style={REVIEW_TONE[rv.verdict]}>{REVIEW_LABEL[rv.verdict]}</span>
+          </div>
+          {stale && <div className="notice amber">Of an earlier run: the reviewer comments again once the current run has finished.</div>}
+          <span className="body">{nameElements(rv.body, ix)}</span>
+          {rv.blockers.map((b, i) => restate(b, "blocker", i))}
+          {rv.warnings.map((w, i) => restate(w, "warning", i))}
+          {rv.not_studied.length > 0 && <span className="mute" style={{ fontSize: 11, lineHeight: 1.4 }}>Not studied: {rv.not_studied.join("; ")}</span>}
+          <span className="evidence-line">run {rv.run_key.slice(0, 10)} · {rv.created_at.slice(0, 16).replace("T", " ")} · the figures are the gate's, the words the reviewer's</span>
+        </div>
+      )}
     </div>
   );
 }

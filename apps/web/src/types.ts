@@ -269,6 +269,8 @@ export interface OptimizeResult {
   /** Every year of the plan, filled progressively while a run is solving. */
   years: Record<string, YearResult>;
   years_total: number;
+  /** The identity of this result's physics (the plan-years cache key): what a review or an agent event refers to. */
+  run_key: string;
   studied: Studied;
   justification: string;
   snapshot_id: string;
@@ -567,7 +569,7 @@ export type Sel =
   | { kind: "region"; id: string };
 /** The network elements (the element card): not a project, not a demand region. */
 export type ElementSel = Exclude<Sel, { kind: "project" } | { kind: "region" }>;
-export type Tab = "copilot" | "queue" | "outages" | "findings" | "review";
+export type Tab = "ask" | "queue" | "outages" | "findings" | "review";
 export type MapLayer = "flow" | "loading" | "voltage" | "demand";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
@@ -659,4 +661,151 @@ export interface FindingCounts {
   resolved: number;
   breach_open: number;
   warn_open: number;
+}
+
+// ---- the agents (API agents/, routes /projects/{pid}/agents, threads, approvals, reviews, steps) ----
+export type AgentsState = "off" | "idle" | "running" | "paused";
+export interface AgentsBudget {
+  day: string;
+  credits: number;
+  tokens: number;
+  solves: number;
+  limits: Record<string, number>;
+  paused: boolean;
+  paused_reason: string;
+  exhausted: boolean;
+}
+export interface AgentsStatus {
+  status: AgentsState;
+  enabled: boolean;
+  launched: boolean;
+  reason?: string;
+  paused_reason?: string;
+  running: number;
+  budget: AgentsBudget | null;
+  last_events: { event_id: string; type: string; dedup_id: string; created_at: string; workflow_ids: string[] }[];
+  models: Record<string, string>;
+}
+/** A conversation: the operator's ("ask", on a branch or on main) or the project's health thread. */
+export interface Thread {
+  thread_id: string;
+  project_id: string;
+  branch_id: string | null;
+  title: string;
+  kind: "ask" | "health" | string;
+  created_at: string;
+  updated_at: string | null;
+}
+export type MessageStatus = "queued" | "streaming" | "done" | "failed" | "awaiting_approval";
+export interface TraceStep {
+  step_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  solves: number;
+}
+export interface MessageEvidence {
+  steps: string[];
+  branch_id: string | null;
+  snapshot_id: string;
+  engine: string;
+}
+export interface ThreadMessage {
+  message_id: string;
+  thread_id: string;
+  seq: number;
+  role: "user" | "assistant";
+  content: string;
+  status: MessageStatus;
+  workflow_id: string | null;
+  run_id: string | null;
+  tool_trace: TraceStep[] | null;
+  usage: Record<string, number | null> | null;
+  cost_credits: number | null;
+  /** Figures in the text that no tool of the run produced (soft: shown, never blocking). */
+  flags: string[] | null;
+  evidence: MessageEvidence | null;
+  created_at: string;
+}
+export type ApprovalStatus = "pending" | "approved" | "denied" | "applied";
+/** An action an answer proposed (a branch, a reinforcement, a works window), waiting for the operator. */
+export interface Approval {
+  approval_id: string;
+  thread_id: string;
+  message_id: string;
+  run_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  status: ApprovalStatus;
+  note: string | null;
+  decided_at: string | null;
+  created_at: string;
+}
+export interface ThreadView extends Thread {
+  messages: ThreadMessage[];
+  approvals: Approval[];
+}
+/** The planning stages a reply goes through (the API's streaming.STAGE_BY_TOOL_PREFIX names them). */
+export type TraceStage = "PLAN" | "ASSEMBLE" | "RUN" | "CHECK" | "PROPOSE" | "CITE";
+/** One server-sent event of a streamed reply. */
+export type TraceEvent =
+  | { t: "token"; text: string; seq?: number }
+  | { t: "tool_call"; tool: string; stage: TraceStage; step_id: string; args: Record<string, unknown>; seq?: number }
+  | { t: "tool_result"; tool: string; step_id: string; summary: string; solves: number; seq?: number }
+  | { t: "cite"; stage: "CITE"; seq?: number }
+  | { t: "final"; status: MessageStatus; text?: string; approvals?: string[]; flags?: string[]; seq?: number }
+  | { t: "error"; message: string; seq?: number };
+/** A gate finding as the reviewer restates it: identified as the gate gave it, in the reviewer's words. */
+export interface ReviewRestated {
+  kind: string;
+  element_id: string | null;
+  fingerprint: string | null;
+  restated: string;
+}
+export type ReviewVerdict = "blocked" | "mergeable_with_warnings" | "mergeable";
+/** The reviewer's comment on one run of a branch, like a PR bot's. */
+export interface Review {
+  review_id: string;
+  branch_id: string;
+  run_key: string;
+  run_id: string;
+  verdict: ReviewVerdict;
+  gate: { into: string; fresh: boolean; ok: boolean; summary: string; n_context: number };
+  body: string;
+  blockers: ReviewRestated[];
+  warnings: ReviewRestated[];
+  not_studied: string[];
+  status: "prepared_for_review" | "superseded";
+  created_at: string;
+}
+/** One row of a study (engine studies.STUDIES): an element and a figure, with a stable fingerprint. */
+export interface StudyItem {
+  index: number;
+  element_kind: string;
+  element_id: string;
+  element_name: string;
+  case: string | null;
+  year: number | null;
+  value: number | null;
+  limit: number | null;
+  unit: string;
+  severity: FindingSeverity;
+  message: string;
+  fingerprint: string;
+  extra: Record<string, unknown>;
+}
+export interface StudyResult {
+  kind: string;
+  params: Record<string, unknown>;
+  items: StudyItem[];
+  solves: number;
+  not_studied: string[];
+  summary: string;
+}
+/** The evidence behind a recorded step: the study it ran (re-read from the cache), stale if the engine changed. */
+export interface StepEvidence {
+  step: { step_id: string; run_id: string; tool: string; args: Record<string, unknown>; cache_key: string | null };
+  study: StudyResult | null;
+  result: unknown;
+  current_engine: string;
+  stale: boolean;
 }

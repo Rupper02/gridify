@@ -11,6 +11,7 @@ import {
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { gateState, openCounts } from "../../lib/gate";
+import { isSuperseded } from "../../lib/trace";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
 import type { PlannerState } from "./core";
@@ -38,8 +39,12 @@ export function useDerived(s: PlannerState) {
     // the merge gate as the buttons show it, and the ledger's open counts for the tab's badge
     const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running);
     const openFindings = openCounts(s.findings);
-    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings };
-  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.outages, s.reinforcements, s.result, s.running]);
+    // the reviewer's current comment, and whether it is of an earlier run than the one shown; the proposals waiting in the open conversation
+    const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
+    const reviewStale = reviewCurrent ? isSuperseded(reviewCurrent, s.result?.run_key) : false;
+    const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
+    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
+  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.outages, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);

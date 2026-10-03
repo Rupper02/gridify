@@ -1,4 +1,4 @@
-// The collapsible side panel (keyboard `]`): Copilot / Queue / Outages / Findings / Review as a pill
+// The collapsible side panel (keyboard `]`): Ask / Queue / Outages / Findings / Review as a pill
 // segmented control, the active tab's body, and the toast. The tabs are a registry: adding one is one
 // entry here (its label, icon, badge and body) plus its key in the `Tab` union.
 
@@ -9,14 +9,14 @@ import type { PlannerSlice } from "../hooks/planner/slice";
 import type { Layout } from "../lib/layout";
 import { C } from "../theme";
 import type { Tab } from "../types";
-import { CopilotTab, type CopilotTabPlanner } from "./CopilotTab";
+import { AskTab, type AskTabPlanner } from "./AskTab";
 import { FindingsTab, type FindingsTabPlanner } from "./FindingsTab";
 import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
 import { ReviewTab, type ReviewTabPlanner } from "./ReviewTab";
 
 export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "openFindings" | "prelim" | "q"> &
-  CopilotTabPlanner &
+  AskTabPlanner &
   QueueTabPlanner &
   OutagesTabPlanner &
   FindingsTabPlanner &
@@ -31,7 +31,12 @@ interface TabSpec {
 }
 
 const TABS: Record<Tab, TabSpec> = {
-  copilot: { label: "Copilot", icon: ChatCircleDots, badge: () => "", render: (p, layout) => <CopilotTab planner={p} layout={layout} /> },
+  ask: {
+    label: "Ask",
+    icon: ChatCircleDots,
+    badge: (p) => (p.derived.pendingApprovals ? String(p.derived.pendingApprovals) : ""),
+    render: (p, layout) => <AskTab planner={p} layout={layout} />,
+  },
   queue: { label: "Queue", icon: ListNumbers, badge: (p) => String(p.derived.q.length + p.derived.prelim.length || ""), render: (p) => <QueueTab planner={p} /> },
   outages: { label: "Outages", icon: Wrench, badge: (p) => (p.s.outages.length ? String(p.s.outages.length) : ""), render: (p) => <OutagesTab planner={p} /> },
   findings: {
@@ -50,7 +55,7 @@ export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layo
       {!s.sideOpen && (
         <button className="reopen glass" onClick={actions.toggleSide} title="Show panel (])">
           <SidebarSimple size={15} style={{ transform: "scaleX(-1)" }} />
-          Copilot, queue, findings and review
+          Ask, queue, findings and review
         </button>
       )}
       <aside className={`side${s.sideOpen ? "" : " closed"}`} aria-hidden={!s.sideOpen}>

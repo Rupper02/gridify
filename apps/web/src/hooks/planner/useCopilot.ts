@@ -86,7 +86,7 @@ export function useCopilot(
   const startProject = useCallback(() => {
     const st = ref.current;
     setChat((c) => ({ mode: "project", intake: startIntake(intakeCtx(st)), input: "", recent: remember(c, "project", "New project") }));
-    patch({ tab: "copilot", sideOpen: true });
+    patch({ tab: "ask", sideOpen: true });
   }, [patch, ref, setChat]);
 
   const pushRec = useCallback((msgs: RecMsg[]) => setChat((c) => ({ recs: [...c.recs.filter((m) => !m.loading), ...msgs] })), [setChat]);
@@ -138,7 +138,7 @@ export function useCopilot(
       const name = branchName(st);
       const prof = st.result ? profileOf(st.result.params.scenario).label : profileOf(null).label;
       setChat((c) => ({ mode: "recs", input: "", recs: [{ user: false, text: recsOpening(name, prof, st.result?.queue ?? []) }], recent: remember(c, "recs", "Recommendations") }));
-      patch({ tab: "copilot", sideOpen: true, sel: null });
+      patch({ tab: "ask", sideOpen: true, sel: null });
       if (target) void askRecs(`Unblock ${target}`);
     },
     [askRecs, patch, ref, setChat],
@@ -148,7 +148,7 @@ export function useCopilot(
   const startMaintChat = useCallback(() => {
     const st = ref.current;
     setChat((c) => ({ mode: "maint", maint: startMaint(maintCtx(st)), input: "", recent: remember(c, "maint", "Maintenance") }));
-    patch({ tab: "copilot", sideOpen: true });
+    patch({ tab: "ask", sideOpen: true });
   }, [patch, ref, setChat]);
 
   /** Ask the engine for the best window (a background job on the viewed branch; main may be searched). */
@@ -184,7 +184,7 @@ export function useCopilot(
         const st = ref.current;
         const prof = profileOf(st.branches.find((b) => b.branch_id === bid)?.scenario).label;
         setMaint((x) => scheduledOn(x, season, year, branchName(st, bid), prof));
-        patch({ year, tab: "copilot" });
+        patch({ year, tab: "ask" });
       } catch (e) {
         toastMsg(`Could not schedule it: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
       }
@@ -239,7 +239,7 @@ export function useCopilot(
       });
       const st = ref.current;
       const prof = profileOf(st.branches.find((b) => b.branch_id === bid)?.scenario).label;
-      patch((x) => ({ added: withAdded(x.added, bid, row), tab: "copilot" }));
+      patch((x) => ({ added: withAdded(x.added, bid, row), tab: "ask" }));
       setChat((c) => ({
         intake: c.intake && {
           ...c.intake,

@@ -1,7 +1,8 @@
-// Copilot. A start screen picks the chat mode: New project (a guided intake into the preliminary
-// queue), Recommendations (the engine's "what would it take" levers, explained) or Maintenance (a
-// works window: the engine studies every season and year and ranks them). Copilot asks and phrases
-// results; ranking, power flow and every window's verdict are the engine's.
+// The Copilot's three deterministic chats: New project (a guided intake into the preliminary queue),
+// Recommendations (the engine's "what would it take" levers, explained) and Maintenance (a works
+// window: the engine studies every season and year and ranks them). The chat asks and phrases
+// results; ranking, power flow and every window's verdict are the engine's. The picker that starts
+// them, and the free-text "Ask the model" chat, live in AskTab.
 
 import {
   ArrowRight,
@@ -16,6 +17,7 @@ import {
   Play,
   Plus,
   PlusCircle,
+  Sparkle,
   Square,
   Wrench,
 } from "@phosphor-icons/react";
@@ -42,96 +44,18 @@ export type CopilotTabPlanner = PlannerSlice<
 >;
 
 /** Maintenance: neutral silver ink (the design palette's ink2). */
-const MAINT = { c: C.ink2, bg: "rgba(201,214,232,0.12)", bd: "rgba(201,214,232,0.4)" };
-const MODE_TITLE: Record<ChatMode, string> = { project: "New project", recs: "Recommendations", maint: "Maintenance" };
-const MODE_ICON: Record<ChatMode, typeof PlusCircle> = { project: PlusCircle, recs: Lightbulb, maint: Wrench };
+export const MAINT = { c: C.ink2, bg: "rgba(201,214,232,0.12)", bd: "rgba(201,214,232,0.4)" };
+/** The chat modes as the picker and the chat header name them (typed registries: a new mode must appear in each). */
+export const MODE_TITLE: Record<ChatMode, string> = { ask: "Ask the model", project: "New project", recs: "Recommendations", maint: "Maintenance" };
+export const MODE_ICON: Record<ChatMode, typeof PlusCircle> = { ask: Sparkle, project: PlusCircle, recs: Lightbulb, maint: Wrench };
+const MODE_COLOR: Record<ChatMode, string> = { ask: C.accent, project: C.accent, recs: C.amberInk, maint: MAINT.c };
 const TONE = {
   ok: { background: "rgba(94,230,168,0.16)", color: C.greenInk },
   warn: { background: "rgba(255,195,107,0.16)", color: C.amberInk },
   bad: { background: "rgba(255,107,107,0.16)", color: C.redInk },
 } as const;
 
-export function CopilotTab({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout }) {
-  return planner.s.chat.mode ? <Chat planner={planner} layout={layout} /> : <Picker planner={planner} />;
-}
-
-function Picker({ planner }: { planner: CopilotTabPlanner }) {
-  const { s, actions, derived } = planner;
-  const target = derived.onMain ? "main" : derived.branch?.name;
-  const modes = [
-    {
-      title: "New project", Icon: PlusCircle, c: C.accent, bg: "rgba(124,227,255,0.14)", bd: "rgba(124,227,255,0.4)",
-      desc: "Add a connection application to the preliminary queue. I ask for technology, MW, import, bus, year and readiness.",
-      ex: "\"Add a 49.9 MW battery at Boston\"", pick: actions.startProject,
-    },
-    {
-      title: "Recommendations", Icon: Lightbulb, c: C.amberInk, bg: "rgba(255,195,107,0.14)", bd: "rgba(255,195,107,0.4)",
-      desc: "Find what would unblock deferred projects. Each lever is re-solved and the MW it frees is measured.",
-      ex: `"What would it take to connect ${byStatus(derived.q, "Deferred")[0]?.request_id ?? "a deferred project"}?"`, pick: () => actions.startRecs(),
-    },
-    {
-      title: "Maintenance", Icon: Wrench, ...MAINT,
-      desc: "Plan an outage, a repowering or a replacement. I find the window that keeps customers supplied.",
-      ex: "\"When can I take the most loaded line out for 6 weeks?\"", pick: actions.startMaintChat,
-    },
-  ];
-  const resumeOrStart: Record<ChatMode, () => void> = {
-    project: () => (s.chat.intake ? actions.resume("project") : actions.startProject()),
-    recs: () => (s.chat.recs.length ? actions.resume("recs") : actions.startRecs()),
-    maint: () => (s.chat.maint ? actions.resume("maint") : actions.startMaintChat()),
-  };
-  return (
-    <div className="scroll" style={{ padding: "6px 14px 16px", gap: 14 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <span style={{ fontSize: 15, fontWeight: 600 }}>Start a new chat</span>
-        <span style={{ fontSize: 12, color: C.mute, lineHeight: 1.45 }}>
-          Pick what you need. The chat works on <b className="mono" style={{ fontWeight: 600, color: derived.onMain ? C.mute : derived.hue }}>{target}</b> and its last run.
-        </span>
-      </div>
-      {modes.map((m) => (
-        <button key={m.title} className="mode-card" onClick={m.pick}>
-          <span className="ic" style={{ background: m.bg, border: `1px solid ${m.bd}` }}>
-            <m.Icon size={20} color={m.c} />
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>{m.title}</span>
-          <ArrowRight size={14} color={C.mute} style={{ marginTop: 2 }} />
-          <span style={{ gridColumn: "2 / -1", fontSize: 12, color: C.ink2, lineHeight: 1.45, textWrap: "pretty" }}>{m.desc}</span>
-          <span style={{ gridColumn: "2 / -1", fontSize: 11.5, color: C.mute, fontStyle: "italic" }}>{m.ex}</span>
-        </button>
-      ))}
-      {s.chat.recent.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Recent on this branch</span>
-          {s.chat.recent.map((r) => {
-            const Icon = MODE_ICON[r.mode];
-            return (
-              <button
-                key={r.title + r.at}
-                onClick={resumeOrStart[r.mode]}
-                style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 12, background: "var(--well)", border: "var(--well-bd)", textAlign: "left" }}
-              >
-                <Icon size={15} color={C.mute} />
-                <span style={{ display: "flex", flexDirection: "column", minWidth: 0, lineHeight: 1.35 }}>
-                  <span className="ellipsis" style={{ fontSize: 12.5 }}>{r.title}</span>
-                  <span style={{ fontSize: 11, color: C.mute }}>{MODE_TITLE[r.mode]} · {r.at}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-      {s.result?.justification && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Briefing from the last run</span>
-          <span className="well" style={{ padding: "10px 12px", fontSize: 12, lineHeight: 1.5, color: C.ink2, whiteSpace: "pre-wrap" }}>{s.result.justification}</span>
-          <span style={{ fontSize: 10.5, color: C.mute2 }}>Phrased by an LLM from the engine's figures. The queue and the physics are the engine's.</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout }) {
+export function CopilotChat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
   const chat = s.chat;
   const mode = chat.mode ?? "project";
@@ -153,7 +77,7 @@ function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout 
   const q = it && !isRecs && it.step !== "done" ? question(it, ctx) : null;
   const mq = mt ? maintQuestion(mt, maintCtx(s)) : null;
   const ModeIcon = MODE_ICON[mode];
-  const modeColor = { project: C.accent, recs: C.amberInk, maint: MAINT.c }[mode];
+  const modeColor = MODE_COLOR[mode];
 
   // quick replies for the mode and step
   let quick: { label: string; on?: boolean; go?: boolean; icon?: "check" | "box" | "plus" | "next"; pick: () => void }[] = [];

@@ -1,6 +1,6 @@
 // The planner's state shape and the small core every planner hook shares: the state, a way to patch
 // it, a ref to its latest value, the map handle and the toast. Each hook (run, branches, registry,
-// selection, project edits, maintenance, copilot) takes a `Core` plus only the other hooks' actions
+// selection, project edits, maintenance, copilot, agents, ask) takes a `Core` plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -11,6 +11,7 @@ import type { ChatMsg, Intake } from "../../lib/intake";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { MaintChat } from "../../lib/maintCopilot";
 import type {
+  AgentsStatus,
   Boundary,
   Branch,
   BranchReinforcement,
@@ -24,10 +25,15 @@ import type {
   OptimizeResult,
   Outage,
   RegistryItem,
+  Review,
   Sel,
   Status,
+  StepEvidence,
   Suggestion,
   Tab,
+  Thread,
+  ThreadView,
+  TraceEvent,
 } from "../../types";
 
 export interface MapApi {
@@ -45,7 +51,7 @@ export interface RecMsg {
   loading?: boolean;
 }
 
-export type ChatMode = "project" | "recs" | "maint";
+export type ChatMode = "project" | "recs" | "maint" | "ask";
 
 export interface ChatState {
   mode: ChatMode | null;
@@ -96,6 +102,13 @@ export interface PlannerState {
   mergeCheck: MergeCheck | null; // the gate's verdict for the active branch (null until checked)
   findings: Finding[]; // the active branch's findings ledger
   findingCounts: FindingCounts | null;
+  // the agents
+  agents: AgentsStatus | null; // the project's agents: off (no key), idle, running or paused; polled
+  threads: Thread[]; // the project's conversations (Ask the model, the health thread)
+  thread: ThreadView | null; // the open conversation
+  trace: TraceEvent[]; // the reply being streamed, as events
+  reviews: Review[]; // the reviewer's comments on the active branch
+  study: StepEvidence | null; // the evidence drawer: a recorded step and the study behind it
   // view
   tab: Tab;
   sideOpen: boolean;
@@ -121,7 +134,8 @@ export const INITIAL: PlannerState = {
   outages: [], reinforcements: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
   diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null,
-  tab: "copilot", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
+  agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
+  tab: "ask", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 2030, sel: null,
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,
