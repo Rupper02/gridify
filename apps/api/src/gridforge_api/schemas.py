@@ -74,8 +74,12 @@ class ScheduleSet(BaseModel):
     year: int | None = None
 
 
-class OutageCreate(BaseModel):
-    """A planned works window on a branch (studied in its season; reported, never a gate).
+Season = Literal["Winter", "Spring", "Summer", "Autumn"]
+
+
+class WorkSpec(BaseModel):
+    """What a planned work does to which element, without its window (shared by OutageCreate and
+    BestWindowRequest).
 
     `work` says what it is for: maintenance (out, or derated with `kind`), a like-for-like
     replacement, or repowering, which brings the element back from the following year with a new
@@ -83,8 +87,6 @@ class OutageCreate(BaseModel):
 
     element_kind: Literal["line", "trafo", "gen"]
     element_id: str  # line/trafo id, or an existing generator's id (EX-…)
-    season: Literal["Winter", "Spring", "Summer", "Autumn"]
-    year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
     weeks: int = Field(default=4, ge=1, le=26)
     kind: Literal["outage", "derate"] = "outage"
     work: Literal["maintenance", "repowering", "replacement"] = "maintenance"
@@ -107,6 +109,30 @@ class OutageCreate(BaseModel):
             raise ValueError("an uprate needs a factor (1 < factor <= 4)")
         if self.repower == "add_parallel" and self.factor is not None:
             raise ValueError("add_parallel takes no factor")
+        return self
+
+
+class OutageCreate(WorkSpec):
+    """A planned works window on a branch (studied in its season; reported, never a gate)."""
+
+    season: Season
+    year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
+
+
+class BestWindowRequest(WorkSpec):
+    """Find the best window for a planned work (windows.best_windows): every season of every year in
+    `years` = [from, to] (default the whole plan), or only the `seasons` given."""
+
+    years: tuple[int, int] = (PLAN_START_YEAR, PLAN_END_YEAR)
+    seasons: list[Season] | None = None
+
+    @model_validator(mode="after")
+    def _range(self):
+        lo, hi = self.years
+        if not (PLAN_START_YEAR <= lo <= hi <= PLAN_END_YEAR):
+            raise ValueError(f"years must be [from, to] within {PLAN_START_YEAR}..{PLAN_END_YEAR}")
+        if self.seasons is not None and not self.seasons:
+            raise ValueError("seasons, when given, must not be empty")
         return self
 
 

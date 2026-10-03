@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import type { ChatMsg, Intake } from "../../lib/intake";
+import type { MaintChat } from "../../lib/maintCopilot";
 import type {
   Boundary,
   Branch,
@@ -40,14 +41,18 @@ export interface RecMsg {
   loading?: boolean;
 }
 
+export type ChatMode = "project" | "recs" | "maint";
+
 export interface ChatState {
-  mode: "project" | "recs" | null;
+  mode: ChatMode | null;
   intake: Intake | null;
+  /** The Maintenance chat (lib/maintCopilot.ts). */
+  maint: MaintChat | null;
   recs: RecMsg[];
   input: string;
   busy: boolean;
   /** Chats started on this branch in this session, newest first. */
-  recent: { mode: "project" | "recs"; title: string; at: string }[];
+  recent: { mode: ChatMode; title: string; at: string }[];
 }
 
 export interface MaintDraft {
@@ -102,7 +107,7 @@ export interface PlannerState {
   toast: { text: string; tone: "ok" | "warn" } | null;
 }
 
-export const EMPTY_CHAT: ChatState = { mode: null, intake: null, recs: [], input: "", busy: false, recent: [] };
+export const EMPTY_CHAT: ChatState = { mode: null, intake: null, maint: null, recs: [], input: "", busy: false, recent: [] };
 
 export const INITIAL: PlannerState = {
   model: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,

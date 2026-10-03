@@ -16,6 +16,7 @@ from gridforge_optimizer import (
     Suggestion,
     YearResult,
     apply_reinforcement,
+    best_windows,
     evaluate_years,
     optimize,
     suggest_unblock,
@@ -25,7 +26,7 @@ from gridforge_optimizer.network import build_base_net
 
 from . import narration, repository
 from .cache import ResultCache, cand_key
-from .schemas import OptimizeRequest
+from .schemas import BestWindowRequest, OptimizeRequest
 from .store import ScenarioStore
 from .warehouse import Warehouse
 
@@ -202,6 +203,37 @@ class PlanService:
         self.cache.put(key, "suggest", int((time.perf_counter() - t0) * 1000), json.dumps([x.model_dump() for x in sugs]))
         self.cache.compute[key] = sugs
         return sugs
+
+    def best_windows(self, branch_id: str, body: BestWindowRequest, progress=None) -> list[dict]:
+        """The ranked windows for a planned work on a branch (windows.best_windows), studied against
+        the branch's plan year by year: its queue (cached run), schedule, reinforcements and other
+        planned windows. Cached through the same two layers; the key adds everything the years
+        depend on (years_key) and the request itself."""
+        report = progress or (lambda _s, _f: None)
+        b = self.inputs(branch_id)
+        params = resolve_params(b.req)
+        key = self.cache.key("windows", params, b.ckey, extra=f"{years_key(b)}|{body.model_dump_json()}")
+        if key in self.cache.compute:
+            return self.cache.compute[key]
+        cached = self.cache.get(key)
+        if cached is not None:
+            self.cache.compute[key] = json.loads(cached)
+            return self.cache.compute[key]
+        result = self.compute(b.req, b.cands, b.ckey, b.reinforcements,
+                              progress=lambda s, f: report("queue decided" if s == "done" else s, 0.3 * f))
+        t0 = time.perf_counter()
+        lo, hi = body.years
+        kw = {"seasons": body.seasons} if body.seasons else {}
+        options = best_windows(
+            result, b.cands, params, (body.element_kind, body.element_id), range(lo, hi + 1),
+            work=body.work, kind=body.kind, repower=body.repower, factor=body.factor, weeks=body.weeks,
+            scheduled=b.schedule, reinforcements=b.reinforcements, outages=b.outages,
+            progress=lambda s, f: report(s, 0.3 + 0.7 * f), **kw,
+        )
+        out = [o.model_dump() for o in options]
+        self.cache.put(key, "windows", int((time.perf_counter() - t0) * 1000), json.dumps(out))
+        self.cache.compute[key] = out
+        return out
 
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:
         """The engine result shaped for the map: coordinates, applicant, the operator's schedule

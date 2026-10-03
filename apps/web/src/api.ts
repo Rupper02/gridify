@@ -2,6 +2,8 @@
 // are normalised into the single shape the UI renders everywhere (see normReason).
 
 import type {
+  BestWindowRequest,
+  BestWindowResult,
   Boundary,
   Branch,
   BranchReinforcement,
@@ -142,6 +144,17 @@ export const api = {
   listOutages: async (id: string) => (await getJson<{ outages: Outage[] }>(`/branches/${id}/outages`)).outages ?? [],
   addOutage: (id: string, o: Omit<Outage, "outage_id" | "created_at">) => postJson<Outage>(`/branches/${id}/outages`, o),
   removeOutage: (id: string, outageId: string) => del<{ removed: boolean }>(`/branches/${id}/outages/${outageId}`),
+  /** The best window for a planned work, as a background job (progress per year studied). */
+  bestWindowJob: async (id: string, body: BestWindowRequest, onProgress: (stage: string, fraction: number) => void): Promise<BestWindowResult> => {
+    let job = await postJson<Job<BestWindowResult>>(`/branches/${id}/works/best-window`, body);
+    while (job.status === "queued" || job.status === "running") {
+      onProgress(job.stage, job.fraction);
+      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 700));
+      job = await getJson<Job<BestWindowResult>>(`/jobs/${job.job_id}`);
+    }
+    if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the window search failed");
+    return job.result;
+  },
   listReinforcements: async (id: string) =>
     (await getJson<{ reinforcements: BranchReinforcement[] }>(`/branches/${id}/reinforcements`)).reinforcements ?? [],
   addReinforcement: (id: string, r: Omit<BranchReinforcement, "reinforcement_id" | "created_at">) =>

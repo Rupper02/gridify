@@ -26,9 +26,11 @@ from .types import (
     Reason,
     Reinforcement,
     Suggestion,
+    WindowOption,
     YearResult,
 )
 from .years import PLAN_YEARS, evaluate_years, year_order
+from .windows import best_windows
 
 @_lru_cache(maxsize=1)
 def engine_fingerprint() -> str:
@@ -57,6 +59,8 @@ __all__ = [
     "Curtailment",
     "N1During",
     "evaluate_years",
+    "best_windows",
+    "WindowOption",
     "year_order",
     "PLAN_YEARS",
     "Reason",

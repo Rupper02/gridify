@@ -42,7 +42,7 @@ export function usePlanner() {
   const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
   const { select, selectProject, focusSel } = useSelection(core);
   const { setSchedule } = useProjectEdits(core);
-  const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever);
+  const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever, maint.loadExtras);
   const derived = useDerived(s);
 
   const actions = useMemo(

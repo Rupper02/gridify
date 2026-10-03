@@ -250,6 +250,47 @@ export interface Outage {
   weeks: number;
   kind: "outage" | "derate";
   created_at?: string;
+  work?: WorkType;
+  repower?: Repower | null;
+  factor?: number | null;
+}
+/** What a works window is for (engine: maintenance.WORKS). */
+export type WorkType = "maintenance" | "repowering" | "replacement";
+export type Repower = "uprate" | "add_parallel";
+export type Verdict = "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
+
+/** Find the best window for a planned work (API: POST /branches/{id}/works/best-window). */
+export interface BestWindowRequest {
+  element_kind: ElementKind;
+  element_id: string;
+  work: WorkType;
+  kind: "outage" | "derate";
+  repower?: Repower | null;
+  factor?: number | null;
+  weeks: number;
+  years?: [number, number];
+  seasons?: Season[];
+}
+/** One ranked window (engine: windows.best_windows), studied against the plan that year. */
+export interface WindowOption {
+  rank: number;
+  year: number;
+  season: Season;
+  verdict: Verdict;
+  curtailed_mw: number;
+  demand_at_risk_mw: number;
+  /** null: not screened (outside the engine's N-1 shortlist). */
+  n1_findings: number | null;
+  worst_line_loading_pct: number;
+  worst_trafo_loading_pct: number;
+  message: string;
+}
+export interface BestWindowResult {
+  branch_id: string;
+  element_kind: ElementKind;
+  element_id: string;
+  work: WorkType;
+  options: WindowOption[];
 }
 
 /** A simulated reinforcement proposed on a branch (API: /branches/{id}/reinforcements). */
@@ -357,7 +398,7 @@ export type Tab = "copilot" | "queue" | "outages" | "review";
 export type MapLayer = "flow" | "loading" | "voltage";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
-export interface Job {
+export interface Job<R = OptimizeResult> {
   job_id: string;
   kind: string;
   status: "queued" | "running" | "done" | "failed";
@@ -369,6 +410,6 @@ export interface Job {
   elapsed_ms: number;
   has_partial?: boolean;
   partial?: OptimizeResult | null;
-  result?: OptimizeResult | null;
+  result?: R | null;
   error?: string | null;
 }

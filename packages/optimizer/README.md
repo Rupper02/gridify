@@ -33,6 +33,7 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its works windows and earlier repowers; `year_order`, `energisation_years`. |
 | `maintenance.py` | Planned works: `WORKS` (maintenance, replacement, repowering), `REPOWERERS`, `apply_works_after`, `study_windows` (combined windows, verdict, bounded curtailment search, N-1 during the window). |
+| `windows.py` | `best_windows`: a work's window studied in every (year, season) against the plan that year, ranked (two passes: N-1 for a shortlist only). |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
 | `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
@@ -150,6 +151,18 @@ When the year runs the N-1 screen, the window gets `n1_during`: the 132 kV backb
 
 Besides the verdict, an `OutageStudy` carries the cases studied, `ok` (no breach before curtailment), the first breach per case, worst loadings, GSP export and `after`. Like N-1, works windows are reported per year and are **never a connection gate**.
 
+### The best window for a work (`windows.py`)
+
+```
+best_windows(result, candidates, params, (element_kind, element_id), years=PLAN_YEARS, seasons=SEASONS,
+             work=, kind=, repower=, factor=, weeks=, scheduled=, reinforcements=, outages=,
+             n1=True, n1_shortlist=BEST_WINDOW_N1_SHORTLIST, net_factory=, progress=) -> list[WindowOption]
+```
+
+Probes the element's window in every (year, season) of the range, each year through `years.evaluate_year` (the year's net built once, with its demand, energised projects, reinforcements, earlier works and the branch's other windows; a probe sharing a season with them is studied together with them). Probes of different years never see each other. Ranking, deterministic: verdict (feasible < curtailment < demand_at_risk < not_feasible), curtailed MW, demand at risk, N-1 findings during the window, worst line then transformer loading, earliest year, season order.
+
+Two passes bound the cost: every window without the N-1 screen, then the screen for a shortlist of `BEST_WINDOW_N1_SHORTLIST` (6: the best window of each season, then the next best). The rest report `n1_findings = None` and rank after a screened window they tie with, so a window with fewer second-fault findings can exist among them (a stated limit). Measured on the NGED network, 10 years × 4 seasons: 5.5 to 6.5 min screening every window, 2 to 3.5 min with the shortlist (a busy dev machine; the curtailment search dominates windows that breach a limit).
+
 ### What would it take (`suggest.py`)
 
 `suggest_unblock(candidates, params, base, max_suggestions, *, request_id=None, net_factory=build_base_net)`. For the highest-ranked deferred projects (`MAX_SUGGESTIONS`), or only `request_id` when given, each lever is applied and the trials re-run on `net_factory`'s network (the API passes one with the branch's simulated reinforcements) to measure `freed_mw_2030/2035`:
@@ -205,6 +218,7 @@ PLAN_START_YEAR / PLAN_END_YEAR     = 2026 / 2035
 SEASON_STUDY                        = season -> study case(s) + line rating column (see above)
 OUTAGE_DERATE_FACTOR                = 0.5
 CURTAIL_MAX_SOLVES / CURTAIL_REFINE_STEPS / CURTAIL_MIN_RELIEF = 8 / 3 / 0.01   # window curtailment search (first-order)
+BEST_WINDOW_N1_SHORTLIST            = 6        # best-window search: windows screened N-1 during the window
 N1_MIN_KV / N1_ISLAND_MIN_MW        = 132 / 1.0
 LINE_LOADING_MAX_PCT / TRAFO_...    = 100 / 100
 MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 248 MW accepted at 132 kV)
@@ -240,6 +254,7 @@ What they cover:
 - recommended years;
 - the plan year by year: growth interpolation, year order, energisation from the schedule, demand connections, and planned outages per season, kind and year (`test_yearly.py`);
 - works windows: repowering changes only the years after the window, replacement and maintenance leave them as they were, combined windows, each verdict (feasible, curtailment that really holds the limits, demand at risk) and the N-1 during a window (`test_maintenance.py`);
+- the best-window search: every (year, season) once, ranked, the same study the year reports, combined with same-season windows, probes independent across years, the N-1 shortlist, bad requests (`test_windows.py`);
 - reinforcement, suggestions and the diff;
 - the readiness rubric.
 

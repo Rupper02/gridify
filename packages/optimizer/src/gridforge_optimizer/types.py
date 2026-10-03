@@ -154,6 +154,23 @@ class OutageStudy(BaseModel):
     after: str = ""  # what the work leaves behind once the window is over
 
 
+class WindowOption(BaseModel):
+    """One candidate window for a planned work (windows.best_windows): the element studied out in
+    one season of one year against the plan as it stands then, ranked against the others."""
+
+    rank: int  # 1 = the best window
+    year: int
+    season: str
+    verdict: str  # as OutageStudy.verdict
+    curtailed_mw: float = 0.0
+    demand_at_risk_mw: float = 0.0
+    n1_findings: int | None = None  # second faults adding a problem during the window; None = not screened (outside the shortlist)
+    worst_line_loading_pct: float = 0.0
+    worst_trafo_loading_pct: float = 0.0
+    message: str  # the engine's plain-English study summary
+    study: OutageStudy
+
+
 class YearResult(PhaseResult):
     """The plan as it stands in one year: the projects energised by then (their scheduled or
     recommended year), demand interpolated to the year, solved in both cases, plus that year's
