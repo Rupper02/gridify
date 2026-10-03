@@ -8,7 +8,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import type { ElementSel, MapLayer, Tab } from "../types";
+import type { ElementSel, Tab } from "../types";
 import { useCore } from "./planner/core";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
@@ -16,6 +16,7 @@ import { useCopilot } from "./planner/useCopilot";
 import { useDerived } from "./planner/useDerived";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
+import { useMapFeatures } from "./planner/useMapFeatures";
 import { useProjectEdits } from "./planner/useProjectEdits";
 import { useRegistry } from "./planner/useRegistry";
 import { useRun } from "./planner/useRun";
@@ -45,6 +46,7 @@ export function usePlanner() {
   const { select, selectProject, focusSel } = useSelection(core);
   const { setSchedule } = useProjectEdits(core, edited);
   const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever, maint.loadExtras, edited);
+  const mapView = useMapFeatures(core, s.visible);
   const derived = useDerived(s);
 
   const actions = useMemo(
@@ -53,8 +55,8 @@ export function usePlanner() {
       ...flows,
       ...maint,
       ...copilot,
+      ...mapView,
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
-      setLayer: (layer: MapLayer) => patch({ layer }),
       setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
       toggleMenu: () => patch((st) => ({ menuOpen: !st.menuOpen })),
@@ -80,7 +82,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView)],
   );
 
   return { s, patch, actions, derived, mapApi };

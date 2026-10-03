@@ -2,7 +2,7 @@
 // so the breakpoints are unit-tested; components read the flags and offsets from here.
 
 /** The layer menu's fixed width (Flow / Loading / Voltage / Demand + the Deferred switch). */
-export const LAYERS_W = 148;
+export const LAYERS_W = 196;
 const GAP = 10;
 
 export interface Layout {

@@ -8,6 +8,7 @@ import type { MapLayer, Model, Sel, YearResult } from "../types";
 import { regionFeatures } from "./demand";
 import { voltageBand } from "./derive";
 import { type DiffMap, diffColor } from "./diff";
+import { type FeatureKey, lineFeature, shows } from "./mapFeatures";
 
 export interface GeoInputs {
   model: Model;
@@ -21,6 +22,8 @@ export interface GeoInputs {
   /** Diff mode: the viewed year's loading change vs main per line and transformer (changed ones
    * only), or null when diff is off. */
   diffDeltas: DiffMap | null;
+  /** The kinds of element the map shows (lib/mapFeatures.ts); the rest are left out entirely. */
+  visible: readonly FeatureKey[];
 }
 
 export interface Geo {
@@ -30,7 +33,7 @@ export interface Geo {
   openpts: FeatureCollection;
   trafos: FeatureCollection;
   existing: FeatureCollection;
-  /** Demand regions (the Demand layer only): a halo per region site. */
+  /** Demand groups: a halo per region site (when "Demand groups" is shown). */
   regions: FeatureCollection;
 }
 
@@ -49,11 +52,13 @@ export const lineStyle = (kv: number): { w: number; c: string } =>
 
 export function buildGeo(g: GeoInputs): Geo {
   const { model: m, yr, layer, sel, diffDeltas } = g;
+  const on = (k: FeatureKey) => shows(g.visible, k);
+  const mLines = m.lines.filter((l) => on(lineFeature(l.voltage_kv)));
   const ll = yr?.line_loading ?? {};
   const over = new Set(yr?.overloaded_line_ids ?? []);
   const vv = new Set(yr?.voltage_violation_bus_ids ?? []);
 
-  const lines: Feature[] = m.lines.map((l) => {
+  const lines: Feature[] = mLines.map((l) => {
     const id = l.line_id;
     const base = lineStyle(l.voltage_kv);
     const pct = ll[id] ?? null;
@@ -89,6 +94,7 @@ export function buildGeo(g: GeoInputs): Geo {
   });
 
   const buses: Feature[] = m.buses
+    .filter(() => on("buses"))
     .filter((b) => b.lon != null)
     .map((b) => {
       const v = yr?.bus_vm?.[b.bus_id] ?? null;
@@ -103,14 +109,14 @@ export function buildGeo(g: GeoInputs): Geo {
     });
 
   const maxLoad = m.loads.length ? Math.max(...m.loads.map((l) => l.p_mw)) : 1;
-  const loads: Feature[] = m.loads.map((l) => pt(l.lon, l.lat, { id: l.load_id, size: 0.5 + (l.p_mw / maxLoad) * 0.5 }));
-  const openpts: Feature[] = m.lines
+  const loads: Feature[] = (on("loads") ? m.loads : []).map((l) => pt(l.lon, l.lat, { id: l.load_id, size: 0.5 + (l.p_mw / maxLoad) * 0.5 }));
+  const openpts: Feature[] = mLines
     .filter((l) => l.in_service === false)
     .map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
   // transformers carry their loading: a ring in the loading layer, and a red glow when over 100 % in any;
   // in diff mode only the changed ones are ringed, coloured like the changed lines
   const tl = yr?.trafo_loading ?? {};
-  const trafos: Feature[] = m.transformers.map((t) => {
+  const trafos: Feature[] = (on("transformers") ? m.transformers : []).map((t) => {
     const pct = tl[t.trafo_id] ?? null;
     const dt = diffDeltas?.trafos.get(t.trafo_id);
     return pt(t.hv_lon, t.hv_lat, {
@@ -123,7 +129,7 @@ export function buildGeo(g: GeoInputs): Geo {
     });
   });
   // the existing connected fleet: teal circles sized by √MW, on main and every branch
-  const existing: Feature[] = (m.generators ?? [])
+  const existing: Feature[] = (on("generation") ? (m.generators ?? []) : [])
     .filter((x) => x.lon != null && x.lat != null)
     .map((x) =>
       pt(x.lon, x.lat, {
@@ -133,7 +139,7 @@ export function buildGeo(g: GeoInputs): Geo {
       }),
     );
 
-  const regions: Feature[] = layer === "demand" ? regionFeatures(m, yr, sel) : [];
+  const regions: Feature[] = on("demand") ? regionFeatures(m, yr, sel) : [];
 
   return { lines: FC(lines), buses: FC(buses), loads: FC(loads), openpts: FC(openpts), trafos: FC(trafos), existing: FC(existing), regions: FC(regions) };
 }

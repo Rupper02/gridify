@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PlannerSlice, WithMap } from "../hooks/planner/slice";
 import { FLOW_DASH_SEQ, GEO_SOURCES, type Geo } from "../lib/geo";
 import { addIcons } from "../lib/icons";
+import { shows } from "../lib/mapFeatures";
 import type { Layout } from "../lib/layout";
 import { C } from "../theme";
 import type { Sel } from "../types";
@@ -196,7 +197,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
   return (
     <>
       <div ref={elRef} className="map" aria-label="Network map" />
-      {ready && s.layer === "demand" && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
+      {ready && shows(s.visible, "demand") && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
       {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
     </>
   );

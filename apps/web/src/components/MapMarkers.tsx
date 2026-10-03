@@ -5,6 +5,7 @@ import { Wrench } from "@phosphor-icons/react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
+import { type FeatureKey, lineFeature, shows } from "../lib/mapFeatures";
 import { effYearOf, isAccepted, outageSel, outageStudyOf, trafoRatio, trafoSub } from "../lib/derive";
 import { VERDICTS, outageTag, verdictColor } from "../lib/maintenance";
 import { type MapDelta, deltaTag, diffColor } from "../lib/diff";
@@ -13,7 +14,7 @@ import type { Outage, QueueItem, RegistryItem } from "../types";
 import { TechIcon } from "./ui";
 
 export type MapMarkersPlanner = PlannerSlice<
-  "diff" | "diffMode" | "layer" | "model" | "outages" | "result" | "sel" | "showDeferred" | "year",
+  "diff" | "diffMode" | "layer" | "model" | "outages" | "result" | "sel" | "showDeferred" | "visible" | "year",
   "select",
   "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "yr"
 >;
@@ -41,17 +42,22 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   const added = new Set((s.diff?.projects ?? []).filter((p) => p.change === "added").map((p) => p.request_id));
   const sel = s.sel;
   const inView = (x: number, y: number) => x > -60 && y > -30 && x < width + 60 && y < height + 30;
+  const on = (k: FeatureKey) => shows(s.visible, k);
+  const lineOn = (id: number) => {
+    const l = ix.line.get(id);
+    return !!l && on(lineFeature(l.voltage_kv));
+  };
 
   // ---- projects --------------------------------------------------------------------------------
   const items: MarkerItem[] = [];
-  q.forEach((x: QueueItem) => {
+  if (on("projects")) q.forEach((x: QueueItem) => {
     if (x.lon == null || x.lat == null) return;
     const hidden = (x.status === "Deferred" || x.status === "Rejected") && !s.showDeferred && !(sel?.kind === "project" && sel.id === x.request_id);
     if (hidden) return;
     const eff = effYearOf(x);
     items.push({ id: x.request_id, tech: x.technology, status: x.status, lon: x.lon, lat: x.lat, bus: x.bus_id, future: isAccepted(x) && eff != null && eff > s.year });
   });
-  prelim.forEach((p: RegistryItem) => {
+  if (on("projects")) prelim.forEach((p: RegistryItem) => {
     const b = p.bus_id != null ? ix.bus.get(p.bus_id) : undefined;
     if (b) items.push({ id: p.request_id, tech: p.technology, status: "Prelim", lon: b.lon, lat: b.lat, bus: p.bus_id, future: false });
   });
@@ -102,7 +108,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     e.ratios.add(trafoRatio(t));
     seen.set(name, e);
   });
-  const subEls = [...seen.entries()].map(([name, e]) => {
+  const subEls = (on("substations") ? [...seen.entries()] : []).map(([name, e]) => {
     const pt = project(e.lon, e.lat);
     if (!pt || !inView(pt[0], pt[1])) return null;
     const x = pt[0] + 14;
@@ -135,15 +141,15 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     };
     diffDeltas.lines.forEach((d, id) => {
       const l = ix.line.get(id);
-      if (l) diffTag(`d${id}`, project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2), d);
+      if (l && lineOn(id)) diffTag(`d${id}`, project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2), d);
     });
     diffDeltas.trafos.forEach((d, id) => {
       const t = ix.trafo.get(id);
-      if (t) diffTag(`dt${id}`, project(t.hv_lon, t.hv_lat), d, "T ", -24);
+      if (t && on("transformers")) diffTag(`dt${id}`, project(t.hv_lon, t.hv_lat), d, "T ", -24);
     });
   } else if (s.layer === "loading" && yr) {
     Object.entries(yr.line_loading ?? {}).forEach(([id, pct]) => {
-      if (pct < 60 && !(sel?.kind === "line" && sel.id === +id)) return;
+      if ((pct < 60 && !(sel?.kind === "line" && sel.id === +id)) || !lineOn(+id)) return;
       const l = ix.line.get(+id);
       if (!l) return;
       const pt = project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2);
@@ -158,7 +164,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   }
   // transformers: the most loaded one at each substation, tagged above its icon (loading layer, or
   // whenever one is over 100 %)
-  if (yr && !diffOn) {
+  if (yr && !diffOn && on("transformers")) {
     const atSite = new Map<string, { pct: number; lon: number; lat: number; id: number }>();
     Object.entries(yr.trafo_loading ?? {}).forEach(([id, pct]) => {
       const t = ix.trafo.get(+id);
@@ -179,7 +185,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   }
 
   // ---- planned outages in the viewed year ------------------------------------------------------
-  const outEls = s.outages
+  const outEls = (on("works") ? s.outages : [])
     .filter((o: Outage) => o.year === s.year)
     .map((o) => {
       const at = outagePoint(o, ix);

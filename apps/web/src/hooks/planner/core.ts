@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
+import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
 import type { ChatMsg, Intake } from "../../lib/intake";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { MaintChat } from "../../lib/maintCopilot";
@@ -93,6 +94,9 @@ export interface PlannerState {
   tab: Tab;
   sideOpen: boolean;
   layer: MapLayer;
+  /** The kinds of element the map shows (lib/mapFeatures.ts). */
+  visible: FeatureKey[];
+  showMenuOpen: boolean;
   showDeferred: boolean;
   legendOpen: boolean;
   showBoundary: boolean;
@@ -111,7 +115,7 @@ export const INITIAL: PlannerState = {
   outages: [], reinforcements: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
   diff: null, diffMode: false, suggestions: null,
-  tab: "copilot", sideOpen: true, layer: "flow", showDeferred: false, legendOpen: false, showBoundary: false,
+  tab: "copilot", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 2030, sel: null,
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,
@@ -133,7 +137,7 @@ export type { ChatMsg };
 
 /** Create the planner state and its core. */
 export function useCore(): { s: PlannerState; core: Core } {
-  const [s, setS] = useState<PlannerState>(INITIAL);
+  const [s, setS] = useState<PlannerState>(() => ({ ...INITIAL, visible: loadVisible() }));
   const ref = useRef(s);
   ref.current = s;
   const patch = useCallback(

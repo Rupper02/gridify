@@ -1,16 +1,21 @@
-// Over the map: the layer toggle (Flow / Loading / Voltage / Demand) with the Deferred switch, the legend and
+// Over the map: the layer toggle (Flow / Loading / Voltage / Demand) with the Deferred switch and the
+// Show menu (which kinds of element the map draws, lib/mapFeatures.ts), the legend and
 // zoom (+ / − / FIT), and the diff-mode banner.
 
-import { ArrowRight, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
+import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { LAYERS_W, type Layout } from "../lib/layout";
 import { REGION_STATE } from "../lib/demand";
+import { DEFAULT_VISIBLE, FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, shows } from "../lib/mapFeatures";
 import { C, tint } from "../theme";
 import type { MapLayer, Tech } from "../types";
 import { Switch, TechIcon } from "./ui";
 
-export type LayerTogglePlanner = PlannerSlice<"layer" | "showDeferred" | "sideOpen", "setLayer" | "toggleDeferred">;
+export type LayerTogglePlanner = PlannerSlice<
+  "layer" | "showDeferred" | "showMenuOpen" | "sideOpen" | "visible",
+  "setLayer" | "showAll" | "showOnly" | "toggleDeferred" | "toggleFeatureShown" | "toggleShowMenu"
+>;
 
 const LAYERS: [MapLayer, string, typeof WaveSine][] = [
   ["flow", "Flow", WaveSine],
@@ -37,7 +42,58 @@ export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; 
           <Switch on={s.showDeferred} />
         </span>
       </button>
+      <div className="sep" />
+      <ShowMenu planner={planner} />
     </div>
+  );
+}
+
+/** Which kinds of element the map draws: a switch each, "only" to focus on one, and Show all. */
+function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
+  const { s, actions } = planner;
+  const n = s.visible.length;
+  const isDefault = n === DEFAULT_VISIBLE.length && DEFAULT_VISIBLE.every((k) => s.visible.includes(k));
+  return (
+    <>
+      <button className={`def${s.showMenuOpen ? " on-plain" : ""}`} onClick={actions.toggleShowMenu} aria-expanded={s.showMenuOpen} title="Choose what the map shows">
+        <Eye size={14} />
+        Show
+        <span className="mono show-count">{n}/{FEATURE_KEYS.length}</span>
+        {s.showMenuOpen ? <CaretUp size={12} /> : <CaretDown size={12} />}
+      </button>
+      {s.showMenuOpen && (
+        <div className="show-menu" role="group" aria-label="Elements on the map">
+          {FEATURE_GROUPS.map((g) => (
+            <div key={g} className="show-group">
+              <span className="show-head">{g}</span>
+              {FEATURE_KEYS.filter((k) => MAP_FEATURES[k].group === g).map((k) => {
+                const on = shows(s.visible, k);
+                const alone = n === 1 && on;
+                return (
+                  <div key={k} className="show-row">
+                    <button className="show-label" role="switch" aria-checked={on} onClick={() => actions.toggleFeatureShown(k)}>
+                      <span className="ellipsis" style={{ color: on ? C.ink : C.mute2 }}>{MAP_FEATURES[k].label}</span>
+                      <Switch on={on} />
+                    </button>
+                    <button
+                      className={`show-only${alone ? " on" : ""}`}
+                      onClick={() => actions.showOnly(k)}
+                      title={alone ? "Show the usual elements again" : `Show only ${MAP_FEATURES[k].label.toLowerCase()}`}
+                      aria-label={alone ? "Show the usual elements again" : `Only ${MAP_FEATURES[k].label}`}
+                    >
+                      <Crosshair size={12} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <button className="show-all" onClick={actions.showAll} disabled={isDefault}>
+            Show all
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
