@@ -55,7 +55,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
       `${worstPct}%`;
     
     return (
-      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
+      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined, flexWrap: "wrap", height: "auto", minHeight: 34, whiteSpace: "normal" }}>
         <ProfileGlyph bars={resultProfile.bars} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : gspHot ? C.amber : C.ink2 }}>
