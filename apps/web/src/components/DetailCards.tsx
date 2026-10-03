@@ -7,16 +7,18 @@ import { Intersect, Lightbulb, LineSegment, Trash, Wrench, X } from "@phosphor-i
 import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { busLabel, effYearOf, elementInfo, headlineMw, nameElements, outageImpact, seasonHint } from "../lib/derive";
+import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
 import type { Layout } from "../lib/layout";
+import { PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { ElementSel, QueueItem, RegistryItem, Season } from "../types";
 import { Stepper, TechIcon } from "./ui";
+import { VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
   "diffMode" | "maintDraft" | "outages" | "result" | "sel" | "sideOpen" | "year",
   "removeOutage" | "scheduleOutage" | "select" | "setDraft" | "setSchedule" | "startRecs",
-  "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "qById" | "yr"
+  "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q" | "qById" | "yr"
 >;
 
 function cardPos(planner: DetailCardsPlanner, layout: Layout): CSSProperties {
@@ -133,6 +135,8 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
   if (!info) return null;
   const d = s.maintDraft;
   const windows = s.outages.filter((o) => o.element_kind === sel.kind && o.element_id === String(sel.id));
+  const repowered = repoweredNotes(sel, s.outages, s.year);
+  const ctx = { result: s.result, ix, outages: s.outages, queue: derived.q };
   const Icon = sel.kind === "line" ? LineSegment : Intersect;
   return (
     <div className="detail glass" style={{ ...cardPos(planner, layout), width: 308, borderColor: "rgba(255,255,255,0.16)" }}>
@@ -147,28 +151,42 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
         <span>Rating</span><span className="mono">{info.rating}</span>
         <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
       </div>
+      {repowered.map((t) => (
+        <span key={t} className="repowered">{t}</span>
+      ))}
       {windows.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span style={{ fontSize: 12, fontWeight: 600 }}>Scheduled on {derived.onMain ? "main" : derived.branch?.name}</span>
           {windows.map((o) => {
-            const imp = outageImpact(o, s.result, ix);
+            const view = windowView(o, ctx);
             return (
               <div key={o.outage_id} className="mrow">
-                <Wrench size={13} color={C.line132} />
-                <span className="ellipsis" style={{ fontSize: 12 }}>{o.season} {o.year} · {o.weeks} wk · {o.kind}</span>
+                <Wrench size={13} color={verdictColor(view.verdict) ?? C.line132} />
+                <span className="ellipsis" style={{ fontSize: 12 }}>{outageLine(o)}</span>
                 {!derived.onMain ? (
-                  <button className="icon-btn sm" onClick={() => void actions.removeOutage(o.outage_id)} title="Remove" aria-label="Remove outage">
+                  <button className="icon-btn sm" onClick={() => void actions.removeOutage(o.outage_id)} title="Remove" aria-label="Remove window">
                     <Trash size={12} />
                   </button>
                 ) : <span />}
-                <span className="imp" style={{ color: imp.c }}>{imp.text}</span>
+                <span className="wdetail">
+                  <VerdictChip view={view} />
+                  <WindowDetail view={view} />
+                </span>
               </div>
             );
           })}
         </div>
       )}
       <div className="box dark" style={{ gap: 10, padding: 12 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Schedule maintenance</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Schedule works</span>
+        <div className="form-row">
+          <span className="lbl">Work</span>
+          <div className="opts">
+            {WORKS.map((w) => (
+              <button key={w} className={`pill-opt${d.work === w ? " on" : ""}`} onClick={() => actions.setDraft({ work: w })}>{WORK_UI[w].label}</button>
+            ))}
+          </div>
+        </div>
         <div className="form-row">
           <span className="lbl">Season</span>
           <div className="opts">
@@ -189,14 +207,41 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
             ))}
           </div>
         </div>
-        <div className="form-row">
-          <span className="lbl">Type</span>
-          <div className="opts">
-            <button className={`pill-opt${d.kind === "outage" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "outage" })}>Full outage</button>
-            <button className={`pill-opt${d.kind === "derate" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "derate" })}>Derate to 50%</button>
+        {d.work === "maintenance" && (
+          <div className="form-row">
+            <span className="lbl">Type</span>
+            <div className="opts">
+              <button className={`pill-opt${d.kind === "outage" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "outage" })}>Full outage</button>
+              <button className={`pill-opt${d.kind === "derate" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "derate" })}>Derate to 50%</button>
+            </div>
           </div>
-        </div>
-        <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{seasonHint(d.season)}</span>
+        )}
+        {d.work === "repowering" && (
+          <div className="sub-opts">
+            <div className="form-row">
+              <span className="lbl">Comes back with</span>
+              <div className="opts">
+                <button className={`pill-opt${d.repower === "uprate" ? " on" : ""}`} onClick={() => actions.setDraft({ repower: "uprate" })}>Uprate</button>
+                <button className={`pill-opt${d.repower === "add_parallel" ? " on" : ""}`} onClick={() => actions.setDraft({ repower: "add_parallel" })}>{PARALLEL_LABEL[sel.kind]}</button>
+              </div>
+            </div>
+            {d.repower === "uprate" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: C.mute, flex: 1 }}>{sel.kind === "gen" ? "Export rating" : "Rating"} factor</span>
+                <Stepper
+                  small
+                  value={`${d.factor}x`}
+                  label="factor"
+                  words={["Lower", "Higher"]}
+                  onDec={() => actions.setDraft({ factor: stepFactor(d.factor, -1) })}
+                  onInc={() => actions.setDraft({ factor: stepFactor(d.factor, 1) })}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {d.work === "replacement" && <span className="work-note">Back like-for-like after the window.</span>}
+        <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind)}</span>
         <button className="btn primary sm" style={{ justifyContent: "center", height: 34 }} onClick={() => void actions.scheduleOutage(sel)}>
           <Wrench size={13} weight="bold" />
           {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}

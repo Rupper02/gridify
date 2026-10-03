@@ -71,14 +71,14 @@ export function Switch({ on }: { on: boolean }) {
   );
 }
 
-export function Stepper({ value, onDec, onInc, small = false, label }: { value: ReactNode; onDec: () => void; onInc: () => void; small?: boolean; label: string }) {
+export function Stepper({ value, onDec, onInc, small = false, label, words = ["Earlier", "Later"] }: { value: ReactNode; onDec: () => void; onInc: () => void; small?: boolean; label: string; words?: [string, string] }) {
   return (
     <span className={`stepper${small ? " sm" : ""}`}>
-      <button onClick={onDec} aria-label={`Earlier ${label}`}>
+      <button onClick={onDec} aria-label={`${words[0]} ${label}`}>
         <Minus size={small ? 12 : 13} />
       </button>
       <b>{value}</b>
-      <button onClick={onInc} aria-label={`Later ${label}`}>
+      <button onClick={onInc} aria-label={`${words[1]} ${label}`}>
         <Plus size={small ? 12 : 13} />
       </button>
     </span>

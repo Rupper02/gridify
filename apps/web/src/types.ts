@@ -147,6 +147,35 @@ export interface OutageStudy {
   worst_trafo_loading_pct: number;
   gsp_export_mw: number;
   message: string;
+  work: Work;
+  /** The other windows of the same season and year, studied together with this one. */
+  with_ids: string[];
+  verdict: Verdict;
+  demand_at_risk_mw: number;
+  /** Generation constrained to hold the limits ("curtailment" only; a first-order estimate). */
+  curtailment: Curtailment[];
+  curtailed_mw: number;
+  /** The N-1 screen with the window in place (informational); null when the year had no screen. */
+  n1_during: N1During | null;
+  /** What the work leaves behind once the window is over. */
+  after: string;
+}
+
+export type Verdict = "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
+/** Generation constrained during a window: a fleet id (EX-...) or a project request id. */
+export interface Curtailment {
+  id: string;
+  name: string; // its technology
+  mw: number;
+  case: string;
+}
+/** The N-1 screen of the backbone with a window in place (informational, never a gate). */
+export interface N1During {
+  cases: string[];
+  screened: number;
+  findings: number;
+  second_fault_at_risk_mw: number;
+  worst: string;
 }
 
 /** The plan as it stands in one year (engine: years.evaluate_year). */
@@ -249,8 +278,15 @@ export interface Outage {
   year: number;
   weeks: number;
   kind: "outage" | "derate";
+  /** What the window is for: maintenance returns the element as it was, replacement like-for-like,
+   * repowering with a new capability from the following year (the queue run does not see it). */
+  work: Work;
+  repower: Repower | null; // repowering only
+  factor: number | null; // repowering by uprate only: the rating multiplier (1 < factor <= 4)
   created_at?: string;
 }
+export type Work = "maintenance" | "repowering" | "replacement";
+export type Repower = "uprate" | "add_parallel";
 
 /** A simulated reinforcement proposed on a branch (API: /branches/{id}/reinforcements). */
 export interface BranchReinforcement {

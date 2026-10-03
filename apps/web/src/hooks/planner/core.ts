@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import type { ChatMsg, Intake } from "../../lib/intake";
+import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type {
   Boundary,
   Branch,
@@ -18,7 +19,6 @@ import type {
   OptimizeResult,
   Outage,
   RegistryItem,
-  Season,
   Sel,
   Status,
   Suggestion,
@@ -50,12 +50,7 @@ export interface ChatState {
   recent: { mode: "project" | "recs"; title: string; at: string }[];
 }
 
-export interface MaintDraft {
-  season: Season;
-  year: number;
-  weeks: number;
-  kind: "outage" | "derate";
-}
+export type { MaintDraft };
 
 export interface PlannerState {
   // data
@@ -112,7 +107,7 @@ export const INITIAL: PlannerState = {
   diff: null, diffMode: false, suggestions: null,
   tab: "copilot", sideOpen: true, layer: "flow", showDeferred: false, legendOpen: false, showBoundary: false,
   year: 2030, sel: null,
-  maintDraft: { season: "Summer", year: 2029, weeks: 4, kind: "outage" },
+  maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,
   toast: null,
 };

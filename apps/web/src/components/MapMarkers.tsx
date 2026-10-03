@@ -5,7 +5,8 @@ import { Wrench } from "@phosphor-icons/react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { effYearOf, isAccepted, outageSel, trafoRatio, trafoSub } from "../lib/derive";
+import { effYearOf, isAccepted, outageSel, outageStudyOf, trafoRatio, trafoSub } from "../lib/derive";
+import { VERDICTS, outageTag, verdictColor } from "../lib/maintenance";
 import { C, ST, loadColor } from "../theme";
 import type { Outage, QueueItem, RegistryItem } from "../types";
 import { TechIcon } from "./ui";
@@ -172,22 +173,24 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   }
 
   // ---- planned outages in the viewed year ------------------------------------------------------
-  const studied = new Set(s.result?.studied?.outage_ids ?? []);
   const outEls = s.outages
     .filter((o: Outage) => o.year === s.year)
     .map((o) => {
       const at = outagePoint(o, ix);
       const pt = at && project(at[0], at[1]);
       if (!pt || !inView(pt[0], pt[1])) return null;
+      const { state, study } = outageStudyOf(o, s.result);
+      const vc = verdictColor(study?.verdict);
       return (
         <button
           key={`o${o.outage_id}`}
-          className={`out-tag${studied.has(o.outage_id) ? "" : " fresh"}`}
-          style={{ left: pt[0], top: pt[1] + (o.element_kind === "gen" ? -18 : 0) }}
+          className={`out-tag${state === "unstudied" ? " fresh" : ""}`}
+          style={{ left: pt[0], top: pt[1] + (o.element_kind === "gen" ? -18 : 0), borderColor: vc ?? undefined, borderStyle: vc ? "solid" : undefined }}
+          title={study ? VERDICTS[study.verdict]?.label : "Not studied yet"}
           onClick={() => actions.select(outageSel(o))}
         >
-          <Wrench size={11} />
-          {o.kind === "outage" ? "OUT" : "50%"} · {o.season}
+          <Wrench size={11} color={vc ?? undefined} />
+          {outageTag(o)}
         </button>
       );
     });

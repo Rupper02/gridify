@@ -5,6 +5,7 @@
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, elementInfo, lensFor, outageSel, roadmapYears, sumMw } from "../lib/derive";
 import type { Layout } from "../lib/layout";
+import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
 import { C, PLAN_YEARS, ST, tint } from "../theme";
 import { TechIcon } from "./ui";
 
@@ -17,7 +18,8 @@ export type RoadmapPlanner = PlannerSlice<
 export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
   const { q, prelim, branchOnly, hue, ix, yr } = derived;
-  const shortName = (o: (typeof s.outages)[number]) => (ix ? (elementInfo(outageSel(o), ix, null, o.year)?.short ?? o.element_id) : o.element_id);
+  const shortName = (o: (typeof s.outages)[number]) =>
+    `${outageChipTag(o)} ${ix ? (elementInfo(outageSel(o), ix, null, o.year)?.short ?? o.element_id) : o.element_id}`;
   const years = roadmapYears(s.result, prelim, s.outages, branchOnly, shortName);
   const p1 = byStatus(q, "Phase1");
   const p2 = byStatus(q, "Phase2");
@@ -52,13 +54,21 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
               >
                 {s.result && !y.solved && s.solving && <span className="solving">solving</span>}
                 <div className="chips">
-                  {y.chips.map((c) => {
-                    if (c.kind === "outage")
+                  {y.chips.map((c, i) => {
+                    if (c.kind === "outage") {
+                      const vc = verdictColor(c.verdict);
+                      const tag = WORK_UI[c.work ?? "maintenance"].label;
                       return (
-                        <span key={`o${c.id}`} className="ychip" style={{ color: C.ink2, background: "rgba(201,214,232,0.08)", borderColor: "rgba(201,214,232,0.45)" }}>
+                        <span
+                          key={`o${i}-${c.id}`}
+                          className="ychip works"
+                          title={`${tag}${c.verdict ? ` · ${VERDICTS[c.verdict].label}` : " · not studied yet"}`}
+                          style={{ color: vc ?? C.ink2, background: vc ? tint(vc, "14") : "rgba(201,214,232,0.08)", borderColor: vc ?? "rgba(201,214,232,0.45)", borderStyle: vc ? "solid" : "dashed" }}
+                        >
                           {c.id}
                         </span>
                       );
+                    }
                     const st = ST[c.status ?? "Phase1"];
                     const pre = c.kind === "prelim";
                     return (

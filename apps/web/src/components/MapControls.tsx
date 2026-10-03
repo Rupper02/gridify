@@ -72,7 +72,7 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
             <span><span style={{ width: 14, height: 3, borderRadius: 2, background: C.red }} />Overloaded line</span>
             <span><span style={{ width: 8, height: 8, border: `1.5px solid ${C.mute}`, background: C.substation }} />Open point</span>
             <span><span style={{ width: 14, height: 3, background: `repeating-linear-gradient(90deg,${C.amber} 0 4px,transparent 4px 7px)` }} />Binding constraint</span>
-            <span><Wrench size={12} color={C.line132} />Planned outage</span>
+            <span><Wrench size={12} color={C.line132} />Planned works</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${C.red}`, background: "rgba(255,107,107,0.15)" }} />Voltage breach</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${derived.hue}` }} />Only on this branch</span>
           </div>
