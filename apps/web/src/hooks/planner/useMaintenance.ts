@@ -4,6 +4,7 @@
 import { useCallback } from "react";
 
 import { api } from "../../api";
+import { WORK_UI, draftBody } from "../../lib/maintenance";
 import type { ElementSel, Suggestion } from "../../types";
 import type { Core, MaintDraft } from "./core";
 
@@ -33,11 +34,9 @@ export function useMaintenance({ patch, ref, toastMsg }: Core) {
       }
       const d = st.maintDraft;
       try {
-        const o = await api.addOutage(bid, {
-          element_kind: sel.kind, element_id: String(sel.id), season: d.season, year: d.year, weeks: d.weeks, kind: d.kind,
-        });
+        const o = await api.addOutage(bid, draftBody(sel, d));
         patch((x) => (x.activeBranch === bid ? { outages: [...x.outages.filter((y) => y.outage_id !== o.outage_id), o], year: d.year } : {}));
-        toastMsg(`Maintenance scheduled for ${d.season.toLowerCase()} ${d.year}. Re-run to study it.`);
+        toastMsg(`${WORK_UI[d.work].label} scheduled for ${d.season.toLowerCase()} ${d.year}. Re-run to study it.`);
       } catch (e) {
         toastMsg(`Could not schedule it: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
       }

@@ -11,7 +11,6 @@ import {
   indexModel,
   lineName,
   nameElements,
-  outageImpact,
   preliminaryOf,
   queueGroups,
   roadmapYears,
@@ -83,7 +82,7 @@ describe("branchHue", () => {
 
 describe("staleness", () => {
   const branch = { scenario: "ht" };
-  const o = (id: string): Outage => ({ outage_id: id, element_kind: "line", element_id: "10", season: "Summer", year: 2029, weeks: 4, kind: "outage" });
+  const o = (id: string): Outage => ({ outage_id: id, element_kind: "line", element_id: "10", season: "Summer", year: 2029, weeks: 4, kind: "outage", work: "maintenance", repower: null, factor: null });
   it("is fresh when the result covers the branch as it stands", () => {
     expect(staleness(result(), branch, [], [], 0).stale).toBe(false);
   });
@@ -117,11 +116,12 @@ describe("roadmapYears", () => {
       years: { "2028": year(2028) },
     });
     const pre = [{ request_id: "pre", commissioning_year: 2029, technology: "solar" }] as never[];
-    const outs: Outage[] = [{ outage_id: "o", element_kind: "line", element_id: "10", season: "Summer", year: 2029, weeks: 4, kind: "outage" }];
+    const outs: Outage[] = [{ outage_id: "o", element_kind: "line", element_id: "10", season: "Summer", year: 2029, weeks: 4, kind: "outage", work: "maintenance", repower: null, factor: null }];
     const ys = roadmapYears(r, pre, outs, new Set(["p2"]), () => "BOS-BKF");
     const y = (n: number) => ys.find((x) => x.y === n)!;
     expect(y(2028).chips.map((c) => c.id)).toEqual(["p1"]);
     expect(y(2029).chips.map((c) => `${c.kind}:${c.id}`)).toEqual(["prelim:pre", "outage:BOS-BKF"]);
+    expect(y(2029).chips[1]).toMatchObject({ work: "maintenance", verdict: null }); // not studied: no verdict yet
     expect(y(2032).chips[0]).toMatchObject({ id: "p2", branchOnly: true });
     expect(y(2031).mw).toBe(10);
     expect(y(2035).mw).toBe(40);
@@ -145,20 +145,6 @@ describe("naming and readings", () => {
   });
 });
 
-describe("outageImpact", () => {
-  const o: Outage = { outage_id: "o", element_kind: "line", element_id: "10", season: "Summer", year: 2030, weeks: 4, kind: "outage" };
-  it("says not studied until a run covers it, then the engine's result in words", () => {
-    expect(outageImpact(o, result(), ix).text).toContain("Not studied yet");
-    const studied = { outage_ids: ["o"], reinforcements: [], schedule: {} };
-    const breach = result({
-      studied,
-      years: { "2030": year(2030, { outage_studies: [{ outage_id: "o", year: 2030, cases: ["summer_min"], ok: false, violations: [{ type: "line", element_id: 11, value: 118, message: "", case: "summer_min" }], worst_line_loading_pct: 118, worst_trafo_loading_pct: 50, gsp_export_mw: 0, message: "" }] }) },
-    });
-    expect(outageImpact(o, breach, ix).text).toBe("Summer min: Kirton to Boston 33 kV reaches 118%.");
-    const ok = result({ studied, years: { "2030": year(2030, { outage_studies: [{ outage_id: "o", year: 2030, cases: ["summer_min"], ok: true, violations: [], worst_line_loading_pct: 71, worst_trafo_loading_pct: 40, gsp_export_mw: 0, message: "" }] }) } });
-    expect(outageImpact(o, ok, ix).text).toContain("within limits. Worst line 71%");
-  });
-});
 
 describe("connection points", () => {
   it("suggests the least-loaded connection buses and resolves typed ones", () => {

@@ -237,6 +237,19 @@ input { font-family: inherit; }
 .opts { display: flex; flex-wrap: wrap; gap: 4px; }
 .mrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--well); border: var(--well-bd); }
 .mrow .imp { grid-column: 2 / -1; font-size: 11px; line-height: 1.4; }
+/* planned works: verdict detail, the Outages tab's year groups and rows, the form's sub-options */
+.wlines { display: flex; flex-direction: column; gap: 3px; font-size: 11px; line-height: 1.4; min-width: 0; }
+.wlines > .sub { color: var(--ink-2); }
+.out-sum { font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.ygroup { display: flex; flex-direction: column; gap: 6px; }
+.ygroup-head { font-size: 11.5px; font-weight: 700; color: var(--mute); letter-spacing: 0.02em; }
+.wrow { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; padding: 10px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
+.wrow-main { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; line-height: 1.35; padding: 0; border: none; background: transparent; text-align: left; }
+.wrow-detail, .mrow .wdetail { grid-column: 2 / -1; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; margin-top: 3px; }
+.sub-opts { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); }
+.work-note { font-size: 11.5px; color: var(--ink-2); line-height: 1.45; }
+.ychip.works { justify-content: flex-start; } /* keep the work tag ("OUT", "RPW") visible when the name is cut */
+.repowered {font-size: 11.5px; line-height: 1.45; color: var(--accent); }
 
 /* ---- roadmap dock ----------------------------------------------------------------------------- */
 .dock { position: absolute; left: 10px; bottom: 10px; z-index: 10; display: grid; grid-template-columns: minmax(0, 1fr) 200px; border-radius: 18px; overflow: hidden; }

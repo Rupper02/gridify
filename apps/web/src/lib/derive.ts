@@ -15,6 +15,8 @@ import type {
   RegistryItem,
   Status,
   Transformer,
+  Verdict,
+  Work,
   YearResult,
 } from "../types";
 
@@ -141,6 +143,9 @@ export interface RoadmapChip {
   status: Status | "Prelim" | null;
   tech: string | null;
   branchOnly: boolean;
+  /** Outage chips: what the window is for, and its verdict once studied. */
+  work?: Work;
+  verdict?: Verdict | null;
 }
 export interface RoadmapYear {
   y: number;
@@ -167,7 +172,12 @@ export function roadmapYears(
       .forEach((p) => chips.push({ id: p.request_id, kind: "prelim", status: "Prelim", tech: p.technology, branchOnly: true }));
     outages
       .filter((o) => o.year === y)
-      .forEach((o) => chips.push({ id: shortName(o), kind: "outage", status: null, tech: null, branchOnly: false }));
+      .forEach((o) =>
+        chips.push({
+          id: shortName(o), kind: "outage", status: null, tech: null, branchOnly: false,
+          work: o.work ?? "maintenance", verdict: outageStudyOf(o, r).study?.verdict ?? null,
+        }),
+      );
     const mw = q.filter((x) => {
       const e = effYearOf(x);
       return e != null && e <= y;
@@ -329,40 +339,15 @@ const lineShort = (ix: ModelIndex, id: number): string => {
 export const outageSel = (o: Outage): ElementSel =>
   o.element_kind === "gen" ? { kind: "gen", id: o.element_id } : { kind: o.element_kind, id: Number(o.element_id) };
 
-const CASE_LABEL: Record<string, string> = { summer_min: "Summer min", winter_peak: "Winter peak" };
-
-/** One violation an outage study reports, in words with the element's name. */
-function violationText(v: OutageStudy["violations"][number], ix: ModelIndex): string {
-  const id = v.element_id ?? -1;
-  if (v.type === "line") return `${lineName(ix, id)} reaches ${Math.round(v.value ?? 0)}%`;
-  if (v.type === "trafo") return `${trafoName(ix, id)} reaches ${Math.round(v.value ?? 0)}%`;
-  if (v.type === "voltage") return `${busLabel(ix, id)} at ${(v.value ?? 0).toFixed(3)} pu, outside its band`;
-  if (v.type === "gsp") return `GSP export ${Math.round(v.value ?? 0)} MW, over the ${Math.round(v.limit ?? 0)} MW limit`;
-  return v.message;
+/**
+ * Where a planned window stands in a result: not in the run yet ("unstudied"), in the run but its
+ * year not solved yet ("solving"), or studied (with the engine's study). See lib/maintenance.ts.
+ */
+export function outageStudyOf(o: Outage, r: OptimizeResult | null): { state: "unstudied" | "solving" | "studied"; study: OutageStudy | null } {
+  if (!r?.studied?.outage_ids?.includes(o.outage_id)) return { state: "unstudied", study: null };
+  const study = r.years?.[String(o.year)]?.outage_studies?.find((s) => s.outage_id === o.outage_id) ?? null;
+  return { state: study ? "studied" : "solving", study };
 }
-
-/** The studied impact of a planned outage, in words, with the colour it reads in. */
-export function outageImpact(o: Outage, r: OptimizeResult | null, ix: ModelIndex | null): { text: string; c: string } {
-  const studied = r?.studied?.outage_ids?.includes(o.outage_id);
-  const study = r?.years?.[String(o.year)]?.outage_studies?.find((s) => s.outage_id === o.outage_id);
-  if (!studied) return { text: "Not studied yet. Re-run to see the effect.", c: C.mute };
-  if (!study) return { text: "Solving this year…", c: C.mute };
-  const der = o.kind === "derate" ? "Derated to 50%. " : "";
-  if (study.ok) {
-    const cases = study.cases.map((c) => CASE_LABEL[c] ?? c).join(" and ");
-    return { text: `${der}${cases}: within limits. Worst line ${Math.round(study.worst_line_loading_pct)}%, worst transformer ${Math.round(study.worst_trafo_loading_pct)}%.`, c: C.greenInk };
-  }
-  const parts = study.violations.map((v) => `${CASE_LABEL[v.case ?? ""] ?? "Studied"}: ${ix ? violationText(v, ix) : v.message}`);
-  const red = study.violations.some((v) => v.type === "voltage" || v.type === "non_convergent" || (v.value ?? 0) > 110);
-  return { text: `${der}${parts.join(". ")}.`, c: red ? C.redInk : C.amber };
-}
-
-export const seasonHint = (season: string): string =>
-  season === "Winter"
-    ? "Studied at winter peak with the branch demand profile."
-    : season === "Summer"
-      ? "Studied at summer minimum, the export-critical case."
-      : "Studied in both cases, with the intermediate seasonal ratings.";
 
 // ---- diff on the map ----------------------------------------------------------------------------
 /** The diff phase that stands for a year (2030 up to it, 2035 after), as the engine compares phases. */
