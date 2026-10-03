@@ -62,10 +62,10 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
           Export{yr?.gsp_export_case ? ` (${yr.gsp_export_case === "winter_peak" ? "W" : "S"})` : ""} {computing ? "..." : gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : winterHot ? C.amber : C.ink2 }}>
-          W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/{winterLimit != null ? Math.round(winterLimit) : "–"}
+          W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/{winterLimit != null ? fmtMw(winterLimit) : "–"}
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : summerHot ? C.amber : C.ink2 }}>
-          S.import {computing ? "..." : summerImport != null ? Math.round(summerImport) : "–"}/{summerLimit != null ? Math.round(summerLimit) : "–"}
+          S.import {computing ? "..." : summerImport != null ? Math.round(summerImport) : "–"}/{summerLimit != null ? fmtMw(summerLimit) : "–"}
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : C.ink2 }}>
           V {vDisplay}
@@ -208,7 +208,12 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
               <span className="v" style={{ color: computing ? C.mute2 : Math.max(worst.winterPct, worst.summerPct) > 100 ? C.red : Math.max(worst.winterPct, worst.summerPct) > 90 ? C.amber : C.ink }}>
                 {computing ? "..." : `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%`}
               </span>
-              <span className="n">{worst.name}</span>
+              <span className="n">
+                {worst.winterName === worst.summerName 
+                  ? worst.winterName 
+                  : `winter ${worst.winterName} · summer ${worst.summerName}`
+                }
+              </span>
             </>
           ) : (
             <>
@@ -300,13 +305,13 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Winter import</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : winterHot ? C.amber : C.ink }}>
-            {computing ? "..." : winterImport != null && winterLimit != null ? `${Math.round(winterImport)} / ${Math.round(winterLimit)}` : "–"}
+            {computing ? "..." : winterImport != null && winterLimit != null ? `${Math.round(winterImport)} / ${fmtMw(winterLimit)}` : "–"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Summer import</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
-            {computing ? "..." : summerImport != null && summerLimit != null ? `${Math.round(summerImport)} / ${Math.round(summerLimit)}` : "–"}
+            {computing ? "..." : summerImport != null && summerLimit != null ? `${Math.round(summerImport)} / ${fmtMw(summerLimit)}` : "–"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>

@@ -134,7 +134,7 @@ describe("naming and readings", () => {
   it("names lines by the places they join and finds the worst element", () => {
     expect(lineName(ix, 10)).toBe("Boston to Bicker Fen 132 kV");
     const w = worstElement(year(2030, { line_loading: { "10": 61, "11": 88 }, trafo_loading: { "5": 92 } }), ix);
-    expect(w).toEqual({ pct: 92, name: "Bicker Fen 132/33 kV transformer", sel: { kind: "trafo", id: 5 }, winterPct: null, summerPct: null, case: null });
+    expect(w).toEqual({ pct: 92, name: "Bicker Fen 132/33 kV transformer", sel: { kind: "trafo", id: 5 }, winterPct: null, winterName: null, summerPct: null, summerName: null, case: null });
   });
   it("fills the GSP gauge, the last ticks amber", () => {
     const t = gspTicks(500, 527);

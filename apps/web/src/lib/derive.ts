@@ -270,53 +270,88 @@ export interface WorstElement {
   name: string;
   sel: ElementSel;
   winterPct: number | null;
+  winterName: string | null;
   summerPct: number | null;
+  summerName: string | null;
   case: "winter peak" | "summer min" | null;
 }
-/** The most loaded line or transformer in a year (worst case across the two study cases). */
+/** The most loaded line or transformer in a year (finds worst winter and worst summer separately). */
 export function worstElement(yr: YearResult | null, ix: ModelIndex | null): WorstElement | null {
   if (!yr || !ix) return null;
-  let best: WorstElement | null = null;
   
-  for (const [id, v] of Object.entries(yr.line_loading ?? {})) {
-    if (!best || v > best.pct) {
-      const winterPct = yr.line_loading_winter?.[+id] ?? null;
-      const summerPct = yr.line_loading_summer?.[+id] ?? null;
-      const winningCase = 
-        winterPct !== null && summerPct !== null
-          ? (winterPct >= summerPct ? "winter peak" : "summer min")
-          : null;
-      best = { 
-        pct: v, 
-        name: lineName(ix, +id), 
-        sel: { kind: "line", id: +id },
-        winterPct,
-        summerPct,
-        case: winningCase,
-      };
+  // Find worst winter loading
+  let worstWinterPct: number | null = null;
+  let worstWinterName: string | null = null;
+  let worstWinterSel: ElementSel | null = null;
+  
+  for (const [id, v] of Object.entries(yr.line_loading_winter ?? {})) {
+    if (worstWinterPct === null || v > worstWinterPct) {
+      worstWinterPct = v;
+      worstWinterName = lineName(ix, +id);
+      worstWinterSel = { kind: "line", id: +id };
+    }
+  }
+  for (const [id, v] of Object.entries(yr.trafo_loading_winter ?? {})) {
+    if (worstWinterPct === null || v > worstWinterPct) {
+      worstWinterPct = v;
+      worstWinterName = trafoName(ix, +id);
+      worstWinterSel = { kind: "trafo", id: +id };
     }
   }
   
-  for (const [id, v] of Object.entries(yr.trafo_loading ?? {})) {
-    if (!best || v > best.pct) {
-      const winterPct = yr.trafo_loading_winter?.[+id] ?? null;
-      const summerPct = yr.trafo_loading_summer?.[+id] ?? null;
-      const winningCase = 
-        winterPct !== null && summerPct !== null
-          ? (winterPct >= summerPct ? "winter peak" : "summer min")
-          : null;
-      best = { 
-        pct: v, 
-        name: trafoName(ix, +id), 
-        sel: { kind: "trafo", id: +id },
-        winterPct,
-        summerPct,
-        case: winningCase,
-      };
+  // Find worst summer loading
+  let worstSummerPct: number | null = null;
+  let worstSummerName: string | null = null;
+  let worstSummerSel: ElementSel | null = null;
+  
+  for (const [id, v] of Object.entries(yr.line_loading_summer ?? {})) {
+    if (worstSummerPct === null || v > worstSummerPct) {
+      worstSummerPct = v;
+      worstSummerName = lineName(ix, +id);
+      worstSummerSel = { kind: "line", id: +id };
+    }
+  }
+  for (const [id, v] of Object.entries(yr.trafo_loading_summer ?? {})) {
+    if (worstSummerPct === null || v > worstSummerPct) {
+      worstSummerPct = v;
+      worstSummerName = trafoName(ix, +id);
+      worstSummerSel = { kind: "trafo", id: +id };
     }
   }
   
-  return best;
+  // If no seasonal data, fall back to envelope
+  if (worstWinterPct === null && worstSummerPct === null) {
+    let best: { pct: number; name: string; sel: ElementSel } | null = null;
+    for (const [id, v] of Object.entries(yr.line_loading ?? {})) {
+      if (!best || v > best.pct) {
+        best = { pct: v, name: lineName(ix, +id), sel: { kind: "line", id: +id } };
+      }
+    }
+    for (const [id, v] of Object.entries(yr.trafo_loading ?? {})) {
+      if (!best || v > best.pct) {
+        best = { pct: v, name: trafoName(ix, +id), sel: { kind: "trafo", id: +id } };
+      }
+    }
+    if (!best) return null;
+    return { pct: best.pct, name: best.name, sel: best.sel, winterPct: null, winterName: null, summerPct: null, summerName: null, case: null };
+  }
+  
+  // Return with both worst winter and worst summer
+  const overallWorst = (worstWinterPct ?? 0) >= (worstSummerPct ?? 0) ? worstWinterPct! : worstSummerPct!;
+  const overallSel = (worstWinterPct ?? 0) >= (worstSummerPct ?? 0) ? worstWinterSel! : worstSummerSel!;
+  const overallName = (worstWinterPct ?? 0) >= (worstSummerPct ?? 0) ? worstWinterName! : worstSummerName!;
+  const winningCase = (worstWinterPct ?? 0) >= (worstSummerPct ?? 0) ? "winter peak" : "summer min";
+  
+  return {
+    pct: overallWorst,
+    name: overallName,
+    sel: overallSel,
+    winterPct: worstWinterPct,
+    winterName: worstWinterName,
+    summerPct: worstSummerPct,
+    summerName: worstSummerName,
+    case: winningCase,
+  };
 }
 
 /** GSP export gauge: 24 ticks, cyan, the last ones amber above 90 %. */
