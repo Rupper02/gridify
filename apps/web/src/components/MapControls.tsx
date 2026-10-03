@@ -4,7 +4,7 @@
 import { ArrowRight, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import type { Layout } from "../lib/layout";
+import { LAYERS_W, type Layout } from "../lib/layout";
 import { REGION_STATE } from "../lib/demand";
 import { C, tint } from "../theme";
 import type { MapLayer, Tech } from "../types";
@@ -22,7 +22,7 @@ const LAYERS: [MapLayer, string, typeof WaveSine][] = [
 export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; layout: Layout }) {
   const { s, actions } = planner;
   return (
-    <div className="layers glass" style={{ top: s.sideOpen ? 68 : 114, right: layout.sideW + (s.sideOpen ? 20 : 10) }}>
+    <div className="layers glass" style={{ top: layout.layers.top, right: layout.layers.right, width: LAYERS_W }}>
       {LAYERS.map(([k, label, I]) => (
         <button key={k} className={s.layer === k ? "on" : ""} onClick={() => actions.setLayer(k)} aria-pressed={s.layer === k}>
           <I size={14} />
@@ -111,7 +111,7 @@ export function DiffBanner({ planner, layout }: { planner: DiffBannerPlanner; la
   const { s, actions, derived } = planner;
   const nAdded = (s.diff?.projects ?? []).filter((p) => p.change === "added").length || derived.branchOnly.size;
   return (
-    <div className="diff-banner" style={{ top: layout.narrow ? 110 : 68, left: layout.narrow ? 10 : 270, right: s.sideOpen ? layout.sideW + 130 : 222 }}>
+    <div className="diff-banner" style={{ top: layout.narrow ? 110 : 68, left: layout.narrow ? 10 : 270, right: layout.cardRight }}>
       <div className="glass" style={{ borderColor: "var(--hue-bd)" }}>
         <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
           <GitDiff size={14} color={derived.hue} />

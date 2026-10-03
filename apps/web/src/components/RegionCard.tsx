@@ -9,18 +9,12 @@ import type { CSSProperties } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { P2_CLASS, REGION_STATE, alertTitle, alertsFor, classMeaning, firmFill, outagePhrase, regionRows } from "../lib/demand";
 import { busLabel, nameElements } from "../lib/derive";
-import type { Layout } from "../lib/layout";
+import { cardSlot, type Layout } from "../lib/layout";
 import { C, fmtMw, tint } from "../theme";
 
 export type RegionCardPlanner = PlannerSlice<"diffMode" | "model" | "sel" | "sideOpen" | "year", "select", "exact" | "ix" | "yr">;
 
-/** The detail-card slot: top right of the map, clear of the side panel and the roadmap dock. */
-function cardPos(planner: RegionCardPlanner, layout: Layout): CSSProperties {
-  const { s } = planner;
-  const top = s.diffMode ? (layout.narrow ? 160 : 118) : layout.narrow ? 110 : s.sideOpen ? 68 : 114;
-  const reserve = layout.showDock ? layout.dockPx + 20 : 14;
-  return { top, right: s.sideOpen ? layout.sideW + 128 : 150, maxHeight: `calc(100% - ${top + reserve}px)` };
-}
+const cardPos = (planner: RegionCardPlanner, layout: Layout): CSSProperties => cardSlot(layout, planner.s.sideOpen, planner.s.diffMode);
 
 export function RegionCard({ planner, layout }: { planner: RegionCardPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;

@@ -4,7 +4,7 @@ import type { Suggestion } from "../types";
 import { item } from "./test-fixtures";
 import { answer, draftSlots, readinessAnswer, readinessScore, startIntake, techFromText } from "./intake";
 import type { IntakeCtx } from "./intake";
-import { layoutFor } from "./layout";
+import { LAYERS_W, cardSlot, layoutFor } from "./layout";
 import { bestAnswer, leverFrees, leverTryable, projectAnswer, recIntent, recsOpening, recsQuickReplies } from "./recs";
 import { stageIndex, stageReadout } from "./runStages";
 
@@ -99,6 +99,18 @@ describe("layout", () => {
     expect(layoutFor(1440, 900, true).sideW).toBe(420);
     expect(layoutFor(1440, 900, false).sideW).toBe(0);
     expect(layoutFor(1000, 900, true).sideW).toBe(320);
+  });
+});
+
+describe("detail cards and the layer menu", () => {
+  it("place every card left of the layer menu, with the side panel open or hidden", () => {
+    for (const side of [true, false]) {
+      const l = layoutFor(1440, 900, side);
+      const card = cardSlot(l, side, false);
+      expect(card.right).toBeGreaterThanOrEqual(l.layers.right + LAYERS_W + 10); // no overlap, 10 px gap
+    }
+    expect(layoutFor(1440, 900, true).layers).toEqual({ top: 68, right: 440 });
+    expect(layoutFor(1440, 900, false).layers).toEqual({ top: 114, right: 10 });
   });
 });
 

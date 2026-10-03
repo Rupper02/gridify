@@ -8,7 +8,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
-import type { Layout } from "../lib/layout";
+import { cardSlot, type Layout } from "../lib/layout";
 import { PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { ElementSel, QueueItem, RegistryItem, Season } from "../types";
@@ -21,12 +21,7 @@ export type DetailCardsPlanner = PlannerSlice<
   "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q" | "qById" | "yr"
 >;
 
-function cardPos(planner: DetailCardsPlanner, layout: Layout): CSSProperties {
-  const { s } = planner;
-  const top = s.diffMode ? (layout.narrow ? 160 : 118) : layout.narrow ? 110 : s.sideOpen ? 68 : 114;
-  const reserve = layout.showDock ? layout.dockPx + 20 : 14;
-  return { top, right: s.sideOpen ? layout.sideW + 128 : 150, maxHeight: `calc(100% - ${top + reserve}px)` };
-}
+const cardPos = (planner: DetailCardsPlanner, layout: Layout): CSSProperties => cardSlot(layout, planner.s.sideOpen, planner.s.diffMode);
 
 export function DetailCards({ planner, layout }: { planner: DetailCardsPlanner; layout: Layout }) {
   const sel = planner.s.sel;
