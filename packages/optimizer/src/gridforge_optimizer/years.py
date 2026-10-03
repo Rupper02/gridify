@@ -4,7 +4,9 @@ plan as it would stand then, so the timeline switches between stored results ins
 A year's network is today's network with demand grown to that year (interpolated between the 2030
 and 2035 anchors) and every accepted project whose energisation year (the operator's scheduled year,
 else the optimizer's recommendation) has arrived. It is solved in both study cases, screened N-1,
-and each planned outage in that year is studied in its season. Nothing here decides who connects:
+and that year's planned windows are studied in their season (maintenance.study_windows). Works
+finished in an earlier year leave their change behind (a repowered element, maintenance.WORKS), so
+later years are solved with it; the queue is not re-decided for it. Nothing here decides who connects:
 the queue comes from greedy.optimize, so this is a fixed-plan evaluation (two solves plus the N-1
 screen per year), cheap next to the greedy trials.
 """
@@ -15,6 +17,7 @@ from collections.abc import Callable, Iterable
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR
 from .greedy import NetFactory, Progress
+from .maintenance import apply_works_after, study_windows
 from .network import (
     apply_reinforcement,
     build_base_net,
@@ -26,7 +29,6 @@ from .network import (
     line_loadings,
     n1_screen,
     overloaded_line_ids,
-    study_outage,
     trafo_loadings,
     voltage_violation_bus_ids,
 )
@@ -83,6 +85,7 @@ def evaluate_year(
     grow_demand(net, growth, params.scenario, _horizon(year))
     for r in reinforcements:
         apply_reinforcement(net, r)
+    apply_works_after(net, outages, year)  # repowered elements, from the year after their window
     energised = []
     for c in candidates:
         y = in_service.get(c.request_id)
@@ -91,7 +94,7 @@ def evaluate_year(
             energised.append(c.request_id)
 
     feasibility(net)  # settles the taps for the intact state
-    studies = [study_outage(net, o) for o in outages if o.year == year]
+    studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if n1 else None)
     screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
     _, _, m = feasibility(net)  # the intact envelope the map and readings show
     return YearResult(

@@ -15,6 +15,6 @@ import gridforge_optimizer.years as years
 def fast_n1(request, monkeypatch):
     if request.node.get_closest_marker("n1"):
         return
-    stub = lambda net: {"case": "winter_peak", "screened": 0, "violations": []}  # noqa: E731
+    stub = lambda net, *a, **k: {"case": "winter_peak", "screened": 0, "violations": []}  # noqa: E731
     monkeypatch.setattr(greedy, "n1_screen", stub)
     monkeypatch.setattr(years, "n1_screen", stub)

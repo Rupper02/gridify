@@ -65,6 +65,15 @@ SEASON_STUDY = {
     "Autumn": {"cases": ("winter_peak", "summer_min"), "rating_column": "intermediate_ratio"},
 }
 OUTAGE_DERATE_FACTOR = 0.5  # a "derate" window runs the element at this fraction of its rating
+# When a window breaches a limit without stranding demand, maintenance.py constrains generation near
+# the binding element (or the biggest exporters, for the GSP) one generator at a time, re-solving each
+# time, then bisects the last one. A bounded, first-order planning estimate (not an optimal dispatch):
+# at most CURTAIL_MAX_SOLVES extra solves per study case, of which up to CURTAIL_REFINE_STEPS refine.
+CURTAIL_MAX_SOLVES = 8
+CURTAIL_REFINE_STEPS = 3
+# a step that eases the binding breach by less than this fraction of its excess is put back (that
+# generator does not feed the breach), so the estimate does not count output that relieves nothing
+CURTAIL_MIN_RELIEF = 0.01
 
 # --- N-1 screen ---------------------------------------------------------------------------------
 # Single-outage screen of the EHV backbone (every circuit and transformer at or above this kV),

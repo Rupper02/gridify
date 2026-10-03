@@ -8,4 +8,4 @@ import gridforge_optimizer.years as years
 
 @pytest.fixture(autouse=True)
 def fast_year_n1(monkeypatch):
-    monkeypatch.setattr(years, "n1_screen", lambda net: {"case": "winter_peak", "screened": 0, "violations": []})
+    monkeypatch.setattr(years, "n1_screen", lambda net, *a, **k: {"case": "winter_peak", "screened": 0, "violations": []})

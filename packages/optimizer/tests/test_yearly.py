@@ -1,4 +1,5 @@
-"""The plan year by year (years.py) and planned outages (network.study_outage)."""
+"""The plan year by year (years.py) and planned outages (maintenance.study_windows; work types,
+verdicts and repowering in test_maintenance.py)."""
 
 import pytest
 from _grid import base_net, stiff_bus

@@ -29,14 +29,15 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `nged.py` | Builds the real **NGED Bicker Fen** network from bundled open data (`data/nged/`), or from raw tables passed in (`tables=`), for the current or the reconstructed previous LTDS edition (`edition=`). Transformers carry their LTDS tap ranges; the existing fleet is sited at its named substations. `build_nged_net()` gives today's network; `nged_model()` the geolocated model for the map; `nged_candidates()` the optional-project registry (ECR + GSP-embedded TEC); `gsp_boundary()` the export limit plus transmission context. |
 | `editions.py` | `edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (rows, model, physics). `diff_ecr_editions(prev, cur)`: site-level changes between two fetches of the Embedded Capacity Register. Pure. |
 | `cim.py` | `export_cgmes(net, model, snapshot_id)`: the network as CIM/CGMES 2.4.15 RDF/XML (EQ, TP, SSH, GL profiles), deterministic ids; `cgmes_zip_bytes` / `write_cgmes_zip`. Round-trips through pandapower's `from_cim` (tested). |
-| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`, `grow_demand`, `interpolate_growth_for_year`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen`, planned outages (`OUTAGE_APPLIERS`, `study_outage`), per-element results, `apply_reinforcement`. |
+| `network.py` | pandapower helpers: `build_base_net`, demand growth (`apply_growth`, `per_bus_growth`, `grow_demand`, `interpolate_growth_for_year`), statutory `voltage_limits`, tap regulation inside `_solve`, per-case generation `dispatch_for_case`, `inject_sgen`/`drop_sgen`, **`feasibility`** (both study cases + GSP limit), `n1_screen` (with an optional seasonal `rating_ratio`), outage appliers (`OUTAGE_APPLIERS`), per-element results, `apply_reinforcement`. |
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
-| `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its planned outages; `year_order`, `energisation_years`. |
+| `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its works windows and earlier repowers; `year_order`, `energisation_years`. |
+| `maintenance.py` | Planned works: `WORKS` (maintenance, replacement, repowering), `REPOWERERS`, `apply_works_after`, `study_windows` (combined windows, verdict, bounded curtailment search, N-1 during the window). |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
 | `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult`, `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy`, `Reinforcement`, `Suggestion`. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult`, `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`), `Reinforcement`, `Suggestion`. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -104,15 +105,40 @@ evaluate_years(result, candidates, params, scheduled=, outages=, reinforcements=
 
 After `optimize` has decided the queue, each year in `PLAN_YEARS` (`PLAN_START_YEAR`..`PLAN_END_YEAR`, 2026..2035) is solved as a **fixed plan** by `evaluate_year`:
 - demand grown by `network.interpolate_growth_for_year(year, growth_2030, growth_2035)`: 1.0 in 2026, linear to the 2030 multiplier, then linear to the 2035 one, with the per-bus shape of the horizon the year falls in;
-- the branch's reinforcements applied;
+- the branch's reinforcements applied, then what every works window of an EARLIER year leaves behind (`maintenance.apply_works_after`: a repowered element);
 - every accepted project whose energisation year has arrived injected (`energisation_years`: the operator's `scheduled` year, else the recommendation);
-- both study cases, then the N-1 screen, then each of that year's planned outages (`study_outage`).
+- both study cases, then that year's works windows (`maintenance.study_windows`, with the N-1 screen passed in when the year runs it), then the N-1 screen.
 
 It returns `{str(year): YearResult}`: a `PhaseResult` plus `year`, `growth`, `energised`, `trafo_loading` and `outage_studies`. It never changes who connects. `year_order(view_year)` solves the year in view first, then 2030 and 2035, then the rest; `on_year` is called as each lands so a caller can publish partial results, and `progress` reports the fraction within this step.
 
-### Planned outages (`network.study_outage`)
+### Planned works (`maintenance.py`)
 
-An `Outage` is a maintenance window: `element_kind` (`line`, `trafo`, or `gen` for an existing generator, matched on `sgen.fleet_id`, the model id `EX-30xx`), `season`, `year`, `weeks` and `kind` (`outage` = out of service, `derate` = rating or output × `OUTAGE_DERATE_FACTOR`, 0.5). `OUTAGE_APPLIERS` maps each element kind to a function that applies it and returns an undo, so a new kind of maintenance target is one entry.
+An `Outage` is a works window: `element_kind` (`line`, `trafo`, or `gen` for an existing generator, matched on `sgen.fleet_id`, the model id `EX-30xx`), `season`, `year`, `weeks`, `kind` (`outage` = out of service, `derate` = rating or output × `OUTAGE_DERATE_FACTOR`, 0.5) and `work`. `OUTAGE_APPLIERS` (`network.py`) maps each element kind to a function that applies it and returns an undo, so a new kind of target is one entry.
+
+`maintenance.WORKS` is the registry of work types (a new one is one `WorkSpec` entry: how the window is applied, what it leaves behind, how that reads):
+
+| `work` | During the window | After it |
+|---|---|---|
+| `maintenance` (default) | out, or derated (`kind`) | as it was |
+| `replacement` | fully out | like-for-like: as it was (recorded only) |
+| `repowering` | fully out | from the **following** year, `repower`: `uprate` (rating × `factor`, 1 < factor ≤ 4; impedance in ohms unchanged, via `REINFORCERS` / `_scale_rating`) or `add_parallel` (a parallel circuit; a second identical unit for a generator). A generator's uprate scales its export rating and import. |
+
+Repowering changes the years after the window (`evaluate_year` applies it via `REPOWERERS`), which is intended: it is a planned asset change on a branch. **The queue run (`greedy.optimize`) does not see it**: who connects is decided on the network as it is plus the branch's reinforcements. That is a stated simplification: the queue has no year axis inside a phase, so a dated asset change cannot be placed in it honestly; to let the queue count an upgrade, add it as a reinforcement.
+
+Windows with the same season and year are **studied together** (all applied at once; `weeks` is not placed in calendar weeks, so this is the conservative reading); each `OutageStudy` lists the others in `with_ids`. Each group gets a `verdict`:
+
+| `verdict` | When |
+|---|---|
+| `feasible` | no limit breached in any of the season's cases |
+| `curtailment` | a thermal, GSP or overvoltage limit is breached, no demand is stranded, and constraining generation clears it: `curtailment` = `[{id, name, mw, case}]`, `curtailed_mw` = the most in one case |
+| `demand_at_risk` | demand stranded on an island (`_islanded_mw` ≥ `N1_ISLAND_MIN_MW`), or demand at load buses left outside the voltage band that curtailment does not clear: `demand_at_risk_mw` |
+| `not_feasible` | a limit stays breached after the curtailment search, or no convergence |
+
+The curtailment search is a **first-order planning estimate, not an optimal dispatch**: generators exporting in the binding case (the existing fleet and accepted projects in service that year) are constrained one at a time, electrically nearest the binding element first (hops; the biggest exporter first for the GSP), re-solving each time; a step that eases the breach by less than `CURTAIL_MIN_RELIEF` of its excess is put back; the last generator is bisected. At most `CURTAIL_MAX_SOLVES` (8) extra solves per case. Reported MW are rounded up. An undervoltage is not something less generation fixes, so it is never curtailed.
+
+When the year runs the N-1 screen, the window gets `n1_during`: the 132 kV backbone screened with the window in place, in its cases and season's ratings (`n1_screen(..., rating_ratio=)`). `findings` counts second faults that add to what the window does alone (a breach on another element, or ≥ 1 MW stranded beyond the window's own); `second_fault_at_risk_mw` is the demand the worst one strands. Informational, like the year's own screen. Measured on Bicker Fen: ~50 ms per window without N-1 (~75 ms when curtailment is searched), plus ~0.6 s per case for the N-1 during it, so the whole backbone is screened rather than a neighbourhood.
+
+`study_windows` leaves the net as found (elements, generator ratings, tap positions): a year's own results never depend on whether a window was studied in it. `message` is a plain-English summary naming elements by id.
 
 `config.SEASON_STUDY` picks the case(s) and line ratings per season:
 
@@ -122,7 +148,7 @@ An `Outage` is a maintenance window: `element_kind` (`line`, `trafo`, or `gen` f
 | Spring, Autumn | `winter_peak` and `summer_min` | `intermediate_ratio` (LTDS Intermediate Warm ÷ winter, built in `nged.py`) |
 | Summer | `summer_min` | `summer_ratio` |
 
-The result is an `OutageStudy` (cases studied, `ok`, the first breach per case, worst loadings, GSP export). Like N-1, outages are reported per year and are **never a connection gate**. `weeks` is recorded but not placed in calendar weeks.
+Besides the verdict, an `OutageStudy` carries the cases studied, `ok` (no breach before curtailment), the first breach per case, worst loadings, GSP export and `after`. Like N-1, works windows are reported per year and are **never a connection gate**.
 
 ### What would it take (`suggest.py`)
 
@@ -178,6 +204,7 @@ IMPORT_ONLY_TECHS / DEMAND_PROJECT_MIN_FACTOR = ("demand", "electrolyser") / 0.5
 PLAN_START_YEAR / PLAN_END_YEAR     = 2026 / 2035
 SEASON_STUDY                        = season -> study case(s) + line rating column (see above)
 OUTAGE_DERATE_FACTOR                = 0.5
+CURTAIL_MAX_SOLVES / CURTAIL_REFINE_STEPS / CURTAIL_MIN_RELIEF = 8 / 3 / 0.01   # window curtailment search (first-order)
 N1_MIN_KV / N1_ISLAND_MIN_MW        = 132 / 1.0
 LINE_LOADING_MAX_PCT / TRAFO_...    = 100 / 100
 MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 248 MW accepted at 132 kV)
@@ -193,7 +220,7 @@ NGED-specific values live in `nged.py`: `DEMAND_DIVERSITY = 0.55`, `GSP_BOUNDARY
 ## Tests
 
 ```bash
-cd packages/optimizer && uv run pytest -q     # 65 tests on 4 workers (pytest-xdist); ~2 min
+cd packages/optimizer && uv run pytest -q     # 79 tests on 4 workers (pytest-xdist); ~2 min
 ```
 
 The N-1 screen is stubbed in every test except the one that tests it (`conftest.py`, marker `n1`): it costs ~2 s per phase inside `optimize()` and would otherwise dominate the suite.
@@ -212,6 +239,7 @@ What they cover:
 - greedy outcomes and determinism;
 - recommended years;
 - the plan year by year: growth interpolation, year order, energisation from the schedule, demand connections, and planned outages per season, kind and year (`test_yearly.py`);
+- works windows: repowering changes only the years after the window, replacement and maintenance leave them as they were, combined windows, each verdict (feasible, curtailment that really holds the limits, demand at risk) and the N-1 during a window (`test_maintenance.py`);
 - reinforcement, suggestions and the diff;
 - the readiness rubric.
 

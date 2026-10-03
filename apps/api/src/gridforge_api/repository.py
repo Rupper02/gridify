@@ -170,7 +170,8 @@ def outage_rows(con: Cursor, branch_id: str) -> list[dict]:
 
 
 def outages(con: Cursor, branch_id: str) -> list[Outage]:
-    return [Outage(**{k: v for k, v in r.items() if k != "created_at"}) for r in outage_rows(con, branch_id)]
+    return [Outage(**{k: v for k, v in r.items() if k != "created_at"} | {"work": r["work"] or "maintenance"})
+            for r in outage_rows(con, branch_id)]
 
 
 def insert_outage(con: Cursor, branch_id: str, body: OutageCreate) -> dict:

@@ -199,8 +199,9 @@ def list_outages(branch_id: str) -> dict:
 
 @router.post("/branches/{branch_id}/outages")
 def add_outage(branch_id: str, body: OutageCreate) -> dict:
-    """Schedule a maintenance window on a line, transformer or existing generator. The next run
-    studies it; until then the planner shows the result as out of date."""
+    """Schedule a works window (maintenance, like-for-like replacement or repowering) on a line,
+    transformer or existing generator. The next run studies it, and a repowering changes the years
+    after it; until then the planner shows the result as out of date."""
     known = {"line": warehouse.line_ids, "trafo": warehouse.trafo_ids, "gen": warehouse.generator_ids}[body.element_kind]()
     if body.element_id not in known:
         raise HTTPException(status_code=422, detail=f"{body.element_kind} '{body.element_id}' is not in the network model")

@@ -103,21 +103,55 @@ class Outage(BaseModel):
     season: str  # "Winter" | "Spring" | "Summer" | "Autumn" (config.SEASON_STUDY)
     year: int
     weeks: int = 4
-    kind: str = "outage"  # "outage" | "derate"
+    kind: str = "outage"  # "outage" | "derate" (maintenance only; the other works take the element fully out)
+    # what the window is for (maintenance.WORKS): "maintenance" | "repowering" | "replacement".
+    # Maintenance and replacement (like-for-like) return the element as it was; repowering returns it
+    # with a new capability from the FOLLOWING year on (years.evaluate_year applies it, the queue run does not)
+    work: str = "maintenance"
+    repower: str | None = None  # repowering only: "uprate" | "add_parallel"
+    factor: float | None = None  # repowering "uprate" only: the rating multiplier (1 < factor <= 4)
+
+
+class Curtailment(BaseModel):
+    """Generation constrained to hold the limits during a window (a first-order planning estimate)."""
+
+    id: str  # the generator's model id (EX-… for the existing fleet) or the project's request id
+    name: str  # its technology (the UI resolves the display name by id)
+    mw: float  # output constrained in that case
+    case: str  # the study case it is needed in
+
+
+class N1During(BaseModel):
+    """An N-1 screen of the 132 kV backbone with the window in place (informational, never a gate)."""
+
+    cases: list[str] = []
+    screened: int = 0  # second faults studied, summed over the cases
+    findings: int = 0  # second faults that breach a limit or strand demand
+    second_fault_at_risk_mw: float = 0.0  # demand stranded by the worst second fault
+    worst: str = ""  # that finding's message ("" when nothing is stranded)
 
 
 class OutageStudy(BaseModel):
-    """What one planned outage does to its year's network, in each case its season stresses."""
+    """What one planned window does to its year's network, in each case its season stresses, studied
+    together with the other windows of the same season and year (`with_ids`)."""
 
     outage_id: str
     year: int
     cases: list[str]
-    ok: bool  # True when no limit is breached with the element out
+    ok: bool  # True when no limit is breached with the element(s) out, before any curtailment
     violations: list[Reason] = []  # the first limit each case breaches
     worst_line_loading_pct: float = 0.0
     worst_trafo_loading_pct: float = 0.0
     gsp_export_mw: float = 0.0
     message: str
+    work: str = "maintenance"
+    with_ids: list[str] = []  # the other windows studied at the same time
+    verdict: str = "feasible"  # "feasible" | "curtailment" | "demand_at_risk" | "not_feasible"
+    demand_at_risk_mw: float = 0.0  # stranded, or at load buses left outside the voltage band
+    curtailment: list[Curtailment] = []  # what constraining generation clears the limits ("curtailment" only)
+    curtailed_mw: float = 0.0  # the most constrained in any one case
+    n1_during: N1During | None = None  # None when the year was solved without the N-1 screen
+    after: str = ""  # what the work leaves behind once the window is over
 
 
 class YearResult(PhaseResult):

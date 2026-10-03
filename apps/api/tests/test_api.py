@@ -360,6 +360,71 @@ def test_a_generator_outage_can_be_scheduled():
     assert res["years"]["2031"]["outage_studies"][0]["cases"] == ["winter_peak"]
 
 
+def test_works_types_are_stored_validated_and_studied():
+    """Repowering / replacement windows: the fields round-trip, bad combinations are 422s, and a
+    run returns each study's verdict, its combined windows and the repowered element's later years."""
+    bid = _create("Works")["branch_id"]
+    lines = sorted(client.get("/model").json()["lines"], key=lambda ln: (-ln["voltage_kv"], ln["line_id"]))
+    line, other = str(lines[0]["line_id"]), str(lines[1]["line_id"])
+    base = {"element_kind": "line", "element_id": line, "season": "Summer", "year": 2029}
+    bad = [
+        {"work": "rebuild"},
+        {"work": "maintenance", "repower": "uprate", "factor": 2.0},
+        {"work": "replacement", "factor": 2.0},
+        {"work": "replacement", "kind": "derate"},
+        {"work": "repowering"},  # no repower
+        {"work": "repowering", "repower": "uprate"},  # no factor
+        {"work": "repowering", "repower": "uprate", "factor": 1.0},
+        {"work": "repowering", "repower": "uprate", "factor": 4.5},
+        {"work": "repowering", "repower": "add_parallel", "factor": 2.0},
+        {"work": "repowering", "repower": "uprate", "factor": 2.0, "kind": "derate"},
+    ]
+    for extra in bad:
+        assert client.post(f"/branches/{bid}/outages", json={**base, **extra}).status_code == 422, extra
+
+    rp = client.post(f"/branches/{bid}/outages", json={**base, "work": "repowering", "repower": "uprate", "factor": 2.0})
+    assert rp.status_code == 200, rp.text
+    assert {k: rp.json()[k] for k in ("work", "repower", "factor")} == {"work": "repowering", "repower": "uprate", "factor": 2.0}
+    plain = client.post(f"/branches/{bid}/outages", json={**base, "element_id": other})
+    assert plain.json()["work"] == "maintenance" and plain.json()["repower"] is None
+    rows = {o["outage_id"]: o for o in client.get(f"/branches/{bid}/outages").json()["outages"]}
+    assert rows[rp.json()["outage_id"]]["factor"] == 2.0
+
+    res = _run_job(bid, view_year=2029)
+    studies = {s["outage_id"]: s for s in res["years"]["2029"]["outage_studies"]}
+    a, b = rp.json()["outage_id"], plain.json()["outage_id"]
+    assert studies[a]["with_ids"] == [b] and studies[b]["with_ids"] == [a]  # same season and year: studied together
+    assert studies[a]["work"] == "repowering" and studies[a]["after"].startswith("from 2030")
+    for s in studies.values():
+        assert s["verdict"] in ("feasible", "curtailment", "demand_at_risk", "not_feasible")
+        assert {"curtailment", "curtailed_mw", "demand_at_risk_mw", "n1_during", "message"} <= s.keys()
+    # the uprated line carries the same flow against twice the rating from the following year
+    lid = int(line)
+    before, after = res["years"]["2029"]["line_loading"][str(lid)], res["years"]["2030"]["line_loading"][str(lid)]
+    assert after < before or before == 0
+
+
+def test_the_outage_table_migrates_from_the_pre_works_schema(tmp_path):
+    """An existing scenarios DB (branch_outages without work/repower/factor) gains the columns, and
+    its rows read back as maintenance."""
+    import duckdb
+
+    from gridforge_api import repository
+    from gridforge_api.store import Cursor, migrate
+
+    con = duckdb.connect(str(tmp_path / "old.duckdb"))
+    con.execute("CREATE TABLE branch_outages (branch_id VARCHAR, outage_id VARCHAR, element_kind VARCHAR, "
+                "element_id VARCHAR, season VARCHAR, year INTEGER, weeks INTEGER, kind VARCHAR, created_at VARCHAR)")
+    con.execute("INSERT INTO branch_outages VALUES ('b', 'mw-old', 'line', '0', 'Summer', 2030, 4, 'outage', '2026-01-01')")
+    cur = Cursor(con.cursor(), "duckdb")
+    migrate(cur)
+    migrate(cur)  # idempotent
+    assert {"work", "repower", "factor"} <= set(cur.columns("branch_outages"))
+    [o] = repository.outages(cur, "b")
+    assert (o.work, o.repower, o.factor) == ("maintenance", None, None)
+    con.close()
+
+
 def test_a_reinforcement_on_a_branch_changes_its_result():
     """Try on branch: one more supergrid transformer raises the GSP limit in every year."""
     bid = _create("Reinforced", added_projects=[_good()])["branch_id"]

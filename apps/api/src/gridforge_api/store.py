@@ -21,7 +21,8 @@ ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
     "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw"
 )
-OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "weeks", "kind", "created_at"]
+OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "weeks", "kind", "created_at",
+               "work", "repower", "factor"]
 REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "factor", "label", "created_at"]
 BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
@@ -200,6 +201,15 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
+    # work types: what a window is for, and what a repowering leaves behind (maintenance.WORKS)
+    cols = con.columns("branch_outages")
+    if "work" not in cols:
+        con.execute("ALTER TABLE branch_outages ADD COLUMN work VARCHAR DEFAULT 'maintenance'")
+        con.execute("UPDATE branch_outages SET work = 'maintenance' WHERE work IS NULL")
+    if "repower" not in cols:  # repowering only: 'uprate' | 'add_parallel'
+        con.execute("ALTER TABLE branch_outages ADD COLUMN repower VARCHAR")
+    if "factor" not in cols:  # repowering 'uprate' only: the rating multiplier
+        con.execute("ALTER TABLE branch_outages ADD COLUMN factor DOUBLE")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS branch_reinforcements (

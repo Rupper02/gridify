@@ -29,11 +29,10 @@ from .config import (
     N1_MIN_KV,
     OUTAGE_DERATE_FACTOR,
     PLAN_START_YEAR,
-    SEASON_STUDY,
     TRAFO_LOADING_MAX_PCT,
     VOLTAGE_BANDS,
 )
-from .types import Outage, OutageStudy, Reason, Reinforcement
+from .types import Outage, Reason, Reinforcement
 
 
 def build_base_net():
@@ -428,7 +427,7 @@ def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
     name = net.get("gsp_name") or "the GSP"
     return Reason(type="gsp", value=round(export, 1), limit=round(limit, 1), case=case,
                   message=f"{name} would export {export:.0f} MW to the transmission system at "
-                          f"{_CASE_LABEL.get(case, 'peak export')} — above its {limit:.0f} MW export limit")
+                          f"{_CASE_LABEL.get(case, 'peak export')}, above its {limit:.0f} MW export limit")
 
 
 def feasibility(net) -> tuple[bool, Reason | None, dict]:
@@ -524,14 +523,16 @@ def _islanded_mw(net, vm: pd.Series, with_first: bool = False):
     return lost, len(island)
 
 
-def n1_screen(net, case: str = "winter_peak") -> dict:
+def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
     """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
     above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
-    islanding violation. Informational (not a connection gate); roughly P2/8 security of supply."""
+    islanding violation. Informational (not a connection gate); roughly P2/8 security of supply.
+    `rating_ratio` overrides the case's line ratings (a maintenance window's season, maintenance.py)."""
     cases = {c: (ls, rr) for c, ls, rr in _study_cases(net)}
     if case not in cases:
         case = "winter_peak"
-    load_scale, rating_ratio = cases[case]
+    load_scale, case_ratio = cases[case]
+    rating_ratio = case_ratio if rating_ratio is None else rating_ratio
     # the pre-fault state is the intact network with its taps regulated for THIS case. feasibility()
     # leaves them as the last study case (summer minimum) settled them, which would make every winter
     # outage look like a voltage breach, so settle them for the screened case first; each outage then
@@ -623,57 +624,6 @@ OUTAGE_APPLIERS = {
     "trafo": _element_outage("trafo", "sn_mva"),
     "gen": _generator_outage,
 }
-
-
-def study_outage(net, o: Outage) -> OutageStudy:
-    """Solve the net with one planned outage applied, in each case its season stresses (with that
-    season's line ratings), and report the first limit each case breaches. Leaves the net as found
-    (taps included). Demand stranded on an island counts as a violation, as in the N-1 screen."""
-    season = SEASON_STUDY.get(o.season, SEASON_STUDY["Summer"])
-    undo = OUTAGE_APPLIERS[o.element_kind](net, o)
-    if undo is None:
-        return OutageStudy(outage_id=o.outage_id, year=o.year, cases=[], ok=True,
-                           message=f"{o.element_kind} {o.element_id} is not in the network model")
-    cases = {c.name: c for c in _study_cases(net)}
-    violations: list[Reason] = []
-    worst_line = worst_trafo = export = 0.0
-    studied: list[str] = []
-    taps = tap_positions(net)  # the study regulates taps with the element out; the year's own state must not move
-    try:
-        for name in season["cases"]:
-            if name not in cases:
-                continue
-            case = cases[name]
-            ratio = _column(net.line, season["rating_column"]) if season["rating_column"] else case.rating_ratio
-            res = _run_case(net, name, case.load_scale, ratio)
-            studied.append(name)
-            if res is None:
-                violations.append(Reason(type="non_convergent", case=name,
-                                         message=f"power flow does not converge at {_CASE_LABEL[name]}"))
-                continue
-            worst_line = max(worst_line, float(res["line_pct"].max()) if len(res["line_pct"]) else 0.0)
-            worst_trafo = max(worst_trafo, float(res["trafo_pct"].max()) if len(res["trafo_pct"]) else 0.0)
-            export = max(export, -res["p_ext_mw"])
-            lost, n_buses = _islanded_mw(net, res["vm"])
-            if lost >= N1_ISLAND_MIN_MW:
-                violations.append(Reason(type="islanded", value=round(lost, 2), case=name,
-                                         message=f"{lost:.1f} MW of demand at {n_buses} bus(es) is cut off at {_CASE_LABEL[name]}"))
-                continue
-            r = _case_reason(net, name, res["vm"], res["line_pct"], res["trafo_pct"]) or _gsp_reason(net, -res["p_ext_mw"], name)
-            if r is not None:
-                violations.append(r)
-    finally:
-        undo()
-        set_tap_positions(net, taps)
-    if violations:
-        message = "; ".join(v.message for v in violations)
-    else:
-        message = (f"no limit breached; worst line {worst_line:.0f}%, worst transformer {worst_trafo:.0f}% "
-                   f"at {' and '.join(_CASE_LABEL[c] for c in studied)}")
-    return OutageStudy(outage_id=o.outage_id, year=o.year, cases=studied, ok=not violations,
-                       violations=violations, worst_line_loading_pct=round(worst_line, 1),
-                       worst_trafo_loading_pct=round(worst_trafo, 1), gsp_export_mw=round(export, 1),
-                       message=message)
 
 
 # --- reinforcement (for "what would it take" suggestions) -------------------

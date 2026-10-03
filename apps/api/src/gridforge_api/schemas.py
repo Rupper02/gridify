@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_END_YEAR, PLAN_START_YEAR
 
@@ -75,7 +75,11 @@ class ScheduleSet(BaseModel):
 
 
 class OutageCreate(BaseModel):
-    """A planned maintenance window on a branch (studied in its season; reported, never a gate)."""
+    """A planned works window on a branch (studied in its season; reported, never a gate).
+
+    `work` says what it is for: maintenance (out, or derated with `kind`), a like-for-like
+    replacement, or repowering, which brings the element back from the following year with a new
+    capability: `repower` "uprate" (rating x `factor`, 1 < factor <= 4) or "add_parallel"."""
 
     element_kind: Literal["line", "trafo", "gen"]
     element_id: str  # line/trafo id, or an existing generator's id (EX-…)
@@ -83,6 +87,27 @@ class OutageCreate(BaseModel):
     year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
     weeks: int = Field(default=4, ge=1, le=26)
     kind: Literal["outage", "derate"] = "outage"
+    work: Literal["maintenance", "repowering", "replacement"] = "maintenance"
+    repower: Literal["uprate", "add_parallel"] | None = None
+    factor: float | None = Field(default=None, gt=1.0, le=4.0)
+
+    @model_validator(mode="after")
+    def _work_fields(self):
+        if self.work != "repowering":
+            if self.repower is not None or self.factor is not None:
+                raise ValueError("repower and factor apply to repowering only")
+            if self.work == "replacement" and self.kind == "derate":
+                raise ValueError("a replacement takes the element fully out; derate is for maintenance")
+            return self
+        if self.kind == "derate":
+            raise ValueError("repowering takes the element fully out; derate is for maintenance")
+        if self.repower is None:
+            raise ValueError("repowering needs repower: 'uprate' or 'add_parallel'")
+        if self.repower == "uprate" and self.factor is None:
+            raise ValueError("an uprate needs a factor (1 < factor <= 4)")
+        if self.repower == "add_parallel" and self.factor is not None:
+            raise ValueError("add_parallel takes no factor")
+        return self
 
 
 class ReinforcementCreate(BaseModel):
