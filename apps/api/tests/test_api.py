@@ -313,3 +313,45 @@ def test_profile_persists_across_runs():
     phase_ht = r_std["result"]["phases"]["2028"]
     assert phase_ee["worst_line_loading_pct"] > phase_ht["worst_line_loading_pct"], \
         "High profile (×1.05) must have higher loading than Standard (×1.04) at same year"
+
+
+def test_fresh_load_reads_stored_scenario():
+    """Regression: on page reload, the UI must initialize from main's stored scenario, not the
+    hardcoded default. After picking Low, a reload must show Low on the strip and run Low's study."""
+    # Set main to Low (Falling Behind: ×1.04 / ×1.15)
+    update_resp = client.post("/branches/main/scenario", json={
+        "scenario": "fb", "growth_2030": 1.04, "growth_2035": 1.15
+    }).json()
+    assert update_resp["scenario"] == "fb", "scenario update must persist"
+    assert update_resp["growth_2030"] == 1.04
+    assert update_resp["growth_2035"] == 1.15
+    
+    # Simulate a fresh page load: fetch branches and read main's stored scenario
+    branches_resp = client.get("/branches").json()
+    branches = branches_resp["branches"]
+    main_branch = next((b for b in branches if b["branch_id"] == "main"), None)
+    assert main_branch is not None, "main branch must exist"
+    assert main_branch["scenario"] == "fb", "fresh load must read stored scenario (fb), not default (ht)"
+    assert main_branch["growth_2030"] == 1.04
+    assert main_branch["growth_2035"] == 1.15
+    
+    # Run with the stored scenario (simulates the boot sequence after reload)
+    r = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
+    while r["status"] in ("queued", "running"):
+        r = client.get(f"/jobs/{r['job_id']}").json()
+    assert r["status"] == "done"
+    assert r["result"]["params"]["scenario"] == "fb", "run after reload must use stored Low (fb)"
+    assert r["result"]["params"]["growth_2030"] == 1.04
+    
+    # Verify physics: Low at 2028 is ×1.02 interpolated, lower than Standard's ×1.04
+    # Compare to Standard to ensure we're actually running Low's physics
+    client.post("/branches/main/scenario", json={"scenario": "ht", "growth_2030": 1.08, "growth_2035": 1.35})
+    r_std = client.post("/branches/main/optimize/jobs", json={"with_justification": False, "study_year": 2028}).json()
+    while r_std["status"] in ("queued", "running"):
+        r_std = client.get(f"/jobs/{r_std['job_id']}").json()
+    
+    # Low demand (fb @ 2028 = ×1.02) must have lower loading than Standard (ht @ 2028 = ×1.04)
+    phase_fb = r["result"]["phases"]["2028"]
+    phase_ht = r_std["result"]["phases"]["2028"]
+    assert phase_fb["worst_line_loading_pct"] < phase_ht["worst_line_loading_pct"], \
+        "Low profile (×1.02) must have lower loading than Standard (×1.04) at same year"

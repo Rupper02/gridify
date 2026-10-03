@@ -97,16 +97,25 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
     let cancelled = false;
     (async () => {
       try {
-        const [model, cands, forecasts, maxMw, boundary] = await Promise.all([
-          api.getModel(), api.getCandidates(), api.getForecasts(), api.getMaxConnectionMw(), api.getBoundary(),
+        const [model, cands, forecasts, maxMw, boundary, branches] = await Promise.all([
+          api.getModel(), api.getCandidates(), api.getForecasts(), api.getMaxConnectionMw(), api.getBoundary(), api.listBranches(),
         ]);
         if (cancelled) return;
-        // growth is fixed per pathway (no sliders): sync g30/g35 to the default forecast's cited values
-        const def = forecasts.find((f) => f.id === ref.current.forecastId) ?? forecasts[0];
-        const over: RunOverride = def ? { forecastId: def.id, g30: def.growth_2030, g35: def.growth_2035 } : {};
-        patch({ model, cands, forecasts, maxMw, boundary, ...over });
+        // Load main's stored scenario from the database, not the hardcoded default.
+        // This ensures a reload shows the profile the user last selected.
+        const mainBranch = branches.find((b) => b.branch_id === "main");
+        const storedScenario = mainBranch?.scenario ?? "ht";
+        const storedG30 = mainBranch?.growth_2030 ?? 1.08;
+        const storedG35 = mainBranch?.growth_2035 ?? 1.35;
+        // Validate the stored scenario exists in the fetched forecasts
+        const matchingForecast = forecasts.find((f) => f.id === storedScenario);
+        const forecastId = matchingForecast ? storedScenario : "ht";
+        const g30 = matchingForecast ? storedG30 : 1.08;
+        const g35 = matchingForecast ? storedG35 : 1.35;
+        
+        const over: RunOverride = { forecastId, g30, g35 };
+        patch({ model, cands, forecasts, maxMw, boundary, branches, branchesLoaded: true, forecastId, g30, g35 });
         mapApi.current?.fit(false);
-        void refreshBranches();
         void run(over);
       } catch (e) {
         if (!cancelled) toastMsg(`Could not load the model: ${e instanceof Error ? e.message : "is the API running?"}`);
@@ -116,7 +125,7 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
       cancelled = true;
       window.clearInterval(stepTimer.current);
     };
-  }, [mapApi, patch, ref, refreshBranches, run, toastMsg]);
+  }, [mapApi, patch, ref, run, toastMsg]);
 
   return run;
 }
