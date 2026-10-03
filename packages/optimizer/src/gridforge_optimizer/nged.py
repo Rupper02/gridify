@@ -25,6 +25,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -303,9 +304,29 @@ def _add_transformers(net, t2a, gb) -> None:
         )
 
 
+def _demand_group(d: dict) -> str:
+    """The demand group a Table 3 row describes: its primary substation, or its BSP group for a row
+    at the BSP itself (Primary Substation "-")."""
+    p = str(d.get("Primary Substation") or "").strip()
+    return p if p and p != "-" else str(d.get("BSP Group") or d.get("Node") or "").strip()
+
+
+def _slug(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-") or "region"
+
+
 def _add_loads(net, dem, gb) -> None:
-    """LTDS Table 3 demand (after diversity), with each load's summer-minimum scaling."""
+    """LTDS Table 3 demand (after diversity), with each load's summer-minimum scaling and the demand
+    group it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
+    dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
+    maximum demand (MW), its power factor and the "Firm Capacity of Substation". We read the firm
+    capacity as MVA (the usual unit for a transformer group's firm rating; the table does not state
+    it) and convert it to MW at the row's own power factor, so comparing it with demand in MW is the
+    same as comparing apparent powers. `peak_mw` keeps the row's own maximum demand (no diversity):
+    a substation's firm capacity is set against its own peak, not the GSP-coincident share."""
     min_scale: dict[int, float | None] = {}
+    groups: dict[int, dict] = {}
+    ids: dict[str, str] = {}  # group name -> region id (unique slug)
     for d in dem:
         p = _num(d["Current Year Max Demand"])
         if not p:
@@ -318,10 +339,24 @@ def _add_loads(net, dem, gb) -> None:
         # p_mw is max × DEMAND_DIVERSITY, so the summer-minimum case scales p_mw by f / diversity.
         # Held at today's level (not grown): forecast growth is winter-evening EV/heat load.
         f = _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%"))
+        name = _demand_group(d)
+        if name not in ids:
+            rid, k = _slug(name), 2
+            while rid in ids.values():
+                rid, k = f"{_slug(name)}-{k}", k + 1
+            ids[name] = rid
+        firm_mva = _num(d.get("Firm Capacity of Substation")) or 0.0
+        group = {"region_id": ids[name], "region": name, "bsp": str(d.get("BSP Group") or "").strip(),
+                 "primary": str(d.get("Primary Substation") or "").strip(), "firm_mva": float(firm_mva),
+                 "firm_mw": round(float(firm_mva) * min(max(pf, 0.5), 1.0), 3),
+                 "peak_mw": p / DEMAND_DIVERSITY}
         for n in nodes_d:
             idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
             min_scale[int(idx)] = (f / 100.0) / DEMAND_DIVERSITY if f else None
+            groups[int(idx)] = group
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
+    for col in ("region_id", "region", "bsp", "primary", "firm_mva", "firm_mw", "peak_mw"):
+        net.load[col] = [groups[int(i)][col] if int(i) in groups else None for i in net.load.index]
 
 
 def _add_existing_fleet(net, tables) -> list[dict]:
@@ -571,7 +606,7 @@ def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT)
     for n, i in enumerate(net.load.index):
         b = int(net.load.at[i, "bus"])
         loads.append({"load_id": n, "bus_id": b, "p_mw": round(float(net.load.at[i, "p_mw"]), 3),
-                      "lon": xy[b][0], "lat": xy[b][1]})
+                      "region_id": net.load.at[i, "region_id"], "lon": xy[b][0], "lat": xy[b][1]})
     # the existing/connected fleet (baked into the base network), for the map
     generators = []
     for g in ctx["existing"]:
@@ -579,8 +614,9 @@ def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT)
         generators.append({"request_id": g["request_id"], "bus_id": b, "rating_mw": g["rating_mw"],
                            "technology": g["technology"], "applicant": g["applicant"],
                            "lon": xy[b][0], "lat": xy[b][1]})
+    from .demand import regions_of  # the demand groups (LTDS Table 3 rows), as the engine judges them
     return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads,
-            "generators": generators}
+            "generators": generators, "regions": regions_of(net)}
 
 
 _FUEL_TECH = {"photovoltaic": "solar", "solar": "solar", "solar pv": "solar",

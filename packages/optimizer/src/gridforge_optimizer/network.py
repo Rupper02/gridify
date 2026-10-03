@@ -524,6 +524,26 @@ def _islanded_mw(net, vm: pd.Series, with_first: bool = False):
     return lost, len(island)
 
 
+def islanded_bus_ids(net, vm: pd.Series) -> list[int]:
+    """The buses left without a voltage (cut off from the infeed) in a solve."""
+    v = vm.reindex(net.bus.index)
+    return [int(b) for b in v[v.isna()].index]
+
+
+def solve_case(net, case: str) -> dict | None:
+    """Solve one study case on the intact net (taps regulated for it) and return its results
+    ({vm, line_pct, trafo_pct, p_ext_mw}), leaving the net's inputs and tap positions as found.
+    None if the case does not apply to this net or does not converge."""
+    cases = {c.name: c for c in _study_cases(net)}
+    if case not in cases:
+        return None
+    taps = tap_positions(net)
+    try:
+        return _run_case(net, case, cases[case].load_scale, cases[case].rating_ratio)
+    finally:
+        set_tap_positions(net, taps)
+
+
 def n1_screen(net, case: str = "winter_peak") -> dict:
     """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
     above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
@@ -559,6 +579,7 @@ def n1_screen(net, case: str = "winter_peak") -> dict:
             if lost >= N1_ISLAND_MIN_MW:
                 violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
                                    "element_id": first, "value": round(lost, 2),
+                                   "islanded_bus_ids": islanded_bus_ids(net, res["vm"]),  # demand.py attributes it to regions
                                    "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {n_buses} bus(es)"})
                 continue
             r = _case_reason(net, case, res["vm"], res["line_pct"], res["trafo_pct"])

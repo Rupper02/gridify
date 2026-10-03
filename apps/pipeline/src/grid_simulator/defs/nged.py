@@ -41,6 +41,7 @@ _CAND_COLS = [
     "grid_connection_agreement", "financing", "commissioning_year", "strategic_fit",
     "strategic_rationale", "status", "review_reasons", "import_mw",
 ]
+_REGION_COLS = ("region_id", "name", "bsp", "firm_mw", "firm_mva", "base_demand_mw", "peak_demand_mw", "p2_class")
 _SNAPSHOT_COLS = {
     "snapshot_id": "VARCHAR", "created_at": "VARCHAR", "ltds_edition": "VARCHAR",
     "buses": "INTEGER", "lines": "INTEGER", "transformers": "INTEGER", "loads": "INTEGER", "candidates": "INTEGER",
@@ -77,9 +78,10 @@ def ltds_tables(context: dg.AssetExecutionContext) -> dict:
 # --- silver: canonical model, registry and the edition change-set ------------------------------
 @dg.asset(group_name="ltds")
 def nged_model_canonical(context: dg.AssetExecutionContext, ltds_tables: dict) -> dict:
-    """Reconcile the LTDS tables into one geolocated model (buses/lines/transformers/loads/fleet)."""
+    """Reconcile the LTDS tables into one geolocated model (buses/lines/transformers/loads/fleet, and
+    the demand groups: one region per live LTDS Table 3 row, with its firm capacity)."""
     m = nged_model(ltds_tables)
-    context.add_output_metadata({k: len(m[k]) for k in ("buses", "lines", "transformers", "loads", "generators")})
+    context.add_output_metadata({k: len(m[k]) for k in ("buses", "lines", "transformers", "loads", "generators", "regions")})
     return m
 
 
@@ -228,7 +230,10 @@ def served_nged(
     buses = pd.DataFrame(m["buses"])[["bus_id", "name", "vn_kv", "lon", "lat"]]
     lines = pd.DataFrame(m["lines"])[["line_id", "line_name", "rating_a", "voltage_kv", "from_bus", "to_bus"]]
     trafos = pd.DataFrame(m["transformers"])[["trafo_id", "name", "sn_mva", "hv_bus", "lv_bus"]]
-    loads = pd.DataFrame([{"bus_id": ld["bus_id"], "p_mw": ld["p_mw"]} for ld in m["loads"]])
+    loads = pd.DataFrame([{"bus_id": ld["bus_id"], "p_mw": ld["p_mw"], "region_id": ld.get("region_id")}
+                          for ld in m["loads"]])
+    # the demand groups (LTDS Table 3 rows); a region's buses are its loads' buses (the loads table)
+    regions = pd.DataFrame([{k: r[k] for k in _REGION_COLS} for r in m.get("regions", [])], columns=list(_REGION_COLS))
     gens = pd.DataFrame([{"request_id": g["request_id"], "bus_id": g["bus_id"], "rating_mw": g["rating_mw"],
                          "technology": g["technology"], "applicant": g["applicant"]} for g in m["generators"]])
     cdf = pd.DataFrame([{k: c.get(k) for k in _CAND_COLS} for c in nged_connection_queue])
@@ -242,13 +247,13 @@ def served_nged(
         "summary_json": json.dumps({k: cs[k] for k in ("status_counts", "n_changes", "model", "physics", "caveats")}),
     }])
 
-    blob = "".join(df.to_csv(index=False) for df in (buses, lines, trafos, loads, gens))
+    blob = "".join(df.to_csv(index=False) for df in (buses, lines, trafos, loads, gens, regions))
     snapshot_id = "nged-bickerfen-" + hashlib.sha256(blob.encode()).hexdigest()[:12]
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = duckdb.connect(str(DB_PATH))
     try:
         for name, df in [("buses", buses), ("lines", lines), ("transformers", trafos), ("loads", loads),
-                         ("generators", gens), ("candidate_projects", cdf),
+                         ("generators", gens), ("regions", regions), ("candidate_projects", cdf),
                          ("ltds_changes", changes), ("ltds_change_summary", summary)]:
             conn.register("df_view", df)
             conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM df_view")
@@ -270,5 +275,5 @@ def served_nged(
         "snapshot_id": snapshot_id, "snapshot": "new version" if is_new else "unchanged (no new snapshot row)",
         "snapshot_history": int(history), "ltds_edition": edition, "db_path": str(DB_PATH),
         "buses": len(buses), "lines": len(lines), "transformers": len(trafos), "loads": len(loads),
-        "generators": len(gens), "candidates": len(cdf), "edition_changes": len(changes),
+        "generators": len(gens), "regions": len(regions), "candidates": len(cdf), "edition_changes": len(changes),
     })

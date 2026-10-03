@@ -30,3 +30,34 @@ def test_projects_not_built_yet_are_registry_only():
     names = set(net.sgen.name.astype(str))
     assert not any(c["request_id"] in names for c in registry)
     assert all(n.startswith("EX-") for n in names)
+
+
+def test_demand_regions_are_the_live_ltds_table3_groups():
+    from gridforge_optimizer.demand import regions_of
+    from gridforge_optimizer.nged import _demand_group, nged_model
+
+    live = [d for d in _live(_load("demand"), "Status") if _num(d["Current Year Max Demand"])]
+    regions = {r["name"]: r for r in regions_of(build_nged_net())}
+    assert set(regions) == {_demand_group(d) for d in live}  # one region per live demand group, none Removed
+    assert "Warth Lane" not in regions  # LTDS marks it Removed
+    for d in live:
+        r = regions[_demand_group(d)]
+        # firm capacity read as MVA, converted at the row's own power factor; peak is the row's own max demand
+        pf = min(max(_num(d["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
+        assert r["firm_mw"] == pytest.approx((_num(d["Firm Capacity of Substation"]) or 0.0) * pf, abs=1e-3)
+        assert r["peak_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]), abs=1e-3)
+        assert r["base_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]) * DEMAND_DIVERSITY, abs=1e-3)
+    m = nged_model()
+    assert {ld["region_id"] for ld in m["loads"]} == {r["region_id"] for r in m["regions"]}
+
+
+def test_new_beacon_road_is_above_its_firm_capacity_today():
+    """NGED's own LTDS row: 14.38 MW maximum demand against a 14 MVA firm capacity (unity power factor)."""
+    from gridforge_optimizer import OptimizeParams
+    from gridforge_optimizer.years import evaluate_year
+
+    yr = evaluate_year(2026, [], OptimizeParams(), {}, n1=False)
+    r = next(x for x in yr.regions if x.name == "New Beacon Road")
+    assert r.demand_mw == pytest.approx(14.38, abs=0.01) and r.firm_mw == pytest.approx(14.0)
+    assert r.p2_class == "C" and r.headroom_mw < 0
+    assert any(a.region_id == r.region_id and a.kind == "firm_capacity" for a in yr.alerts)

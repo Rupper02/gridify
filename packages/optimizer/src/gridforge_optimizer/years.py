@@ -4,7 +4,8 @@ plan as it would stand then, so the timeline switches between stored results ins
 A year's network is today's network with demand grown to that year (interpolated between the 2030
 and 2035 anchors) and every accepted project whose energisation year (the operator's scheduled year,
 else the optimizer's recommendation) has arrived. It is solved in both study cases, screened N-1,
-and each planned outage in that year is studied in its season. Nothing here decides who connects:
+and each planned outage in that year is studied in its season; the demand side (demand.py: regions,
+firm headroom, P2/8 class, alerts) is read off the same solved net. Nothing here decides who connects:
 the queue comes from greedy.optimize, so this is a fixed-plan evaluation (two solves plus the N-1
 screen per year), cheap next to the greedy trials.
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR
+from .demand import assess_demand
 from .greedy import NetFactory, Progress
 from .network import (
     apply_reinforcement,
@@ -94,7 +96,7 @@ def evaluate_year(
     studies = [study_outage(net, o) for o in outages if o.year == year]
     screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
     _, _, m = feasibility(net)  # the intact envelope the map and readings show
-    return YearResult(
+    yr = YearResult(
         year=year,
         growth=round(growth, 4),
         energised=energised,
@@ -115,6 +117,9 @@ def evaluate_year(
         n1_violations=screen["violations"],
         outage_studies=studies,
     )
+    # the demand side (regions + alerts) reads the intact envelope just solved, so it comes last
+    yr.regions, yr.alerts = assess_demand(net, year, screen["violations"])
+    return yr
 
 
 def evaluate_years(
