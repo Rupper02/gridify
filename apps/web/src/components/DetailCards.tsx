@@ -173,16 +173,17 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
           })}
         </div>
       )}
-      <div className="box dark" style={{ gap: 10, padding: 12 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Schedule works</span>
-        <div className="form-row">
-          <span className="lbl">Work</span>
-          <div className="opts">
-            {WORKS.map((w) => (
-              <button key={w} className={`pill-opt${d.work === w ? " on" : ""}`} onClick={() => actions.setDraft({ work: w })}>{WORK_UI[w].label}</button>
-            ))}
+      {!derived.onMain && (
+        <div className="box dark" style={{ gap: 10, padding: 12 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Schedule works</span>
+          <div className="form-row">
+            <span className="lbl">Work</span>
+            <div className="opts">
+              {WORKS.map((w) => (
+                <button key={w} className={`pill-opt${d.work === w ? " on" : ""}`} onClick={() => actions.setDraft({ work: w })}>{WORK_UI[w].label}</button>
+              ))}
+            </div>
           </div>
-        </div>
         <div className="form-row">
           <span className="lbl">Season</span>
           <div className="opts">
@@ -236,13 +237,14 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
             )}
           </div>
         )}
-        {d.work === "replacement" && <span className="work-note">Back like-for-like after the window.</span>}
-        <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind)}</span>
-        <button className="btn primary sm" style={{ justifyContent: "center", height: 34 }} onClick={() => void actions.scheduleOutage(sel)}>
-          <Wrench size={13} weight="bold" />
-          {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}
-        </button>
-      </div>
+          {d.work === "replacement" && <span className="work-note">Back like-for-like after the window.</span>}
+          <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind)}</span>
+          <button className="btn primary sm" style={{ justifyContent: "center", height: 34 }} onClick={() => void actions.scheduleOutage(sel)}>
+            <Wrench size={13} weight="bold" />
+            {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

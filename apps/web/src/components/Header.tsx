@@ -65,7 +65,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
         {wide && <span style={{ fontSize: 11, color: "var(--mute)" }}>Demand</span>}
-        <div className="seg" role="radiogroup" aria-label="Demand profile" title={onMain ? "The demand profile main is planned on" : "Demand profile for this branch"}>
+        <div className="seg" role="radiogroup" aria-label="Demand profile" title={onMain ? "main is read-only" : "Demand profile for this branch"}>
           {PROFILES.map((p) => {
             const on = p.id === branch?.scenario;
             return (
@@ -75,7 +75,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
                 aria-checked={on}
                 className={on ? "on" : ""}
                 onClick={() => void actions.setProfile(p.id)}
-                disabled={branch?.status !== undefined && branch.status !== "open"}
+                disabled={onMain || (branch?.status !== undefined && branch.status !== "open")}
                 style={{ padding: wide ? "0 12px" : "0 9px" }}
               >
                 <ProfileGlyph bars={p.bars} on={on} />

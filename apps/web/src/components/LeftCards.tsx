@@ -19,13 +19,18 @@ export type LeftCardsPlanner = PlannerSlice<
 
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
-  const { yr, stale, resultProfile, profile } = derived;
+  const { yr, ix, stale, resultProfile, profile } = derived;
   const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
   const gsp = yr?.gsp_export_mw ?? null;
   const gspHot = gsp != null && limit ? gsp / limit > 0.9 : false;
   const runLabel = `${stale.stale ? "Re-run" : "Run"} on ${profile.label}`;
   const showStale = stale.stale && !s.refreshing; // an automatic refresh is already on its way
 
+  const worst = worstElement(yr, ix);
+  const vMin = yr?.min_vm_pu.toFixed(3) ?? "–";
+  const vMax = yr?.max_vm_pu.toFixed(3) ?? "–";
+  const worstPct = worst ? Math.round(worst.pct) : null;
+  
   if (layout.narrow) {
     return (
       <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
@@ -33,6 +38,12 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
         <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
           GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: C.ink2 }}>
+          V {vMin}–{vMax}
+        </span>
+        <span className="mono" style={{ fontSize: 11, color: worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink2 }}>
+          Worst {worstPct != null ? `${worstPct}%` : "–"}
         </span>
         {s.refreshing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
         {showStale && (
