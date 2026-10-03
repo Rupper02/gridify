@@ -33,28 +33,25 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   
   if (layout.narrow) {
     const computing = s.refreshing || s.running;
-    const winterImport = yr?.gsp_import_winter_mw ? yr.gsp_import_winter_mw : null;
-    const summerImport = yr?.gsp_import_summer_mw ? yr.gsp_import_summer_mw : null;
+    const winterImport = yr?.gsp_import_winter_mw !== undefined ? yr.gsp_import_winter_mw : null;
+    const summerImport = yr?.gsp_import_summer_mw !== undefined ? Math.max(0, yr.gsp_import_summer_mw) : null;
     const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
     const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
-    const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
-    const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+    const winterHot = winterImport != null && winterLimit && winterImport > 0 ? winterImport / winterLimit > 0.9 : false;
+    const summerHot = summerImport != null && summerLimit && summerImport > 0 ? summerImport / summerLimit > 0.9 : false;
     
-    // Voltage with season labels (treat 0 as no data from old cache)
+    // Voltage with each case's own voltage (treat 0 as no data)
     const hasWinterVoltage = !!(yr?.min_vm_winter && yr?.max_vm_winter);
     const hasSummerVoltage = !!(yr?.min_vm_summer && yr?.max_vm_summer);
-    const minVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-      ? (yr.min_vm_winter! <= yr.min_vm_summer! ? "W" : "S")
-      : "";
-    const maxVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-      ? (yr.max_vm_winter! >= yr.max_vm_summer! ? "W" : "S")
-      : "";
-    const vDisplay = computing ? "..." : minVoltSeason && maxVoltSeason ? `${vMin}(${minVoltSeason})–${vMax}(${maxVoltSeason})` : `${vMin}–${vMax}`;
+    const vDisplay = computing ? "..." : hasWinterVoltage && hasSummerVoltage && yr
+      ? `${yr.min_vm_winter!.toFixed(3)}(W)–${yr.max_vm_winter!.toFixed(3)}(W) ${yr.min_vm_summer!.toFixed(3)}(S)–${yr.max_vm_summer!.toFixed(3)}(S)`
+      : `${vMin}–${vMax}`;
     
     // Worst element with season or both percentages
     const worstDisplay = computing ? "..." : !worst ? "–" :
-      worst.case ? `${worstPct}% (${worst.case === "winter peak" ? "W" : "S"})` :
       worst.winterPct !== null && worst.summerPct !== null ? `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%` :
+      worst.case && worst.winterPct !== null && worst.case === "winter peak" ? `${Math.round(worst.winterPct)}% (W)` :
+      worst.case && worst.summerPct !== null && worst.case === "summer min" ? `${Math.round(worst.summerPct)}% (S)` :
       `${worstPct}%`;
     
     return (
@@ -142,24 +139,25 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
   const computing = s.refreshing || s.running;
   
   // Winter and summer imports with their distinct limits
-  // Treat undefined or 0 as no data (old cached results default to 0.0, but 0 import is unrealistic)
-  const winterImport = yr?.gsp_import_winter_mw ? yr.gsp_import_winter_mw : null;
-  const summerImport = yr?.gsp_import_summer_mw ? yr.gsp_import_summer_mw : null;
+  // Treat undefined as no data; 0 is valid (summer case exporting = 0 import)
+  const winterImport = yr?.gsp_import_winter_mw !== undefined ? yr.gsp_import_winter_mw : null;
+  const summerImport = yr?.gsp_import_summer_mw !== undefined ? Math.max(0, yr.gsp_import_summer_mw) : null;
   const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
   const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
-  const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
-  const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+  const winterHot = winterImport != null && winterLimit && winterImport > 0 ? winterImport / winterLimit > 0.9 : false;
+  const summerHot = summerImport != null && summerLimit && summerImport > 0 ? summerImport / summerLimit > 0.9 : false;
   
-  // Voltage range with season attribution
-  // Treat undefined or 0 as no data (old cached results default to 0.0, but 0 voltage is impossible)
+  // Voltage range with season attribution - show each case's own voltage
+  // Treat 0 as no data (0 voltage is impossible)
   const hasWinterVoltage = !!(yr?.min_vm_winter && yr?.max_vm_winter);
   const hasSummerVoltage = !!(yr?.min_vm_summer && yr?.max_vm_summer);
-  const minVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-    ? (yr.min_vm_winter! <= yr.min_vm_summer! ? "winter peak" : "summer min")
-    : null;
-  const maxVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-    ? (yr.max_vm_winter! >= yr.max_vm_summer! ? "winter peak" : "summer min")
-    : null;
+  // Determine the overall envelope extremes and which case each came from
+  const overallMin = yr?.min_vm_pu ?? 0;
+  const overallMax = yr?.max_vm_pu ?? 0;
+  const minFromWinter = hasWinterVoltage && yr && yr.min_vm_winter! <= (yr.min_vm_summer ?? Infinity);
+  const minFromSummer = hasSummerVoltage && yr && yr.min_vm_summer! < (yr.min_vm_winter ?? Infinity);
+  const maxFromWinter = hasWinterVoltage && yr && yr.max_vm_winter! >= (yr.max_vm_summer ?? -Infinity);
+  const maxFromSummer = hasSummerVoltage && yr && yr.max_vm_summer! > (yr.max_vm_winter ?? -Infinity);
   
   return (
     <div className="card glass" style={{ gap: 14 }}>
@@ -189,7 +187,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6 }}>
           <span style={{ fontSize: 11.5, color: C.mute }}>Summer import</span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
-            {computing ? "..." : summerImport != null ? fmtMw(summerImport) : "–"} / {summerLimit != null ? fmtMw(summerLimit) : "–"} MW
+            {computing ? "..." : summerImport != null ? `${fmtMw(summerImport)} / ${summerLimit != null ? fmtMw(summerLimit) : "–"}` : "–"} MW
           </span>
         </div>
         <Gauge ticks={computing ? [] : gspTicks(summerImport ?? 0, summerLimit)} />
@@ -216,14 +214,19 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         </button>
         <div className="reading">
           <span className="k">Voltage band</span>
-          <span className="v">{computing ? "..." : yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
-          <span className="n">
-            {computing ? "computing" : minVoltSeason && maxVoltSeason ? (
-              <>({minVoltSeason}) to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu ({maxVoltSeason})</>
-            ) : (
-              <>to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "statutory bands"}</>
-            )}
-          </span>
+          {hasWinterVoltage && hasSummerVoltage && yr ? (
+            <>
+              <span className="v">{yr.min_vm_winter!.toFixed(3)} (W)</span>
+              <span className="n">to {yr.max_vm_winter!.toFixed(3)} pu (W) · {yr.min_vm_summer!.toFixed(3)} (S) to {yr.max_vm_summer!.toFixed(3)} pu (S)</span>
+            </>
+          ) : (
+            <>
+              <span className="v">{computing ? "..." : yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
+              <span className="n">
+                {computing ? "computing" : <>to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "statutory bands"}</>}
+              </span>
+            </>
+          )}
         </div>
         <div className="reading">
           <span className="k">Peak demand</span>
@@ -259,22 +262,20 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
   const { yr } = derived;
   const computing = s.refreshing || s.running;
   
-  const winterImport = yr?.gsp_import_winter_mw ? yr.gsp_import_winter_mw : null;
-  const summerImport = yr?.gsp_import_summer_mw ? yr.gsp_import_summer_mw : null;
+  const winterImport = yr?.gsp_import_winter_mw !== undefined ? yr.gsp_import_winter_mw : null;
+  const summerImport = yr?.gsp_import_summer_mw !== undefined ? Math.max(0, yr.gsp_import_summer_mw) : null;
   const winterLimit = s.boundary?.import_limit_mw.winter ?? null;
   const summerLimit = s.boundary?.import_limit_mw.summer ?? null;
-  const winterHot = winterImport != null && winterLimit ? winterImport / winterLimit > 0.9 : false;
-  const summerHot = summerImport != null && summerLimit ? summerImport / summerLimit > 0.9 : false;
+  const winterHot = winterImport != null && winterLimit && winterImport > 0 ? winterImport / winterLimit > 0.9 : false;
+  const summerHot = summerImport != null && summerLimit && summerImport > 0 ? summerImport / summerLimit > 0.9 : false;
   
-  // Voltage range with season info (treat 0 as no data from old cache)
+  // Voltage range with each case's own voltage (treat 0 as no data)
   const hasWinterVoltage = !!(yr?.min_vm_winter && yr?.max_vm_winter);
   const hasSummerVoltage = !!(yr?.min_vm_summer && yr?.max_vm_summer);
-  const minVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-    ? (yr.min_vm_winter! <= yr.min_vm_summer! ? "W" : "S")
-    : "";
-  const maxVoltSeason = hasWinterVoltage && hasSummerVoltage && yr
-    ? (yr.max_vm_winter! >= yr.max_vm_summer! ? "W" : "S")
-    : "";
+  // Show winter and summer voltages separately when both available
+  const vDisplay = computing ? "..." : hasWinterVoltage && hasSummerVoltage && yr
+    ? `${yr.min_vm_winter!.toFixed(3)}(W)–${yr.max_vm_winter!.toFixed(3)}(W) ${yr.min_vm_summer!.toFixed(3)}(S)–${yr.max_vm_summer!.toFixed(3)}(S)`
+    : `${vMin}–${vMax}`;
   
   return (
     <div className="card glass" style={{ padding: "8px 12px" }}>
@@ -299,16 +300,17 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Voltage</span>
-          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : C.ink }}>
-            {computing ? "..." : minVoltSeason && maxVoltSeason ? `${vMin}(${minVoltSeason})–${vMax}(${maxVoltSeason})` : `${vMin}–${vMax}`}
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : C.ink, fontSize: 10 }}>
+            {vDisplay}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Worst</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink }}>
             {computing ? "..." : !worst ? "–" :
-              worst.case ? `${worstPct}%(${worst.case === "winter peak" ? "W" : "S"})` :
               worst.winterPct !== null && worst.summerPct !== null ? `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%` :
+              worst.case && worst.winterPct !== null && worst.case === "winter peak" ? `${Math.round(worst.winterPct)}%(W)` :
+              worst.case && worst.summerPct !== null && worst.case === "summer min" ? `${Math.round(worst.summerPct)}%(S)` :
               worstPct != null ? `${worstPct}%` : "–"
             }
           </span>
