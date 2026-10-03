@@ -3,7 +3,7 @@
 import pytest
 
 from gridforge_optimizer.config import MAX_CONNECTION_MW
-from gridforge_optimizer.nged import DEMAND_DIVERSITY, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
+from gridforge_optimizer.nged import GSP_PEAK_DEMAND_MW, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
 
 
 def _live(rows, col):
@@ -22,7 +22,7 @@ def test_ltds_removed_equipment_is_not_in_todays_network():
     live_mw, all_mw = mw(_live(_load("demand"), "Status")), mw(_load("demand"))
     assert all_mw > live_mw  # the data does flag some demand as Removed…
     # …none of it is modelled, and every live MW of its own is (incl. rows naming several busbars)
-    assert float(net.load.p_mw.sum()) == pytest.approx(mw(_own_demand(_live(_load("demand"), "Status"))) * DEMAND_DIVERSITY, rel=1e-6)
+    assert float(net.load.peak_mw.sum()) == pytest.approx(mw(_own_demand(_live(_load("demand"), "Status"))), rel=1e-6)
     removed_trafos = [t for t in _load("t2a") if str(t.get("Status")).lower() == "removed"]
     assert removed_trafos and len(net.trafo) <= len(_live(_load("t2a"), "Status"))
 
@@ -44,7 +44,8 @@ def test_demand_regions_are_the_live_ltds_table3_groups():
 
     live = [d for d in _live(_load("demand"), "Status") if _num(d["Current Year Max Demand"])]
     own = _own_demand(live)
-    regions = {r["name"]: r for r in regions_of(build_nged_net())}
+    net = build_nged_net()
+    regions = {r["name"]: r for r in regions_of(net)}
     bsps = {_bsp_base(d["BSP Group"]) + " BSP" for d in live if d not in own}
     assert set(regions) == {_demand_group(d) for d in own} | bsps  # one region per live demand group, none Removed
     assert "Warth Lane" not in regions  # LTDS marks it Removed
@@ -54,9 +55,32 @@ def test_demand_regions_are_the_live_ltds_table3_groups():
         pf = min(max(_num(d["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
         assert r["firm_mw"] == pytest.approx((_num(d["Firm Capacity of Substation"]) or 0.0) * pf, abs=1e-3)
         assert r["peak_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]), abs=1e-3)
-        assert r["base_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]) * DEMAND_DIVERSITY, abs=1e-3)
+        k = float(net.load.loc[net.load["region_id"] == r["region_id"], "coincidence"].iloc[0])
+        assert r["base_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]) * k, abs=1e-3)
     m = nged_model()
     assert {ld["region_id"] for ld in m["loads"]} == {r["region_id"] for r in m["regions"] if r["level"] == "primary"}
+
+
+def test_winter_peak_demand_is_nesos_gsp_peak_and_summer_minimum_is_ltds_own():
+    """No assumed diversity factor: today's winter-peak demand sums to NESO's FES figure for Bicker
+    Fen at the GB peak, each BSP's primaries to the BSP's own published maximum (before the GSP
+    step), and the summer minimum stays each row's maximum × its LTDS minimum-demand factor."""
+    net = build_nged_net()
+    load = net.load
+    assert float(load.p_mw.sum()) == pytest.approx(GSP_PEAK_DEMAND_MW, rel=1e-9)
+    live = _live(_load("demand"), "Status")
+    agg = _bsp_aggregates(live)
+    gsp = float(load.loc[load["bsp_region_id"].isna(), "coincidence"].iloc[0])  # rows with no BSP group: the GSP step only
+    for base in {_bsp_base(b) for b in agg}:
+        published = sum(_num(d["Current Year Max Demand"]) for d in live if d["BSP Group"] in agg and _bsp_base(d["BSP Group"]) == base)
+        members = load[load["bsp"] == base]
+        assert float(members.p_mw.sum()) / gsp == pytest.approx(published, rel=1e-9)
+    has_min = load["min_scale"].notna()
+    summer = float((load.loc[has_min, "p_mw"] * load.loc[has_min, "min_scale"].astype(float)).sum())
+    rows = [d for d in _own_demand(live) if _num(d["Current Year Max Demand"])]
+    own_min = sum(_num(d["Current Year Max Demand"]) * _num(str(d["Minimum demand Scaling Factor (%)"]).rstrip("%")) / 100.0
+                  for d in rows if _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%")))
+    assert summer == pytest.approx(own_min, rel=1e-9)
 
 
 def test_a_bsps_own_rows_are_not_counted_twice():

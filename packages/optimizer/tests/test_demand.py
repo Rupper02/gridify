@@ -70,7 +70,9 @@ def test_demand_grows_with_the_years(years):
     assert early.keys() == late.keys()
     assert sum(r.demand_mw for r in late.values()) > sum(r.demand_mw for r in early.values())
     assert all(late[k].demand_mw >= early[k].demand_mw for k in early)
-    assert all(r.modelled_mw <= r.demand_mw for r in late.values())  # the power flow carries the diversified share
+    # the power flow carries the GSP-coincident share: never more, in all, than the groups' own peaks
+    primaries = {r["region_id"] for r in regions_of(base_net()) if r["level"] == "primary"}
+    assert sum(r.modelled_mw for k, r in late.items() if k in primaries) <= sum(r.demand_mw for k, r in late.items() if k in primaries)
 
 
 def test_headroom_is_firm_minus_demand(years):

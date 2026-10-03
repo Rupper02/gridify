@@ -17,7 +17,11 @@ The division of labour is deliberate:
 VOLTAGE_BANDS = ((132.0, 0.90, 1.10), (1.0, 0.94, 1.06))
 VOLTAGE_MIN_PU = 0.9  # the widest (132 kV) band: kept for the pipeline check's headline + docs
 VOLTAGE_MAX_PU = 1.1
-OLTC_SETPOINT_PU = 1.0  # tap changers regulate their LV busbar to this voltage
+# Tap changers regulate their LV busbar to this voltage. A PLANNING ASSUMPTION: LTDS does not publish
+# AVC target voltages, and GB DNOs set them above nominal so feeder ends stay in band at peak. 1.02 pu
+# is the lowest value at which today's network (LTDS + NESO's GSP peak) meets the statutory band at
+# winter peak (1.00 leaves Horncastle 33 kV at 0.932 pu); it is chosen, not sourced (README, Sources and assumptions).
+OLTC_SETPOINT_PU = 1.02
 OLTC_DEADBAND_PU = 0.01  # no tap movement while the LV busbar is within setpoint ± this (AVC relay deadband)
 OLTC_MAX_PASSES = 3  # power-flow passes per solve to settle the taps (they persist on the net, so trials usually need one)
 OLTC_TAP_STEP_PERCENT = 1.25  # LTDS gives the tap RANGE but not the step; a typical GB value (assumption)

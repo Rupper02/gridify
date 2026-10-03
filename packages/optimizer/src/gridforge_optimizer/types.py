@@ -166,7 +166,7 @@ class RegionYear(BaseModel):
     name: str
     bsp: str = ""
     demand_mw: float  # the group's own peak this year (LTDS max demand grown, + projects drawing at winter peak)
-    modelled_mw: float  # what the power flow carries for it (after the GSP diversity factor)
+    modelled_mw: float  # what the power flow carries for it (its share of the GSP's coincident peak)
     firm_mw: float  # LTDS firm capacity (read as MVA, x the row's power factor); 0 = none published
     headroom_mw: float  # firm_mw - demand_mw (negative = demand above firm capacity)
     p2_class: str  # P2/8 demand class by group demand: A..F

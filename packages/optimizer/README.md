@@ -79,7 +79,7 @@ Each call solves **every study case** and returns the first limit breached:
 | Case | Load scaling | Generation (`GENERATION_FACTORS`) | Line ratings |
 |---|---|---|---|
 | `winter_peak` | as grown by the demand pathway | solar 0 · wind 0 · battery and hybrid **−1** (charging at `import_mw`) · demand and electrolyser **−1** · other 1 | winter (`max_i_ka`) |
-| `summer_min` | per-load `min_scale` (LTDS minimum-demand factor ÷ diversity; **not grown**) | everything at 1 (full export) · demand and electrolyser **−0.5** | × per-line `summer_ratio` (LTDS summer ÷ winter) |
+| `summer_min` | per-load `min_scale` (LTDS minimum-demand factor ÷ the load's coincidence, so each row's maximum × its minimum factor; **not grown**) | everything at 1 (full export) · demand and electrolyser **−0.5** | × per-line `summer_ratio` (LTDS summer ÷ winter) |
 
 Technologies: `IMPORT_ONLY_TECHS` (`demand`, `electrolyser`) export nothing; they draw `import_mw` at winter peak and `DEMAND_PROJECT_MIN_FACTOR` (0.5, a planning assumption) of it at summer minimum. A `hybrid` (solar + battery) is dispatched like a battery. Anything without an entry in `GENERATION_FACTORS` (gas, gas engines, biomass, 'other') takes `GENERATION_FACTOR_DEFAULT`: firm in both cases.
 
@@ -122,7 +122,7 @@ Customers are what the network is for, so every plan year also judges each **dem
 A load counts once per level, so no customer is counted twice in the power flow.
 
 `assess_demand(net, year, n1_violations)` runs at the end of `evaluate_year`, on the solved intact envelope, and returns `(list[RegionYear], list[Alert])`. Per region:
-- `demand_mw`: the group's own peak this year (`peak_mw`, the row's LTDS maximum demand with no diversity, times the year's growth) plus what plan projects on its buses draw at winter peak (demand connections, charging batteries; the existing fleet is excluded, its import is already in LTDS demand). `modelled_mw` is the same on the power flow's after-diversity basis.
+- `demand_mw`: the group's own peak this year (`peak_mw`, the row's LTDS maximum demand with no diversity, times the year's growth) plus what plan projects on its buses draw at winter peak (demand connections, charging batteries; the existing fleet is excluded, its import is already in LTDS demand). `modelled_mw` is the same on the power flow's basis (each load's share of the GSP's coincident peak, `net.load.coincidence`).
 - `firm_mw` (LTDS "Firm Capacity of Substation", read as MVA and converted at the row's power factor; 0 when NGED publishes 0), `headroom_mw = firm_mw - demand_mw`, and `p2_class` from `config.P2_8_CLASSES` by `demand_mw`.
 - `n1_at_risk_mw` / `n1_outage`: the most of the group's demand one 132 kV backbone outage cuts off, from the N-1 screen's islanded violations (each now carries `islanded_bus_ids`).
 - `voltage_violation_bus_ids`, `worst_vm_pu`, `worst_vm_limit_pu`: the group's load buses against their statutory band in the intact envelope.
@@ -266,7 +266,7 @@ GROWTH_2030 / GROWTH_2035           = 1.08 / 1.35   # FES 2025 Holistic Transiti
 MAX_SUGGESTIONS / MAX_REINFORCE_STEPS = 5 / 4
 ```
 
-NGED-specific values live in `nged.py`: `DEMAND_DIVERSITY = 0.55`, `GSP_BOUNDARY` (2 × 263.5 MW SGT export limit, with the source resource id), `TRANSMISSION_PROJECTS` and `ECR_MIN_EXPORT_MW = 1`.
+NGED-specific values live in `nged.py`: `GSP_PEAK_DEMAND_MW = 149.235` (NESO FES 2024 regional breakdown; today's winter-peak demand sums to it), `GSP_BOUNDARY` (2 × 263.5 MW SGT export limit, with the source resource id), `TRANSMISSION_PROJECTS` and `ECR_MIN_EXPORT_MW = 1`.
 
 ---
 

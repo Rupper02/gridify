@@ -42,9 +42,13 @@ LtdsTables = dict[str, list[dict]]
 EDITION_CURRENT = "current"  # what exists today: every row NGED has not marked Removed
 EDITION_PREVIOUS = "previous"  # NGED's previous edition, reconstructed: every row not marked New
 GSP_CENTER = (-0.20, 52.88)  # Bicker Fen, Lincolnshire (lon, lat) — fallback spot for unplaceable buses
-# After-diversity factor on LTDS winter-peak demand: peaks don't coincide, so planners assess an
-# after-diversity maximum demand. This sets a feasible present-day base; growth scenarios push it up.
-DEMAND_DIVERSITY = 0.55
+# Bicker Fen's own demand at the time of the GB winter peak (17:00-18:00 on a winter weekday): NESO
+# "Regional Breakdown of 2024 FES: Demand (Active Power)" (NESO Data Portal, resource
+# 7bd643c0-6aad-41ac-aa59-92b68992d9a4), GSP BICF_1, DemandPk summed over its demand types for fiscal
+# year 2024/25 (the ~2024 baseline the growth anchors use): 150.491 MW (Electric Engagement), 150.249
+# (Hydrogen Evolution), 146.965 (Holistic Transition). Today's demand is the same whatever the
+# pathway, so we take the mean. The winter-peak power flow's demand sums to this today (_coincidence).
+GSP_PEAK_DEMAND_MW = 149.235
 # Fallback thermal rating (kA) by operating voltage when LTDS leaves a circuit's rating blank.
 _RATING_FALLBACK_KA = {132: 1.0, 66: 0.7, 33: 0.6, 20: 0.5, 11: 0.4}
 # --- the GSP boundary: what sits above/outside this distribution network ----------------------
@@ -398,8 +402,21 @@ def _bsp_membership(dem, aggregates: set[str], parents: dict[str, dict]) -> dict
             for b, g in parents.items()}
 
 
+def _coincidence(dem, aggregates: set[str], member: dict[str, dict]) -> tuple[dict[str, float], float]:
+    """How much of each row's own maximum demand is on at the GSP's winter peak.
+
+    Two published figures, no assumed factor: a BSP's own maximum (its rows in Table 3) over its
+    primaries' maxima gives their coincidence at the BSP (`bsp_coincidence`, by BSP base name; 1 for
+    a row with no BSP group), and NESO's GSP peak (GSP_PEAK_DEMAND_MW) over the BSP-coincident total
+    gives the coincidence of everything at the GSP. Returns (per-BSP factor, GSP factor)."""
+    bsp = {b: m["bsp_coincidence"] for b, m in member.items()}
+    total = sum((_num(d["Current Year Max Demand"]) or 0.0) * bsp.get(_bsp_base(str(d.get("BSP Group") or "")), 1.0)
+                for d in dem if str(d.get("BSP Group") or "").strip() not in aggregates)
+    return bsp, (GSP_PEAK_DEMAND_MW / total if total > 0 else 1.0)
+
+
 def _add_loads(net, dem, gb) -> None:
-    """LTDS Table 3 demand (after diversity), with each load's summer-minimum scaling and the demand
+    """LTDS Table 3 demand at the GSP's winter peak, with each load's summer-minimum scaling and the demand
     groups it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
     dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
     maximum demand (MW), its power factor and the "Firm Capacity of Substation". We read the firm
@@ -409,10 +426,15 @@ def _add_loads(net, dem, gb) -> None:
     a substation's firm capacity is set against its own peak, not the GSP-coincident share.
 
     A BSP's own rows are aggregates of its primaries (`_bsp_aggregates`), so they add no load: the
-    BSP becomes a parent group of those primaries instead (the `bsp_*` columns)."""
+    BSP becomes a parent group of those primaries instead (the `bsp_*` columns).
+
+    `p_mw` is the row's maximum × its `coincidence` (`_coincidence`: at its BSP, then at the GSP), so
+    the winter-peak demand of the whole network is NESO's published GSP peak today."""
     aggregates = _bsp_aggregates(dem)
     region_id = _RegionIds()
     member = _bsp_membership(dem, aggregates, _bsp_groups(dem, aggregates, gb, region_id))
+    at_bsp, at_gsp = _coincidence(dem, aggregates, member)
+    coincidence: dict[int, float] = {}
     min_scale: dict[int, float | None] = {}
     groups: dict[int, dict] = {}
     for d in dem:
@@ -421,24 +443,28 @@ def _add_loads(net, dem, gb) -> None:
             continue
         nodes_d = _demand_nodes(d)
         pf = _pf(d)
-        p *= DEMAND_DIVERSITY / len(nodes_d)
+        bsp = str(d.get("BSP Group") or "").strip()
+        k = at_bsp.get(_bsp_base(bsp), 1.0) * at_gsp
+        own = p / len(nodes_d)
+        p = own * k
         q = p * math.tan(math.acos(pf))
         # LTDS "Minimum demand Scaling Factor" = minimum demand as a share of maximum demand. Our
-        # p_mw is max × DEMAND_DIVERSITY, so the summer-minimum case scales p_mw by f / diversity.
+        # p_mw is max × coincidence, so the summer-minimum case scales p_mw by f / coincidence.
         # Held at today's level (not grown): forecast growth is winter-evening EV/heat load.
         f = _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%"))
         name = _demand_group(d)
         firm_mva = float(_num(d.get("Firm Capacity of Substation")) or 0.0)
-        bsp = str(d.get("BSP Group") or "").strip()
         group = {"region_id": region_id(name), "region": name, "bsp": bsp,
                  "primary": str(d.get("Primary Substation") or "").strip(), "firm_mva": firm_mva,
-                 "firm_mw": round(firm_mva * pf, 3), "peak_mw": p / DEMAND_DIVERSITY,
+                 "firm_mw": round(firm_mva * pf, 3), "peak_mw": own,
                  **member.get(_bsp_base(bsp), {})}
         for n in nodes_d:
             idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
-            min_scale[int(idx)] = (f / 100.0) / DEMAND_DIVERSITY if f else None
+            min_scale[int(idx)] = (f / 100.0) / k if f else None
+            coincidence[int(idx)] = k
             groups[int(idx)] = group
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
+    net.load["coincidence"] = [coincidence.get(int(i)) for i in net.load.index]
     for col in _LOAD_GROUP_COLS + _LOAD_BSP_COLS:
         net.load[col] = pd.Series([groups.get(int(i), {}).get(col) for i in net.load.index],
                                   index=net.load.index, dtype=object)

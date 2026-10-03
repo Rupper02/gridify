@@ -19,6 +19,7 @@ The physics is deterministic and reproducible. An LLM is used only to phrase res
 - [Refreshing the data](#refreshing-the-data)
 - [Repository layout](#repository-layout)
 - [Tests](#tests)
+- [Sources and assumptions](#sources-and-assumptions)
 - [Limitations](#limitations)
 
 ---
@@ -41,13 +42,14 @@ The physics is deterministic and reproducible. An LLM is used only to phrase res
 
 ## The network and the data
 
-All inputs are public. Each source is fetched by a script and bundled under `packages/optimizer/src/gridforge_optimizer/data/nged/`.
+All inputs are public. Each source is fetched by a script and bundled under `packages/optimizer/src/gridforge_optimizer/data/nged/`. [Sources and assumptions](#sources-and-assumptions) lists every figure the engine uses and where it comes from.
 
 | Data | Source | Used for |
 |---|---|---|
 | Circuits, transformers, demand, nodes, generation | NGED **Long Term Development Statement** (LTDS) tabular model, via the Connected Data Portal CKAN API | The pandapower network |
 | Accepted-to-connect sites | NGED **Embedded Capacity Register** (ECR) | The project registry: location, connection voltage, export capacity, target date |
 | Supergrid transformer limits | NGED *Bicker Fen Td Limits* (asset limits, transmission–distribution) | The GSP export limit |
+| Bicker Fen's demand at the GB winter peak | NESO **FES 2024 regional breakdown** (GSP `BICF_1`) | Today's winter-peak demand: 149.2 MW |
 | Transmission projects at Bicker Fen | NESO **TEC Register** and **Interconnector Register** | Context, and one optional project that connects at the GSP |
 | Substation positions | **OpenStreetMap**, © OpenStreetMap contributors, ODbL | Real coordinates for 29 of 68 substations. The rest (mostly line tee-points) sit between their neighbours |
 
@@ -57,12 +59,12 @@ NGED's own substation-location datasets are access-restricted, which is why posi
 - Rows the LTDS marks **Removed** are dropped. The LTDS flags every row against NGED's previous edition, and a replaced transformer appears once as *Removed* and once as *New*.
 - Switches and zero-impedance links are merged into single buses.
 - Impedances are converted from %Z on a 100 MVA base.
-- Demand is LTDS maximum demand × 0.55 (an after-diversity peak). A BSP's own Table 3 rows ("Sleaford (GT1)", "(GT2)") are the group demand its 132/33 kV transformers carry, the same customers as the primaries listed under it, so they add no load: they become the BSP's demand group instead.
+- Demand is each substation's LTDS maximum, scaled to what is on at the GSP's winter peak by two published figures: each BSP's own maximum (its primaries don't all peak together) and NESO's peak for Bicker Fen GSP, 149.2 MW. No assumed diversity factor. A BSP's own Table 3 rows ("Sleaford (GT1)", "(GT2)") are the group demand its 132/33 kV transformers carry, the same customers as the primaries listed under it, so they add no load: they become the BSP's demand group instead. The summer minimum is each row's maximum × its LTDS minimum-demand factor.
 - The 132 kV busbar is the transmission infeed.
 - The 14 connected generators sit at the substations NGED names for them, at their connection voltage (a site at a double-busbar substation is shared across its sections).
-- Every transformer carries its LTDS tap range as an on-load tap changer; the solver regulates the taps so each 33 kV and 11 kV busbar is held near 1.0 pu, as the real AVC relays do.
+- Every transformer carries its LTDS tap range as an on-load tap changer; the solver regulates the taps so each 33 kV and 11 kV busbar is held near 1.02 pu, as the real AVC relays do (the target is an assumption: LTDS doesn't publish it).
 
-The result has **139 buses, 128 lines, 44 transformers and 170 MW of demand**. It solves in both study cases with every bus inside its statutory band; the worst element is the pair of 132 kV circuits carrying the Middlemarsh offshore wind to Skegness, at 94% at summer minimum. Today the region **exports ~224 MW up to the transmission system**, because it generates more than it uses.
+The result has **139 buses, 128 lines, 44 transformers and 149 MW of demand at winter peak**. It solves in both study cases with every bus inside its statutory band; the worst element is the pair of 132 kV circuits carrying the Middlemarsh offshore wind to Skegness, at 93% at summer minimum, and the lowest voltage is Horncastle 33 kV at the end of a long feeder, 0.96 pu at winter peak. Today the region **exports ~291 MW up to the transmission system** at summer minimum, because it generates more than it uses.
 
 ---
 
@@ -104,7 +106,7 @@ For this region, the GSP boundary, not the local wires, is usually what fills up
 
 **Every year, as a fixed plan.** Once the queue is decided, each year from 2026 to 2035 is solved on its own: demand interpolated (today's level in 2026, the pathway's 2030 multiplier in 2030, its 2035 multiplier in 2035), every accepted project whose year (scheduled, else recommended) has arrived, both study cases and the N-1 screen. This never changes who connects; it shows what the network looks like in the year you are viewing. The year in view is solved first, then 2030 and 2035, then the rest, and the planner shows each as it lands.
 
-**The demand side, every year.** Customers are who the network protects, so each plan year also judges every demand group: one per live LTDS Table 3 primary substation (or a customer's own connection), and one per bulk supply point over the primaries it feeds (at its 33 kV busbars, with its published maximum demand and the firm capacity of its 132/33 kV transformers; its demand is its primaries', never counted twice). For each group the engine reports its peak demand that year (the row's own maximum demand grown with the pathway, plus any plan project drawing power there at winter peak), what the power flow carries for it (after the GSP diversity factor), its firm capacity and headroom, its demand class under ENA EREC P2/8 (A up to 1 MW, B to 12, C to 60, D to 300, E to 1500, F above), the most demand a single 132 kV outage cuts off in it (from the N-1 screen), its load buses outside the statutory voltage band, and a first-order (≈) room for new demand: the smaller of the firm headroom and the spare winter-peak capacity of the transformers feeding it. Four checks turn that into alerts (`warn` or `breach`): demand above firm capacity, N-1 cutting off demand in a class C or larger group beyond what P2/8 lets wait for restoration, customers' buses outside the voltage band, and firm headroom under 10% of the firm capacity. This is a simplified P2/8-style check, not a P2/8 assessment (see Limitations).
+**The demand side, every year.** Customers are who the network protects, so each plan year also judges every demand group: one per live LTDS Table 3 primary substation (or a customer's own connection), and one per bulk supply point over the primaries it feeds (at its 33 kV busbars, with its published maximum demand and the firm capacity of its 132/33 kV transformers; its demand is its primaries', never counted twice). For each group the engine reports its peak demand that year (the row's own maximum demand grown with the pathway, plus any plan project drawing power there at winter peak), what the power flow carries for it (its share of the GSP's coincident peak), its firm capacity and headroom, its demand class under ENA EREC P2/8 (A up to 1 MW, B to 12, C to 60, D to 300, E to 1500, F above), the most demand a single 132 kV outage cuts off in it (from the N-1 screen), its load buses outside the statutory voltage band, and a first-order (≈) room for new demand: the smaller of the firm headroom and the spare winter-peak capacity of the transformers feeding it. Four checks turn that into alerts (`warn` or `breach`): demand above firm capacity, N-1 cutting off demand in a class C or larger group beyond what P2/8 lets wait for restoration, customers' buses outside the voltage band, and firm headroom under 10% of the firm capacity. This is a simplified P2/8-style check, not a P2/8 assessment (see Limitations).
 
 **Planned works.** A branch can carry works windows on a line, transformer or existing generator in one season of one year: maintenance (out of service, or derated to 50%), a like-for-like replacement, or a repowering (out for the window, then back from the following year uprated by a factor or with a parallel circuit). Each is studied in that year's network in the case its season stresses: winter peak in winter, summer minimum (summer ratings) in summer, both in spring and autumn with the LTDS intermediate-warm ratings. Windows in the same season and year are studied together. The verdict is *feasible*; *feasible with curtailment* (a thermal, export or overvoltage breach that constraining nearby generation clears, with the MW per generator); *demand at risk* (demand cut off, or left outside the voltage band); or *not feasible*. With the window in place the 132 kV backbone is also N-1 screened, to show what a second fault would do. A repowering changes the years after it; the queue itself is still decided on the network as it is. Like N-1, the result is reported per year and never gates a connection.
 
@@ -270,6 +272,86 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 
 ---
 
+## Sources and assumptions
+
+Every number the engine uses is one of five kinds, and this register lists them all. The code keeps the full citation next to each constant (resource ids included); this is the index. **Published** and **standard** values come from someone else. **Derived** values are computed from published data by a stated method. **Assumptions** and **heuristics** are our choices: each is listed with why, and none is tuned to make results look better. Change one only with a source, and update this table in the same commit.
+
+### Published data
+
+| What | Source | Where |
+|---|---|---|
+| Circuits (impedance, seasonal ratings, length), transformers (impedance, rating, tap range), demand per substation (maximum, power factor, minimum-demand factor, firm capacity), nodes, connected generation | NGED **Long Term Development Statement** (LTDS) tabular model for Bicker Fen, Connected Data Portal (CKAN) | `data/nged/*.json`, built by `nged.build_nged_net` |
+| Accepted-to-connect sites (location, voltage, export capacity, target energisation date) | NGED **Embedded Capacity Register** (ECR), personal data dropped at fetch | `data/nged/ecr.json`, `nged.ecr_candidates` |
+| Supergrid transformer limits: 263.5 MW export per SGT (every season), 160.1 MW / 110.8 MW import (winter / summer) | NGED *Bicker Fen Td Limits*, resource `288e7abd-a45d-4592-b257-064d85d99d8b` | `nged.GSP_BOUNDARY` |
+| Bicker Fen's demand at the GB winter peak today: **149.235 MW** (mean of 150.491 EE, 150.249 HE, 146.965 HT, fiscal year 2024/25) | NESO *Regional Breakdown of 2024 FES: Demand (Active Power)*, resource `7bd643c0-6aad-41ac-aa59-92b68992d9a4`, GSP `BICF_1`, DemandPk summed over demand types | `nged.GSP_PEAK_DEMAND_MW` |
+| Transmission projects at Bicker Fen | NESO **TEC Register** and **Interconnector Register** (Sep 2026) | `nged.TRANSMISSION_PROJECTS` |
+| GB peak demand growth: ×1.08 by 2030, ×1.35 by 2035 (Holistic Transition, underlying peak) | NESO **Future Energy Scenarios 2025**; baseline NESO Winter Outlook 2024/25 (59.8 GW ACS) | `config.FORECASTS["ht"]` |
+| Substation positions (29 of 68 substations) | **OpenStreetMap**, © OpenStreetMap contributors, ODbL | `data/nged/coords.csv` |
+
+### Published standards
+
+| What | Value | Source | Where |
+|---|---|---|---|
+| Statutory voltage bands | ±10% at 132 kV, ±6% above 1 kV | ESQCR 2002, regulation 27 | `config.VOLTAGE_BANDS` |
+| Demand classes and what may wait after a first circuit outage | Classes by group demand: A ≤ 1, B ≤ 12, C ≤ 60, D ≤ 300, E ≤ 1500 MW, F above. After a first circuit outage, C may lose max(12 MW, ⅓ of the group), D 20 MW, E and F nothing; A and B may wait for restoration | ENA EREC P2/8 (2019), Table 1, applied in simplified form | `config.P2_8_CLASSES` |
+| Policy horizons | 2030 (Clean Power 2030), 2035 (strategic-need window) | DESNZ Clean Power 2030 Action Plan (Dec 2024); Ofgem connections reform (TMO4+, Apr 2025) | `config.HORIZONS` |
+
+### Derived from published data
+
+| What | Method | Where |
+|---|---|---|
+| Line impedance in ohms | LTDS %Z on a 100 MVA base × the circuit's own voltage² / 100 | `nged._add_lines` |
+| Transformer impedance | LTDS X1, R1 on 100 MVA rescaled to the unit's rating; vk clamped to 0.1 to 25% to keep the solver stable on bad rows | `nged._add_transformers` |
+| Seasonal line ratings | LTDS Winter / Intermediate Warm / Summer ratings as ratios of winter | `net.line` ratio columns |
+| A BSP's own demand rows are not extra load | They equal the sum of the primaries under the BSP (e.g. Sleaford 61.6 vs 66.2 MW), so they become the BSP's demand group, not load | `nged._bsp_aggregates` |
+| Coincidence at each BSP | The BSP's published maximum ÷ the sum of its primaries' maxima (0.78 Grantham, 0.89 Sleaford, 1.02 Skegness) | `nged._bsp_membership` (`bsp_coincidence`) |
+| Coincidence at the GSP | NESO's GSP peak ÷ the BSP-coincident total (0.959), so today's winter-peak demand is exactly 149.235 MW | `nged._coincidence` |
+| Summer-minimum demand | Each row's maximum × its LTDS minimum-demand factor (not grown) | `min_scale` in `nged._add_loads` |
+| Firm capacity in MW | LTDS "Firm Capacity of Substation" read as MVA (the table gives no unit) × the row's power factor | `nged._add_loads` |
+| Existing fleet | LTDS Table 5 rows with status Connected or Energised, at the substation NGED names, at their connection voltage | `nged._add_existing_fleet` |
+| The previous LTDS edition | Reconstructed from the New / Removed flags (Updated rows keep current values; the old ones aren't published) | `nged.EDITION_PREVIOUS` |
+| Positions of the 39 substations OSM lacks | Each placed at the mean of its placed neighbours | `nged._bus_coords` |
+
+### Planning assumptions (chosen, with the reason)
+
+| What | Value | Why | Where |
+|---|---|---|---|
+| **Tap-changer target voltage** | **1.02 pu** | LTDS publishes no AVC targets, and GB DNOs set them above nominal so feeder ends stay in band at peak. 1.02 is the lowest value at which today's network meets the statutory band at winter peak (at 1.00 Horncastle 33 kV sits at 0.932 pu). Chosen, not sourced. | `config.OLTC_SETPOINT_PU` |
+| Tap-changer deadband | ±0.01 pu | A typical AVC relay deadband | `config.OLTC_DEADBAND_PU` |
+| Tap step | 1.25% per tap | LTDS gives each tap range but not the step; a typical GB value | `config.OLTC_TAP_STEP_PERCENT` |
+| Generation at winter peak | PV and wind 0; batteries and hybrids charging at full import; gas, biomass and unclassified firm | A conservative demand study: an evening winter peak has no sun and can't rely on wind | `config.GENERATION_FACTORS` |
+| Generation at summer minimum | Everything at full export | A conservative generation study | `config.GENERATION_FACTORS` |
+| Demand and electrolyser projects at summer minimum | 50% of import capacity | Close to the LTDS minimum-demand factors (~0.5); not a measured profile | `config.DEMAND_PROJECT_MIN_FACTOR` |
+| Power factor where LTDS leaves it blank | 0.95 | A typical lagging demand power factor | `nged._pf` |
+| Line rating where LTDS leaves it blank | 1.0 / 0.7 / 0.6 / 0.5 / 0.4 kA at 132 / 66 / 33 / 20 / 11 kV | Conservative typical ratings by voltage | `nged._RATING_FALLBACK_KA` |
+| GSP limit direction | "Export" = distribution to transmission | NGED's dataset doesn't document its sign convention | `nged.GSP_BOUNDARY` |
+| Spring and autumn ratings | LTDS Intermediate Warm (the lower intermediate rating) | Conservative for the shoulder seasons | `config.SEASON_STUDY` |
+| Derated element in a works window | 50% of rating | No published derate profile | `config.OUTAGE_DERATE_FACTOR` |
+| N-1 screen scope | 132 kV backbone at winter peak; outages islanding < 1 MW ignored | Bounded cost; spurs and tees aren't supply losses | `config.N1_MIN_KV`, `N1_ISLAND_MIN_MW` |
+| Firm-headroom warning | Below 10% of firm capacity | An early-warning margin, not from P2/8 | `config.HEADROOM_WARN_FRACTION` |
+| Single-connection cap | 300 MW | Beyond this a generator connects to transmission; the ECR's largest Bicker Fen site is 248 MW | `config.MAX_CONNECTION_MW` |
+| Smallest ECR site modelled | 1 MW export | Sub-MW sites connect at LV, below the model's 11 kV floor | `nged.ECR_MIN_EXPORT_MW` |
+| Growth for the other FES pathways | EE ×1.10 / ×1.42, FB ×1.04 / ×1.15, HE ×1.07 / ×1.28 | Only Holistic Transition is firmly cited; the others are a directional spread around it | `config.FORECASTS` |
+| Curtailment search | ≤ 8 extra solves per case, 3 refining, steps under 1% relief put back | A bounded first-order estimate, not an optimal re-dispatch | `config.CURTAIL_*` |
+| Reinforcement levers | A parallel circuit (×2 rating, ½ impedance) or an uprate; reactive absorption at 0.98 / 0.95 / 0.90 pf | Standard first options for thermal and voltage limits | `network.REINFORCERS`, `config.VOLTAGE_ABSORB_PF_STEPS` |
+
+### Heuristics (ranking and growth shape)
+
+These order and spread things. They never decide feasibility, which only the power flow does.
+
+| What | Value | Where |
+|---|---|---|
+| Ranking weights | readiness 0.5, grid need 0.35, strategic fit 0.15 | `config.W_*` |
+| Readiness rubric | land 0.30, planning 0.30, connection agreement 0.20, financing 0.10, commissioning 0.10; levels and credits next to the logic | `config.READINESS_WEIGHTS`, `readiness.py` |
+| Readiness of LTDS Table 5 projects | By connection status (accepted 0.9, offered 0.7, quotation 0.55, budget estimate 0.45, scoping 0.2) | `nged._STATUS_READINESS` |
+| ECR projects | A signed connection agreement plus the published target date; land, planning and financing aren't published, so they earn no credit | `nged.ecr_candidates` |
+| Requested energisation year for LTDS Table 5 projects | 2027 to 2035 from readiness, technology, size and a deterministic jitter; not a developer's date | `nged.commission_year` |
+| Strategic fit | A per-technology prior (storage 0.72 to 0.78, wind 0.72 to 0.75, others 0.66 to 0.68) | `nged.py` registry builders |
+| Grid need | Local demand saturating at 5 MW, blended 50 / 50 with voltage depression | `config.GRID_NEED_*` |
+| Per-bus growth shape | Residential ×1.0 vs industrial ×0.25, ±60% seeded spread, +30% tilt toward feeder ends, top 20% as hotspots ×1.8; the GSP total always equals the pathway's figure | `config.GROWTH_*`, `network.per_bus_growth` |
+
+---
+
 ## Limitations
 
 - **The GSP export limit is the only transmission constraint modelled.** The 400 kV network and wider transmission boundaries are not; the 400 kV projects are context only.
@@ -278,10 +360,10 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 - **Demand projects and electrolysers draw a fixed share.** Their full import capacity at winter peak and 50% of it at summer minimum; that 50% is an assumption, not a measured profile.
 - **Planned works are reported, not enforced.** A works window is studied in its season's case(s) and its verdict is shown, but it never blocks a connection. The weeks are recorded but not placed in specific calendar weeks (the season stands in for them), so every window in the same season and year is studied as overlapping. The curtailment figure is a first-order estimate from a bounded search (nearest generators first, at most 8 extra solves per case), not an optimal re-dispatch; no other re-dispatch or switching is modelled. The N-1 screen during a window is informational. A repowering changes only the years after its window, and the queue run does not count it (add the upgrade as a reinforcement for that).
 - **Every year is a fixed plan.** The per-year solves show the network in each year; they don't change who connects, which is still decided at the two phase horizons. Demand between them is interpolated linearly.
-- **Tap-changer steps are assumed.** The LTDS gives each transformer's tap range but not its step; 1.25% per tap is used. Taps are regulated towards 1.0 pu with a ±0.01 pu deadband.
+- **Tap-changer settings are assumed.** The LTDS gives each transformer's tap range but not its step or its target voltage; 1.25% per tap is used, and taps are regulated towards 1.02 pu with a ±0.01 pu deadband. The target was chosen as the lowest value at which today's network meets the statutory band at winter peak (at 1.00 pu Horncastle 33 kV sits at 0.932 pu); real targets vary by site, and line-drop compensation is not modelled.
 - **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network.
 - **The demand-side alerts are a simplified P2/8-style check.** Restoration times, switching, transfer capacity between groups and second circuit outages are not modelled, so a group P2/8 would pass by switching can still be flagged, and the classes are applied to each LTDS row as published (a two-transformer site fed from two BSPs appears as two groups). Everything is MW of demand: the open data has no customer counts.
-- **Firm capacity units are read, not stated.** LTDS Table 3's "Firm Capacity of Substation" has no unit in the data; we read it as MVA and convert it to MW at the row's own power factor. A firm capacity of 0 (single-transformer sites and customers' own connections) is reported as is; such a group is only alerted on once it reaches class C. Firm capacity is compared with the group's own peak, not the GSP-diversified share the power flow carries. The "room for new demand" is first-order (≈): no power-flow probe is run for it.
+- **Firm capacity units are read, not stated.** LTDS Table 3's "Firm Capacity of Substation" has no unit in the data; we read it as MVA and convert it to MW at the row's own power factor. A firm capacity of 0 (single-transformer sites and customers' own connections) is reported as is; such a group is only alerted on once it reaches class C. Firm capacity is compared with the group's own peak, not the GSP-coincident share the power flow carries. The "room for new demand" is first-order (≈): no power-flow probe is run for it.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution → transmission.
 - **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions because the old values aren't published.

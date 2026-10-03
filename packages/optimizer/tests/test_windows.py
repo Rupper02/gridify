@@ -80,7 +80,8 @@ def test_a_repowering_probed_in_one_year_does_not_change_the_next(element):
 
 
 def test_ranking_prefers_verdict_then_curtailment_then_the_earliest_window(ranked):
-    a = ranked[0]
+    # the order, from a clean window (the grid's own best window may already put demand at risk)
+    a = ranked[0].model_copy(update={"verdict": "feasible", "curtailed_mw": 0.0, "demand_at_risk_mw": 0.0})
     worse = a.model_copy(update={"verdict": "not_feasible"})
     curtailed = a.model_copy(update={"verdict": "curtailment", "curtailed_mw": 1.0})
     more = a.model_copy(update={"verdict": "curtailment", "curtailed_mw": 5.0})
