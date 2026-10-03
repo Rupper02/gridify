@@ -6,6 +6,7 @@ import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 import { C, loadColor, voltColor } from "../theme";
 import type { MapLayer, Model, Sel, YearResult } from "../types";
 import { voltageBand } from "./derive";
+import { type DiffMap, diffColor } from "./diff";
 
 export interface GeoInputs {
   model: Model;
@@ -16,8 +17,9 @@ export interface GeoInputs {
   bindLines: Set<number>;
   /** Lines out of service (or derated) by a studied planned outage in the viewed year. */
   outLines: Set<number>;
-  /** Diff mode: per-line loading change vs main (only changed lines), or null when diff is off. */
-  diffDeltas: Map<number, { delta: number; head: number }> | null;
+  /** Diff mode: the viewed year's loading change vs main per line and transformer (changed ones
+   * only), or null when diff is off. */
+  diffDeltas: DiffMap | null;
 }
 
 export interface Geo {
@@ -58,10 +60,10 @@ export function buildGeo(g: GeoInputs): Geo {
     let color = base.c;
     if (layer === "loading" && pct != null) color = loadColor(pct);
     if (isOver) color = C.red;
-    const dl = diffDeltas?.get(id);
+    const dl = diffDeltas?.lines.get(id);
     let op = layer === "voltage" ? 0.45 : 0.92;
     if (diffDeltas) {
-      color = dl ? (dl.head > 100 ? C.red : C.amber) : C.dimmed;
+      color = dl ? diffColor(dl) : C.dimmed;
       op = dl ? 1 : 0.5;
     }
     const kind = isTie ? "tie" : isOut ? "maint" : isOver ? "over" : g.bindLines.has(id) && !diffDeltas ? "bind" : "solid";
@@ -102,17 +104,19 @@ export function buildGeo(g: GeoInputs): Geo {
   const openpts: Feature[] = m.lines
     .filter((l) => l.in_service === false)
     .map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
-  // transformers carry their loading: a ring in the loading layer, and a red glow when over 100 % in any
+  // transformers carry their loading: a ring in the loading layer, and a red glow when over 100 % in any;
+  // in diff mode only the changed ones are ringed, coloured like the changed lines
   const tl = yr?.trafo_loading ?? {};
   const trafos: Feature[] = m.transformers.map((t) => {
     const pct = tl[t.trafo_id] ?? null;
+    const dt = diffDeltas?.trafos.get(t.trafo_id);
     return pt(t.hv_lon, t.hv_lat, {
       id: t.trafo_id,
       sel: sel?.kind === "trafo" && sel.id === t.trafo_id ? 1 : 0,
       pct: pct ?? 0,
-      ring: pct != null && (layer === "loading" || pct > 100) && !diffDeltas ? 1 : 0,
+      ring: diffDeltas ? (dt ? 1 : 0) : pct != null && (layer === "loading" || pct > 100) ? 1 : 0,
       over: pct != null && pct > 100 ? 1 : 0,
-      ringColor: loadColor(pct),
+      ringColor: dt ? diffColor(dt) : loadColor(pct),
     });
   });
   // the existing connected fleet: teal circles sized by √MW, on main and every branch

@@ -60,7 +60,7 @@ from .network import (
     tap_positions,
     voltage_limits,
 )
-from .types import Curtailment, N1During, Outage, OutageStudy, Reason, Reinforcement
+from .types import VERDICT_SEVERITY, Curtailment, N1During, Outage, OutageStudy, Reason, Reinforcement
 
 Screen = Callable[..., dict]  # network.n1_screen's shape: (net, case, rating_ratio=...) -> {"screened", "violations"}
 
@@ -296,7 +296,7 @@ def _out_of_band_demand(net, vm: pd.Series) -> float:
     return float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum())
 
 
-_SEVERITY = {"feasible": 0, "curtailment": 1, "not_feasible": 2, "demand_at_risk": 3}
+_SEVERITY = VERDICT_SEVERITY
 
 
 

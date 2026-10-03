@@ -364,10 +364,6 @@ export const seasonHint = (season: string): string =>
       ? "Studied at summer minimum, the export-critical case."
       : "Studied in both cases, with the intermediate seasonal ratings.";
 
-// ---- diff on the map ----------------------------------------------------------------------------
-/** The diff phase that stands for a year (2030 up to it, 2035 after), as the engine compares phases. */
-export const diffPhaseFor = (year: number): string => (year <= 2030 ? "2030" : "2035");
-
 export function projectLabel(x: QueueItem | RegistryItem): string {
   return x.applicant || techLabel(x.technology);
 }

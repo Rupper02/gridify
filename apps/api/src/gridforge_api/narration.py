@@ -84,6 +84,9 @@ def summarize_diff(d) -> str:
                 f"Phase {ph.phase}: newly overloaded {ph.newly_overloaded_line_ids}, "
                 f"cleared {ph.cleared_line_ids}"
             )
+    for w in d.works:
+        if w.change in ("worse", "better"):
+            lines.append(f"Planned work {w.outage_id} ({w.year}): {w.consequence}")
     return "\n".join(lines)
 
 

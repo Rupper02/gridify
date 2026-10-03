@@ -5,8 +5,15 @@ from gridforge_optimizer import (
     OptimizeResult,
     PhaseResult,
     QueueItem,
+    Outage,
+    OutageStudy,
     Reason,
+    YearResult,
     diff_results,
+    diff_works,
+    diff_year,
+    diff_years,
+    evaluate_year,
     optimize,
 )
 
@@ -143,3 +150,96 @@ def test_reweighting_produces_movers_and_holds_invariants():
 def test_diff_is_deterministic():
     b, h = _reweighted_pair()
     assert diff_results(b, h).model_dump() == diff_results(b, h).model_dump()
+
+
+# --- year by year and planned works ---------------------------------------------------------------
+def _yr(year, line_loading, trafo_loading, *, energised=(), gsp=0.0, n1=(), studies=()):
+    over = [i for i, v in line_loading.items() if v > 100]
+    return YearResult(
+        year=year, growth=1.0, energised=list(energised), accepted=list(energised),
+        worst_line_loading_pct=max(line_loading.values()), worst_trafo_loading_pct=max(trafo_loading.values()),
+        min_vm_pu=0.97, max_vm_pu=1.03, overloaded_line_ids=over, line_loading=line_loading,
+        trafo_loading=trafo_loading, gsp_export_mw=gsp, n1_violations=list(n1), outage_studies=list(studies),
+    )
+
+
+def _study(oid, year, verdict, curtailed=0.0, at_risk=0.0):
+    return OutageStudy(outage_id=oid, year=year, cases=["summer_min"], ok=verdict == "feasible", message=f"{oid} {verdict}",
+                       verdict=verdict, curtailed_mw=curtailed, demand_at_risk_mw=at_risk)
+
+
+_N1 = {"outage_type": "line", "outage_id": 7, "outage_name": "x", "type": "line", "element_id": 3, "value": 120.0, "message": "m"}
+
+
+def test_year_delta_covers_lines_transformers_gsp_and_n1():
+    base = _yr(2029, {1: 90.0, 2: 105.0, 3: 40.0}, {5: 95.0, 6: 50.0}, energised=["A"], gsp=30.0)
+    head = _yr(2029, {1: 104.0, 2: 99.0, 3: 41.0}, {5: 101.0, 6: 50.0}, energised=["A", "B"], gsp=55.5, n1=[_N1])
+    d = diff_years({"2029": base, "2030": base}, {"2029": head})
+    assert list(d) == ["2029"]  # only years solved on both runs
+    y = d["2029"]
+    assert y.newly_overloaded_line_ids == [1] and y.cleared_line_ids == [2]
+    assert y.newly_overloaded_trafo_ids == [5] and y.cleared_trafo_ids == []
+    assert y.worst_line_delta == round(104.0 - 105.0, 1) and y.worst_trafo_delta == 6.0
+    assert y.gsp_export_delta == 25.5 and y.gsp_export_head == 55.5
+    assert y.n1_findings_delta == 1 and y.n1_new == [_N1] and y.n1_cleared == []
+    assert y.energised_only_head == ["B"] and y.energised_only_base == []
+    top = {t.element_id: t for t in y.top_line_deltas}
+    assert top[1].crossed == "newly_overloaded" and top[1].delta == 14.0 and top[2].crossed == "cleared"
+    assert y.top_trafo_deltas[0].element_id == 5 and y.top_trafo_deltas[0].crossed == "newly_overloaded"
+
+
+def test_year_movers_keep_every_crossing_beyond_the_top_n():
+    base = {i: 50.0 for i in range(30)} | {99: 99.0}
+    head = {i: 80.0 for i in range(30)} | {99: 100.5}  # 30 lines move 30 points; line 99 crosses by 1.5
+    y = diff_year(_yr(2031, base, {0: 10.0}), _yr(2031, head, {0: 10.0}))
+    ids = [t.element_id for t in y.top_line_deltas]
+    assert 99 in ids and len(ids) > 10 and y.newly_overloaded_line_ids == [99]
+
+
+def test_works_compare_the_branch_window_with_the_same_window_on_main():
+    on_main = [_study("w1", 2029, "feasible"), _study("w2", 2030, "curtailment", curtailed=40.0),
+               _study("w3", 2031, "curtailment", curtailed=10.0)]
+    on_branch = [_study("w1", 2029, "curtailment", curtailed=40.0), _study("w2", 2030, "feasible"),
+                 _study("w3", 2031, "curtailment", curtailed=10.0), _study("w4", 2032, "not_feasible")]
+    w = {x.outage_id: x for x in diff_works(on_main, on_branch)}
+    assert w["w1"].change == "worse" and w["w1"].verdict_on_main == "feasible" and w["w1"].verdict_on_branch == "curtailment"
+    assert w["w1"].consequence == "Feasible on main, but needs 40.0 MW of curtailment on this branch."
+    assert w["w2"].change == "better" and w["w2"].curtailed_mw_main == 40.0
+    assert w["w3"].change == "unchanged" and "alike" in w["w3"].consequence
+    assert w["w4"].change == "unstudied" and w["w4"].verdict_on_main is None
+    # more curtailment under the same verdict is still worse
+    more = diff_works([_study("w", 2030, "curtailment", curtailed=10.0)], [_study("w", 2030, "curtailment", curtailed=25.0)])
+    assert more[0].change == "worse"
+
+
+def test_diff_results_carries_years_and_works():
+    base, head = _synthetic_pair()
+    yb = _yr(2030, {10: 80.0}, {1: 50.0}, studies=[_study("w", 2030, "feasible")])
+    yh = _yr(2030, {10: 85.0}, {1: 52.0}, studies=[_study("w", 2030, "curtailment", curtailed=5.0)])
+    d = diff_results(base.model_copy(update={"years": {"2030": yb}}), head.model_copy(update={"years": {"2030": yh}}))
+    assert d.years["2030"].top_line_deltas[0].delta == 5.0
+    assert [x.change for x in d.works] == ["worse"] and d.headline["n_works_worse"] == 1
+    # the caller's studies on base's plan take precedence over base's own windows
+    d2 = diff_results(base, head.model_copy(update={"years": {"2030": yh}}),
+                      works_on_base=[_study("w", 2030, "curtailment", curtailed=5.0)])
+    assert d2.years == {} and d2.works[0].change == "unchanged"
+    # results without years still diff (backward compatible)
+    assert diff_results(base, head).years == {} and diff_results(base, head).works == []
+
+
+def test_a_real_year_and_window_diff_on_the_live_grid():
+    """Same year, same window; base without and head with a project energised (grid-agnostic)."""
+    net = base_net()
+    sb = stiff_bus(net)
+    lid = max(net.line.index, key=lambda i: (net.bus.at[net.line.at[i, "from_bus"], "vn_kv"], -i))
+    window = Outage(outage_id="w", element_kind="line", element_id=str(lid), season="Summer", year=2030)
+    cand = Candidate(request_id="PV", bus_id=sb, technology="solar", rating_mw=20.0)
+    params = OptimizeParams()
+    b = evaluate_year(2030, [cand], params, {}, outages=[window], n1=False)
+    h = evaluate_year(2030, [cand], params, {"PV": 2030}, outages=[window], n1=False)
+    y = diff_year(b, h)
+    assert y.energised_only_head == ["PV"] and y.gsp_export_delta > 0
+    assert not (set(y.newly_overloaded_line_ids) & set(y.cleared_line_ids))
+    [w] = diff_works(b.outage_studies, h.outage_studies)
+    assert w.verdict_on_main == b.outage_studies[0].verdict and w.verdict_on_branch == h.outage_studies[0].verdict
+    assert w.change in ("worse", "better", "unchanged") and w.consequence

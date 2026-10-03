@@ -131,6 +131,10 @@ class N1During(BaseModel):
     worst: str = ""  # that finding's message ("" when nothing is stranded)
 
 
+# how bad a window's verdict is, worst last: the order maintenance folds cases by and diff compares by
+VERDICT_SEVERITY = {"feasible": 0, "curtailment": 1, "not_feasible": 2, "demand_at_risk": 3}
+
+
 class OutageStudy(BaseModel):
     """What one planned window does to its year's network, in each case its season stresses, studied
     together with the other windows of the same season and year (`with_ids`)."""

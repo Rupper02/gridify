@@ -126,6 +126,42 @@ def test_branch_diff_shows_added_project():
     assert [rid for rid, ch in changes.items() if ch == "added"]  # the new project shows up as an addition
 
 
+_VERDICTS = {"feasible", "curtailment", "demand_at_risk", "not_feasible"}
+
+
+def test_branch_diff_is_year_aware_and_compares_planned_works_with_main():
+    """The diff carries every plan year (lines, transformers, GSP, N-1) and each branch window's
+    verdict on main's plan vs the branch's; the extra study on main's plan is cached durably."""
+    from gridforge_api.deps import cache
+
+    bid = _create("Year diff", added_projects=[_good(), *_saturating(3)])["branch_id"]
+    line = _first("line")
+    oid = client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": line,
+                                                       "season": "Summer", "year": 2035}).json()["outage_id"]
+    d = client.get(f"/branches/{bid}/diff").json()
+    assert sorted(d["years"]) == [str(y) for y in range(2026, 2036)]
+    y35 = d["years"]["2035"]
+    for k in ("worst_line_delta", "worst_trafo_delta", "gsp_export_delta", "n1_findings_delta",
+              "newly_overloaded_trafo_ids", "top_line_deltas", "top_trafo_deltas", "energised_only_head"):
+        assert k in y35, k
+    connected = {p["request_id"] for p in d["projects"] if p["head_status"] in ("Phase1", "Phase2")}
+    assert set(y35["energised_only_head"]) <= connected and (not connected or y35["energised_only_head"])
+    assert all({"element_id", "base_pct", "head_pct", "delta", "crossed"} <= t.keys() for t in y35["top_trafo_deltas"])
+    assert d["phases"] and "mw_2030_delta" in d["headline"]  # the 2030/2035 headline is still there
+
+    [w] = d["works"]
+    assert w["outage_id"] == oid and w["year"] == 2035
+    assert w["verdict_on_main"] in _VERDICTS and w["verdict_on_branch"] in _VERDICTS
+    assert w["change"] in ("worse", "better", "unchanged") and w["consequence"].endswith(".")
+    assert any(e["kind"] == "works" for e in client.get("/cache").json()["entries"])
+    # a "restart": the diff (queue, years and the works study on main's plan) comes from the durable cache
+    cache.clear()
+    import time as _t
+    t0 = _t.perf_counter()
+    assert client.get(f"/branches/{bid}/diff").json()["works"] == d["works"]
+    assert _t.perf_counter() - t0 < 5.0
+
+
 def test_two_branches_do_not_share_cache():
     # regression: _compute must key on the candidate set, not just scenario params
     wb = _weak_buses(1)[0]

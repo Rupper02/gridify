@@ -298,12 +298,78 @@ export interface ProjectDelta {
   change: Change;
   head_reason: Reason | null;
 }
+export type Crossed = "newly_overloaded" | "cleared" | "worsened" | "eased" | "unchanged";
 export interface LineDelta {
   line_id: number;
   base_pct: number;
   head_pct: number;
   delta: number;
-  crossed: boolean;
+  crossed: Crossed;
+}
+/** One line's or transformer's loading in a plan year, main vs the branch (engine: diff.LoadingDelta). */
+export interface LoadingDelta {
+  element_id: number;
+  base_pct: number | null;
+  head_pct: number | null;
+  delta: number;
+  crossed: Crossed;
+}
+/** An N-1 finding as the engine reports it (outage lost, limit broken). */
+export interface N1Finding {
+  outage_type: string;
+  outage_id: number | string;
+  outage_name?: string;
+  type: string;
+  element_id: number | null;
+  value?: number | null;
+  message: string;
+}
+/** The network effect of the branch in one plan year (engine: diff.YearDelta). */
+export interface YearDelta {
+  year: number;
+  worst_line_base: number;
+  worst_line_head: number;
+  worst_line_delta: number;
+  worst_trafo_base: number;
+  worst_trafo_head: number;
+  worst_trafo_delta: number;
+  min_vm_delta: number;
+  max_vm_delta: number;
+  gsp_export_base: number;
+  gsp_export_head: number;
+  gsp_export_delta: number;
+  gsp_limit_mw: number | null;
+  n1_findings_base: number;
+  n1_findings_head: number;
+  n1_findings_delta: number;
+  n1_new: N1Finding[];
+  n1_cleared: N1Finding[];
+  newly_overloaded_line_ids: number[];
+  cleared_line_ids: number[];
+  newly_overloaded_trafo_ids: number[];
+  cleared_trafo_ids: number[];
+  top_line_deltas: LoadingDelta[];
+  top_trafo_deltas: LoadingDelta[];
+  energised_only_head: string[];
+  energised_only_base: string[];
+}
+export type WorkVerdict = "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
+export type WorkChange = "worse" | "better" | "unchanged" | "unstudied";
+/** One of the branch's planned works windows, studied on main's plan and on the branch's (engine: diff.WorkDelta). */
+export interface WorkDelta {
+  outage_id: string;
+  year: number;
+  work: string;
+  with_ids: string[];
+  verdict_on_main: WorkVerdict | null;
+  verdict_on_branch: WorkVerdict;
+  curtailed_mw_main: number | null;
+  curtailed_mw_branch: number;
+  demand_at_risk_mw_main: number | null;
+  demand_at_risk_mw_branch: number;
+  change: WorkChange;
+  consequence: string;
+  message: string;
 }
 export interface PhaseDelta {
   phase: string;
@@ -324,6 +390,10 @@ export interface Diff {
   headline: Record<string, number>;
   projects: ProjectDelta[];
   phases: PhaseDelta[];
+  /** Every plan year solved on both runs, keyed by year. */
+  years: Record<string, YearDelta>;
+  /** The branch's planned works: verdict on main's plan vs the branch's. */
+  works: WorkDelta[];
   base_branch: string;
   head_branch: string;
   narration: string;

@@ -9,7 +9,19 @@ import hashlib as _hashlib
 from functools import lru_cache as _lru_cache
 from pathlib import Path as _Path
 
-from .diff import ConsequenceDiff, LineDelta, PhaseDelta, ProjectDelta, diff_results
+from .diff import (
+    ConsequenceDiff,
+    LineDelta,
+    LoadingDelta,
+    PhaseDelta,
+    ProjectDelta,
+    WorkDelta,
+    YearDelta,
+    diff_results,
+    diff_works,
+    diff_year,
+    diff_years,
+)
 from .greedy import optimize
 from .network import apply_reinforcement
 from .suggest import suggest_unblock
@@ -28,7 +40,7 @@ from .types import (
     Suggestion,
     YearResult,
 )
-from .years import PLAN_YEARS, evaluate_years, year_order
+from .years import PLAN_YEARS, energisation_years, evaluate_year, evaluate_years, year_order
 
 @_lru_cache(maxsize=1)
 def engine_fingerprint() -> str:
@@ -69,4 +81,12 @@ __all__ = [
     "ProjectDelta",
     "PhaseDelta",
     "LineDelta",
+    "LoadingDelta",
+    "YearDelta",
+    "WorkDelta",
+    "diff_year",
+    "diff_years",
+    "diff_works",
+    "evaluate_year",
+    "energisation_years",
 ]

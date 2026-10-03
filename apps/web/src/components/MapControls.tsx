@@ -97,7 +97,7 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
   );
 }
 
-export type DiffBannerPlanner = PlannerSlice<"diff" | "sideOpen", "toggleDiff", "branch" | "branchOnly" | "diffPhase" | "hue">;
+export type DiffBannerPlanner = PlannerSlice<"diff" | "sideOpen" | "year", "toggleDiff", "branch" | "branchOnly" | "hue">;
 
 export function DiffBanner({ planner, layout }: { planner: DiffBannerPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
@@ -117,7 +117,7 @@ export function DiffBanner({ planner, layout }: { planner: DiffBannerPlanner; la
         </span>
         <span className="key">
           <span className="mono" style={{ fontSize: 10, fontWeight: 600, padding: "0 5px", borderRadius: 999, border: `1px solid ${C.amber}`, color: C.amber }}>+N%</span>
-          loading change at {derived.diffPhase}
+          line and transformer loading change in {s.year}
         </span>
         <span className="key">
           <span style={{ width: 14, height: 3, borderRadius: 2, background: C.red }} />

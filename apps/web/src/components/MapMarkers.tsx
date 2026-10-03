@@ -6,6 +6,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { effYearOf, isAccepted, outageSel, trafoRatio, trafoSub } from "../lib/derive";
+import { type MapDelta, deltaTag, diffColor } from "../lib/diff";
 import { C, ST, loadColor } from "../theme";
 import type { Outage, QueueItem, RegistryItem } from "../types";
 import { TechIcon } from "./ui";
@@ -118,21 +119,26 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     );
   });
 
-  // ---- line tags: loading % (loading layer) or the change vs main (diff mode) --------------------
+  // ---- line tags: loading % (loading layer) or the change vs main in the viewed year (diff mode) ---
   const tagEls: ReactNode[] = [];
   if (diffOn && diffDeltas) {
-    diffDeltas.forEach((d, id) => {
-      const l = ix.line.get(id);
-      if (!l) return;
-      const pt = project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2);
-      if (!pt || !inView(pt[0], pt[1])) return;
-      const c = d.head > 100 ? C.red : C.amber;
+    const diffTag = (key: string, at: [number, number] | null, d: MapDelta, prefix = "", dy = 0) => {
+      if (!at || !inView(at[0], at[1])) return;
+      const c = diffColor(d);
       tagEls.push(
-        <span key={`d${id}`} className="line-tag" style={{ left: pt[0], top: pt[1], borderColor: c, color: c, background: "#0e1520" }}>
-          {d.delta > 0 ? "+" : ""}
-          {Math.round(d.delta)}%{d.head > 100 ? ` · ${Math.round(d.head)}%` : ""}
+        <span key={key} className="line-tag diff-tag" style={{ left: at[0], top: at[1] + dy, borderColor: c, color: c }}>
+          {prefix}
+          {deltaTag(d)}
         </span>,
       );
+    };
+    diffDeltas.lines.forEach((d, id) => {
+      const l = ix.line.get(id);
+      if (l) diffTag(`d${id}`, project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2), d);
+    });
+    diffDeltas.trafos.forEach((d, id) => {
+      const t = ix.trafo.get(id);
+      if (t) diffTag(`dt${id}`, project(t.hv_lon, t.hv_lat), d, "T ", -24);
     });
   } else if (s.layer === "loading" && yr) {
     Object.entries(yr.line_loading ?? {}).forEach(([id, pct]) => {
