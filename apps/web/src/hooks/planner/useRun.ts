@@ -113,7 +113,8 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
         const g30 = matchingForecast ? storedG30 : 1.08;
         const g35 = matchingForecast ? storedG35 : 1.35;
         
-        const over: RunOverride = { forecastId, g30, g35 };
+        // Pass branches in override so run() doesn't read stale state
+        const over: RunOverride = { forecastId, g30, g35, branches };
         patch({ model, cands, forecasts, maxMw, boundary, branches, branchesLoaded: true, forecastId, g30, g35 });
         mapApi.current?.fit(false);
         void run(over);
@@ -123,7 +124,7 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, refreshBranches: 
     })();
     return () => {
       cancelled = true;
-      window.clearInterval(stepTimer.current);
+      window.clearTimeout(stepTimer.current);
     };
   }, [mapApi, patch, ref, run, toastMsg]);
 
