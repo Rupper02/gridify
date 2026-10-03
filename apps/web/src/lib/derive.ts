@@ -195,6 +195,8 @@ export interface ModelIndex {
   gen: Map<string, Model["generators"][number]>;
   /** Where each bus is: its own name, or for a coded busbar ("BOST1_MAIN1") a neighbour's. */
   place: Map<number, string>;
+  /** Each line's name, parallel circuits numbered (filled by indexModel). */
+  lineNames: Map<number, string>;
 }
 /** A busbar code rather than a name: no spaces, and digits or underscores in it. */
 const isCode = (name: string | null | undefined): boolean => !!name && !/\s/.test(name.trim()) && /[\d_]/.test(name);
@@ -212,13 +214,22 @@ export function indexModel(m: Model): ModelIndex {
     borrow(l.from_bus, l.to_bus);
     borrow(l.to_bus, l.from_bus);
   });
-  return {
+  const ix: ModelIndex = {
     bus: new Map(m.buses.map((b) => [b.bus_id, b])),
     line: new Map(m.lines.map((l) => [l.line_id, l])),
     trafo: new Map(m.transformers.map((t) => [t.trafo_id, t])),
     gen: new Map((m.generators ?? []).map((g) => [g.request_id, g])),
     place,
+    lineNames: new Map(),
   };
+  // number parallel circuits that would otherwise share a name
+  const byName = new Map<string, number[]>();
+  [...ix.line.keys()].sort((a, b) => a - b).forEach((id) => {
+    const n = baseLineName(ix, id);
+    byName.set(n, [...(byName.get(n) ?? []), id]);
+  });
+  byName.forEach((ids, n) => ids.forEach((id, i) => ix.lineNames.set(id, ids.length > 1 ? `${n}, circuit ${i + 1}` : n)));
+  return ix;
 }
 /** A bus's place name (empty when nothing near it is named). */
 export const busPlace = (ix: ModelIndex, id: number | null | undefined): string =>
@@ -234,7 +245,7 @@ export const busLabel = (ix: ModelIndex, id: number | null | undefined): string 
   const b = ix.bus.get(id);
   return b ? `Bus ${id} · ${busPlace(ix, id) || "bus"} ${+b.vn_kv} kV` : `Bus ${id}`;
 };
-export const lineName = (ix: ModelIndex, id: number): string => {
+const baseLineName = (ix: ModelIndex, id: number): string => {
   const l = ix.line.get(id);
   if (!l) return `Line ${id}`;
   const a = busPlace(ix, l.from_bus);
@@ -242,6 +253,8 @@ export const lineName = (ix: ModelIndex, id: number): string => {
   if (a && b && a !== b) return `${a} to ${b} ${+l.voltage_kv} kV`;
   return `${a || l.line_name || `Line ${id}`} ${+l.voltage_kv} kV`.trim();
 };
+/** A line by the places it joins; parallel circuits on the same route read "circuit 1", "circuit 2". */
+export const lineName = (ix: ModelIndex, id: number): string => ix.lineNames.get(id) ?? baseLineName(ix, id);
 /** A transformer's substation is its HV busbar name minus the voltage/bay suffix. */
 export const trafoSub = (t: Transformer): string => placeName(t.hv_name || t.name) || `T${t.trafo_id}`;
 export const trafoRatio = (t: Transformer): string => (t.hv_kv && t.lv_kv ? `${+t.hv_kv}/${+t.lv_kv} kV` : "–");

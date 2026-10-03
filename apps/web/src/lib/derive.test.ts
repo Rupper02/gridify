@@ -168,3 +168,13 @@ describe("place names", () => {
     expect(nameElements("line 999 is unknown", ix2)).toBe("line 999 is unknown");
   });
 });
+
+describe("parallel circuits", () => {
+  it("number circuits that share a route so lists never repeat a name", () => {
+    const twin = { ...model.lines[0], line_id: 99 };
+    const ix2 = indexModel({ ...model, lines: [...model.lines, twin] });
+    expect(lineName(ix2, 10)).toBe("Boston to Bicker Fen 132 kV, circuit 1");
+    expect(lineName(ix2, 99)).toBe("Boston to Bicker Fen 132 kV, circuit 2");
+    expect(lineName(ix2, 11)).toBe("Kirton to Boston 33 kV");
+  });
+});
