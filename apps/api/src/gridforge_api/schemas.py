@@ -71,3 +71,13 @@ class ScheduleSet(BaseModel):
 
     request_id: str
     year: int | None = None
+
+
+class ChatFileProject(BaseModel):
+    """Chat-based project filing: requires confirmation of MW, bus, and technology."""
+
+    rating_mw: float
+    bus_id: int
+    technology: str
+    applicant: str | None = None
+    branch_id: str = "main"
