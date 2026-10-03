@@ -104,6 +104,8 @@ For this region, the GSP boundary, not the local wires, is usually what fills up
 
 **Every year, as a fixed plan.** Once the queue is decided, each year from 2026 to 2035 is solved on its own: demand interpolated (today's level in 2026, the pathway's 2030 multiplier in 2030, its 2035 multiplier in 2035), every accepted project whose year (scheduled, else recommended) has arrived, both study cases and the N-1 screen. This never changes who connects; it shows what the network looks like in the year you are viewing. The year in view is solved first, then 2030 and 2035, then the rest, and the planner shows each as it lands.
 
+**The demand side, every year.** Customers are who the network protects, so each plan year also judges every demand group: one per live LTDS Table 3 row (a primary substation, or a bulk supply point's own 33 kV group per grid transformer). For each group the engine reports its peak demand that year (the row's own maximum demand grown with the pathway, plus any plan project drawing power there at winter peak), what the power flow carries for it (after the GSP diversity factor), its firm capacity and headroom, its demand class under ENA EREC P2/8 (A up to 1 MW, B to 12, C to 60, D to 300, E to 1500, F above), the most demand a single 132 kV outage cuts off in it (from the N-1 screen), its load buses outside the statutory voltage band, and a first-order (≈) room for new demand: the smaller of the firm headroom and the spare winter-peak capacity of the transformers feeding it. Four checks turn that into alerts (`warn` or `breach`): demand above firm capacity, N-1 cutting off demand in a class C or larger group beyond what P2/8 lets wait for restoration, customers' buses outside the voltage band, and firm headroom under 10% of the firm capacity. This is a simplified P2/8-style check, not a P2/8 assessment (see Limitations).
+
 **Planned works.** A branch can carry works windows on a line, transformer or existing generator in one season of one year: maintenance (out of service, or derated to 50%), a like-for-like replacement, or a repowering (out for the window, then back from the following year uprated by a factor or with a parallel circuit). Each is studied in that year's network in the case its season stresses: winter peak in winter, summer minimum (summer ratings) in summer, both in spring and autumn with the LTDS intermediate-warm ratings. Windows in the same season and year are studied together. The verdict is *feasible*; *feasible with curtailment* (a thermal, export or overvoltage breach that constraining nearby generation clears, with the MW per generator); *demand at risk* (demand cut off, or left outside the voltage band); or *not feasible*. With the window in place the 132 kV backbone is also N-1 screened, to show what a second fault would do. A repowering changes the years after it; the queue itself is still decided on the network as it is. Like N-1, the result is reported per year and never gates a connection.
 
 **5. "What would it take".** For each deferred project, the engine tests a concrete lever and re-solves to measure the MW it frees:
@@ -159,7 +161,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | Liveness, and whether the warehouse exists |
-| `GET /model` | Buses, lines, transformers, loads and the existing fleet, with coordinates |
+| `GET /model` | Buses, lines, transformers, loads (each with its `region_id`) and the existing fleet, with coordinates; `regions`: the demand groups (LTDS Table 3 rows) with their buses, firm capacity, demand today and P2/8 class |
 | `GET /model/cgmes` | Today's network as a CIM/CGMES 2.4.15 exchange (EQ, TP, SSH, GL in one zip); re-imports with pandapower's CGMES importer to the same power flow |
 | `GET /boundary` | GSP export limit, export today, and transmission projects (with registry ids where optional) |
 | `GET /forecasts` | NESO FES 2025 demand pathways, plus the intake cap |
@@ -171,7 +173,7 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 | `POST /branches` · `GET /branches` | Create and list branches |
 | `POST /branches/{id}/registry` | Pull a registry project onto a branch |
 | `POST /optimize/candidates` | Add a hand-entered project |
-| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, per-year results (`years`, with outage studies), GSP exchange, N-1 findings, recommended and scheduled years. Body: `view_year` (solved first), `with_justification` |
+| `POST /branches/{id}/optimize` | Run a branch: queue, per-phase results, per-year results (`years`, with outage studies and the demand side: `regions` and `alerts`), GSP exchange, N-1 findings, recommended and scheduled years. Body: `view_year` (solved first), `with_justification` |
 | `POST /branches/{id}/optimize/jobs` · `GET /jobs/{id}` | The same run as a background job, with stage and fraction while it runs; `?partial=true` returns the queue plus the years solved so far (`has_partial` says whether there are any) |
 | `GET /cache` | What the durable result cache holds, per kind and engine fingerprint |
 | `POST /branches/{id}/schedule` | Set or clear a project's energisation year (`against_recommendation` is reported back) |
@@ -253,8 +255,8 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 ```bash
 pnpm test                                     # everything, via Turborepo
 # or individually
-cd packages/optimizer && uv run pytest -q     # engine: 65 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
-cd apps/api && uv run --with pytest pytest tests -q   # API: 24 tests (each run uses its own temp scenarios DB; the per-year N-1 screen is stubbed; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
+cd packages/optimizer && uv run pytest -q     # engine: 79 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
+cd apps/api && uv run --with pytest pytest tests -q   # API: 26 tests (each run uses its own temp scenarios DB; the per-year N-1 screen is stubbed; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
 cd apps/web && pnpm test                      # UI: 28 vitest unit tests (reason wording, queue/timeline derivations, Copilot intake and recommendations, run stages)
 ```
 
@@ -277,6 +279,8 @@ The engine tests are **grid-agnostic**: fixtures are derived from whatever netwo
 - **Every year is a fixed plan.** The per-year solves show the network in each year; they don't change who connects, which is still decided at the two phase horizons. Demand between them is interpolated linearly.
 - **Tap-changer steps are assumed.** The LTDS gives each transformer's tap range but not its step; 1.25% per tap is used. Taps are regulated towards 1.0 pu with a ±0.01 pu deadband.
 - **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network.
+- **The demand-side alerts are a simplified P2/8-style check.** Restoration times, switching, transfer capacity between groups and second circuit outages are not modelled, so a group P2/8 would pass by switching can still be flagged, and the classes are applied to each LTDS row as published (a two-transformer site fed from two BSPs appears as two groups). Everything is MW of demand: the open data has no customer counts.
+- **Firm capacity units are read, not stated.** LTDS Table 3's "Firm Capacity of Substation" has no unit in the data; we read it as MVA and convert it to MW at the row's own power factor. A firm capacity of 0 (single-transformer sites and customers' own connections) is reported as is; such a group is only alerted on once it reaches class C. Firm capacity is compared with the group's own peak, not the GSP-diversified share the power flow carries. The "room for new demand" is first-order (≈): no power-flow probe is run for it.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution → transmission.
 - **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions because the old values aren't published.

@@ -261,6 +261,29 @@ def test_every_year_of_the_plan_is_solved_in_one_run():
     assert "2030" in r["phases"] and "2035" in r["phases"]  # the queue's two phases are still there
 
 
+def test_model_serves_demand_regions_and_years_carry_them_with_alerts():
+    """/model lists the demand groups (each load names its region); every plan year judges them."""
+    m = client.get("/model").json()
+    regions = m["regions"]
+    assert regions, "re-materialise the pipeline: the warehouse predates the demand regions"
+    ids = {r["region_id"] for r in regions}
+    assert len(ids) == len(regions)
+    assert {ld["region_id"] for ld in m["loads"]} <= ids
+    bus_ids = {b["bus_id"] for b in m["buses"]}
+    for r in regions:
+        assert {"name", "bsp", "buses", "firm_mw", "base_demand_mw", "peak_demand_mw", "p2_class"} <= r.keys()
+        assert r["buses"] and set(r["buses"]) <= bus_ids
+    years = _run_job("main", view_year=2030)["years"]
+    early, late = years["2026"], years["2035"]
+    assert {r["region_id"] for r in late["regions"]} == ids
+    total = lambda y: sum(r["demand_mw"] for r in y["regions"])  # noqa: E731
+    assert total(late) > total(early)
+    for r in late["regions"]:
+        assert abs(r["headroom_mw"] - (r["firm_mw"] - r["demand_mw"])) < 0.02
+    for a in late["alerts"]:
+        assert a["region_id"] in ids and a["year"] == 2035 and a["level"] in ("warn", "breach") and a["message"]
+
+
 def test_a_running_job_publishes_partial_results():
     import threading
 

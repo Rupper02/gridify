@@ -154,6 +154,39 @@ class OutageStudy(BaseModel):
     after: str = ""  # what the work leaves behind once the window is over
 
 
+class RegionYear(BaseModel):
+    """One demand group (an LTDS Table 3 primary or BSP group) in one year of the plan, judged by a
+    simplified P2/8-style check (demand.py). Figures in MW; there are no customer counts in the data."""
+
+    region_id: str
+    name: str
+    bsp: str = ""
+    demand_mw: float  # the group's own peak this year (LTDS max demand grown, + projects drawing at winter peak)
+    modelled_mw: float  # what the power flow carries for it (after the GSP diversity factor)
+    firm_mw: float  # LTDS firm capacity (read as MVA, x the row's power factor); 0 = none published
+    headroom_mw: float  # firm_mw - demand_mw (negative = demand above firm capacity)
+    p2_class: str  # P2/8 demand class by group demand: A..F
+    n1_at_risk_mw: float = 0.0  # worst own-peak demand cut off by one 132 kV backbone outage (N-1 screen)
+    n1_outage: str | None = None  # the outage that strands it, e.g. "line 13"
+    voltage_violation_bus_ids: list[int] = []  # the group's load buses outside the statutory band (intact envelope)
+    worst_vm_pu: float | None = None  # the group's load-bus voltage furthest from 1.0 pu (intact envelope)
+    worst_vm_limit_pu: float | None = None  # that bus's statutory band edge on the same side
+    demand_room_mw: float | None = None  # first-order room for new demand (≈): min(firm headroom, winter transformer spare)
+
+
+class Alert(BaseModel):
+    """A demand-side warning for one group in one year, from one check in demand.ALERT_CHECKS.
+    `value` and `limit` are engine figures; `message` restates them in plain English."""
+
+    kind: str  # "firm_capacity" | "n1_stranded" | "voltage" | "headroom"
+    level: str  # "warn" | "breach"
+    region_id: str
+    year: int
+    value: float | None = None
+    limit: float | None = None
+    message: str
+
+
 class YearResult(PhaseResult):
     """The plan as it stands in one year: the projects energised by then (their scheduled or
     recommended year), demand interpolated to the year, solved in both cases, plus that year's
@@ -164,6 +197,8 @@ class YearResult(PhaseResult):
     energised: list[str] = []  # projects in service this year
     trafo_loading: dict[int, float] = {}  # trafo_id -> loading_percent (worst case), for the element card
     outage_studies: list[OutageStudy] = []
+    regions: list[RegionYear] = []  # the demand side: every demand group this year (demand.py)
+    alerts: list[Alert] = []  # demand-side warnings this year (demand.ALERT_CHECKS)
 
 
 class OptimizeResult(BaseModel):

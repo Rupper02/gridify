@@ -512,15 +512,32 @@ def voltage_violation_bus_ids(net) -> list[int]:
 
 
 # --- N-1 screen ---------------------------------------------------------------------------------
-def _islanded_mw(net, vm: pd.Series, with_first: bool = False):
-    """Demand stranded on islands in a solve (buses with no voltage): (MW, buses[, first bus])."""
-    v = vm.reindex(net.bus.index)
-    island = v[v.isna()].index
+def _islanded_mw(net, vm: pd.Series) -> tuple[float, list[int]]:
+    """Demand stranded on islands in a solve: (MW, the islanded bus ids)."""
+    island = islanded_bus_ids(net, vm)
     on = net.load["bus"].isin(island)
-    lost = float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum()) if len(island) else 0.0
-    if with_first:
-        return lost, len(island), (int(island[0]) if len(island) else None)
-    return lost, len(island)
+    lost = float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum()) if island else 0.0
+    return lost, island
+
+
+def islanded_bus_ids(net, vm: pd.Series) -> list[int]:
+    """The buses left without a voltage (cut off from the infeed) in a solve."""
+    v = vm.reindex(net.bus.index)
+    return [int(b) for b in v[v.isna()].index]
+
+
+def solve_case(net, case: str) -> dict | None:
+    """Solve one study case on the intact net (taps regulated for it) and return its results
+    ({vm, line_pct, trafo_pct, p_ext_mw}), leaving the net's inputs and tap positions as found.
+    None if the case does not apply to this net or does not converge."""
+    cases = {c.name: c for c in _study_cases(net)}
+    if case not in cases:
+        return None
+    taps = tap_positions(net)
+    try:
+        return _run_case(net, case, cases[case].load_scale, cases[case].rating_ratio)
+    finally:
+        set_tap_positions(net, taps)
 
 
 def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
@@ -556,11 +573,12 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
                 continue
             # demand stranded on an island: a supply violation only if it is material (a generator
             # spur or a tee-point with no customers is not)
-            lost, n_buses, first = _islanded_mw(net, res["vm"], with_first=True)
+            lost, island = _islanded_mw(net, res["vm"])
             if lost >= N1_ISLAND_MIN_MW:
                 violations.append({"outage_type": kind, "outage_id": eid, "outage_name": name, "type": "islanded",
-                                   "element_id": first, "value": round(lost, 2),
-                                   "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {n_buses} bus(es)"})
+                                   "element_id": island[0], "value": round(lost, 2),
+                                   "islanded_bus_ids": island,  # demand.py attributes it to regions
+                                   "message": f"{kind} {eid} out islands {lost:.1f} MW of demand at {len(island)} bus(es)"})
                 continue
             r = _case_reason(net, case, res["vm"], res["line_pct"], res["trafo_pct"])
             if r is not None:

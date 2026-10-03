@@ -81,6 +81,28 @@ CURTAIL_MIN_RELIEF = 0.01
 N1_MIN_KV = 132.0
 N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a generator spur, a tee) is not a supply violation
 
+# --- demand-side security (demand.py) -----------------------------------------------------------
+# A SIMPLIFIED P2/8-STYLE check, not a P2/8 assessment: restoration times, switching, transfer
+# capacity and second-circuit outages are not modelled. Source: ENA Engineering Recommendation P2/8
+# "Security of Supply" (2019), Table 1 (demand classes by Group Demand, first-circuit-outage
+# requirement). Each entry is (class, upper bound of Group Demand in MW, loss_mw, loss_fraction):
+# on a first circuit outage, P2/8 lets max(loss_mw, loss_fraction x group demand) wait beyond the
+# fast-restoration window (C: 15 min restores the smaller of group - 12 MW and 2/3 of the group, so
+# max(12 MW, 1/3 of the group) may wait; D: up to 20 MW may be lost by automatic disconnection;
+# E and F: none). None = the whole group may wait for restoration within 3 hours (B) or repair time (A).
+P2_8_CLASSES = (
+    ("A", 1.0, None, None),
+    ("B", 12.0, None, None),
+    ("C", 60.0, 12.0, 1 / 3),
+    ("D", 300.0, 20.0, 0.0),
+    ("E", 1500.0, 0.0, 0.0),
+    ("F", float("inf"), 0.0, 0.0),
+)
+P2_8_SOURCE = "ENA Engineering Recommendation P2/8, Security of Supply (2019), Table 1"
+# Warn when a group's firm headroom falls below this share of its firm capacity. A planning
+# assumption (an early-warning margin), not a figure from P2/8.
+HEADROOM_WARN_FRACTION = 0.10
+
 # --- demand growth (fixed, sourced; multiplier on existing load scaling) ---------------------
 # Peak-demand growth multipliers vs a ~2024 baseline of ~60 GW GB peak (NESO Winter Outlook
 # 2024/25: 59.8 GW ACS). These are FIXED, cited figures — not user-tunable sliders. Growth is

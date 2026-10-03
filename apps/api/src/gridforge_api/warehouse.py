@@ -56,14 +56,24 @@ class Warehouse:
             WHERE h.lon IS NOT NULL AND lv.lon IS NOT NULL
             """
         )
-        loads = self.query(
-            """
-            SELECT ld.bus_id, ld.p_mw, b.lon, b.lat
-            FROM loads ld
-            JOIN buses b ON ld.bus_id = b.bus_id
-            WHERE b.lon IS NOT NULL
-            """
-        )
+        try:
+            loads = self.query(
+                """
+                SELECT ld.bus_id, ld.p_mw, ld.region_id, b.lon, b.lat
+                FROM loads ld
+                JOIN buses b ON ld.bus_id = b.bus_id
+                WHERE b.lon IS NOT NULL
+                """
+            )
+        except Exception:  # warehouse predates the demand regions
+            loads = self.query(
+                """
+                SELECT ld.bus_id, ld.p_mw, b.lon, b.lat
+                FROM loads ld
+                JOIN buses b ON ld.bus_id = b.bus_id
+                WHERE b.lon IS NOT NULL
+                """
+            )
         for i, ld in enumerate(loads):
             ld["load_id"] = i
         try:
@@ -77,7 +87,20 @@ class Warehouse:
         except Exception:  # warehouse predates the existing-fleet table
             generators = []
         return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads,
-                "generators": generators}
+                "generators": generators, "regions": self.regions()}
+
+    def regions(self) -> list[dict]:
+        """The demand groups (one per live LTDS Table 3 row), each with the buses its loads sit on.
+        Empty for a warehouse that predates them (re-materialise the pipeline)."""
+        if not self.table_exists("regions"):
+            return []
+        rows = self.query("SELECT * FROM regions ORDER BY region_id")
+        buses: dict[str, set[int]] = {}
+        for ld in self.query("SELECT region_id, bus_id FROM loads WHERE region_id IS NOT NULL"):
+            buses.setdefault(ld["region_id"], set()).add(int(ld["bus_id"]))
+        nan_to_none = lambda v: None if isinstance(v, float) and v != v else v  # noqa: E731 (JSON has no NaN)
+        return [{**{k: nan_to_none(v) for k, v in r.items()}, "buses": sorted(buses.get(r["region_id"], ()))}
+                for r in rows]
 
     def bus_coords(self) -> dict[int, tuple[float, float]]:
         """Map every geolocated bus id to its (lon, lat), for attaching coords to queue items."""

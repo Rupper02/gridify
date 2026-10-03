@@ -33,11 +33,12 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `greedy.py` | `optimize`: intake, ranking, the per-phase greedy feasibility loop, recommended years. |
 | `years.py` | `evaluate_years` / `evaluate_year`: every plan year (`PLAN_YEARS`, 2026..2035) solved as a fixed plan, with its works windows and earlier repowers; `year_order`, `energisation_years`. |
 | `maintenance.py` | Planned works: `WORKS` (maintenance, replacement, repowering), `REPOWERERS`, `apply_works_after`, `study_windows` (combined windows, verdict, bounded curtailment search, N-1 during the window). |
+| `demand.py` | The demand side: `regions_of(net)` (the demand groups tagged on `net.load`), `assess_demand(net, year, n1_violations)` (per group per year: demand, firm headroom, P2/8 class, N-1 stranding, voltage, ≈ demand room) and the alert registry `ALERT_CHECKS`. A simplified P2/8-style check. |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
 | `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult`, `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`), `Reinforcement`, `Suggestion`. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`), `Reinforcement`, `Suggestion`. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -109,7 +110,29 @@ After `optimize` has decided the queue, each year in `PLAN_YEARS` (`PLAN_START_Y
 - every accepted project whose energisation year has arrived injected (`energisation_years`: the operator's `scheduled` year, else the recommendation);
 - both study cases, then that year's works windows (`maintenance.study_windows`, with the N-1 screen passed in when the year runs it), then the N-1 screen.
 
-It returns `{str(year): YearResult}`: a `PhaseResult` plus `year`, `growth`, `energised`, `trafo_loading` and `outage_studies`. It never changes who connects. `year_order(view_year)` solves the year in view first, then 2030 and 2035, then the rest; `on_year` is called as each lands so a caller can publish partial results, and `progress` reports the fraction within this step.
+It returns `{str(year): YearResult}`: a `PhaseResult` plus `year`, `growth`, `energised`, `trafo_loading`, `outage_studies`, and the demand side, `regions` and `alerts` (`demand.assess_demand`, below). It never changes who connects. `year_order(view_year)` solves the year in view first, then 2030 and 2035, then the rest; `on_year` is called as each lands so a caller can publish partial results, and `progress` reports the fraction within this step.
+
+### The demand side (`demand.py`)
+
+Customers are what the network is for, so every plan year also judges each **demand group**. `nged._add_loads` tags every load with the LTDS Table 3 row it came from (`net.load` columns `region_id`, `region`, `bsp`, `primary`, `firm_mva`, `firm_mw`, `peak_mw`); `demand.py` reads only those columns, so any net that carries them has regions and one that does not simply reports none. A region is one live Table 3 row: a primary substation, or a BSP's own 33 kV group (one row per grid transformer), exactly as NGED publishes demand and firm capacity.
+
+`assess_demand(net, year, n1_violations)` runs at the end of `evaluate_year`, on the solved intact envelope, and returns `(list[RegionYear], list[Alert])`. Per region:
+- `demand_mw`: the group's own peak this year (`peak_mw`, the row's LTDS maximum demand with no diversity, times the year's growth) plus what plan projects on its buses draw at winter peak (demand connections, charging batteries; the existing fleet is excluded, its import is already in LTDS demand). `modelled_mw` is the same on the power flow's after-diversity basis.
+- `firm_mw` (LTDS "Firm Capacity of Substation", read as MVA and converted at the row's power factor; 0 when NGED publishes 0), `headroom_mw = firm_mw - demand_mw`, and `p2_class` from `config.P2_8_CLASSES` by `demand_mw`.
+- `n1_at_risk_mw` / `n1_outage`: the most of the group's demand one 132 kV backbone outage cuts off, from the N-1 screen's islanded violations (each now carries `islanded_bus_ids`).
+- `voltage_violation_bus_ids`, `worst_vm_pu`, `worst_vm_limit_pu`: the group's load buses against their statutory band in the intact envelope.
+- `demand_room_mw` (≈, first-order): the smaller of the firm headroom (when firm capacity is published) and the spare winter-peak capacity of the in-service transformers feeding the group's buses (one extra winter-peak solve per year via `network.solve_case`, taps left as found). No power-flow probe adds load; say ≈ when showing it.
+
+`ALERT_CHECKS` is the alert registry, one function per check, each `(RegionYear, year) -> Alert | None`:
+
+| Check | Kind | Level |
+|---|---|---|
+| `_firm_alert` | `firm_capacity`: demand above firm capacity (skipped for class A/B groups with no firm capacity published) | `breach` when the shortfall exceeds what P2/8 lets wait after a first circuit outage (`p2_loss_allowed`: class C max(12 MW, 1/3 of the group), D 20 MW, E/F none), else `warn` |
+| `_n1_alert` | `n1_stranded`: an N-1 outage cuts off at least `N1_ISLAND_MIN_MW` in a class C+ group | `breach` above `p2_loss_allowed`, else `warn` |
+| `_voltage_alert` | `voltage`: load buses outside the statutory band with the network intact | `breach` |
+| `_headroom_alert` | `headroom`: firm headroom positive but under `HEADROOM_WARN_FRACTION` (10%, assumed) of firm capacity | `warn` |
+
+A new alert is one function plus one entry. Each `Alert` carries `kind`, `level`, `region_id`, `year`, `value`, `limit` and a plain-English `message` restating those figures. **This is a simplified P2/8-style check**: restoration times, switching, transfer capacity and second circuit outages are not modelled, and everything is MW (no customer counts in the open data). Cost on Bicker Fen: about +0.07 s per year on a ~0.7 s `evaluate_year`, mostly the extra winter-peak solve; the N-1 screen itself is unchanged.
 
 ### Planned works (`maintenance.py`)
 
@@ -206,6 +229,8 @@ SEASON_STUDY                        = season -> study case(s) + line rating colu
 OUTAGE_DERATE_FACTOR                = 0.5
 CURTAIL_MAX_SOLVES / CURTAIL_REFINE_STEPS / CURTAIL_MIN_RELIEF = 8 / 3 / 0.01   # window curtailment search (first-order)
 N1_MIN_KV / N1_ISLAND_MIN_MW        = 132 / 1.0
+P2_8_CLASSES                        = group MW: A <=1, B <=12, C <=60, D <=300, E <=1500, F above (ENA EREC P2/8 Table 1)
+HEADROOM_WARN_FRACTION              = 0.10     # firm-headroom warning margin (assumed)
 LINE_LOADING_MAX_PCT / TRAFO_...    = 100 / 100
 MAX_CONNECTION_MW                   = 300      # intake plausibility (ECR has 248 MW accepted at 132 kV)
 W_READINESS / W_NEED / W_STRATEGIC  = 0.5 / 0.35 / 0.15
@@ -240,6 +265,7 @@ What they cover:
 - recommended years;
 - the plan year by year: growth interpolation, year order, energisation from the schedule, demand connections, and planned outages per season, kind and year (`test_yearly.py`);
 - works windows: repowering changes only the years after the window, replacement and maintenance leave them as they were, combined windows, each verdict (feasible, curtailment that really holds the limits, demand at risk) and the N-1 during a window (`test_maintenance.py`);
+- the demand side: regions cover every load once, demand grows with the years, headroom = firm - demand, P2/8 class bands, a starved firm capacity raising the alert, project demand counted in its group, N-1 stranding attributed to the islanded group, and the alert registry (`test_demand.py`; NGED rows in `test_nged.py`);
 - reinforcement, suggestions and the diff;
 - the readiness rubric.
 

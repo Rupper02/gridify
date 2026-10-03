@@ -6,7 +6,8 @@ and 2035 anchors) and every accepted project whose energisation year (the operat
 else the optimizer's recommendation) has arrived. It is solved in both study cases, screened N-1,
 and that year's planned windows are studied in their season (maintenance.study_windows). Works
 finished in an earlier year leave their change behind (a repowered element, maintenance.WORKS), so
-later years are solved with it; the queue is not re-decided for it. Nothing here decides who connects:
+later years are solved with it; the queue is not re-decided for it. The demand side (demand.py:
+regions, firm headroom, P2/8 class, alerts) is read off the same solved net. Nothing here decides who connects:
 the queue comes from greedy.optimize, so this is a fixed-plan evaluation (two solves plus the N-1
 screen per year), cheap next to the greedy trials.
 """
@@ -16,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR
+from .demand import assess_demand
 from .greedy import NetFactory, Progress
 from .maintenance import apply_works_after, study_windows
 from .network import (
@@ -97,7 +99,7 @@ def evaluate_year(
     studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if n1 else None)
     screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
     _, _, m = feasibility(net)  # the intact envelope the map and readings show
-    return YearResult(
+    yr = YearResult(
         year=year,
         growth=round(growth, 4),
         energised=energised,
@@ -118,6 +120,9 @@ def evaluate_year(
         n1_violations=screen["violations"],
         outage_studies=studies,
     )
+    # the demand side (regions + alerts) reads the intact envelope just solved, so it comes last
+    yr.regions, yr.alerts = assess_demand(net, year, screen["violations"])
+    return yr
 
 
 def evaluate_years(
