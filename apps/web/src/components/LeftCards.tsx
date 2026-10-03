@@ -7,7 +7,7 @@ import { X } from "@phosphor-icons/react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { alertSummary } from "../lib/demand";
 import { gspTicks, worstElement } from "../lib/derive";
-import type { Layout } from "../lib/layout";
+import { LAYERS_W, type Layout } from "../lib/layout";
 import { C, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
@@ -54,8 +54,10 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
       worst.case && worst.summerPct !== null && worst.case === "summer min" ? `${Math.round(worst.summerPct)}% (S)` :
       `${worstPct}%`;
     
+    const pillMaxWidth = `calc(100vw - ${layout.layers.right + LAYERS_W + 20}px)`;
+    
     return (
-      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined, flexWrap: "wrap", height: "auto", minHeight: 34, whiteSpace: "normal", maxWidth: "calc(100vw - 20px)" }}>
+      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined, flexWrap: "wrap", height: "auto", minHeight: 34, whiteSpace: "normal", maxWidth: pillMaxWidth }}>
         <ProfileGlyph bars={resultProfile.bars} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : gspHot ? C.amber : C.ink2 }}>
