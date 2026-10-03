@@ -62,17 +62,28 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
           Export{yr?.gsp_export_case ? ` (${yr.gsp_export_case === "winter_peak" ? "W" : "S"})` : ""} {computing ? "..." : gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : winterHot ? C.amber : C.ink2 }}>
-          W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/{winterLimit != null ? fmtMw(winterLimit) : "–"}
+          W.import {computing ? "..." : winterImport != null ? Math.round(winterImport) : "–"}/2×160.1
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : summerHot ? C.amber : C.ink2 }}>
-          S.import {computing ? "..." : summerImport != null ? Math.round(summerImport) : "–"}/{summerLimit != null ? fmtMw(summerLimit) : "–"}
+          S.import {computing ? "..." : summerImport != null ? Math.round(summerImport) : "–"}/2×110.8
         </span>
         <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : C.ink2 }}>
           V {vDisplay}
         </span>
-        <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink2 }}>
-          Worst {worstDisplay}
-        </span>
+        {worst && worst.winterPct !== null && worst.summerPct !== null ? (
+          <>
+            <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink2 }}>
+              W.worst {computing ? "..." : `${Math.round(worst.winterPct)}%`}
+            </span>
+            <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink2 }}>
+              S.worst {computing ? "..." : `${Math.round(worst.summerPct)}%`}
+            </span>
+          </>
+        ) : (
+          <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink2 }}>
+            Worst {worstDisplay}
+          </span>
+        )}
         {computing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
         {showStale && (
           <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()}>
@@ -181,7 +192,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontSize: 11.5, color: C.mute }}>Winter import</span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : winterHot ? C.amber : C.ink }}>
-            {computing ? "..." : winterImport != null ? fmtMw(winterImport) : "–"} / {winterLimit != null ? fmtMw(winterLimit) : "–"} MW
+            {computing ? "..." : winterImport != null ? fmtMw(winterImport) : "–"} / 2×160.1 MW
           </span>
         </div>
         <Gauge ticks={computing ? [] : gspTicks(winterImport ?? 0, winterLimit)} />
@@ -189,43 +200,46 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6 }}>
           <span style={{ fontSize: 11.5, color: C.mute }}>Summer import</span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
-            {computing ? "..." : summerImport != null ? `${fmtMw(summerImport)} / ${summerLimit != null ? fmtMw(summerLimit) : "–"}` : "–"} MW
+            {computing ? "..." : summerImport != null ? `${fmtMw(summerImport)} / 2×110.8` : "–"} MW
           </span>
         </div>
         <Gauge ticks={computing ? [] : gspTicks(summerImport ?? 0, summerLimit)} />
       </div>
       
       <div className="readings">
-        <button
-          className="reading reading-btn"
-          onClick={() => worst && actions.focusSel(worst.sel, 2.4)}
-          disabled={!worst}
-          title={worst ? `Show the ${worst.name} on the map` : undefined}
-        >
-          <span className="k">Worst element</span>
-          {worst && worst.winterPct !== null && worst.summerPct !== null ? (
-            <>
-              <span className="v" style={{ color: computing ? C.mute2 : Math.max(worst.winterPct, worst.summerPct) > 100 ? C.red : Math.max(worst.winterPct, worst.summerPct) > 90 ? C.amber : C.ink }}>
-                {computing ? "..." : `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%`}
+        {worst && worst.winterPct !== null && worst.summerPct !== null ? (
+          <>
+            <div className="reading">
+              <span className="k">Worst winter</span>
+              <span className="v" style={{ color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink }}>
+                {computing ? "..." : `${Math.round(worst.winterPct)}%`}
               </span>
-              <span className="n">
-                {worst.winterName === worst.summerName 
-                  ? worst.winterName 
-                  : `winter ${worst.winterName} · summer ${worst.summerName}`
-                }
+              <span className="n">{worst.winterName}</span>
+            </div>
+            <div className="reading">
+              <span className="k">Worst summer</span>
+              <span className="v" style={{ color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink }}>
+                {computing ? "..." : `${Math.round(worst.summerPct)}%`}
               </span>
-            </>
-          ) : (
-            <>
-              <span className="v" style={{ color: computing ? C.mute2 : worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
-                {computing ? "..." : worst ? `${Math.round(worst.pct)}%` : "–"}
-              </span>
-              <span className="n">
-                {computing ? "computing" : !worst ? "not solved yet" : worst.name}
-              </span>
-            </>
-          )}
-        </button>
+              <span className="n">{worst.summerName}</span>
+            </div>
+          </>
+        ) : (
+          <button
+            className="reading reading-btn"
+            onClick={() => worst && actions.focusSel(worst.sel, 2.4)}
+            disabled={!worst}
+            title={worst ? `Show the ${worst.name} on the map` : undefined}
+          >
+            <span className="k">Worst element</span>
+            <span className="v" style={{ color: computing ? C.mute2 : worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
+              {computing ? "..." : worst ? `${Math.round(worst.pct)}%` : "–"}
+            </span>
+            <span className="n">
+              {computing ? "computing" : !worst ? "not solved yet" : worst.name}
+            </span>
+          </button>
+        )}
         <div className="reading">
           <span className="k">Voltage band</span>
           {hasWinterVoltage && hasSummerVoltage && yr ? (
@@ -305,13 +319,13 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Winter import</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : winterHot ? C.amber : C.ink }}>
-            {computing ? "..." : winterImport != null && winterLimit != null ? `${Math.round(winterImport)} / ${fmtMw(winterLimit)}` : "–"}
+            {computing ? "..." : winterImport != null ? `${Math.round(winterImport)} / 2×160.1` : "–"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <span style={{ color: C.mute }}>Summer import</span>
           <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : summerHot ? C.amber : C.ink }}>
-            {computing ? "..." : summerImport != null && summerLimit != null ? `${Math.round(summerImport)} / ${fmtMw(summerLimit)}` : "–"}
+            {computing ? "..." : summerImport != null ? `${Math.round(summerImport)} / 2×110.8` : "–"}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -320,17 +334,33 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
             {vDisplay}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: C.mute }}>Worst</span>
-          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink }}>
-            {computing ? "..." : !worst ? "–" :
-              worst.winterPct !== null && worst.summerPct !== null ? `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%` :
-              worst.case && worst.winterPct !== null && worst.case === "winter peak" ? `${Math.round(worst.winterPct)}%(W)` :
-              worst.case && worst.summerPct !== null && worst.case === "summer min" ? `${Math.round(worst.summerPct)}%(S)` :
-              worstPct != null ? `${worstPct}%` : "–"
-            }
-          </span>
-        </div>
+        {worst && worst.winterPct !== null && worst.summerPct !== null ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ color: C.mute }}>Worst winter</span>
+              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink }}>
+                {computing ? "..." : `${Math.round(worst.winterPct)}%`}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ color: C.mute }}>Worst summer</span>
+              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink }}>
+                {computing ? "..." : `${Math.round(worst.summerPct)}%`}
+              </span>
+            </div>
+          </>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ color: C.mute }}>Worst</span>
+            <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink }}>
+              {computing ? "..." : !worst ? "–" :
+                worst.case && worst.winterPct !== null && worst.case === "winter peak" ? `${Math.round(worst.winterPct)}%(W)` :
+                worst.case && worst.summerPct !== null && worst.case === "summer min" ? `${Math.round(worst.summerPct)}%(S)` :
+                worstPct != null ? `${worstPct}%` : "–"
+              }
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
