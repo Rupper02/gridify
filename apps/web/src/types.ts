@@ -340,6 +340,40 @@ export interface Outage {
   factor: number | null; // repowering by uprate only: the rating multiplier (1 < factor <= 4)
   created_at?: string;
 }
+
+/** Find the best window for a planned work (API: POST /branches/{id}/works/best-window). */
+export interface BestWindowRequest {
+  element_kind: ElementKind;
+  element_id: string;
+  work: Work;
+  kind: "outage" | "derate";
+  repower?: Repower | null;
+  factor?: number | null;
+  weeks: number;
+  years?: [number, number];
+  seasons?: Season[];
+}
+/** One ranked window (engine: windows.best_windows), studied against the plan that year. */
+export interface WindowOption {
+  rank: number;
+  year: number;
+  season: Season;
+  verdict: Verdict;
+  curtailed_mw: number;
+  demand_at_risk_mw: number;
+  /** null: not screened (outside the engine's N-1 shortlist). */
+  n1_findings: number | null;
+  worst_line_loading_pct: number;
+  worst_trafo_loading_pct: number;
+  message: string;
+}
+export interface BestWindowResult {
+  branch_id: string;
+  element_kind: ElementKind;
+  element_id: string;
+  work: Work;
+  options: WindowOption[];
+}
 export type Work = "maintenance" | "repowering" | "replacement";
 export type Repower = "uprate" | "add_parallel";
 
@@ -444,7 +478,8 @@ export interface YearDelta {
   energised_only_head: string[];
   energised_only_base: string[];
 }
-export type WorkVerdict = "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
+/** As OutageStudy.verdict. */
+export type WorkVerdict = Verdict;
 export type WorkChange = "worse" | "better" | "unchanged" | "unstudied";
 /** One of the branch's planned works windows, studied on main's plan and on the branch's (engine: diff.WorkDelta). */
 export interface WorkDelta {
@@ -520,7 +555,7 @@ export type Tab = "copilot" | "queue" | "outages" | "review";
 export type MapLayer = "flow" | "loading" | "voltage" | "demand";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
-export interface Job {
+export interface Job<R = OptimizeResult> {
   job_id: string;
   kind: string;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
@@ -532,6 +567,6 @@ export interface Job {
   elapsed_ms: number;
   has_partial?: boolean;
   partial?: OptimizeResult | null;
-  result?: OptimizeResult | null;
+  result?: R | null;
   error?: string | null;
 }

@@ -1,10 +1,12 @@
 // Copilot. A start screen picks the chat mode: New project (a guided intake into the preliminary
-// queue) or Recommendations (the engine's "what would it take" levers, explained). Copilot fills the
-// application and phrases results; ranking and power flow are the engine's.
+// queue), Recommendations (the engine's "what would it take" levers, explained) or Maintenance (a
+// works window: the engine studies every season and year and ranks them). Copilot asks and phrases
+// results; ranking, power flow and every window's verdict are the engine's.
 
 import {
   ArrowRight,
   ArrowUp,
+  CalendarCheck,
   CheckSquare,
   Database,
   GitBranch,
@@ -15,26 +17,39 @@ import {
   Plus,
   PlusCircle,
   Square,
+  Wrench,
 } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 
-import type { RecMsg } from "../hooks/planner/core";
+import type { ChatMode, RecMsg } from "../hooks/planner/core";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, deferredMw, nameElements } from "../lib/derive";
 import { draftSlots, question, readinessScore } from "../lib/intake";
 import type { ChatMsg } from "../lib/intake";
+import { VERDICT, maintQuestion, maintSlots, windowLine } from "../lib/maintCopilot";
+import type { MaintMsg } from "../lib/maintCopilot";
 import { leverConnects, leverFrees, leverTryable, recsQuickReplies } from "../lib/recs";
 import type { Layout } from "../lib/layout";
 import { C, fmtMw } from "../theme";
-import type { Suggestion } from "../types";
-import { intakeCtx } from "../hooks/planner/useCopilot";
+import type { Suggestion, WindowOption } from "../types";
+import { intakeCtx, maintCtx } from "../hooks/planner/useCopilot";
 
 export type CopilotTabPlanner = PlannerSlice<
-  "activeBranch" | "boundary" | "branches" | "chat" | "maxMw" | "model" | "result" | "running" | "year",
-  | "addPrelim" | "anotherProject" | "applyLever" | "evidenceDone" | "newChat" | "resume" | "runFromChat" | "send" | "setInput"
-  | "startProject" | "startRecs" | "toggleEvidence",
+  "activeBranch" | "boundary" | "branches" | "chat" | "maxMw" | "model" | "result" | "running" | "sel" | "year",
+  | "addPrelim" | "anotherProject" | "applyLever" | "evidenceDone" | "newChat" | "resume" | "runFromChat" | "scheduleWindow" | "send"
+  | "setInput" | "startMaintChat" | "startProject" | "startRecs" | "toggleEvidence",
   "branch" | "hue" | "ix" | "onMain" | "profile" | "q" | "resultProfile"
 >;
+
+/** Maintenance: neutral silver ink (the design palette's ink2). */
+const MAINT = { c: C.ink2, bg: "rgba(201,214,232,0.12)", bd: "rgba(201,214,232,0.4)" };
+const MODE_TITLE: Record<ChatMode, string> = { project: "New project", recs: "Recommendations", maint: "Maintenance" };
+const MODE_ICON: Record<ChatMode, typeof PlusCircle> = { project: PlusCircle, recs: Lightbulb, maint: Wrench };
+const TONE = {
+  ok: { background: "rgba(94,230,168,0.16)", color: C.greenInk },
+  warn: { background: "rgba(255,195,107,0.16)", color: C.amberInk },
+  bad: { background: "rgba(255,107,107,0.16)", color: C.redInk },
+} as const;
 
 export function CopilotTab({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout }) {
   return planner.s.chat.mode ? <Chat planner={planner} layout={layout} /> : <Picker planner={planner} />;
@@ -54,7 +69,17 @@ function Picker({ planner }: { planner: CopilotTabPlanner }) {
       desc: "Find what would unblock deferred projects. Each lever is re-solved and the MW it frees is measured.",
       ex: `"What would it take to connect ${byStatus(derived.q, "Deferred")[0]?.request_id ?? "a deferred project"}?"`, pick: () => actions.startRecs(),
     },
+    {
+      title: "Maintenance", Icon: Wrench, ...MAINT,
+      desc: "Plan an outage, a repowering or a replacement. I find the window that keeps customers supplied.",
+      ex: "\"When can I take the most loaded line out for 6 weeks?\"", pick: actions.startMaintChat,
+    },
   ];
+  const resumeOrStart: Record<ChatMode, () => void> = {
+    project: () => (s.chat.intake ? actions.resume("project") : actions.startProject()),
+    recs: () => (s.chat.recs.length ? actions.resume("recs") : actions.startRecs()),
+    maint: () => (s.chat.maint ? actions.resume("maint") : actions.startMaintChat()),
+  };
   return (
     <div className="scroll" style={{ padding: "6px 14px 16px", gap: 14 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -77,19 +102,22 @@ function Picker({ planner }: { planner: CopilotTabPlanner }) {
       {s.chat.recent.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Recent on this branch</span>
-          {s.chat.recent.map((r) => (
-            <button
-              key={r.title + r.at}
-              onClick={() => (r.mode === "project" ? (s.chat.intake ? actions.resume("project") : actions.startProject()) : s.chat.recs.length ? actions.resume("recs") : actions.startRecs())}
-              style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 12, background: "var(--well)", border: "var(--well-bd)", textAlign: "left" }}
-            >
-              {r.mode === "project" ? <PlusCircle size={15} color={C.mute} /> : <Lightbulb size={15} color={C.mute} />}
-              <span style={{ display: "flex", flexDirection: "column", minWidth: 0, lineHeight: 1.35 }}>
-                <span className="ellipsis" style={{ fontSize: 12.5 }}>{r.title}</span>
-                <span style={{ fontSize: 11, color: C.mute }}>{r.mode === "project" ? "New project" : "Recommendations"} · {r.at}</span>
-              </span>
-            </button>
-          ))}
+          {s.chat.recent.map((r) => {
+            const Icon = MODE_ICON[r.mode];
+            return (
+              <button
+                key={r.title + r.at}
+                onClick={resumeOrStart[r.mode]}
+                style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 12, background: "var(--well)", border: "var(--well-bd)", textAlign: "left" }}
+              >
+                <Icon size={15} color={C.mute} />
+                <span style={{ display: "flex", flexDirection: "column", minWidth: 0, lineHeight: 1.35 }}>
+                  <span className="ellipsis" style={{ fontSize: 12.5 }}>{r.title}</span>
+                  <span style={{ fontSize: 11, color: C.mute }}>{MODE_TITLE[r.mode]} · {r.at}</span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       {s.result?.justification && (
@@ -106,23 +134,32 @@ function Picker({ planner }: { planner: CopilotTabPlanner }) {
 function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
   const chat = s.chat;
-  const isRecs = chat.mode === "recs";
-  const it = chat.intake;
+  const mode = chat.mode ?? "project";
+  const isRecs = mode === "recs";
+  const isMaint = mode === "maint";
+  const it = isMaint ? null : chat.intake;
+  const mt = isMaint ? chat.maint : null;
   const listRef = useRef<HTMLDivElement>(null);
-  const msgs: (ChatMsg | RecMsg)[] = isRecs ? chat.recs : (it?.messages ?? []);
+  const msgs: (ChatMsg | RecMsg | MaintMsg)[] = isRecs ? chat.recs : isMaint ? (mt?.messages ?? []) : (it?.messages ?? []);
+  const lastText = msgs[msgs.length - 1]?.text;
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [msgs.length]);
+  }, [msgs.length, lastText]);
 
   const target = derived.onMain ? (isRecs ? "main" : "a new branch") : (derived.branch?.name ?? "");
   const df = byStatus(derived.q, "Deferred");
   const ctx = intakeCtx(s);
   const q = it && !isRecs && it.step !== "done" ? question(it, ctx) : null;
+  const mq = mt ? maintQuestion(mt, maintCtx(s)) : null;
+  const ModeIcon = MODE_ICON[mode];
+  const modeColor = { project: C.accent, recs: C.amberInk, maint: MAINT.c }[mode];
 
   // quick replies for the mode and step
   let quick: { label: string; on?: boolean; go?: boolean; icon?: "check" | "box" | "plus" | "next"; pick: () => void }[] = [];
   if (isRecs) quick = recsQuickReplies(derived.q).map((l) => ({ label: l, pick: () => actions.send(l) }));
+  else if (mt && mq?.opts.length) quick = mq.opts.map((o) => ({ label: o, pick: () => actions.send(o) }));
+  else if (mt && (mt.step === "results" || mt.step === "done")) quick = [{ label: "Plan another work", icon: "plus", pick: actions.startMaintChat }];
   else if (q?.multi && it)
     quick = [
       ...q.multi.map((l) => ({ label: l, on: it.readySel.includes(l), icon: it.readySel.includes(l) ? ("check" as const) : ("box" as const), pick: () => actions.toggleEvidence(l) })),
@@ -131,15 +168,15 @@ function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout 
   else if (q) quick = q.opts.map((o) => ({ label: o, pick: () => actions.send(o) }));
   else if (it?.step === "done") quick = [{ label: "Start another project", icon: "plus", pick: actions.anotherProject }];
 
-  const slots = it && !isRecs ? draftSlots(it) : [];
+  const slots: { key: string; label: string; value: string; current: boolean }[] = mt ? maintSlots(mt) : it && !isRecs ? draftSlots(it) : [];
   return (
     <div className="chat-wrap">
       <div className="chat-head">
         <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden" }}>
-          {isRecs ? <Lightbulb size={15} color={C.amberInk} /> : <PlusCircle size={15} color={C.accent} />}
-          <span style={{ fontSize: 13, fontWeight: 600, flex: "none" }}>{isRecs ? "Recommendations" : "New project"}</span>
+          <ModeIcon size={15} color={modeColor} />
+          <span style={{ fontSize: 13, fontWeight: 600, flex: "none" }}>{MODE_TITLE[mode]}</span>
           {layout.wide && <ArrowRight size={12} color={C.mute2} />}
-          {layout.wide && <span style={{ fontSize: 12, color: C.mute, flex: "none" }}>{isRecs ? "on" : "queue on"}</span>}
+          {layout.wide && <span style={{ fontSize: 12, color: C.mute, flex: "none" }}>{isRecs ? "on" : isMaint ? "scheduled on" : "queue on"}</span>}
           <span className="mono ellipsis" style={{ fontSize: 12, fontWeight: 600, color: derived.onMain ? C.mute : derived.hue, minWidth: 40, flex: "1 1 auto" }}>{target}</span>
           <button className="btn" style={{ height: 28, fontSize: 11.5, marginLeft: "auto", flex: "none" }} onClick={actions.newChat} title="New chat">
             <NotePencil size={13} />
@@ -195,15 +232,27 @@ function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout 
                     {m.levers.map((lv, j) => <LeverCard key={j} lv={lv} planner={planner} />)}
                   </div>
                 )}
-                {m.action && (
-                  <button
-                    className="btn primary sm"
-                    style={{ alignSelf: "flex-start" }}
-                    onClick={() => (m.action === "add" ? void actions.addPrelim() : actions.runFromChat())}
-                    disabled={m.action === "run" && s.running}
-                  >
-                    {m.action === "add" ? <Plus size={13} weight="bold" /> : <Play size={13} weight="bold" />}
-                    {m.action === "add" ? (derived.onMain ? "Open a branch and add" : "Add to preliminary queue") : `Run on ${derived.profile.label}`}
+                {"windows" in m && m.windows && m.windows.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {m.windows.map((w) => <WindowCard key={`${w.season}${w.year}`} w={w} planner={planner} done={mt?.scheduled.includes(`${w.season} ${w.year}`) ?? false} />)}
+                  </div>
+                )}
+                {m.action === "add" && (
+                  <button className="btn primary sm" style={{ alignSelf: "flex-start" }} onClick={() => void actions.addPrelim()}>
+                    <Plus size={13} weight="bold" />
+                    {derived.onMain ? "Open a branch and add" : "Add to preliminary queue"}
+                  </button>
+                )}
+                {m.action === "schedule" && mt?.season && mt.year && (
+                  <button className="btn primary sm" style={{ alignSelf: "flex-start" }} onClick={() => void actions.scheduleWindow(mt.season!, mt.year!)}>
+                    <CalendarCheck size={13} weight="bold" />
+                    {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name ?? "the branch"}`}
+                  </button>
+                )}
+                {m.action === "run" && (
+                  <button className="btn primary sm" style={{ alignSelf: "flex-start" }} onClick={actions.runFromChat} disabled={s.running}>
+                    <Play size={13} weight="bold" />
+                    {`Run on ${derived.profile.label}`}
                   </button>
                 )}
               </div>
@@ -236,7 +285,7 @@ function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout 
           <input
             value={chat.input}
             onChange={(e) => actions.setInput(e.target.value)}
-            placeholder={isRecs ? "Ask what would unblock a project" : q ? "Type an answer, or pick one above" : "Start another project, or ask in Recommendations"}
+            placeholder={isRecs ? "Ask what would unblock a project" : q || mq?.text ? "Type an answer, or pick one above" : isMaint ? "Give a season and year, or ask for the best window" : "Start another project, or ask in Recommendations"}
             aria-label="Message Copilot"
             disabled={chat.busy}
           />
@@ -245,9 +294,37 @@ function Chat({ planner, layout }: { planner: CopilotTabPlanner; layout: Layout 
           </button>
         </form>
         <span style={{ fontSize: 10.5, color: C.mute2 }}>
-          {isRecs ? "Every lever is re-solved by the engine. Copilot only explains the result." : "Copilot fills the application. Ranking and power flow are computed by the engine."}
+          {isRecs
+            ? "Every lever is re-solved by the engine. Copilot only explains the result."
+            : isMaint
+              ? "Every window is studied by the engine. Copilot only asks and explains."
+              : "Copilot fills the application. Ranking and power flow are computed by the engine."}
         </span>
       </div>
+    </div>
+  );
+}
+
+/** One ranked window: the engine's verdict and figures, said plainly, and the schedule button. */
+function WindowCard({ w, planner, done }: { w: WindowOption; planner: CopilotTabPlanner; done: boolean }) {
+  const { actions, derived, s } = planner;
+  const v = VERDICT[w.verdict];
+  return (
+    <div className="lever">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span className="mono" style={{ fontSize: 11, color: C.mute, flex: "none" }}>#{w.rank}</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>{w.season} {w.year}</span>
+        <span className="chip" style={{ flex: "none", fontSize: 10.5, ...TONE[v.tone] }}>{v.label}</span>
+      </div>
+      <span style={{ fontSize: 11.5, color: C.ink2, lineHeight: 1.45 }}>{windowLine(w)}</span>
+      <span className="mono" style={{ fontSize: 11, color: C.mute }}>
+        line {Math.round(w.worst_line_loading_pct)}% · transformer {Math.round(w.worst_trafo_loading_pct)}% · {w.n1_findings == null ? "N-1 not screened" : `N-1 ${w.n1_findings}`}
+      </span>
+      <span style={{ fontSize: 11, color: C.ink3, lineHeight: 1.45, textWrap: "pretty" }}>{nameElements(w.message, derived.ix)}</span>
+      <button className="btn hue" style={{ alignSelf: "flex-start", height: 28, fontSize: 11.5 }} onClick={() => void actions.scheduleWindow(w.season, w.year)} disabled={done || s.chat.busy}>
+        <CalendarCheck size={12} />
+        {done ? "Scheduled" : `Schedule on ${derived.onMain ? "a new branch" : derived.branch?.name}`}
+      </button>
     </div>
   );
 }

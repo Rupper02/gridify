@@ -1,6 +1,7 @@
-// Copilot: the two chat modes. "New project" walks the intake (lib/intake.ts) and adds the
+// Copilot: the three chat modes. "New project" walks the intake (lib/intake.ts) and adds the
 // application to the branch's preliminary queue; "Recommendations" answers from the last run and the
-// engine's levers (lib/recs.ts). Nothing here computes physics: the engine does, on the next run.
+// engine's levers (lib/recs.ts); "Maintenance" plans a works window (lib/maintCopilot.ts) and asks
+// the engine for the best one. Nothing here computes physics: the engine does.
 
 import { useCallback } from "react";
 
@@ -8,6 +9,19 @@ import { api } from "../../api";
 import { busSuggestions, findBus, indexModel, nameElements, yearResultFor } from "../../lib/derive";
 import { answer as intakeAnswer, readinessAnswer, readinessScore, startIntake } from "../../lib/intake";
 import type { IntakeCtx } from "../../lib/intake";
+import {
+  elementSuggestions,
+  findElement,
+  maintAnswer,
+  outageBody,
+  scheduledOn,
+  searchFailed,
+  searchProgress,
+  searchRequest,
+  startMaint,
+  withWindows,
+} from "../../lib/maintCopilot";
+import type { MaintChat, MaintCtx } from "../../lib/maintCopilot";
 import {
   bestAnswer,
   gspAnswer,
@@ -17,13 +31,14 @@ import {
   sortByMw2030,
 } from "../../lib/recs";
 import { EVID, profileOf, techLabel } from "../../theme";
-import type { Suggestion } from "../../types";
-import type { ChatState, Core, PlannerState, RecMsg } from "./core";
+import type { Season, Suggestion } from "../../types";
+import type { ChatMode, ChatState, Core, PlannerState, RecMsg } from "./core";
 import { withAdded } from "./useRegistry";
+import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
 
 const nowHM = () => new Date().toTimeString().slice(0, 5);
-const branchName = (st: PlannerState, bid = st.activeBranch) => st.branches.find((b) => b.branch_id === bid)?.name ?? bid;
+const branchName = (st: Pick<PlannerState, "activeBranch" | "branches">, bid = st.activeBranch) => st.branches.find((b) => b.branch_id === bid)?.name ?? bid;
 
 /** What the intake needs to know about the branch and the network right now. */
 export function intakeCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "maxMw" | "model" | "result" | "year">): IntakeCtx {
@@ -40,16 +55,32 @@ export function intakeCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "
   };
 }
 
+/** What the Maintenance chat needs: where it schedules, and the elements it can name. */
+export function maintCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "model" | "result" | "sel" | "year">): MaintCtx {
+  const m = st.model;
+  const ix = m ? indexModel(m) : null;
+  const yr = yearResultFor(st.result, st.year).yr;
+  const sel = st.sel && st.sel.kind !== "project" && st.sel.kind !== "region" ? st.sel : null;
+  return {
+    branchName: st.activeBranch === "main" ? "a new branch" : branchName(st),
+    suggestions: ix ? elementSuggestions(ix, yr, sel) : [],
+    findElement: (t) => (m && ix ? findElement(m, ix, t) : null),
+  };
+}
+
 export function useCopilot(
   { patch, ref, toastMsg }: Core,
   run: RunFn,
   ensureEditableBranch: () => Promise<string | null>,
   tryLever: (bid: string, s: Suggestion) => Promise<boolean>,
+  loadExtras: (bid: string) => Promise<void>,
+  edited: EditedFn,
 ) {
   const setChat = useCallback((c: Partial<ChatState> | ((c: ChatState) => Partial<ChatState>)) =>
     patch((st) => ({ chat: { ...st.chat, ...(typeof c === "function" ? c(st.chat) : c) } })), [patch]);
+  const setMaint = useCallback((f: (m: MaintChat) => MaintChat) => setChat((c) => (c.maint ? { maint: f(c.maint) } : {})), [setChat]);
 
-  const remember = (c: ChatState, mode: "project" | "recs", title: string) =>
+  const remember = (c: ChatState, mode: ChatMode, title: string) =>
     [{ mode, title, at: nowHM() }, ...c.recent.filter((r) => r.title !== title)].slice(0, 4);
 
   const startProject = useCallback(() => {
@@ -113,14 +144,68 @@ export function useCopilot(
     [askRecs, patch, ref, setChat],
   );
 
+  /** Start a Maintenance chat (the element selected on the map is offered first). */
+  const startMaintChat = useCallback(() => {
+    const st = ref.current;
+    setChat((c) => ({ mode: "maint", maint: startMaint(maintCtx(st)), input: "", recent: remember(c, "maint", "Maintenance") }));
+    patch({ tab: "copilot", sideOpen: true });
+  }, [patch, ref, setChat]);
+
+  /** Ask the engine for the best window (a background job on the viewed branch; main may be searched). */
+  const searchWindows = useCallback(
+    async (m: MaintChat) => {
+      const st = ref.current;
+      const bid = st.activeBranch || "main";
+      setChat({ busy: true });
+      try {
+        const res = await api.bestWindowJob(bid, searchRequest(m), (stage, f) => setMaint((x) => searchProgress(x, stage, f)));
+        setMaint((x) => withWindows(x, res.options, maintCtx(ref.current)));
+        if (m.element) setChat((c) => ({ recent: remember(c, "maint", `Best window for ${m.element!.label}`) }));
+      } catch (e) {
+        setMaint((x) => searchFailed(x, e instanceof Error ? e.message : "check the API is running"));
+      } finally {
+        setChat({ busy: false });
+      }
+    },
+    [ref, setChat, setMaint],
+  );
+
+  /** "Schedule on <branch>": store the window on the branch (main opens a branch first). */
+  const scheduleWindow = useCallback(
+    async (season: Season, year: number) => {
+      const m = ref.current.chat.maint;
+      if (!m?.element) return;
+      const bid = await ensureEditableBranch();
+      if (!bid) return;
+      try {
+        await api.addOutage(bid, outageBody(m, season, year));
+        await loadExtras(bid);
+        edited("works"); // re-solves that window's year in the background
+        const st = ref.current;
+        const prof = profileOf(st.branches.find((b) => b.branch_id === bid)?.scenario).label;
+        setMaint((x) => scheduledOn(x, season, year, branchName(st, bid), prof));
+        patch({ year, tab: "copilot" });
+      } catch (e) {
+        toastMsg(`Could not schedule it: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+      }
+    },
+    [edited, ensureEditableBranch, loadExtras, patch, ref, setMaint, toastMsg],
+  );
+
   /** The composer / a quick reply: route to the active mode. */
   const send = useCallback(
     (text: string) => {
       const st = ref.current;
       if (st.chat.mode === "recs") return void askRecs(text);
       if (st.chat.mode === "project" && st.chat.intake) setChat({ intake: intakeAnswer(st.chat.intake, text, intakeCtx(st)), input: "" });
+      if (st.chat.mode === "maint" && st.chat.maint) {
+        const prev = st.chat.maint;
+        const next = maintAnswer(prev, text, maintCtx(st));
+        setChat({ maint: next, input: "" });
+        if (next.step === "searching" && prev.step !== "searching") void searchWindows(next);
+      }
     },
-    [askRecs, ref, setChat],
+    [askRecs, ref, searchWindows, setChat],
   );
 
   const toggleEvidence = useCallback(
@@ -192,9 +277,12 @@ export function useCopilot(
   );
 
   const newChat = useCallback(() => setChat({ mode: null, input: "" }), [setChat]);
-  const resume = useCallback((mode: "project" | "recs") => setChat({ mode }), [setChat]);
+  const resume = useCallback((mode: ChatMode) => setChat({ mode }), [setChat]);
   const setInput = useCallback((input: string) => setChat({ input }), [setChat]);
   const runFromChat = useCallback(() => void run(), [run]);
 
-  return { startProject, startRecs, send, toggleEvidence, evidenceDone, addPrelim, anotherProject, applyLever, newChat, resume, setInput, runFromChat };
+  return {
+    startProject, startRecs, startMaintChat, send, toggleEvidence, evidenceDone, addPrelim, anotherProject, applyLever,
+    scheduleWindow, newChat, resume, setInput, runFromChat,
+  };
 }

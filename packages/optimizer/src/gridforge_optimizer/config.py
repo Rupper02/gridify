@@ -74,6 +74,11 @@ CURTAIL_REFINE_STEPS = 3
 # a step that eases the binding breach by less than this fraction of its excess is put back (that
 # generator does not feed the breach), so the estimate does not count output that relieves nothing
 CURTAIL_MIN_RELIEF = 0.01
+# The best-window search (windows.best_windows) studies every (year, season) without the N-1 screen,
+# then screens N-1 during the window for this many only (the best of each season, then the next
+# best): screening every window took 5.5 to 6.5 min for 10 years x 4 seasons on a busy dev machine,
+# the shortlist 2 to 3.5 min. Bounded cost, not tuned for output.
+BEST_WINDOW_N1_SHORTLIST = 6
 
 # --- N-1 screen ---------------------------------------------------------------------------------
 # Single-outage screen of the EHV backbone (every circuit and transformer at or above this kV),

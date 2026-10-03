@@ -9,8 +9,16 @@ from gridforge_optimizer.config import MAX_SUGGESTIONS
 
 from .. import narration, repository
 from ..config import now
-from ..deps import cache, narrator, plans, scenarios, warehouse
-from ..schemas import BranchCreate, MergeRequest, OutageCreate, RegistryAdd, ReinforcementCreate, ScheduleSet
+from ..deps import cache, jobs, narrator, plans, scenarios, warehouse
+from ..schemas import (
+    BestWindowRequest,
+    BranchCreate,
+    MergeRequest,
+    OutageCreate,
+    RegistryAdd,
+    ReinforcementCreate,
+    ScheduleSet,
+)
 
 router = APIRouter()
 
@@ -200,12 +208,34 @@ def add_outage(branch_id: str, body: OutageCreate) -> dict:
     """Schedule a works window (maintenance, like-for-like replacement or repowering) on a line,
     transformer or existing generator. The next run studies it, and a repowering changes the years
     after it; until then the planner shows the result as out of date."""
-    known = {"line": warehouse.line_ids, "trafo": warehouse.trafo_ids, "gen": warehouse.generator_ids}[body.element_kind]()
-    if body.element_id not in known:
-        raise HTTPException(status_code=422, detail=f"{body.element_kind} '{body.element_id}' is not in the network model")
+    _require_element(body.element_kind, body.element_id)
     with scenarios.cursor() as con:
         _require_editable(con, branch_id)
         return repository.insert_outage(con, branch_id, body)
+
+
+def _require_element(kind: str, element_id: str) -> None:
+    known = {"line": warehouse.line_ids, "trafo": warehouse.trafo_ids, "gen": warehouse.generator_ids}[kind]()
+    if element_id not in known:
+        raise HTTPException(status_code=422, detail=f"{kind} '{element_id}' is not in the network model")
+
+
+@router.post("/branches/{branch_id}/works/best-window")
+def start_best_window(branch_id: str, body: BestWindowRequest) -> dict:
+    """Find the best window for a planned work: the element studied out in every season of every
+    year in `years`, against the branch's plan as it stands that year (its queue, schedule,
+    reinforcements and other windows), ranked by verdict, then curtailment, demand at risk, N-1
+    findings during the window and loading. Read-only, so it runs on main too. Runs as a background
+    job (progress per year); the job's result is {branch_id, element_kind, element_id, work, options}."""
+    _require_element(body.element_kind, body.element_id)
+    with scenarios.cursor() as con:
+        repository.require_branch(con, branch_id)
+
+    def run(progress, _publish) -> dict:
+        options = plans.best_windows(branch_id, body, progress=progress)
+        return {"branch_id": branch_id, "element_kind": body.element_kind, "element_id": body.element_id,
+                "work": body.work, "options": options}
+    return jobs.start("best_window", run)
 
 
 @router.delete("/branches/{branch_id}/outages/{outage_id}")

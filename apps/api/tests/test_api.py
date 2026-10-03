@@ -551,3 +551,47 @@ def test_a_running_job_can_be_cancelled_and_a_queued_one_never_starts():
     assert b["status"] == "cancelled" and b["started_at"] is None
     assert "cancel" not in a
     assert client.post("/jobs/job-nope/cancel").status_code == 404
+
+
+def _wait(job):
+    import time as _t
+    for _ in range(2400):
+        if job["status"] not in ("queued", "running"):
+            break
+        _t.sleep(0.25)
+        job = client.get(f"/jobs/{job['job_id']}").json()
+    assert job["status"] == "done", job.get("error")
+    return job
+
+
+def test_best_window_ranks_every_season_of_every_year_as_a_cached_job():
+    """The element studied out in each (year, season) against the branch's plan, ranked; a window the
+    branch already has in that season is studied together with it; the second ask is served cached."""
+    lines = sorted(client.get("/model").json()["lines"], key=lambda ln: -ln["voltage_kv"])
+    line, other = str(lines[0]["line_id"]), str(lines[1]["line_id"])
+    bid = _create("Best window")["branch_id"]
+    oid = client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": other,
+                                                       "season": "Summer", "year": 2029}).json()["outage_id"]
+    body = {"element_kind": "line", "element_id": line, "years": [2029, 2030], "seasons": ["Summer", "Winter"]}
+    job = _wait(client.post(f"/branches/{bid}/works/best-window", json=body).json())
+    assert job["kind"] == "best_window"
+    res = job["result"]
+    opts = res["options"]
+    assert res["element_id"] == line and res["work"] == "maintenance"
+    assert sorted((o["year"], o["season"]) for o in opts) == [
+        (2029, "Summer"), (2029, "Winter"), (2030, "Summer"), (2030, "Winter")]
+    assert [o["rank"] for o in opts] == [1, 2, 3, 4]
+    order = {"feasible": 0, "curtailment": 1, "demand_at_risk": 2, "not_feasible": 3}
+    assert [order[o["verdict"]] for o in opts] == sorted(order[o["verdict"]] for o in opts)
+    for o in opts:
+        assert {"curtailed_mw", "demand_at_risk_mw", "n1_findings", "worst_line_loading_pct", "message"} <= set(o)
+        assert o["study"]["with_ids"] == ([oid] if (o["year"], o["season"]) == (2029, "Summer") else [])
+
+    again = _wait(client.post(f"/branches/{bid}/works/best-window", json=body).json())
+    assert again["result"] == res and again["elapsed_ms"] < 2000
+
+    # any branch may be searched (it is read-only); bad requests are refused up front
+    assert client.post("/branches/nope/works/best-window", json=body).status_code == 404
+    assert client.post(f"/branches/{bid}/works/best-window", json={**body, "element_id": "999999"}).status_code == 422
+    assert client.post(f"/branches/{bid}/works/best-window", json={**body, "years": [2031, 2029]}).status_code == 422
+    assert client.post(f"/branches/{bid}/works/best-window", json={**body, "work": "repowering"}).status_code == 422

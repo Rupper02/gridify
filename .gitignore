@@ -219,3 +219,6 @@ out/
 dist/
 *.tsbuildinfo
 .env*.local
+
+# Claude Code agent worktrees (temporary checkouts)
+.claude/worktrees/
