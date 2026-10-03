@@ -124,6 +124,7 @@ def evaluate_year(
         bus_vm=bus_voltages(net),
         voltage_violation_bus_ids=voltage_violation_bus_ids(net),
         gsp_export_mw=m.get("gsp_export_mw", 0.0),
+        gsp_export_case=m.get("gsp_export_case"),
         gsp_import_mw=m.get("gsp_import_mw", 0.0),
         gsp_import_winter_mw=m.get("gsp_import_winter_mw", 0.0),
         gsp_import_summer_mw=m.get("gsp_import_summer_mw", 0.0),

@@ -483,6 +483,7 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
         "max_line_pct": float(env_line.max()) if len(env_line) else 0.0,
         "max_trafo_pct": float(env_trafo.max()) if len(env_trafo) else 0.0,
         "gsp_export_mw": round(gsp_export, 1),
+        "gsp_export_case": export_case,
         "gsp_import_mw": round(gsp_import, 1),
         "gsp_import_winter_mw": round(winter_import, 1),
         "gsp_import_summer_mw": round(summer_import, 1),

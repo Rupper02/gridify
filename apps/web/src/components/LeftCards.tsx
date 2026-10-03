@@ -163,15 +163,17 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
     <div className="card glass" style={{ gap: 14 }}>
       <button className="gsp-btn" onClick={actions.toggleBoundary} title="Beyond the GSP: limits and transmission projects">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span style={{ fontSize: 11.5, color: C.mute }}>GSP export</span>
+          <span style={{ fontSize: 11.5, color: C.mute }}>
+            GSP export{yr?.gsp_export_case ? ` · ${yr.gsp_export_case === "winter_peak" ? "winter" : "summer"}` : ""}
+          </span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: computing ? C.mute2 : gspHot ? C.amber : C.ink }}>
             {computing ? "..." : gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
           </span>
         </div>
         <Gauge ticks={computing ? [] : gspTicks(gsp ?? 0, limit)} />
         <span style={{ fontSize: 10.5, color: C.mute2 }}>
-          Worst case{sgt && sgtMw ? ` · ${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
-          {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
+          {sgt && sgtMw ? `${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
+          {!exact && yr ? (sgt && sgtMw ? " · " : "") + `showing ${yr.year} until ${s.year} is solved` : ""}
         </span>
       </button>
       
@@ -201,16 +203,23 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           title={worst ? `Show the ${worst.name} on the map` : undefined}
         >
           <span className="k">Worst element</span>
-          <span className="v" style={{ color: computing ? C.mute2 : worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
-            {computing ? "..." : worst ? `${Math.round(worst.pct)}%` : "–"}
-          </span>
-          <span className="n">
-            {computing ? "computing" : !worst ? "not solved yet" : 
-              worst.case ? `${worst.name} · ${worst.case}` :
-              worst.winterPct !== null && worst.summerPct !== null ? `${worst.name} · winter ${Math.round(worst.winterPct)}% · summer ${Math.round(worst.summerPct)}%` :
-              worst.name
-            }
-          </span>
+          {worst && worst.winterPct !== null && worst.summerPct !== null ? (
+            <>
+              <span className="v" style={{ color: computing ? C.mute2 : Math.max(worst.winterPct, worst.summerPct) > 100 ? C.red : Math.max(worst.winterPct, worst.summerPct) > 90 ? C.amber : C.ink }}>
+                {computing ? "..." : `W${Math.round(worst.winterPct)}% S${Math.round(worst.summerPct)}%`}
+              </span>
+              <span className="n">{worst.name}</span>
+            </>
+          ) : (
+            <>
+              <span className="v" style={{ color: computing ? C.mute2 : worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
+                {computing ? "..." : worst ? `${Math.round(worst.pct)}%` : "–"}
+              </span>
+              <span className="n">
+                {computing ? "computing" : !worst ? "not solved yet" : worst.name}
+              </span>
+            </>
+          )}
         </button>
         <div className="reading">
           <span className="k">Voltage band</span>

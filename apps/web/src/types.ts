@@ -192,6 +192,7 @@ export interface PhaseResult {
   bus_vm: Record<string, number>;
   voltage_violation_bus_ids: number[];
   gsp_export_mw: number;
+  gsp_export_case?: string | null;
   gsp_import_mw: number;
   gsp_import_winter_mw?: number;
   gsp_import_summer_mw?: number;

@@ -91,6 +91,7 @@ class PhaseResult(BaseModel):
     bus_vm: dict[int, float] = {}  # bus_id -> voltage pu, for the map voltage overlay
     voltage_violation_bus_ids: list[int] = []  # buses outside the voltage band
     gsp_export_mw: float = 0.0  # peak power pushed UP through the GSP to transmission (worst case)
+    gsp_export_case: str | None = None  # which case produced the export: "winter_peak" or "summer_min"
     gsp_import_mw: float = 0.0  # peak power drawn DOWN from transmission (worst case)
     gsp_import_winter_mw: float = 0.0  # import at winter_peak
     gsp_import_summer_mw: float = 0.0  # import at summer_min
