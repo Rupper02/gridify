@@ -269,15 +269,53 @@ export interface WorstElement {
   pct: number;
   name: string;
   sel: ElementSel;
+  winterPct: number | null;
+  summerPct: number | null;
+  case: "winter peak" | "summer min" | null;
 }
 /** The most loaded line or transformer in a year (worst case across the two study cases). */
 export function worstElement(yr: YearResult | null, ix: ModelIndex | null): WorstElement | null {
   if (!yr || !ix) return null;
   let best: WorstElement | null = null;
-  for (const [id, v] of Object.entries(yr.line_loading ?? {}))
-    if (!best || v > best.pct) best = { pct: v, name: lineName(ix, +id), sel: { kind: "line", id: +id } };
-  for (const [id, v] of Object.entries(yr.trafo_loading ?? {}))
-    if (!best || v > best.pct) best = { pct: v, name: trafoName(ix, +id), sel: { kind: "trafo", id: +id } };
+  
+  for (const [id, v] of Object.entries(yr.line_loading ?? {})) {
+    if (!best || v > best.pct) {
+      const winterPct = yr.line_loading_winter?.[+id] ?? null;
+      const summerPct = yr.line_loading_summer?.[+id] ?? null;
+      const winningCase = 
+        winterPct !== null && summerPct !== null
+          ? (winterPct >= summerPct ? "winter peak" : "summer min")
+          : null;
+      best = { 
+        pct: v, 
+        name: lineName(ix, +id), 
+        sel: { kind: "line", id: +id },
+        winterPct,
+        summerPct,
+        case: winningCase,
+      };
+    }
+  }
+  
+  for (const [id, v] of Object.entries(yr.trafo_loading ?? {})) {
+    if (!best || v > best.pct) {
+      const winterPct = yr.trafo_loading_winter?.[+id] ?? null;
+      const summerPct = yr.trafo_loading_summer?.[+id] ?? null;
+      const winningCase = 
+        winterPct !== null && summerPct !== null
+          ? (winterPct >= summerPct ? "winter peak" : "summer min")
+          : null;
+      best = { 
+        pct: v, 
+        name: trafoName(ix, +id), 
+        sel: { kind: "trafo", id: +id },
+        winterPct,
+        summerPct,
+        case: winningCase,
+      };
+    }
+  }
+  
   return best;
 }
 
