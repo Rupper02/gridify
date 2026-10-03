@@ -405,7 +405,9 @@ class PlanService:
         stored = self.inputs(branch_id)
         b = stored._replace(req=body)
         params = resolve_params(body)
-        key = self.cache.key("payload", params, b.ckey, extra=f"{body.with_justification}|{years_key(b)}")
+        # the payload is per branch (it carries the branch id, schedule and ledger write), while the engine
+        # results underneath it are shared by every branch with the same inputs
+        key = self.cache.key("payload", params, b.ckey, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
         if key in self.cache.payload:
             return self.cache.payload[key]
 
