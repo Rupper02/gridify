@@ -14,12 +14,14 @@ screen per year), cheap next to the greedy trials.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import hashlib
+import json
+from collections.abc import Callable, Iterable, MutableMapping
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR
 from .demand import assess_demand
 from .greedy import NetFactory, Progress
-from .maintenance import apply_works_after, study_windows
+from .maintenance import WORKS, apply_works_after, study_windows
 from .network import (
     apply_reinforcement,
     build_base_net,
@@ -125,6 +127,33 @@ def evaluate_year(
     return yr
 
 
+def year_signature(
+    year: int,
+    candidates: list[Candidate],
+    params: OptimizeParams,
+    in_service: dict[str, int],
+    *,
+    outages: list[Outage] = (),
+    reinforcements: list[Reinforcement] = (),
+) -> str:
+    """Everything one year's result depends on, as a stable key: the demand (pathway and anchors),
+    the projects in service that year, the reinforcements, that year's windows and the works finished
+    before it that leave a change behind. Two plans with the same signature for a year have the same
+    result for it, so an edit only re-solves the years whose signature it changes (an outage in 2031
+    re-solves 2031, and the later years only if it repowers something)."""
+    energised = sorted(
+        (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology)
+        for c in candidates
+        if (y := in_service.get(c.request_id)) is not None and y <= year and c.bus_id is not None
+    )
+    works = sorted(
+        (o.model_dump_json() for o in outages if o.year == year or (o.year < year and WORKS[o.work].after is not None)),
+    )
+    sig = [year, params.scenario, round(params.growth_2030, 4), round(params.growth_2035, 4), energised,
+           sorted(r.model_dump_json() for r in reinforcements), works]
+    return hashlib.sha256(json.dumps(sig, default=str).encode()).hexdigest()[:24]
+
+
 def evaluate_years(
     result: OptimizeResult,
     candidates: list[Candidate],
@@ -138,10 +167,15 @@ def evaluate_years(
     net_factory: NetFactory = build_base_net,
     progress: Progress | None = None,
     on_year: Callable[[YearResult], None] | None = None,
+    cache: MutableMapping[str, YearResult] | None = None,
 ) -> dict[str, YearResult]:
     """Solve every year of the plan in `year_order` (the viewed year first). `on_year` is called as
     each year lands, so a caller can publish partial results; `progress(stage, fraction)` reports
-    fractions within this step (0..1)."""
+    fractions within this step (0..1).
+
+    `cache` (optional, a mapping the caller keeps) holds year results by `year_signature`, so a
+    re-run after a small edit solves only the years the edit touches. Like greedy's trial cache, the
+    caller must key the mapping by network snapshot and engine version (and the net factory)."""
     report = progress or (lambda _s, _f: None)
     in_service = energisation_years(result, scheduled)
     order = year_order(view_year, years)
@@ -150,8 +184,13 @@ def evaluate_years(
         n_out = sum(1 for o in outages if o.year == y)
         report(f"year {y}: both cases, N-1" + (f", {n_out} planned outage{'s' if n_out != 1 else ''}" if n_out else ""),
                i / len(order))
-        yr = evaluate_year(y, candidates, params, in_service, outages=outages, reinforcements=reinforcements,
-                           net_factory=net_factory)
+        key = year_signature(y, candidates, params, in_service, outages=outages, reinforcements=reinforcements)
+        yr = cache.get(key) if cache is not None else None
+        if yr is None:
+            yr = evaluate_year(y, candidates, params, in_service, outages=outages, reinforcements=reinforcements,
+                               net_factory=net_factory)
+            if cache is not None:
+                cache[key] = yr
         out[str(y)] = yr
         if on_year is not None:
             on_year(yr)

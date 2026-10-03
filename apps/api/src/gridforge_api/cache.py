@@ -14,6 +14,7 @@ from .store import ScenarioStore
 from .warehouse import Warehouse
 
 MAX_TRIAL_CACHE_ENTRIES = 50_000  # bounded: a cold start costs one full run, nothing else
+MAX_YEAR_CACHE_ENTRIES = 2_000  # solved plan years (years.year_signature): an edit re-solves only what it touches
 
 
 def cand_key(cands: list[Candidate]) -> str:
@@ -44,6 +45,7 @@ class ResultCache:
         # per (parameters, snapshot, engine): the engine's exact trial cache, so a branch that gains
         # one project re-solves only the trials whose state changed (see greedy.optimize)
         self._trials: dict[tuple, dict] = {}
+        self._years: dict[tuple, dict] = {}
         store.on_reset(self.clear)
 
     def clear(self) -> None:
@@ -58,6 +60,14 @@ class ResultCache:
     def trial_cache(self, params: OptimizeParams) -> dict:
         cache = self._trials.setdefault((params_key(params), self._warehouse.baseline_id(), self.engine), {})
         if len(cache) > MAX_TRIAL_CACHE_ENTRIES:
+            cache.clear()
+        return cache
+
+    def year_cache(self) -> dict:
+        """Solved plan years by `years.year_signature` (which already covers the parameters), per
+        snapshot and engine: what a re-run after a small edit reuses."""
+        cache = self._years.setdefault((self._warehouse.baseline_id(), self.engine), {})
+        if len(cache) > MAX_YEAR_CACHE_ENTRIES:
             cache.clear()
         return cache
 

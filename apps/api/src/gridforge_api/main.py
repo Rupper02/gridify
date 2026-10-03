@@ -19,13 +19,12 @@ from starlette.responses import JSONResponse
 from .config import log
 from .deps import jobs, plans, scenarios, warehouse
 from .routers import branches, model, optimize, registry
-from .schemas import OptimizeRequest
 
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests
-    never race on DDL), then warm pandapower's numba JIT so the first /optimize isn't slow."""
+    never race on DDL), then warm pandapower's numba JIT and pre-compute main on every demand profile."""
     scenarios.init()
 
     def _warm() -> None:
@@ -33,7 +32,7 @@ async def _lifespan(_app: FastAPI):
             from gridforge_optimizer.network import build_base_net, feasibility
             feasibility(build_base_net())
             if warehouse.exists():
-                plans.optimize_payload(OptimizeRequest(with_justification=False), "main")
+                plans.warm("main", idle=jobs.idle)
         except Exception:  # warming is best-effort; a broken network surfaces on the first real call
             log.exception("warm-up failed")
 

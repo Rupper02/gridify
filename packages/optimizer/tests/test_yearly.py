@@ -160,3 +160,28 @@ def test_a_transformer_derate_keeps_its_impedance():
     assert net.trafo.at[t, "vk_percent"] / net.trafo.at[t, "sn_mva"] == pytest.approx(vk / sn)
     undo()
     assert net.trafo.at[t, "sn_mva"] == sn and net.trafo.at[t, "vk_percent"] == vk
+
+
+def test_the_year_cache_resolves_only_the_years_an_edit_touches(monkeypatch, stiff):
+    import gridforge_optimizer.years as years_mod
+
+    cands = [Candidate(request_id="PV", bus_id=stiff, technology="solar", rating_mw=10.0, commissioning_year=2028)]
+    res = optimize(cands, PARAMS)
+    solved = []
+    real = years_mod.evaluate_year
+    monkeypatch.setattr(years_mod, "evaluate_year", lambda y, *a, **k: solved.append(y) or real(y, *a, n1=False, **{x: v for x, v in k.items() if x != "n1"}))
+    cache: dict = {}
+    span = [2029, 2030, 2031]
+    first = evaluate_years(res, cands, PARAMS, years=span, cache=cache)
+    assert sorted(solved) == span
+    solved.clear()
+    # a maintenance window in 2030 touches 2030 only; nothing else re-solves
+    o = Outage(outage_id="m", element_kind="line", element_id=str(int(base_net().line.index[0])), season="Summer", year=2030)
+    again = evaluate_years(res, cands, PARAMS, years=span, outages=[o], cache=cache)
+    assert solved == [2030]
+    assert again["2029"] == first["2029"] and again["2030"].outage_studies
+    solved.clear()
+    # moving the project's year re-solves the years whose energised set changes
+    evaluate_years(res, cands, PARAMS, years=span, outages=[o], scheduled={"PV": 2031}, cache=cache)
+    rec = res.queue[0].recommended_year
+    assert set(solved) == {y for y in span if (y >= rec) != (y >= 2031)}

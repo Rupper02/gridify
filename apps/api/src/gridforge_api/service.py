@@ -177,7 +177,7 @@ class PlanService:
             t0 = time.perf_counter()
             years = evaluate_years(result, b.cands, params, scheduled=b.schedule, outages=b.outages,
                                    reinforcements=b.reinforcements, view_year=view_year,
-                                   progress=progress, on_year=on_year)
+                                   progress=progress, on_year=on_year, cache=self.cache.year_cache())
             self.cache.put(key, "years", int((time.perf_counter() - t0) * 1000),
                            json.dumps({k: v.model_dump() for k, v in years.items()}))
         self.cache.compute[key] = years
@@ -247,6 +247,18 @@ class PlanService:
         out["branch_id"] = branch_id
         out["justification"] = ""
         return out
+
+    def warm(self, branch_id: str = "main", idle=lambda: True) -> None:
+        """Pre-compute a branch's plan on its own demand profile, then on every other selectable one,
+        so switching the profile finds the run in the cache. Best-effort, on the job worker: before
+        each extra profile it checks `idle()` and stops as soon as a real job is waiting."""
+        own = self.inputs(branch_id).req
+        self.optimize_payload(own.model_copy(update={"with_justification": False}), branch_id)
+        for fid, fc in FORECASTS.items():
+            if not idle():
+                return
+            if fid != own.scenario and fc.get("selectable", True):
+                self.optimize_payload(own.model_copy(update={"scenario": fid, "with_justification": False}), branch_id)
 
     def optimize_payload(self, body: OptimizeRequest, branch_id: str = "main", progress=None,
                          publish=None, view_year: int | None = None) -> dict:

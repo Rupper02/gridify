@@ -484,3 +484,34 @@ def test_reinforcements_are_validated():
     bid = _create("Bad lever")["branch_id"]
     assert client.post(f"/branches/{bid}/reinforcements", json={"kind": "trafo", "element_id": 0, "action": "uprate", "factor": 0}).status_code == 422
     assert client.post(f"/branches/{bid}/reinforcements", json={"kind": "line", "element_id": 999999}).status_code == 422
+
+
+def test_a_running_job_can_be_cancelled_and_a_queued_one_never_starts():
+    import threading
+    import time as _t
+
+    from gridforge_api.deps import jobs
+
+    started = threading.Event()
+
+    def slow(progress, publish):
+        started.set()
+        for i in range(400):
+            progress(f"step {i}", i / 400)
+            _t.sleep(0.02)
+        return {"done": True}
+
+    running = jobs.start("test", slow)
+    queued = jobs.start("test", lambda progress, publish: {"done": True})
+    assert started.wait(10)
+    assert client.post(f"/jobs/{queued['job_id']}/cancel").status_code == 200
+    assert client.post(f"/jobs/{running['job_id']}/cancel").json()["job_id"] == running["job_id"]
+    for _ in range(200):
+        a, b = (client.get(f"/jobs/{j['job_id']}").json() for j in (running, queued))
+        if a["status"] != "running" and b["status"] != "queued":
+            break
+        _t.sleep(0.05)
+    assert a["status"] == "cancelled" and a["result"] is None
+    assert b["status"] == "cancelled" and b["started_at"] is None
+    assert "cancel" not in a
+    assert client.post("/jobs/job-nope/cancel").status_code == 404

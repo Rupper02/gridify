@@ -10,6 +10,10 @@ from fastapi import HTTPException
 
 from .config import log, now
 
+class JobCancelled(Exception):
+    """Raised inside a job's progress callback once the job has been cancelled."""
+
+
 MAX_JOB_RECORDS = 200  # keep the registry bounded; finished jobs fall off oldest-first
 PRUNE_BATCH = 50
 
@@ -34,7 +38,7 @@ class JobRunner:
         result the planner can show while the job is still running (GET /jobs/{id}?partial=true)."""
         job_id = "job-" + uuid.uuid4().hex[:10]
         rec = {"job_id": job_id, "kind": kind, "status": "queued", "stage": "queued", "fraction": 0.0,
-               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None, "error": None}
+               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None, "error": None, "cancel": False}
         with self._lock:
             self._jobs[job_id] = rec
             if len(self._jobs) > MAX_JOB_RECORDS:
@@ -44,6 +48,8 @@ class JobRunner:
 
         def progress(stage: str, fraction: float) -> None:
             with self._lock:
+                if rec["cancel"]:  # cooperative: the engine reports progress between trials and years
+                    raise JobCancelled()
                 rec["stage"], rec["fraction"] = stage, round(float(fraction), 3)
 
         def publish(partial: dict) -> None:
@@ -53,11 +59,17 @@ class JobRunner:
         def run() -> None:
             t0 = time.perf_counter()
             with self._lock:
+                if rec["cancel"]:  # cancelled while queued: never starts
+                    rec.update(status="cancelled", stage="cancelled", finished_at=now())
+                    return
                 rec["status"], rec["started_at"], rec["stage"] = "running", now(), "starting"
             try:
                 out = fn(progress, publish)
                 with self._lock:
                     rec.update(status="done", stage="done", fraction=1.0, result=out, partial=None)
+            except JobCancelled:
+                with self._lock:
+                    rec.update(status="cancelled", stage="cancelled", partial=None)
             except Exception as exc:  # the job records its own failure; nothing escapes the worker
                 log.exception("job %s failed", job_id)
                 with self._lock:
@@ -72,13 +84,29 @@ class JobRunner:
 
     @staticmethod
     def _view(rec: dict, with_result: bool = False, with_partial: bool = False) -> dict:
-        out = {k: v for k, v in rec.items() if k not in ("result", "partial")}
+        out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel")}
         out["has_partial"] = rec["partial"] is not None
         if with_result:
             out["result"] = rec["result"]
         if with_partial:
             out["partial"] = rec["partial"]
         return out
+
+    def idle(self) -> bool:
+        """No job is waiting for the worker (background warm-up yields to real work)."""
+        with self._lock:
+            return not any(r["status"] == "queued" for r in self._jobs.values())
+
+    def cancel(self, job_id: str) -> dict:
+        """Ask a queued or running job to stop (it stops at its next progress report); 404 if unknown.
+        Work it already cached (greedy trials, solved years) is kept, so a re-run resumes cheaply."""
+        with self._lock:
+            rec = self._jobs.get(job_id)
+            if rec is None:
+                raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
+            if rec["status"] in ("queued", "running"):
+                rec["cancel"] = True
+            return self._view(rec)
 
     def get(self, job_id: str, with_result: bool = True, with_partial: bool = False) -> dict:
         """A job's status, stage, its partial result while running (if asked) and its result when

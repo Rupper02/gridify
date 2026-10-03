@@ -38,6 +38,12 @@ def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None
         req, branch_id, progress=progress, publish=publish, view_year=view_year))
 
 
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str) -> dict:
+    """Stop a queued or running job (a newer edit supersedes it). What it already solved stays cached."""
+    return jobs.cancel(job_id)
+
+
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, with_result: bool = True, partial: bool = False) -> dict:
     """A background job's status, stage, its partial result while running (`partial=true`: the
