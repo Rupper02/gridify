@@ -104,13 +104,21 @@ def triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
     return ("auto_accept" if not reasons else "needs_review"), ", ".join(reasons)
 
 
-def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_ids: set[int]) -> dict:
-    """Validate + insert a project on a branch; returns the stored row (client fields)."""
+def insert_candidate(
+    con: Cursor, branch_id: str, body: NewCandidate, valid_bus_ids: set[int], allow_no_year: bool = False
+) -> dict:
+    """Validate + insert a project on a branch; returns the stored row (client fields).
+    
+    When allow_no_year=True (chat filing), commissioning_year is left NULL and not defaulted."""
     status, review = triage(body, valid_bus_ids)
     n = con.execute("SELECT count(*) FROM added_candidates").fetchone()[0]
     request_id = f"CR-{ADDED_CANDIDATE_ID_BASE + n}"
-    year = body.commissioning_year or commission_year(
-        body.readiness_score, body.technology, body.rating_mw, request_id)
+    if allow_no_year:
+        year = None
+    else:
+        year = body.commissioning_year or commission_year(
+            body.readiness_score, body.technology, body.rating_mw, request_id
+        )
     con.execute(
         f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

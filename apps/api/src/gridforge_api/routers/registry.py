@@ -54,7 +54,7 @@ def chat_file_project(body: ChatFileProject) -> dict:
         )
     if reasons:
         raise HTTPException(status_code=422, detail="; ".join(reasons))
-    # File the project onto the target branch
+    # File the project onto the target branch WITHOUT a commissioned year (allow_no_year=True)
     candidate = NewCandidate(
         applicant=body.applicant or "Chat-filed project",
         bus_id=body.bus_id,
@@ -63,6 +63,6 @@ def chat_file_project(body: ChatFileProject) -> dict:
         branch_id=body.branch_id,
     )
     with scenarios.cursor() as con:
-        row = repository.insert_candidate(con, body.branch_id, candidate, valid_bus_ids)
+        row = repository.insert_candidate(con, body.branch_id, candidate, valid_bus_ids, allow_no_year=True)
     cache.clear()
     return repository.to_client(row)

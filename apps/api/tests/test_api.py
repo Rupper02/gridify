@@ -225,15 +225,15 @@ def test_chat_file_project_validates_all_three():
 
 
 def test_chat_filed_project_does_not_set_year():
-    """Chat filing does not set a study year, does not rank, and does not adopt."""
+    """Chat filing does not set a commissioned year - the field must be NULL/None."""
     stiff = _stiff_bus()
     r = client.post("/chat/file-project", json={
         "rating_mw": 5.0, "bus_id": stiff, "technology": "wind", "applicant": "Chat test"
     })
     assert r.status_code == 200
     filed = r.json()
-    # filing does not force a year; the project gets a commissioned year from the heuristic
-    assert "commissioning_year" in filed
+    # The chat path must return the project with commissioned_year unset (NULL/None)
+    assert filed["commissioning_year"] is None, f"commissioned_year must be None, got {filed['commissioning_year']}"
     # the project is on main (or the specified branch) but not yet ranked or adopted
     assert filed["branch_id"] == "main"
 

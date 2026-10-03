@@ -74,7 +74,10 @@ class ScheduleSet(BaseModel):
 
 
 class ChatFileProject(BaseModel):
-    """Chat-based project filing: requires confirmation of MW, bus, and technology."""
+    """Chat-based project filing: requires confirmation of MW, bus, and technology.
+    
+    The chat does not set a commissioned year (no year is stored). The optimizer will recommend
+    one when the project is ranked."""
 
     rating_mw: float
     bus_id: int
