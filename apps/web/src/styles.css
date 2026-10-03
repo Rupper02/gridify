@@ -419,3 +419,27 @@ input { font-family: inherit; }
 
 /* Review: what merging adds to and removes from main's planned works and reinforcements */
 .merge-changes { display: flex; flex-direction: column; gap: 6px; }
+
+/* ---- the merge gate (Review) and the findings ledger (Findings tab) ---- */
+.gate-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
+.gate-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--ink-2); }
+.gate-state[data-tone="bad"] { color: var(--red-ink); }
+.gate-state[data-tone="warn"] { color: var(--amber-ink); }
+.gate-state[data-tone="good"] { color: var(--green-ink); }
+.gate-row { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; line-height: 1.45; padding: 6px 8px; border-radius: 8px; text-wrap: pretty; }
+.gate-row.blocker { background: rgba(255, 107, 107, 0.09); color: var(--red-ink); }
+.gate-row.warning { background: rgba(255, 195, 107, 0.09); color: var(--amber-ink); }
+.gate-row.info { color: var(--mute); padding: 3px 8px; }
+.gate-context summary { cursor: pointer; font-size: 11.5px; color: var(--mute); }
+.gate-context[open] summary { margin-bottom: 4px; }
+.btn.hue[data-gate="blocked"], .btn.hue[data-gate="stale"] { border-color: rgba(255, 107, 107, 0.5); background: rgba(255, 107, 107, 0.1); color: var(--red-ink); }
+.btn.hue[data-gate="warnings"] { border-color: rgba(255, 195, 107, 0.5); background: rgba(255, 195, 107, 0.1); color: var(--amber-ink); }
+.btn.solid-hue[data-gate="warnings"] { background: var(--amber); }
+.frow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 8px; align-items: start; padding: 8px 10px; border-radius: 10px; background: var(--well); border: var(--well-bd); }
+.frow-main { display: flex; align-items: center; gap: 6px; min-width: 0; text-align: left; color: inherit; font: inherit; background: none; border: none; padding: 0; cursor: pointer; }
+.frow-main:hover .ellipsis { text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); }
+.frow .fmsg { grid-column: 2 / -1; font-size: 11.5px; line-height: 1.4; color: var(--mute); text-wrap: pretty; }
+.sev-dot { width: 8px; height: 8px; border-radius: 999px; margin-top: 5px; flex: none; }
+.filter-chips { display: flex; gap: 4px; }
+.filter-chips button { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; color: var(--mute); font-size: 11.5px; font-weight: 600; }
+.filter-chips button.on { background: rgba(255, 255, 255, 0.12); color: var(--ink); border-color: rgba(255, 255, 255, 0.22); }

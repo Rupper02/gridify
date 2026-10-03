@@ -48,7 +48,9 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branch
       const bid = over.activeBranch ?? st.activeBranch ?? "main";
       const prev = st.result;
       const prevStatus: Record<string, Status> = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
-      patch(quiet ? { solving: true, refreshing: true, stage: "queued", fraction: 0 } : { running: true, solving: true, stage: "queued", fraction: 0, menuOpen: false });
+      // the gate's verdict belongs to the result being replaced: drop it now, so Merge reads "checking"
+      // until the check for the new result lands (never enabled on a stale verdict)
+      patch(quiet ? { solving: true, refreshing: true, stage: "queued", fraction: 0, mergeCheck: null } : { running: true, solving: true, stage: "queued", fraction: 0, menuOpen: false, mergeCheck: null });
       const current = () => ref.current.activeBranch === bid; // ignore results for a branch we left
 
       const onPartial = (p: OptimizeResult) => {

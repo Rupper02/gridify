@@ -2,7 +2,8 @@
 
 import { useCallback } from "react";
 
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
+import { refusedCheck } from "../../lib/gate";
 import { EMPTY_CHAT } from "./core";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
@@ -20,7 +21,7 @@ export function useBranchFlows(
     (id: string) => {
       patch({ menuOpen: false });
       if (id === ref.current.activeBranch) return;
-      patch({ activeBranch: id, diff: null, diffMode: false, suggestions: null, sel: null, outages: [], reinforcements: [], chat: EMPTY_CHAT });
+      patch({ activeBranch: id, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, sel: null, outages: [], reinforcements: [], chat: EMPTY_CHAT });
       void loadExtras(id);
       void run({ activeBranch: id });
     },
@@ -37,7 +38,7 @@ export function useBranchFlows(
       try {
         const b = await api.createBranch({ name: label, from_branch: "main", scenario: main?.scenario ?? "ht" });
         await refreshBranches();
-        patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, sel: null, chat: { ...EMPTY_CHAT } });
+        patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, sel: null, chat: { ...EMPTY_CHAT } });
         toastMsg(`Opened ${b.name} off main. Changes stay here until you merge.`);
         void loadExtras(b.branch_id);
         void run({ activeBranch: b.branch_id });
@@ -94,6 +95,20 @@ export function useBranchFlows(
     [patch, ref],
   );
 
+  /** The merge gate's verdict for a branch (after its diff, so main's years are already cached). */
+  const refreshMergeCheck = useCallback(
+    async (bid: string) => {
+      if (!bid || bid === "main") return;
+      try {
+        const mergeCheck = await api.mergeCheck(bid);
+        if (ref.current.activeBranch === bid) patch({ mergeCheck });
+      } catch {
+        /* the Review tab keeps showing "checking" */
+      }
+    },
+    [patch, ref],
+  );
+
   const toggleDiff = useCallback(() => {
     const st = ref.current;
     if (st.activeBranch === "main") return;
@@ -102,21 +117,36 @@ export function useBranchFlows(
     if (on && !st.diff) void refreshDiff(st.activeBranch);
   }, [patch, ref, refreshDiff]);
 
-  const mergeBranch = useCallback(async () => {
-    const st = ref.current;
-    if (!st.activeBranch || st.activeBranch === "main") return;
-    const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
-    try {
-      await api.mergeBranch(st.activeBranch, { into: "main" });
-      await refreshBranches();
-      toastMsg(`${name} merged into main, the new plan of record.`);
-      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, sel: null, tab: "queue", chat: EMPTY_CHAT });
-      void loadExtras("main");
-      void run({ activeBranch: "main" });
-    } catch (e) {
-      toastMsg(`Merge failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
-    }
-  }, [loadExtras, patch, ref, refreshBranches, run, toastMsg]);
+  /**
+   * Merge the active branch into main through the gate. A refusal (409) carries the verdict: it goes
+   * into the Review tab and a toast; nothing changes until the operator re-runs or acknowledges.
+   */
+  const mergeBranch = useCallback(
+    async (opts: { acknowledge?: boolean } = {}) => {
+      const st = ref.current;
+      if (!st.activeBranch || st.activeBranch === "main") return;
+      const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
+      try {
+        await api.mergeBranch(st.activeBranch, { into: "main", acknowledge: !!opts.acknowledge });
+        await refreshBranches();
+        toastMsg(`${name} merged into main, the new plan of record.`);
+        patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, sel: null, tab: "queue", chat: EMPTY_CHAT });
+        void loadExtras("main");
+        void run({ activeBranch: "main" });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          const refusal = refusedCheck(e.detail, st.mergeCheck, st.activeBranch);
+          if (refusal) {
+            patch({ mergeCheck: refusal, tab: "review", sideOpen: true });
+            toastMsg(`Merge refused: ${e.message}`, "warn");
+            return;
+          }
+        }
+        toastMsg(`Merge failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+      }
+    },
+    [loadExtras, patch, ref, refreshBranches, run, toastMsg],
+  );
 
   const discardBranch = useCallback(async () => {
     const st = ref.current;
@@ -125,7 +155,7 @@ export function useBranchFlows(
     try {
       await api.discardBranch(st.activeBranch);
       await refreshBranches();
-      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, sel: null, chat: EMPTY_CHAT });
+      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, sel: null, chat: EMPTY_CHAT });
       void loadExtras("main");
       void run({ activeBranch: "main" });
       toastMsg(`${name} discarded. Back on main.`);
@@ -134,5 +164,5 @@ export function useBranchFlows(
     }
   }, [loadExtras, patch, ref, refreshBranches, run, toastMsg]);
 
-  return { selectBranch, createBranch, ensureEditableBranch, setProfile, refreshDiff, toggleDiff, mergeBranch, discardBranch };
+  return { selectBranch, createBranch, ensureEditableBranch, setProfile, refreshDiff, refreshMergeCheck, toggleDiff, mergeBranch, discardBranch };
 }

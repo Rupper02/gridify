@@ -10,6 +10,7 @@ import {
   yearResultFor,
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
+import { gateState, openCounts } from "../../lib/gate";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
 import type { PlannerState } from "./core";
@@ -34,8 +35,11 @@ export function useDerived(s: PlannerState) {
     if (!onMain && s.diff) s.diff.projects.forEach((p) => p.base_status == null && branchOnly.add(p.request_id));
     const bindLines = new Set<number>();
     q.forEach((x) => x.status === "Deferred" && x.reason?.element?.line_id != null && bindLines.add(x.reason.element.line_id));
-    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines };
-  }, [s.activeBranch, s.added, s.branches, s.diff, s.outages, s.reinforcements, s.result]);
+    // the merge gate as the buttons show it, and the ledger's open counts for the tab's badge
+    const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running);
+    const openFindings = openCounts(s.findings);
+    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings };
+  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.outages, s.reinforcements, s.result, s.running]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);

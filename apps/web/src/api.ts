@@ -8,8 +8,12 @@ import type {
   Branch,
   BranchReinforcement,
   Diff,
+  Finding,
+  FindingCounts,
+  FindingStatus,
   Forecast,
   Job,
+  MergeCheck,
   Model,
   NewCandidate,
   OptimizeResult,
@@ -22,12 +26,28 @@ import { getMaxMw, normReason, setMaxMw } from "./lib/reasons";
 export const BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
 
-async function errorText(r: Response): Promise<string> {
+/** A failed call: the status and the API's `detail` (a string, or a structured body such as a refused merge's verdict). */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly detail: unknown,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function errorDetail(r: Response): Promise<{ detail: unknown; text: string }> {
+  const fallback = `${r.status} ${r.statusText}`;
   try {
-    const j = (await r.json()) as { detail?: unknown };
-    return j.detail ? String(typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail)) : `${r.status} ${r.statusText}`;
+    const d = ((await r.json()) as { detail?: unknown }).detail;
+    if (d == null) return { detail: null, text: fallback };
+    if (typeof d === "string") return { detail: d, text: d };
+    const msg = (d as { message?: unknown }).message;
+    return { detail: d, text: typeof msg === "string" ? msg : JSON.stringify(d) };
   } catch {
-    return `${r.status} ${r.statusText}`;
+    return { detail: null, text: fallback };
   }
 }
 
@@ -37,7 +57,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!r.ok) throw new Error(await errorText(r));
+  if (!r.ok) {
+    const { detail, text } = await errorDetail(r);
+    throw new ApiError(r.status, detail, text);
+  }
   return (await r.json()) as T;
 }
 const getJson = <T>(path: string) => request<T>("GET", path);
@@ -143,8 +166,21 @@ export const api = {
   cancelJob: (jobId: string) => postJson<Job>(`/jobs/${jobId}/cancel`),
   diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
     applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
-  mergeBranch: (id: string, opts?: { into: string }) => postJson<Branch>(`/branches/${id}/merge`, opts ?? { into: "main" }),
+  /** The merge gate's verdict for a branch against `into` (default its parent). Read-only. */
+  mergeCheck: (id: string, into?: string) => getJson<MergeCheck>(`/branches/${id}/merge-check${into ? `?into=${encodeURIComponent(into)}` : ""}`),
+  /** Merge through the gate: a 409 ApiError carries `{code, message, verdict}`; warnings need `acknowledge`. */
+  mergeBranch: (id: string, opts: { into?: string; acknowledge?: boolean } = {}) =>
+    postJson<Branch>(`/branches/${id}/merge`, { into: opts.into ?? "main", acknowledge: !!opts.acknowledge }),
   discardBranch: (id: string) => postJson<Branch>(`/branches/${id}/discard`),
+  /** The findings ledger: what the branch's last run found, with the counts per status. */
+  listFindings: (id: string, opts?: { status?: FindingStatus; year?: number }) => {
+    const p = new URLSearchParams();
+    if (opts?.status) p.set("status", opts.status);
+    if (opts?.year != null) p.set("year", String(opts.year));
+    const qs = p.toString() ? `?${p}` : "";
+    return getJson<{ branch_id: string; counts: FindingCounts; findings: Finding[] }>(`/branches/${id}/findings${qs}`);
+  },
+  setFindingStatus: (findingId: string, status: FindingStatus, note = "") => postJson<Finding>(`/findings/${findingId}/ack`, { status, note }),
   /** The copilot's levers: for the branch's deferred projects, or for one of them (`request_id`). */
   getSuggestions: async (id: string, opts?: { limit?: number; with_narration?: boolean; request_id?: string }) => {
     const p = new URLSearchParams();

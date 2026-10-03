@@ -14,6 +14,7 @@ import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
 import { useCopilot } from "./planner/useCopilot";
 import { useDerived } from "./planner/useDerived";
+import { useFindings } from "./planner/useFindings";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
 import { useMapFeatures } from "./planner/useMapFeatures";
@@ -38,9 +39,14 @@ export function usePlanner() {
   const edited = useAutoRefresh(core, run);
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
+  const findings = useFindings(core);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
-    void flows.refreshDiff(bid);
+    void findings.loadFindings(bid);
+    void (async () => {
+      await flows.refreshDiff(bid); // the diff solves main's years if need be; the gate then finds them cached
+      await flows.refreshMergeCheck(bid);
+    })();
   };
   const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
   const { select, selectProject, focusSel } = useSelection(core);
@@ -56,6 +62,7 @@ export function usePlanner() {
       ...maint,
       ...copilot,
       ...mapView,
+      ...findings,
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
       setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
@@ -77,12 +84,13 @@ export function usePlanner() {
       goReview: () => {
         patch({ tab: "review", sideOpen: true });
         if (!ref.current.diff) void flows.refreshDiff(ref.current.activeBranch);
+        if (!ref.current.mergeCheck) void flows.refreshMergeCheck(ref.current.activeBranch);
       },
     }),
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings)],
   );
 
   return { s, patch, actions, derived, mapApi };

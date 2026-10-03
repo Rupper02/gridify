@@ -415,5 +415,5 @@ export function nameElements(text: string, ix: ModelIndex | null): string {
   return text
     .replace(/\b([Ll])ine (\d+)\b/g, (m, _l, id) => (ix.line.has(+id) ? lineName(ix, +id) : m))
     .replace(/\b([Tt])ransformer (\d+)\b/g, (m, _t, id) => (ix.trafo.has(+id) ? trafoName(ix, +id) : m))
-    .replace(/\b([Bb])us (\d+)\b(?! ·)/g, (m, b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
+    .replace(/\b([Bb])us (\d+)\b(?! ·)/g, (m, _b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
 }

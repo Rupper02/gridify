@@ -15,8 +15,11 @@ import type {
   Branch,
   BranchReinforcement,
   Diff,
+  Finding,
+  FindingCounts,
   Forecast,
   MapLayer,
+  MergeCheck,
   Model,
   OptimizeResult,
   Outage,
@@ -90,6 +93,9 @@ export interface PlannerState {
   diff: Diff | null;
   diffMode: boolean;
   suggestions: Suggestion[] | null;
+  mergeCheck: MergeCheck | null; // the gate's verdict for the active branch (null until checked)
+  findings: Finding[]; // the active branch's findings ledger
+  findingCounts: FindingCounts | null;
   // view
   tab: Tab;
   sideOpen: boolean;
@@ -114,7 +120,7 @@ export const INITIAL: PlannerState = {
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
   outages: [], reinforcements: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
-  diff: null, diffMode: false, suggestions: null,
+  diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null,
   tab: "copilot", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 2030, sel: null,
   maintDraft: INITIAL_DRAFT,

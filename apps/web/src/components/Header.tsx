@@ -1,7 +1,7 @@
 // The floating header: logo, branch capsule + menu, Diff / Merge on a branch, the demand profile
 // control and the Run button ("Re-run" when the shown result is out of date).
 
-import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play } from "@phosphor-icons/react";
+import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
@@ -14,12 +14,12 @@ import { ProfileGlyph } from "./ui";
 export type HeaderPlanner = PlannerSlice<
   "activeBranch" | "branches" | "diffMode" | "menuOpen" | "running",
   "createBranch" | "goReview" | "run" | "selectBranch" | "setProfile" | "toggleDiff" | "toggleMenu",
-  "branch" | "hue" | "onMain" | "prelim" | "profile" | "stale"
+  "branch" | "gate" | "hue" | "onMain" | "prelim" | "profile" | "stale"
 >;
 
 export function Header({ planner, layout }: { planner: HeaderPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
-  const { onMain, branch, hue, profile, stale, prelim } = derived;
+  const { onMain, branch, hue, profile, stale, prelim, gate } = derived;
   const wide = layout.wide;
   const nAdded = branch?.n_added ?? 0;
   const sub = onMain ? "plan of record" : `from main · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
@@ -54,8 +54,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
             <GitDiff size={14} />
             {wide && "Diff"}
           </button>
-          <button className="btn hue" onClick={actions.goReview} title="Merge into main (review first)">
-            <GitMerge size={14} weight="bold" />
+          <button className="btn hue" onClick={actions.goReview} title={gate.headline} data-gate={gate.state}>
+            {gate.state === "blocked" || gate.state === "stale" ? <Warning size={14} weight="bold" /> : <GitMerge size={14} weight="bold" />}
             {wide && "Merge"}
           </button>
         </div>

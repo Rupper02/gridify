@@ -45,7 +45,7 @@ const CardHead = ({ icon, iconBg, title, sub, mono, onClose }: { icon: ReactNode
 );
 
 function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; layout: Layout; id: string }) {
-  const { s, actions, derived } = planner;
+  const { actions, derived } = planner;
   const x: QueueItem | undefined = derived.qById[id];
   const pre: RegistryItem | undefined = derived.prelim.find((p) => p.request_id === id);
   if (!x && !pre) return null;

@@ -1,44 +1,56 @@
-// The collapsible side panel (keyboard `]`): Copilot / Queue / Outages / Review as a pill segmented
-// control, the active tab's body, and the toast.
+// The collapsible side panel (keyboard `]`): Copilot / Queue / Outages / Findings / Review as a pill
+// segmented control, the active tab's body, and the toast. The tabs are a registry: adding one is one
+// entry here (its label, icon, badge and body) plus its key in the `Tab` union.
 
-import { ChatCircleDots, CheckCircle, GitDiff, ListNumbers, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
+import { CheckCircle, ChatCircleDots, GitDiff, type Icon, ListNumbers, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
+import type { ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import type { Layout } from "../lib/layout";
 import { C } from "../theme";
 import type { Tab } from "../types";
 import { CopilotTab, type CopilotTabPlanner } from "./CopilotTab";
+import { FindingsTab, type FindingsTabPlanner } from "./FindingsTab";
 import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
 import { ReviewTab, type ReviewTabPlanner } from "./ReviewTab";
 
-export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "prelim" | "q"> &
+export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "openFindings" | "prelim" | "q"> &
   CopilotTabPlanner &
   QueueTabPlanner &
   OutagesTabPlanner &
+  FindingsTabPlanner &
   ReviewTabPlanner;
 
-const TABS: [Tab, string, typeof ChatCircleDots][] = [
-  ["copilot", "Copilot", ChatCircleDots],
-  ["queue", "Queue", ListNumbers],
-  ["outages", "Outages", Wrench],
-  ["review", "Review", GitDiff],
-];
+interface TabSpec {
+  label: string;
+  icon: Icon;
+  /** The small count next to the label ("" for none). */
+  badge: (p: SidePanelPlanner) => string;
+  render: (p: SidePanelPlanner, layout: Layout) => ReactNode;
+}
+
+const TABS: Record<Tab, TabSpec> = {
+  copilot: { label: "Copilot", icon: ChatCircleDots, badge: () => "", render: (p, layout) => <CopilotTab planner={p} layout={layout} /> },
+  queue: { label: "Queue", icon: ListNumbers, badge: (p) => String(p.derived.q.length + p.derived.prelim.length || ""), render: (p) => <QueueTab planner={p} /> },
+  outages: { label: "Outages", icon: Wrench, badge: (p) => (p.s.outages.length ? String(p.s.outages.length) : ""), render: (p) => <OutagesTab planner={p} /> },
+  findings: {
+    label: "Findings",
+    icon: Warning,
+    badge: (p) => String(p.derived.openFindings.breach || p.derived.openFindings.open || ""),
+    render: (p) => <FindingsTab planner={p} />,
+  },
+  review: { label: "Review", icon: GitDiff, badge: () => "", render: (p) => <ReviewTab planner={p} /> },
+};
 
 export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layout: Layout }) {
-  const { s, actions, derived } = planner;
-  const badge: Record<Tab, string> = {
-    copilot: "",
-    queue: String(derived.q.length + derived.prelim.length || ""),
-    outages: s.outages.length ? String(s.outages.length) : "",
-    review: "",
-  };
+  const { s, actions } = planner;
   return (
     <>
       {!s.sideOpen && (
         <button className="reopen glass" onClick={actions.toggleSide} title="Show panel (])">
           <SidebarSimple size={15} style={{ transform: "scaleX(-1)" }} />
-          Copilot, queue and review
+          Copilot, queue, findings and review
         </button>
       )}
       <aside className={`side${s.sideOpen ? "" : " closed"}`} aria-hidden={!s.sideOpen}>
@@ -46,23 +58,19 @@ export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layo
           <button className="hide" onClick={actions.toggleSide} title="Hide panel (])" aria-label="Hide panel">
             <SidebarSimple size={15} style={{ transform: "scaleX(-1)" }} />
           </button>
-          {TABS.map(([k, label, I]) => {
+          {(Object.entries(TABS) as [Tab, TabSpec][]).map(([k, t]) => {
             const on = s.tab === k;
+            const badge = t.badge(planner);
             return (
-              <button key={k} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => actions.setTab(k)} title={label}>
-                <I size={14} />
-                {(layout.wide || on) && label}
-                {badge[k] && <span className="badge">{badge[k]}</span>}
+              <button key={k} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => actions.setTab(k)} title={t.label}>
+                <t.icon size={14} />
+                {(layout.wide || on) && t.label}
+                {badge && <span className="badge">{badge}</span>}
               </button>
             );
           })}
         </div>
-        <div className="tab-body">
-          {s.tab === "copilot" && <CopilotTab planner={planner} layout={layout} />}
-          {s.tab === "queue" && <QueueTab planner={planner} />}
-          {s.tab === "outages" && <OutagesTab planner={planner} />}
-          {s.tab === "review" && <ReviewTab planner={planner} />}
-        </div>
+        <div className="tab-body">{TABS[s.tab].render(planner, layout)}</div>
         {s.toast && s.sideOpen && <Toast toast={s.toast} />}
       </aside>
       {s.toast && !s.sideOpen && <Toast toast={s.toast} floating />}

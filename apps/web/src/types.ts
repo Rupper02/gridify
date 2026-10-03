@@ -238,6 +238,7 @@ export interface N1During {
 
 /** The plan as it stands in one year (engine: years.evaluate_year). */
 export interface YearResult extends PhaseResult {
+  converged?: boolean; // false when a study case did not converge that year
   year: number;
   growth: number;
   energised: string[];
@@ -566,7 +567,7 @@ export type Sel =
   | { kind: "region"; id: string };
 /** The network elements (the element card): not a project, not a demand region. */
 export type ElementSel = Exclude<Sel, { kind: "project" } | { kind: "region" }>;
-export type Tab = "copilot" | "queue" | "outages" | "review";
+export type Tab = "copilot" | "queue" | "outages" | "findings" | "review";
 export type MapLayer = "flow" | "loading" | "voltage" | "demand";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
@@ -584,4 +585,78 @@ export interface Job<R = OptimizeResult> {
   partial?: OptimizeResult | null;
   result?: R | null;
   error?: string | null;
+}
+
+// ---- the merge gate and the findings ledger (engine gate.py / findings.py, API /merge-check, /findings) ----
+export type GateLevel = "blocker" | "warning" | "info";
+/** One reason the gate blocks, warns or notes; its level comes from the engine's policy table. */
+export interface GateFinding {
+  kind: string;
+  level: GateLevel;
+  year: number | null;
+  case: string | null;
+  element_kind: string | null;
+  element_id: string | null;
+  value: number | null;
+  base_value: number | null;
+  limit: number | null;
+  message: string;
+  finding_fingerprint: string | null;
+}
+export interface MergeVerdict {
+  ok: boolean;
+  blockers: GateFinding[];
+  warnings: GateFinding[];
+  context: GateFinding[];
+  years_compared: number[];
+  summary: string;
+}
+/** GET /branches/{id}/merge-check: may this branch merge, and on what evidence. */
+export interface MergeCheck {
+  branch_id: string;
+  into: string;
+  branch_status: BranchStatus;
+  fresh: boolean;
+  stale_reasons: string[];
+  requires_acknowledgement: boolean;
+  verdict: MergeVerdict;
+  evidence: Record<string, unknown>;
+  checked_at: string;
+}
+export type FindingSeverity = "breach" | "warn" | "info";
+export type FindingStatus = "open" | "acknowledged" | "resolved";
+/** One row of the findings ledger (GET /branches/{id}/findings). */
+export interface Finding {
+  finding_id: string;
+  branch_id: string;
+  fingerprint: string;
+  source: "engine" | "agent" | "operator" | string;
+  kind: string;
+  severity: FindingSeverity;
+  year: number | null;
+  case: string | null;
+  element_kind: string | null;
+  element_id: string | null;
+  value: number | null;
+  limit: number | null;
+  message: string;
+  context: Record<string, unknown>;
+  status: FindingStatus;
+  note: string;
+  evidence_kind: string;
+  evidence_ref: string;
+  evidence: Record<string, unknown>;
+  snapshot_id: string | null;
+  engine: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  acked_at: string | null;
+  resolved_at: string | null;
+}
+export interface FindingCounts {
+  open: number;
+  acknowledged: number;
+  resolved: number;
+  breach_open: number;
+  warn_open: number;
 }

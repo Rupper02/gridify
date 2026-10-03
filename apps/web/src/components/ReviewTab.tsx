@@ -3,10 +3,12 @@
 // branch, what changed), the reinforcements proposed on it, then Merge into main or Discard. main has
 // nothing to review.
 
-import { ArrowRight, Check, GitMerge, LockSimple, Minus, Plus, Trash, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Trash, Warning, Wrench } from "@phosphor-icons/react";
+import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { lineName, nameElements, trafoName } from "../lib/derive";
+import { type ModelIndex, lineName, nameElements, trafoName } from "../lib/derive";
+import { type GateState, type GateView, gateText, gateTitle } from "../lib/gate";
 import {
   type Namers,
   type Tone,
@@ -22,13 +24,13 @@ import {
   yearEffect,
 } from "../lib/diff";
 import { C, PLAN_YEARS, ST, fmtMw, profileOf, signed, tint } from "../theme";
-import type { Diff, OnMerge, Status, WorkDelta, YearDelta } from "../types";
+import type { Diff, MergeCheck, OnMerge, Status, WorkDelta, YearDelta } from "../types";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "branches" | "diff" | "outages" | "reinforcements" | "year",
+  "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "year",
   "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
-  "branch" | "hue" | "ix" | "onMain" | "yearDelta"
+  "branch" | "gate" | "hue" | "ix" | "onMain" | "yearDelta"
 >;
 
 const statusLabel = (st: Status | null, year?: number | null): string =>
@@ -36,7 +38,8 @@ const statusLabel = (st: Status | null, year?: number | null): string =>
 
 export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const { s, actions, derived } = planner;
-  const { branch, hue, ix } = derived;
+  const { branch, hue, ix, gate } = derived;
+  const [confirm, setConfirm] = useState(false); // the warnings step before "Merge anyway"
   if (derived.onMain)
     return (
       <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
@@ -55,6 +58,15 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const mismatch = main && branch && main.scenario !== branch.scenario;
   const d = s.diff;
   const open = branch?.status === "open";
+  const canMerge = gate.state === "ready" || gate.state === "warnings";
+  const onMerge = () => {
+    if (gate.state === "warnings" && !confirm) {
+      setConfirm(true);
+      return;
+    }
+    setConfirm(false);
+    void actions.mergeBranch({ acknowledge: gate.state === "warnings" });
+  };
   const names: Namers = {
     line: (id) => (ix ? lineName(ix, id) : `Line ${id}`),
     trafo: (id) => (ix ? trafoName(ix, id) : `Transformer ${id}`),
@@ -99,16 +111,70 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           ))}
         </div>
       )}
+      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} />
+      {confirm && s.mergeCheck && (
+        <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merge with these warnings?</span>
+          {s.mergeCheck.verdict.warnings.map((w, i) => (
+            <span key={i} className="gate-row warning">
+              <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
+              <span>{gateText(w, ix)}</span>
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
-        <button className="btn solid-hue grow" onClick={() => void actions.mergeBranch()} disabled={!open}>
+        <button className="btn solid-hue grow" onClick={onMerge} disabled={!canMerge} title={gate.headline} data-gate={gate.state}>
           <GitMerge size={14} weight="bold" />
-          Merge into main
+          {confirm ? "Merge anyway" : "Merge into main"}
         </button>
-        <button className="btn danger" onClick={() => void actions.discardBranch()} disabled={!open}>
-          Discard
-        </button>
+        {confirm ? (
+          <button className="btn" onClick={() => setConfirm(false)}>
+            Cancel
+          </button>
+        ) : (
+          <button className="btn danger" onClick={() => void actions.discardBranch()} disabled={!open}>
+            Discard
+          </button>
+        )}
       </div>
       {!open && <span className="mute" style={{ fontSize: 11.5 }}>This branch is {branch?.status}. Open a new one to propose more.</span>}
+    </div>
+  );
+}
+
+const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: ArrowsClockwise, stale: ArrowsClockwise, blocked: Prohibit, warnings: ShieldWarning, ready: ShieldCheck };
+const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
+
+/** The merge gate: may this branch become the plan of record? Blockers, warnings, and what main already carries. */
+function MergeReadiness({ mc, gate, ix }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null }) {
+  const I = GATE_ICON[gate.state];
+  const v = gate.state === "stale" || gate.state === "checking" || gate.state === "closed" ? null : (mc?.verdict ?? null);
+  const row = (f: Parameters<typeof gateText>[0], cls: string, i: number) => (
+    <span key={`${cls}${i}`} className={`gate-row ${cls}`}>
+      <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
+      <span>
+        <b>{gateTitle(f.kind)}</b> · {gateText(f, ix)}
+      </span>
+    </span>
+  );
+  return (
+    <div className="gate-card">
+      <span className="gate-state" data-tone={GATE_TONE[gate.state]}>
+        <I size={14} weight="bold" />
+        {gate.headline}
+      </span>
+      {v?.blockers.map((b, i) => row(b, "blocker", i))}
+      {v?.warnings.map((w, i) => row(w, "warning", i))}
+      {v && v.context.length > 0 && (
+        <details className="gate-context">
+          <summary>Already on {mc?.into ?? "main"}: {v.context.length} {v.context.length === 1 ? "item" : "items"} this branch inherits, not held against it</summary>
+          {v.context.map((c, i) => (
+            <span key={i} className="gate-row info">{gateText(c, ix)}</span>
+          ))}
+        </details>
+      )}
+      {v && <span className="mute" style={{ fontSize: 10.5 }}>Judged on {v.years_compared.length} plan years against {mc?.into ?? "main"}; every figure is the engine's.</span>}
     </div>
   );
 }
