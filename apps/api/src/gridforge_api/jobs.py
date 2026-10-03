@@ -1,9 +1,12 @@
 """Long computations run on a single background worker; the planner polls their progress."""
 
+from __future__ import annotations
+
 import threading
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import HTTPException
@@ -21,10 +24,13 @@ PRUNE_BATCH = 50
 class JobRunner:
     """Queue `fn(progress)` on one worker (pandapower is CPU-bound: one run at a time) and track it."""
 
-    def __init__(self):
+    def __init__(self, solver_lock: threading.RLock | None = None):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-job")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
+        # pandapower is CPU-bound and its nets are not shared across threads: every power flow in the
+        # process, an operator's job or an agent's study, runs under this one lock (agents.runtime.SolverGate)
+        self.solver_lock = solver_lock or threading.RLock()
 
     def submit(self, fn: Callable[[], None]) -> None:
         """Run a fire-and-forget task on the worker (warm-up)."""
@@ -43,7 +49,7 @@ class JobRunner:
             self._jobs[job_id] = rec
             if len(self._jobs) > MAX_JOB_RECORDS:
                 for old in sorted(self._jobs, key=lambda k: self._jobs[k]["created_at"])[:PRUNE_BATCH]:
-                    if self._jobs[old]["status"] in ("done", "failed"):
+                    if self._jobs[old]["status"] in ("done", "failed", "cancelled"):
                         self._jobs.pop(old, None)
 
         def progress(stage: str, fraction: float) -> None:
@@ -64,7 +70,8 @@ class JobRunner:
                     return
                 rec["status"], rec["started_at"], rec["stage"] = "running", now(), "starting"
             try:
-                out = fn(progress, publish)
+                with self.solver_lock if self.solver_lock is not None else nullcontext():
+                    out = fn(progress, publish)
                 with self._lock:
                     rec.update(status="done", stage="done", fraction=1.0, result=out, partial=None)
             except JobCancelled:
@@ -96,6 +103,11 @@ class JobRunner:
         """No job is waiting for the worker (background warm-up yields to real work)."""
         with self._lock:
             return not any(r["status"] == "queued" for r in self._jobs.values())
+
+    def busy(self) -> bool:
+        """An operator's job is queued or running: agent studies wait for it (operator first)."""
+        with self._lock:
+            return any(r["status"] in ("queued", "running") for r in self._jobs.values())
 
     def cancel(self, job_id: str) -> dict:
         """Ask a queued or running job to stop (it stops at its next progress report); 404 if unknown.

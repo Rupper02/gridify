@@ -18,7 +18,7 @@ from starlette.responses import JSONResponse
 
 from .config import log
 from .deps import jobs, plans, scenarios, warehouse
-from .routers import branches, findings, model, optimize, registry
+from .routers import branches, findings, model, optimize, registry, studies
 
 
 @asynccontextmanager
@@ -58,5 +58,5 @@ async def _json_errors(request: Request, call_next):
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for _router in (model.router, registry.router, optimize.router, branches.router, findings.router):
+for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router):
     app.include_router(_router)

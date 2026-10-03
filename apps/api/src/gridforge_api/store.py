@@ -33,6 +33,20 @@ FINDING_COLS = [
     "element_id", "value", "limit_value", "message", "context_json", "status", "note", "evidence_kind",
     "evidence_ref", "evidence_json", "snapshot_id", "engine", "first_seen_at", "last_seen_at", "acked_at", "resolved_at",
 ]
+EVENT_COLS = ["event_id", "project_id", "type", "dedup_id", "payload_json", "created_at", "workflow_ids"]
+RUN_COLS = [
+    "run_id", "project_id", "kind", "agent", "workflow_id", "branch_id", "thread_id", "event_id", "parent_run_id",
+    "status", "started_at", "finished_at", "model", "input_tokens", "output_tokens", "cost_credits", "solves", "summary", "error",
+]
+STEP_COLS = ["step_id", "run_id", "seq", "tool", "args_json", "cache_key", "result_json", "solves", "started_at", "finished_at",
+             "cost_credits", "error"]
+THREAD_COLS = ["thread_id", "project_id", "branch_id", "title", "kind", "created_at", "updated_at"]
+MESSAGE_COLS = ["message_id", "thread_id", "seq", "role", "content", "status", "workflow_id", "run_id", "tool_trace_json",
+                "model_json", "usage_json", "cost_credits", "flags_json", "evidence_json", "created_at"]
+APPROVAL_COLS = ["approval_id", "project_id", "thread_id", "message_id", "run_id", "tool_call_id", "tool", "args_json", "status",
+                 "decided_at", "decided_by", "note", "result_json", "created_at"]
+REVIEW_COLS = ["review_id", "project_id", "branch_id", "run_key", "run_id", "verdict", "verdict_json", "body", "blockers_json",
+               "warnings_json", "not_studied_json", "status", "created_at"]
 MERGE_COLS = [
     "merge_id", "branch_id", "into_branch", "outcome", "ok", "n_blockers", "n_warnings", "acknowledged",
     "verdict_json", "head_key", "base_key", "snapshot_id", "engine", "created_at",
@@ -262,6 +276,32 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
+    # the agent harness (agents/): events in, runs and their recorded tool steps (the evidence every
+    # figure is bound to), operator threads, approvals of proposed actions, daily budgets, branch reviews
+    for ddl in (
+        "CREATE TABLE IF NOT EXISTS project_events (event_id VARCHAR PRIMARY KEY, project_id VARCHAR, type VARCHAR, dedup_id VARCHAR, "
+        "payload_json VARCHAR, created_at VARCHAR, workflow_ids VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS project_state (project_id VARCHAR, key VARCHAR, value VARCHAR, updated_at VARCHAR, PRIMARY KEY (project_id, key))",
+        "CREATE TABLE IF NOT EXISTS agent_runs (run_id VARCHAR PRIMARY KEY, project_id VARCHAR, kind VARCHAR, agent VARCHAR, workflow_id VARCHAR, "
+        "branch_id VARCHAR, thread_id VARCHAR, event_id VARCHAR, parent_run_id VARCHAR, status VARCHAR, started_at VARCHAR, finished_at VARCHAR, "
+        "model VARCHAR, input_tokens INTEGER, output_tokens INTEGER, cost_credits DOUBLE, solves INTEGER, summary VARCHAR, error VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS agent_steps (step_id VARCHAR PRIMARY KEY, run_id VARCHAR, seq INTEGER, tool VARCHAR, args_json VARCHAR, "
+        "cache_key VARCHAR, result_json VARCHAR, solves INTEGER, started_at VARCHAR, finished_at VARCHAR, cost_credits DOUBLE, error VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS threads (thread_id VARCHAR PRIMARY KEY, project_id VARCHAR, branch_id VARCHAR, title VARCHAR, kind VARCHAR, "
+        "created_at VARCHAR, updated_at VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS messages (message_id VARCHAR PRIMARY KEY, thread_id VARCHAR, seq INTEGER, role VARCHAR, content VARCHAR, "
+        "status VARCHAR, workflow_id VARCHAR, run_id VARCHAR, tool_trace_json VARCHAR, model_json VARCHAR, usage_json VARCHAR, "
+        "cost_credits DOUBLE, flags_json VARCHAR, evidence_json VARCHAR, created_at VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS approvals (approval_id VARCHAR PRIMARY KEY, project_id VARCHAR, thread_id VARCHAR, message_id VARCHAR, "
+        "run_id VARCHAR, tool_call_id VARCHAR, tool VARCHAR, args_json VARCHAR, status VARCHAR, decided_at VARCHAR, decided_by VARCHAR, "
+        "note VARCHAR, result_json VARCHAR, created_at VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS agent_budgets (project_id VARCHAR, day VARCHAR, credits DOUBLE, tokens INTEGER, solves INTEGER, "
+        "paused BOOLEAN, paused_reason VARCHAR, updated_at VARCHAR, PRIMARY KEY (project_id, day))",
+        "CREATE TABLE IF NOT EXISTS reviews (review_id VARCHAR PRIMARY KEY, project_id VARCHAR, branch_id VARCHAR, run_key VARCHAR, run_id VARCHAR, "
+        "verdict VARCHAR, verdict_json VARCHAR, body VARCHAR, blockers_json VARCHAR, warnings_json VARCHAR, not_studied_json VARCHAR, "
+        "status VARCHAR, created_at VARCHAR)",
+    ):
+        con.execute(ddl)
     _ensure_main_branch(con)
 
 

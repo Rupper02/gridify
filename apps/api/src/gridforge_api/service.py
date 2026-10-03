@@ -7,6 +7,7 @@ from typing import Literal, NamedTuple
 
 from gridforge_optimizer import (
     PLAN_YEARS,
+    STUDIES,
     Candidate,
     ConsequenceDiff,
     MergeVerdict,
@@ -15,6 +16,8 @@ from gridforge_optimizer import (
     Outage,
     OutageStudy,
     Reinforcement,
+    StudyContext,
+    StudyResult,
     Suggestion,
     YearResult,
     against_recommendation,
@@ -27,6 +30,7 @@ from gridforge_optimizer import (
     extract_findings,
     merge_verdict,
     optimize,
+    run_study,
     suggest_unblock,
 )
 from gridforge_optimizer.config import FORECASTS
@@ -337,6 +341,29 @@ class PlanService:
             parse=json.loads, compute=search, dump=json.dumps,
         )
 
+    # --- studies (the agents' tools and POST /branches/{id}/studies/{kind}) --------------------------------------------
+    def study(self, branch_id: str, kind: str, params=None, progress=None) -> StudyResult:
+        """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
+        the plan years for the studies that read them. Cached like everything else, under the branch's inputs
+        and the study's parameters, so an agent asking twice costs one solve; a chunk is a study with its own
+        parameters, so chunks cache on their own."""
+        spec = STUDIES[kind]
+        p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
+        b = self.inputs(branch_id)
+        engine_params = resolve_params(b.req)
+        extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if spec.needs_plan else "")
+
+        def compute() -> StudyResult:
+            result = self.result_with_years(b) if spec.needs_plan else None
+            ctx = StudyContext(net_factory=reinforced_factory(b.reinforcements), params=engine_params, candidates=b.cands,
+                               result=result, progress=progress or (lambda _s, _f: None))
+            return run_study(kind, ctx, p)
+
+        return self.cache.through(
+            self.cache.key(f"study:{kind}", engine_params, b.ckey, extra=extra), f"study:{kind}",
+            parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json(),
+        )
+
     # --- the payload the planner renders -------------------------------------------------------------------
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:
         """The engine result shaped for the map: coordinates, applicant, the operator's schedule
@@ -377,6 +404,9 @@ class PlanService:
         }
         out["snapshot_id"] = self.warehouse.baseline_id()
         out["branch_id"] = branch_id
+        # the identity of this result's physics (the plan-years cache key): what a review or an agent event
+        # refers to, the same for a re-run with the same inputs, different as soon as anything changes
+        out["run_key"] = self._years_key(b, resolve_params(b.req))
         out["justification"] = ""
         return out
 

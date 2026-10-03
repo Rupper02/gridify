@@ -28,6 +28,22 @@ MANUAL_READINESS_DEFAULT = 0.5
 MANUAL_STRATEGIC_DEFAULT = 0.5
 ADDED_CANDIDATE_ID_BASE = 2056  # user-added projects are numbered CR-2056, CR-2057, …
 
+# --- the agent harness (agents/) ---------------------------------------------------------------------------
+NGED_PROJECT_ID = "nged-bickerfen"  # the one project today; every agent record is keyed by project
+# OpenRouter model ids per role (AGENTS.md rule 2: they plan studies and phrase; the engine computes)
+AGENT_MODELS = {
+    "steward": "anthropic/claude-sonnet-5.5",
+    "reviewer": "anthropic/claude-sonnet-5.5",
+    "answerer": "anthropic/claude-sonnet-5.5",
+    "specialist": "anthropic/claude-haiku-4.5",
+}
+# per project and day: OpenRouter credits, tokens and power-flow solves before the agents pause themselves
+AGENT_BUDGET_DAILY = {"credits": 5.0, "tokens": 2_000_000, "solves": 3_000}
+# per agent run: tool calls, solves and wall time before it is cut short
+AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
+SOLVER_GATE_MAX_WAIT_S = 180.0  # how long an agent study waits for an operator's job before it gives up
+AGENT_STEP_RETENTION_DAYS = 90  # recorded tool steps older than this are dropped unless an open finding cites them
+
 
 def now() -> str:
     """UTC timestamp as an ISO-8601 string (sorts chronologically; JSON-friendly)."""
