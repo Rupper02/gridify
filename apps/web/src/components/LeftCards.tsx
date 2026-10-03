@@ -60,6 +60,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
     <div className="left-col" style={{ maxHeight: `calc(100% - ${reserve}px)` }}>
       <ResultStamp planner={planner} runLabel={runLabel} />
       {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} />}
+      {!layout.showReadings && s.result && <CompactReadings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} worst={worst} vMin={vMin} vMax={vMax} worstPct={worstPct} />}
       {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
     </div>
   );
@@ -155,6 +156,45 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
       </div>
       {yr?.alerts && <CustomerAlerts planner={planner} />}
       {s.solving && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>Solving the remaining years in the background.</span>}
+    </div>
+  );
+}
+
+/** Compact readings for short windows (< 760px tall): critical stats in a minimal card. */
+function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worstPct }: {
+  planner: LeftCardsPlanner;
+  gsp: number | null;
+  limit: number | null;
+  gspHot: boolean;
+  worst: ReturnType<typeof worstElement>;
+  vMin: string;
+  vMax: string;
+  worstPct: number | null;
+}) {
+  const { s } = planner;
+  const computing = s.refreshing || s.running;
+  return (
+    <div className="card glass" style={{ padding: "8px 12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px 12px", fontSize: 11 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: C.mute }}>GSP</span>
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : gspHot ? C.amber : C.ink }}>
+            {computing ? "..." : gsp != null && limit != null ? `${Math.round(gsp)} / ${Math.round(limit)}` : "–"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: C.mute }}>Voltage</span>
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : C.ink }}>
+            {computing ? "..." : `${vMin}–${vMax}`}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ color: C.mute }}>Worst</span>
+          <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worstPct && worstPct > 100 ? C.red : worstPct && worstPct > 90 ? C.amber : C.ink }}>
+            {computing ? "..." : worstPct != null ? `${worstPct}%` : "–"}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
