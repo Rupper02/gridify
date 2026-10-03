@@ -4,12 +4,12 @@ import { useMemo } from "react";
 
 import {
   branchHue,
-  diffPhaseFor,
   indexModel,
   preliminaryOf,
   staleness,
   yearResultFor,
 } from "../../lib/derive";
+import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
 import type { PlannerState } from "./core";
@@ -42,15 +42,10 @@ export function useDerived(s: PlannerState) {
     const studied = new Set(s.result?.studied?.outage_ids ?? []);
     const outLines = new Set<number>();
     s.outages.forEach((o) => o.year === s.year && o.element_kind === "line" && studied.has(o.outage_id) && outLines.add(Number(o.element_id)));
-    // diff mode: the loading change per line vs main, from the diff phase that stands for this year
-    let diffDeltas: Map<number, { delta: number; head: number }> | null = null;
-    const diffPhase = diffPhaseFor(s.year);
-    if (s.diffMode && s.diff) {
-      diffDeltas = new Map();
-      const ph = s.diff.phases.find((p) => p.phase === diffPhase);
-      ph?.top_line_deltas.forEach((d) => Math.abs(d.delta) >= 0.5 && diffDeltas!.set(d.line_id, { delta: d.delta, head: d.head_pct }));
-    }
-    return { yr, exact, outLines, diffDeltas, diffPhase };
+    // the branch vs main in the viewed year; in diff mode, the loading change per line and transformer
+    const yearDelta = yearDeltaFor(s.diff, s.year);
+    const diffDeltas: DiffMap | null = s.diffMode && s.diff ? diffMapFor(yearDelta) : null;
+    return { yr, exact, outLines, yearDelta, diffDeltas };
   }, [s.diff, s.diffMode, s.outages, s.result, s.year]);
 
   return { ix, ...view, ...year };

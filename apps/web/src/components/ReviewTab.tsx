@@ -1,19 +1,32 @@
-// Review: the branch against main as a consequence diff (the four tiles, the network effect, what
-// changed), the reinforcements proposed on it, then Merge into main or Discard. main has nothing to
-// review.
+// Review: the branch against main as a consequence diff (the four 2030/2035 tiles, the network effect
+// in the viewed year with a year picker tied to the planner's year, the planned works on main vs the
+// branch, what changed), the reinforcements proposed on it, then Merge into main or Discard. main has
+// nothing to review.
 
-import { ArrowRight, Check, GitMerge, LockSimple, Trash, Warning } from "@phosphor-icons/react";
+import { ArrowRight, Check, GitMerge, LockSimple, Trash, Warning, Wrench } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { lineName, nameElements } from "../lib/derive";
-import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
-import type { Diff, Status } from "../types";
+import { lineName, nameElements, trafoName } from "../lib/derive";
+import {
+  type Namers,
+  type Tone,
+  VERDICT,
+  WORK_CHANGE,
+  flaggedYears,
+  verdictOnBranch,
+  verdictOnMain,
+  workTitle,
+  worksInOrder,
+  yearEffect,
+} from "../lib/diff";
+import { C, PLAN_YEARS, ST, fmtMw, profileOf, signed, tint } from "../theme";
+import type { Diff, Status, WorkDelta, YearDelta } from "../types";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "branches" | "diff" | "reinforcements",
-  "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement",
-  "branch" | "hue" | "ix" | "onMain"
+  "branches" | "diff" | "outages" | "reinforcements" | "year",
+  "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
+  "branch" | "hue" | "ix" | "onMain" | "yearDelta"
 >;
 
 const statusLabel = (st: Status | null, year?: number | null): string =>
@@ -40,6 +53,10 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const mismatch = main && branch && main.scenario !== branch.scenario;
   const d = s.diff;
   const open = branch?.status === "open";
+  const names: Namers = {
+    line: (id) => (ix ? lineName(ix, id) : `Line ${id}`),
+    trafo: (id) => (ix ? trafoName(ix, id) : `Transformer ${id}`),
+  };
   return (
     <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
       <div className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
@@ -59,7 +76,9 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         <>
           {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
           <Tiles d={d} />
-          <NetworkEffect d={d} name={(id) => (ix ? lineName(ix, id) : `Line ${id}`)} />
+          <YearPick year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
+          <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
+          <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} onPick={actions.setYear} />
           <Changed d={d} name={(t) => nameElements(t, ix)} />
         </>
       )}
@@ -108,38 +127,82 @@ function Tiles({ d }: { d: Diff }) {
   );
 }
 
-function NetworkEffect({ d, name }: { d: Diff; name: (id: number) => string }) {
-  const items: { bad: boolean; good?: boolean; text: string }[] = [];
-  d.phases.forEach((p) => {
-    p.newly_overloaded_line_ids.forEach((id) => {
-      const td = p.top_line_deltas.find((x) => x.line_id === id);
-      items.push({ bad: true, text: `${name(id)} newly over 100% by ${p.phase}${td ? ` (${Math.round(td.base_pct)}% to ${Math.round(td.head_pct)}%)` : ""}.` });
-    });
-    p.cleared_line_ids.forEach((id) => items.push({ bad: false, good: true, text: `${name(id)} back within its rating by ${p.phase}.` }));
-    p.top_line_deltas
-      .filter((t) => Math.abs(t.delta) >= 5 && !p.newly_overloaded_line_ids.includes(t.line_id))
-      .slice(0, 3)
-      .forEach((t) => items.push({ bad: t.delta > 0 && t.head_pct > 90, good: t.delta < 0, text: `${name(t.line_id)} ${t.delta > 0 ? "rises" : "falls"} from ${Math.round(t.base_pct)}% to ${Math.round(t.head_pct)}% by ${p.phase}.` }));
-    if (Math.abs(p.worst_line_delta) >= 1)
-      items.push({ bad: p.worst_line_delta > 0, good: p.worst_line_delta < 0, text: `Worst line loading ${p.worst_line_delta > 0 ? "rises" : "falls"} ${Math.abs(Math.round(p.worst_line_delta))} points by ${p.phase}.` });
-    if (Math.abs(p.min_vm_delta) >= 0.002)
-      items.push({ bad: p.min_vm_delta < 0, good: p.min_vm_delta > 0, text: `Lowest voltage ${p.min_vm_delta > 0 ? "lifts" : "drops"} ${Math.abs(p.min_vm_delta).toFixed(3)} pu by ${p.phase}.` });
-  });
+const TONE_INK: Record<Tone | "warn", string> = { bad: C.redInk, good: C.greenInk, neutral: C.ink2, warn: C.amberInk };
+const MAX_EFFECTS = 10;
+
+function ToneIcon({ tone }: { tone: Tone }) {
+  return tone === "bad" ? <Warning size={12} /> : tone === "good" ? <Check size={12} /> : <ArrowRight size={12} />;
+}
+
+/** One chip per plan year, tied to the planner's year (the map and the timeline follow it). */
+function YearPick({ year, flagged, solved, onPick }: { year: number; flagged: Set<number>; solved: (y: number) => boolean; onPick: (y: number) => void }) {
+  return (
+    <div className="year-pick" role="group" aria-label="Year to compare">
+      {PLAN_YEARS.map((y) => (
+        <button key={y} className={y === year ? "on" : ""} onClick={() => onPick(y)} disabled={!solved(y)} aria-pressed={y === year}
+          title={flagged.has(y) ? `${y}: something gets worse on this branch` : String(y)}>
+          {y}
+          {flagged.has(y) && <span className="flag" />}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function NetworkEffect({ yd, year, names }: { yd: YearDelta | null; year: number; names: Namers }) {
+  const items = yd ? yearEffect(yd, names) : [];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Network effect</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Network effect in {year}</span>
       <div className="well" style={{ display: "flex", flexDirection: "column", gap: 6, padding: "11px 12px", fontSize: 12, lineHeight: 1.45 }}>
-        {items.length ? (
-          items.slice(0, 8).map((x, i) => (
-            <span key={i} style={{ color: x.bad ? C.redInk : x.good ? C.greenInk : C.ink2, display: "flex", gap: 6 }}>
-              {x.bad ? <Warning size={12} style={{ flex: "none", marginTop: 3 }} /> : x.good ? <Check size={12} style={{ flex: "none", marginTop: 3 }} /> : <ArrowRight size={12} style={{ flex: "none", marginTop: 3 }} />}
+        {!yd ? (
+          <span className="mute">{year} is not solved on both plans yet. Re-run the branch to compare it.</span>
+        ) : items.length ? (
+          items.slice(0, MAX_EFFECTS).map((x, i) => (
+            <span key={i} className="effect" style={{ color: TONE_INK[x.tone] }}>
+              <ToneIcon tone={x.tone} />
               {x.text}
             </span>
           ))
         ) : (
-          <span className="mute">No material change to loadings or voltages at 2030 or 2035.</span>
+          <span className="mute">No material change to loadings, voltages, GSP export or N-1 in {year}.</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** The branch's planned works: each window's verdict on main's plan and on the branch's, and what that means. */
+function Works({ works, year, title, onPick }: { works: WorkDelta[]; year: number; title: (w: WorkDelta) => string; onPick: (y: number) => void }) {
+  if (!works.length) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Planned works</span>
+      {worksInOrder(works, year).map((w) => {
+        const ch = WORK_CHANGE[w.change];
+        const vm = w.verdict_on_main ? VERDICT[w.verdict_on_main].tone : "neutral";
+        const vb = VERDICT[w.verdict_on_branch]?.tone ?? "neutral";
+        return (
+          <button key={w.outage_id} className={`work-row${w.year === year ? " now" : ""}`} onClick={() => onPick(w.year)} title={w.message}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, minWidth: 0 }}>
+              <Wrench size={12} color={C.mute} style={{ flex: "none" }} />
+              <span className="ellipsis" style={{ fontWeight: 600 }}>{title(w)}</span>
+              <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: C.mute }}>{w.year}</span>
+            </span>
+            <span className="verdicts">
+              <span style={{ color: C.mute }}>main</span>
+              <span className="chip" style={{ background: tint(TONE_INK[vm], "1f"), color: TONE_INK[vm] }}>{verdictOnMain(w)}</span>
+              <ArrowRight size={11} color={C.mute2} />
+              <span style={{ color: C.mute }}>branch</span>
+              <span className="chip" style={{ background: tint(TONE_INK[vb], "1f"), color: TONE_INK[vb] }}>{verdictOnBranch(w)}</span>
+            </span>
+            <span className="effect" style={{ fontSize: 11.5, lineHeight: 1.4, color: TONE_INK[ch.tone] }}>
+              <ToneIcon tone={ch.tone} />
+              {w.consequence}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

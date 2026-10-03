@@ -5,7 +5,6 @@ import uuid
 
 from fastapi import APIRouter, HTTPException
 
-from gridforge_optimizer import diff_results
 from gridforge_optimizer.config import MAX_SUGGESTIONS
 
 from .. import narration, repository
@@ -108,13 +107,12 @@ def update_scenario(branch_id: str, body: dict) -> dict:
 
 @router.get("/branches/{branch_id}/diff")
 def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
-    """Consequence diff of a branch (head) vs its parent (base, default main)."""
+    """Consequence diff of a branch (head) vs its parent (base, default main): the queue, the
+    2030/2035 phases, every plan year, and the branch's planned works on the parent's plan vs its own."""
     with scenarios.cursor() as con:
         head_row = repository.require_branch(con, branch_id)
         base_row = repository.branch_row(con, head_row["parent_id"] or "main") or repository.branch_row(con, "main")
-    head = plans.branch_result(branch_id)
-    base = plans.branch_result(base_row["branch_id"])
-    d = diff_results(base, head)
+    d = plans.diff(branch_id, base_row["branch_id"])
     out = d.model_dump()
     out["base_branch"] = base_row["branch_id"]
     out["head_branch"] = branch_id

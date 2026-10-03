@@ -55,6 +55,8 @@ function applyDiffReasons(d: Diff): Diff {
   d.projects.forEach((p) => {
     p.head_reason = normReason(p.head_reason, p);
   });
+  d.years ??= {};
+  d.works ??= [];
   return d;
 }
 

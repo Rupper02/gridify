@@ -9,13 +9,18 @@ from typing import NamedTuple
 from gridforge_optimizer import (
     PLAN_YEARS,
     Candidate,
+    ConsequenceDiff,
     OptimizeParams,
     OptimizeResult,
     Outage,
+    OutageStudy,
     Reinforcement,
     Suggestion,
     YearResult,
     apply_reinforcement,
+    diff_results,
+    energisation_years,
+    evaluate_year,
     evaluate_years,
     optimize,
     suggest_unblock,
@@ -182,6 +187,51 @@ class PlanService:
                            json.dumps({k: v.model_dump() for k, v in years.items()}))
         self.cache.compute[key] = years
         return years
+
+    def result_with_years(self, b: BranchInputs) -> OptimizeResult:
+        """A branch's engine result with every plan year attached (both through the caches)."""
+        result = self.compute(b.req, b.cands, b.ckey, b.reinforcements)
+        return result.model_copy(update={"years": self.plan_years(b, result)})
+
+    def works_on_plan(self, plan: BranchInputs, result: OptimizeResult, outages: list[Outage]) -> list[OutageStudy]:
+        """Another branch's planned windows studied on this plan's energised network (its projects,
+        schedule, parameters and reinforcements; the windows' own repowers apply after them), so the
+        diff can tell what the branch's projects do to each window. Only the years with a window are
+        solved, without the N-1 screens (the verdict does not depend on them): per year one intact
+        solve pair plus the window study and its curtailment search. Cached like the years: the key
+        is this plan's years key with the outages swapped for the windows studied."""
+        if not outages:
+            return []
+        params = resolve_params(plan.req)
+        on = plan._replace(outages=list(outages))
+        key = self.cache.key("works", params, on.ckey, extra=years_key(on))
+        if key in self.cache.compute:
+            return self.cache.compute[key]
+        cached = self.cache.get(key)
+        if cached is not None:
+            studies = [OutageStudy.model_validate(x) for x in json.loads(cached)]
+        else:
+            t0 = time.perf_counter()
+            in_service = energisation_years(result, plan.schedule)
+            studies = [
+                s
+                for y in sorted({o.year for o in outages})
+                for s in evaluate_year(y, plan.cands, params, in_service, outages=on.outages,
+                                       reinforcements=plan.reinforcements, n1=False).outage_studies
+            ]
+            self.cache.put(key, "works", int((time.perf_counter() - t0) * 1000),
+                           json.dumps([s.model_dump() for s in studies]))
+        self.cache.compute[key] = studies
+        return studies
+
+    def diff(self, head_id: str, base_id: str) -> ConsequenceDiff:
+        """The consequence diff of a branch against its base: the queue and phases, every plan year,
+        and each of the branch's planned windows against the same window on the base's plan."""
+        head_in, base_in = self.inputs(head_id), self.inputs(base_id)
+        head = self.result_with_years(head_in)
+        base = self.result_with_years(base_in)
+        works_on_base = self.works_on_plan(base_in, base, head_in.outages)
+        return diff_results(base, head, works_on_base=works_on_base)
 
     def suggestions(self, branch_id: str, limit: int, request_id: str | None = None) -> list[Suggestion]:
         """`suggest_unblock` for a branch (optionally for one deferred project), through the same two

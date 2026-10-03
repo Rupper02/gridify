@@ -35,10 +35,10 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `maintenance.py` | Planned works: `WORKS` (maintenance, replacement, repowering), `REPOWERERS`, `apply_works_after`, `study_windows` (combined windows, verdict, bounded curtailment search, N-1 during the window). |
 | `demand.py` | The demand side: `regions_of(net)` (the demand groups tagged on `net.load`), `assess_demand(net, year, n1_violations)` (per group per year: demand, firm headroom, P2/8 class, N-1 stranding, voltage, ≈ demand room) and the alert registry `ALERT_CHECKS`. A simplified P2/8-style check. |
 | `suggest.py` | `suggest_unblock`: "what would it take", measured by re-solving. |
-| `diff.py` | `diff_results(base, head)`: the consequence diff between two plans. |
+| `diff.py` | `diff_results(base, head, works_on_base=)`: the consequence diff between two plans (queue, 2030/2035 phases, every plan year via `diff_years` / `diff_year`, planned works via `diff_works`). Pure. |
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
-| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`), `Reinforcement`, `Suggestion`. |
+| `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`. |
 | `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
 | `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
 
@@ -182,6 +182,16 @@ Besides the verdict, an `OutageStudy` carries the cases studied, `ok` (no breach
 - **`gsp` binding** — `Reinforcement(kind="gsp")`, i.e. one more supergrid transformer (+`gsp_sgt_mw`). Its caveat flags it as transmission works.
 
 Freed MW is first-order: the knock-on of a freed project blocking a later one isn't modelled, so the UI shows it as "≈". The caveats say these are feasible levers, not least-cost designs.
+
+### The consequence diff (`diff.py`)
+
+`diff_results(base, head, *, works_on_base=None) -> ConsequenceDiff`, pure (no I/O, no pandapower). It reshapes what the two results already hold:
+
+- **`projects`** — each project's move (`accelerated`, `slipped`, `moved_up`/`moved_down`, `added`, `dropped`), with head's reason.
+- **`headline`** — MW connected by 2030 and 2035 (the phases), connected/deferred counts, movers, and `n_works_worse` / `n_works_better`.
+- **`phases`** — the 2030/2035 phase deltas (worst line/transformer, voltage band, lines newly over 100% or cleared, top 10 line movers).
+- **`years`** — `{year: YearDelta}` for every plan year solved on both results (`OptimizeResult.years`; `diff_years` / `diff_year`): worst line and transformer loading base/head/delta, min/max voltage delta, peak GSP export base/head/delta (with the limit), N-1 finding counts and the findings new on head or cleared (`n1_new` / `n1_cleared`, by lost element + breached element), lines AND transformers newly over 100% or cleared, the top 10 line and transformer movers (`LoadingDelta`: `element_id`, `base_pct`, `head_pct`, `delta`, `crossed`, plus any crossing beyond the top 10), and the projects in service on only one side.
+- **`works`** — one `WorkDelta` per head window (`diff_works(on_main, on_branch)`): its verdict and curtailed / at-risk MW on head's plan against the same window (by outage id and year) studied on base's plan, `change` (`worse` / `better` / `unchanged` / `unstudied`; a heavier burden under the same verdict counts as worse, ordered by `VERDICT_SEVERITY`) and a plain-English `consequence` ("Feasible on main, but needs 40.0 MW of curtailment on this branch."). The base-plan study is the caller's: the API solves head's windows on base's energised plan (base's projects, schedule and reinforcements; `evaluate_year(..., n1=False)` for each year with a window) and passes them as `works_on_base`. Without it, head's windows are compared with base's own windows of the same id.
 
 ---
 
