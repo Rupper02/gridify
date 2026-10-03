@@ -72,11 +72,11 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
         </span>
         {worst && worst.winterPct !== null && worst.summerPct !== null ? (
           <>
-            <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink2 }}>
-              W.worst {computing ? "..." : `${Math.round(worst.winterPct)}%`}
+            <span style={{ fontSize: 10.5, color: C.mute2 }}>
+              W {computing ? "..." : `${Math.round(worst.winterPct)}% ${worst.winterName}`}
             </span>
-            <span className="mono" style={{ fontSize: 11, color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink2 }}>
-              S.worst {computing ? "..." : `${Math.round(worst.summerPct)}%`}
+            <span style={{ fontSize: 10.5, color: C.mute2 }}>
+              S {computing ? "..." : `${Math.round(worst.summerPct)}% ${worst.summerName}`}
             </span>
           </>
         ) : (
@@ -337,15 +337,15 @@ function CompactReadings({ planner, gsp, limit, gspHot, worst, vMin, vMax, worst
         {worst && worst.winterPct !== null && worst.summerPct !== null ? (
           <>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ color: C.mute }}>Worst winter</span>
-              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink }}>
-                {computing ? "..." : `${Math.round(worst.winterPct)}%`}
+              <span style={{ color: C.mute, fontSize: 10 }}>Worst winter</span>
+              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.winterPct > 100 ? C.red : worst.winterPct > 90 ? C.amber : C.ink, fontSize: 10 }}>
+                {computing ? "..." : `${Math.round(worst.winterPct)}% ${worst.winterName}`}
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span style={{ color: C.mute }}>Worst summer</span>
-              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink }}>
-                {computing ? "..." : `${Math.round(worst.summerPct)}%`}
+              <span style={{ color: C.mute, fontSize: 10 }}>Worst summer</span>
+              <span className="mono" style={{ fontWeight: 600, color: computing ? C.mute2 : worst.summerPct > 100 ? C.red : worst.summerPct > 90 ? C.amber : C.ink, fontSize: 10 }}>
+                {computing ? "..." : `${Math.round(worst.summerPct)}% ${worst.summerName}`}
               </span>
             </div>
           </>
