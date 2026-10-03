@@ -27,7 +27,7 @@ def pg_store():
     deps.scenarios.use(PG_URL)
     # start from a clean slate in the test database
     with deps.scenarios.cursor() as con:
-        for t in ("result_cache", "added_candidates", "branches"):
+        for t in ("result_cache", "added_candidates", "branches", "branch_outages", "branch_reinforcements", "findings", "merges"):
             con.execute(f"DROP TABLE IF EXISTS {t}")
     deps.scenarios.close()
     try:
@@ -63,5 +63,9 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
         assert "import_mw" in con.columns("added_candidates")
         assert con.execute("SELECT import_mw FROM added_candidates WHERE request_id = ?", [rid]).fetchone()[0] == 4.0
 
-    merged = client.post(f"/branches/{bid}/merge", json={"into": "main"}).json()
+    client.post("/optimize", json={"with_justification": False})  # main must be solved too: the gate compares both
+    merged = client.post(f"/branches/{bid}/merge", json={"into": "main", "acknowledge": True}).json()
     assert merged["branch_id"] == "main" and merged["n_added"] == 1
+    with deps.scenarios.cursor() as con:
+        assert con.execute("SELECT outcome FROM merges WHERE branch_id = ?", [bid]).fetchone()[0] == "merged"
+        assert con.execute("SELECT count(*) FROM findings WHERE branch_id = ?", [bid]).fetchone()[0] >= 0

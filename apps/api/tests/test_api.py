@@ -53,6 +53,14 @@ def _create(name, **kw):
     return r.json()
 
 
+def _run(branch_id):
+    """Run a branch synchronously: the queue and every plan year (what the merge gate judges)."""
+    path = "/optimize" if branch_id == "main" else f"/branches/{branch_id}/optimize"
+    r = client.post(path, json={"with_justification": False})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def test_main_branch_seeded_and_unique():
     branches = client.get("/branches").json()["branches"]
     mains = [b for b in branches if b["branch_id"] == "main"]
@@ -185,7 +193,14 @@ def test_the_diff_previews_what_a_merge_adds_to_and_removes_from_the_parent():
     assert [r["reinforcement_id"] for r in m["reinforcements_added"]] == [rid] and not m["reinforcements_removed"]
     assert m["works_added"][0]["season"] == "Spring" and "created_at" not in m["works_added"][0]
 
-    assert client.post(f"/branches/{child}/merge", json={"into": parent}).status_code == 200
+    # the gate: both sides must be run, and a removed window is a warning the operator acknowledges
+    _run(child)
+    _run(parent)
+    refused = client.post(f"/branches/{child}/merge", json={"into": parent})
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "warnings_unacknowledged"
+    assert "proposals_removed" in {w["kind"] for w in refused.json()["detail"]["verdict"]["warnings"]}
+    assert client.post(f"/branches/{child}/merge", json={"into": parent, "acknowledge": True}).status_code == 200
     assert {o["outage_id"] for o in client.get(f"/branches/{parent}/outages").json()["outages"]} == {kept, new}
     assert [r["reinforcement_id"] for r in client.get(f"/branches/{parent}/reinforcements").json()["reinforcements"]] == [rid]
 
@@ -249,8 +264,12 @@ def test_merge_adopts_branch_into_main():
     bid = b["branch_id"]
     added_ids = _queue_ids(bid)
     assert added_ids
+    _run(bid)
+    _run("main")
+    mc = client.get(f"/branches/{bid}/merge-check").json()
+    assert mc["fresh"] is True and mc["verdict"]["ok"] is True, mc["verdict"]["summary"]
 
-    merged = client.post(f"/branches/{bid}/merge", json={"into": "main"})
+    merged = client.post(f"/branches/{bid}/merge", json={"into": "main", "acknowledge": True})
     assert merged.status_code == 200, merged.text
     assert merged.json()["branch_id"] == "main"
 
@@ -258,12 +277,14 @@ def test_merge_adopts_branch_into_main():
 
     assert _branch(bid)["status"] == "merged"
     assert client.post(f"/branches/{bid}/merge", json={"into": "main"}).status_code == 409
+    assert client.post(f"/branches/{bid}/discard").status_code == 409  # a merged branch is history
 
 
 def test_discard_and_main_guard():
     b = _create("To discard")
     bid = b["branch_id"]
     assert client.post(f"/branches/{bid}/discard").json()["status"] == "discarded"
+    assert client.post(f"/branches/{bid}/discard").status_code == 409  # not open any more
     assert client.post("/branches/main/discard").status_code == 400
     assert client.post("/branches/main/merge", json={"into": "main"}).status_code == 400
 
@@ -623,3 +644,166 @@ def test_best_window_ranks_every_season_of_every_year_as_a_cached_job():
     assert client.post(f"/branches/{bid}/works/best-window", json={**body, "element_id": "999999"}).status_code == 422
     assert client.post(f"/branches/{bid}/works/best-window", json={**body, "years": [2031, 2029]}).status_code == 422
     assert client.post(f"/branches/{bid}/works/best-window", json={**body, "work": "repowering"}).status_code == 422
+
+
+# --- the merge gate and the findings ledger ---------------------------------------------------------------
+def test_merge_check_is_stale_until_the_branch_is_run_and_after_a_schedule_edit():
+    """Freshness comes from the cache keys: a branch not solved for its current inputs cannot merge."""
+    bid = _create("Gate fresh", added_projects=[_good()])["branch_id"]
+    mc = client.get(f"/branches/{bid}/merge-check").json()
+    assert mc["fresh"] is False and mc["verdict"]["ok"] is False
+    assert mc["verdict"]["blockers"][0]["kind"] == "stale" and mc["stale_reasons"]
+    refused = client.post(f"/branches/{bid}/merge", json={"into": "main"})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "blocked"
+    assert refused.json()["detail"]["fresh"] is False
+
+    q = _run(bid)
+    _run("main")
+    mc = client.get(f"/branches/{bid}/merge-check").json()
+    assert mc["fresh"] is True and mc["into"] == "main" and mc["branch_status"] == "open"
+    assert mc["verdict"]["years_compared"] == list(range(2026, 2036))
+    assert not any(b["kind"] == "stale" for b in mc["verdict"]["blockers"])
+    assert mc["evidence"]["engine"] and mc["evidence"]["head_years_key"]
+
+    # an energisation-year edit changes the years key: stale again until the next run
+    item = next(x for x in q["queue"] if x["status"] in ("Phase1", "Phase2"))
+    year = min(item["recommended_year"] + 1, 2035)
+    assert client.post(f"/branches/{bid}/schedule", json={"request_id": item["request_id"], "year": year}).status_code == 200
+    mc = client.get(f"/branches/{bid}/merge-check").json()
+    assert mc["fresh"] is False and {b["kind"] for b in mc["verdict"]["blockers"]} == {"stale"}
+    assert "schedule" in mc["stale_reasons"][0]
+    _run(bid)
+    assert client.get(f"/branches/{bid}/merge-check").json()["fresh"] is True
+
+
+def test_merge_is_refused_when_the_branch_is_behind_main():
+    """Merge replaces main's projects with the branch's: a branch opened before a later merge would
+    drop what main gained, so the gate blocks it."""
+    behind = _create("Behind main")["branch_id"]
+    ahead = _create("Ahead of it", added_projects=[_good(applicant="Ahead")])["branch_id"]
+    _run(ahead)
+    _run("main")
+    r = client.post(f"/branches/{ahead}/merge", json={"into": "main", "acknowledge": True})
+    assert r.status_code == 200, r.text
+    _run("main")
+    _run(behind)
+    mc = client.get(f"/branches/{behind}/merge-check").json()
+    kinds = {b["kind"] for b in mc["verdict"]["blockers"]}
+    assert "behind_base" in kinds, mc["verdict"]["summary"]
+    refused = client.post(f"/branches/{behind}/merge", json={"into": "main", "acknowledge": True})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "blocked"
+    assert "Open a new branch" in refused.json()["detail"]["message"]
+    # the attempt is on record
+    from gridforge_api import ledger
+    from gridforge_api.deps import scenarios
+    with scenarios.cursor() as con:
+        rows = ledger.merge_rows(con, behind)
+    assert rows and rows[-1]["outcome"] == "refused" and rows[-1]["n_blockers"] >= 1
+
+
+def test_a_demand_connection_that_breaches_firm_capacity_blocks_the_merge():
+    """A physics blocker end to end: a demand project pushes a class C or D group over its firm
+    capacity by more than P2/8 lets wait, so the branch's plan years carry a breach alert main does
+    not have. Best effort: the group and size come from the model; if the engine defers the project
+    (the wires cannot carry it intact) the breach never materialises and the test skips."""
+    regions = [r for r in client.get("/model").json()["regions"]
+               if r["firm_mw"] > 0 and r["buses"] and r["p2_class"] in ("C", "D") and r["firm_mw"] > r["peak_demand_mw"]]
+    primaries = [r for r in regions if r["level"] == "primary"] or regions
+    if not primaries:
+        pytest.skip("no class C/D group with a published firm capacity and headroom")
+    tried = []
+    for r in sorted(primaries, key=lambda r: r["firm_mw"] - r["peak_demand_mw"])[:4]:
+        allowed = max(12.0, r["peak_demand_mw"] / 3) if r["p2_class"] == "C" else 20.0
+        import_mw = round(r["firm_mw"] - r["peak_demand_mw"] + allowed + 5.0, 1)
+        bid = _create("Data centre", added_projects=[{"applicant": "DC", "bus_id": r["buses"][0], "technology": "demand",
+                                                     "import_mw": import_mw, "readiness_score": 0.9}])["branch_id"]
+        item = next(x for x in _run(bid)["queue"] if x["technology"] == "demand" and x["applicant"] == "DC")
+        if item["status"] in ("Phase1", "Phase2"):
+            break
+        tried.append(f"{import_mw} MW at {r['name']}: {item['reason']['message']}")
+        client.post(f"/branches/{bid}/discard")
+    else:
+        pytest.skip("the grid cannot host the demand intact anywhere tried: " + "; ".join(tried))
+    _run("main")
+    mc = client.get(f"/branches/{bid}/merge-check").json()
+    kinds = {b["kind"] for b in mc["verdict"]["blockers"]}
+    assert "alert_new_breach" in kinds, mc["verdict"]["summary"]
+    blocker = next(b for b in mc["verdict"]["blockers"] if b["kind"] == "alert_new_breach")
+    assert blocker["element_id"] == r["region_id"] and blocker["finding_fingerprint"]
+    refused = client.post(f"/branches/{bid}/merge", json={"into": "main", "acknowledge": True})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "blocked"
+    # the ledger carries the same breach, by the fingerprint the gate linked to
+    fs = client.get(f"/branches/{bid}/findings?status=open").json()["findings"]
+    assert any(f["fingerprint"] == blocker["finding_fingerprint"] and f["severity"] == "breach" for f in fs)
+
+
+def test_a_run_writes_findings_and_a_rerun_upserts_and_resolves():
+    bid = _create("Ledger", added_projects=[_good(), *_saturating(5)])["branch_id"]
+    q = _run(bid)
+    fs = client.get(f"/branches/{bid}/findings").json()
+    assert fs["counts"]["open"] > 0 and fs["branch_id"] == bid
+    deferred = [f for f in fs["findings"] if f["kind"] == "deferred"]
+    assert deferred, "saturating the weakest buses must leave deferred projects in the ledger"
+    f0 = deferred[0]
+    assert f0["source"] == "engine" and f0["status"] == "open" and f0["severity"] == "warn"
+    assert f0["evidence_kind"] == "result_cache" and f0["evidence"]["years_key"] == f0["evidence_ref"]
+    assert f0["evidence"]["engine"] and f0["context"]["reason_type"]
+    ids = {f["finding_id"] for f in fs["findings"]}
+    # breaches first, then warnings
+    sev = [f["severity"] for f in fs["findings"]]
+    assert sev == sorted(sev, key=lambda s: {"breach": 0, "warn": 1, "info": 2}[s])
+
+    _run(bid)  # the same run again: the same rows, no duplicates
+    assert {f["finding_id"] for f in client.get(f"/branches/{bid}/findings").json()["findings"]} == ids
+
+    # schedule an accepted project against the recommendation: a new finding appears; acknowledging
+    # it filters it out of the open list; clearing the schedule resolves it on the next run
+    item = next(x for x in q["queue"] if x["status"] in ("Phase1", "Phase2"))
+    rid, rec = item["request_id"], item["recommended_year"]
+    if rec > 2026:
+        client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": rec - 1})
+        _run(bid)
+        f = next(x for x in client.get(f"/branches/{bid}/findings").json()["findings"]
+                 if x["kind"] == "against_recommendation" and x["element_id"] == rid)
+        assert f["value"] == rec - 1 and f["limit"] == rec
+        acked = client.post(f"/findings/{f['finding_id']}/ack", json={"note": "developer accepts the risk"}).json()
+        assert acked["status"] == "acknowledged" and acked["acked_at"] and acked["note"]
+        assert f["finding_id"] not in {x["finding_id"] for x in client.get(f"/branches/{bid}/findings?status=open").json()["findings"]}
+        assert f["finding_id"] in {x["finding_id"] for x in client.get(f"/branches/{bid}/findings?status=acknowledged").json()["findings"]}
+        client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": None})
+        _run(bid)
+        resolved = {x["finding_id"] for x in client.get(f"/branches/{bid}/findings?status=resolved").json()["findings"]}
+        assert f["finding_id"] in resolved
+    assert client.post("/findings/f-nope/ack", json={}).status_code == 404
+    assert client.get(f"/branches/{bid}/findings?status=bogus").status_code == 422
+    assert client.get("/branches/nope/findings").status_code == 404
+
+
+def test_the_findings_and_merges_tables_migrate_on_an_old_db(tmp_path):
+    """A scenarios DB from before the ledger gains both tables; migrating twice is harmless."""
+    import duckdb
+
+    from gridforge_api.store import FINDING_COLS, MERGE_COLS, Cursor, migrate
+
+    con = duckdb.connect(str(tmp_path / "old.duckdb"))
+    con.execute("CREATE TABLE branches (branch_id VARCHAR PRIMARY KEY, name VARCHAR, parent_id VARCHAR, scenario VARCHAR, "
+                "growth_2030 DOUBLE, growth_2035 DOUBLE, w_readiness DOUBLE, w_need DOUBLE, w_strategic DOUBLE, "
+                "status VARCHAR DEFAULT 'open', created_at VARCHAR, merged_at VARCHAR, created_by VARCHAR)")
+    cur = Cursor(con.cursor(), "duckdb")
+    migrate(cur)
+    migrate(cur)
+    assert set(FINDING_COLS) <= set(cur.columns("findings")) and set(MERGE_COLS) <= set(cur.columns("merges"))
+    con.close()
+
+
+def test_main_is_changed_only_by_merging():
+    """Projects, schedules, works and reinforcements go on branches; main takes them through the gate."""
+    assert client.post("/optimize/candidates", json={**_good(), "branch_id": "main"}).status_code == 409
+    reg = client.get("/registry").json()[0]["request_id"]
+    assert client.post("/branches/main/registry", json={"request_id": reg}).status_code == 409
+    assert client.post("/branches/main/schedule", json={"request_id": "x", "year": 2030}).status_code == 409
+    # the demand profile on main stays editable (the profile picker), and must be a proper body
+    main = _branch("main")
+    r = client.post("/branches/main/scenario", json={"scenario": main["scenario"], "growth_2030": main["growth_2030"], "growth_2035": main["growth_2035"]})
+    assert r.status_code == 200 and r.json()["branch_id"] == "main"
+    assert client.post("/branches/main/scenario", json={"scenario": "ht"}).status_code == 422

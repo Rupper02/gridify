@@ -1,15 +1,16 @@
 """Branches ("git for grids"): create, list, pull from the registry, schedule, planned outages,
-simulated reinforcements, diff, merge, discard, and the copilot's suggestions."""
+simulated reinforcements, diff, the merge gate, merge, discard, and the copilot's suggestions."""
 
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
+from gridforge_optimizer import MergeVerdict
 from gridforge_optimizer.config import MAX_SUGGESTIONS
 
-from .. import narration, proposals, repository
+from .. import ledger, narration, proposals, repository
 from ..config import now
-from ..deps import cache, jobs, narrator, plans, scenarios, warehouse
+from ..deps import jobs, narrator, plans, scenarios, warehouse
 from ..schemas import (
     BestWindowRequest,
     BranchCreate,
@@ -17,6 +18,7 @@ from ..schemas import (
     OutageCreate,
     RegistryAdd,
     ReinforcementCreate,
+    ScenarioUpdate,
     ScheduleSet,
 )
 
@@ -65,52 +67,58 @@ def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
     if row is None:
         raise HTTPException(status_code=404, detail=f"registry project '{body.request_id}' not found")
     with scenarios.cursor() as con:
-        repository.require_branch(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         repository.add_registry_row(con, branch_id, row)
-    cache.clear()
+    plans.invalidate("plan")
     return repository.to_client({**row, "branch_id": branch_id})
 
 
 @router.post("/branches/{branch_id}/schedule")
 def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
     """Persist the operator's energisation year for one project on a branch. It's a planning
-    decision layered on the optimizer's verdict — it doesn't change accept/defer/rank — so the
-    next /optimize just reports it alongside the recommendation (and flags any conflict)."""
+    decision layered on the optimizer's verdict (it doesn't change accept/defer/rank), so the next
+    run just reports it alongside the recommendation and flags any conflict."""
     if body.year is not None and not (2026 <= body.year <= 2035):
         raise HTTPException(status_code=422, detail="year must be between 2026 and 2035")
     with scenarios.cursor() as con:
-        repository.require_branch(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         if not repository.project_on_branch(con, branch_id, body.request_id):
-            raise HTTPException(
-                status_code=404,
-                detail=f"project '{body.request_id}' is not on branch '{branch_id}'",
-            )
-        con.execute(
-            "UPDATE added_candidates SET scheduled_year = ? WHERE branch_id = ? AND request_id = ?",
-            [body.year, branch_id, body.request_id],
-        )
-    cache.payload.clear()  # the payload carries scheduled_year; the engine result is unaffected
+            raise HTTPException(status_code=404, detail=f"project '{body.request_id}' is not on branch '{branch_id}'")
+        repository.set_schedule(con, branch_id, body.request_id, body.year)
+    plans.invalidate("payload")  # the payload carries scheduled_year; the engine result is unaffected
     return {"branch_id": branch_id, "request_id": body.request_id, "scheduled_year": body.year}
 
 
 @router.post("/branches/{branch_id}/scenario")
-def update_scenario(branch_id: str, body: dict) -> dict:
-    """Update a branch's demand profile (scenario + growth). Used when the profile picker changes
-    on main, so subsequent runs use the selected profile instead of reverting to the stored one."""
-    scenario = body.get("scenario")
-    growth_2030 = body.get("growth_2030")
-    growth_2035 = body.get("growth_2035")
-    
-    if not scenario or growth_2030 is None or growth_2035 is None:
-        raise HTTPException(status_code=422, detail="scenario, growth_2030, and growth_2035 are required")
-    
+def update_scenario(branch_id: str, body: ScenarioUpdate) -> dict:
+    """Update a branch's demand profile (scenario + growth), main's included: the profile picker
+    changes it so later runs use the selected profile instead of reverting to the stored one."""
     with scenarios.cursor() as con:
-        repository.require_branch(con, branch_id)
-        con.execute(
-            "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=? WHERE branch_id=?",
-            [scenario, growth_2030, growth_2035, branch_id],
-        )
+        repository.require_open(con, branch_id)
+        repository.update_scenario(con, branch_id, body.scenario, body.growth_2030, body.growth_2035)
         return repository.branch_to_client(con, repository.branch_row(con, branch_id))
+
+
+# --- review: diff, the merge gate, merge, discard ------------------------------------------------------
+def _pair(con, branch_id: str, into: str | None) -> tuple[dict, dict]:
+    """The head branch and the base it is compared with / merges into (`into`, else its parent, else main)."""
+    head = repository.require_branch(con, branch_id)
+    base = repository.require_branch(con, into) if into else repository.base_of(con, head)
+    if base["branch_id"] == branch_id:
+        raise HTTPException(status_code=400, detail="cannot merge a branch into itself")
+    return head, base
+
+
+def _changes_on_merge(con, base_id: str, head_id: str) -> dict:
+    """The planned works and reinforcements a merge adds to or removes from the base."""
+    return proposals.on_merge(repository.outage_rows(con, base_id), repository.outage_rows(con, head_id),
+                              repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, head_id))
+
+
+def _gate(branch_id: str, base_id: str, changes: dict) -> tuple[MergeVerdict, dict]:
+    return plans.merge_check(branch_id, base_id,
+                             removed_works=[w["outage_id"] for w in changes["works_removed"]],
+                             removed_reinforcements=[r["reinforcement_id"] for r in changes["reinforcements_removed"]])
 
 
 @router.get("/branches/{branch_id}/diff")
@@ -119,15 +127,12 @@ def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     2030/2035 phases, every plan year, the branch's planned works on the parent's plan vs its own,
     and the planned works and reinforcements a merge would add to or remove from the parent."""
     with scenarios.cursor() as con:
-        head_row = repository.require_branch(con, branch_id)
-        base_row = repository.branch_row(con, head_row["parent_id"] or "main") or repository.branch_row(con, "main")
-        base_id = base_row["branch_id"]
-        merge = proposals.on_merge(repository.outage_rows(con, base_id), repository.outage_rows(con, branch_id),
-                                   repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, branch_id))
-    d = plans.diff(branch_id, base_id)
+        head, base = _pair(con, branch_id, None)
+        merge = _changes_on_merge(con, base["branch_id"], branch_id)
+    d = plans.diff(branch_id, base["branch_id"])
     out = d.model_dump()
     out["on_merge"] = merge
-    out["base_branch"] = base_row["branch_id"]
+    out["base_branch"] = base["branch_id"]
     out["head_branch"] = branch_id
     out["narration"] = ""
     if with_narration:
@@ -135,41 +140,65 @@ def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     return out
 
 
+@router.get("/branches/{branch_id}/merge-check")
+def merge_check(branch_id: str, into: str | None = None) -> dict:
+    """May this branch merge? The gate's verdict (gate.merge_verdict) against `into` (default its
+    parent): fresh or stale, the blockers, the warnings that need acknowledging, and what the
+    parent already carries. Read-only; it solves the parent's plan if it is not cached yet."""
+    with scenarios.cursor() as con:
+        head, base = _pair(con, branch_id, into)
+        changes = _changes_on_merge(con, base["branch_id"], branch_id)
+    verdict, evidence = _gate(branch_id, base["branch_id"], changes)
+    return {
+        "branch_id": branch_id, "into": base["branch_id"], "branch_status": head["status"],
+        "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"],
+        "requires_acknowledgement": verdict.ok and bool(verdict.warnings),
+        "verdict": verdict.model_dump(), "evidence": evidence, "checked_at": now(),
+    }
+
+
 @router.post("/branches/{branch_id}/merge")
 def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
-    """Squash-merge a branch into `into` (default main): it adopts the branch's scenario + projects."""
-    into = (body.into if body else "main") or "main"
-    if branch_id == into:
-        raise HTTPException(status_code=400, detail="cannot merge a branch into itself")
+    """Squash-merge a branch into `into` (default main): it adopts the branch's scenario, projects,
+    planned works and reinforcements. Gated: a stale branch, or one that introduces or worsens a
+    problem in any plan year, is refused (409, `code: "blocked"`, the verdict in the body); warnings
+    are refused until `acknowledge` is true (`code: "warnings_unacknowledged"`). Every attempt,
+    refused or done, is recorded with the verdict it was judged on."""
+    body = body or MergeRequest()
     with scenarios.cursor() as con:
-        b = repository.require_branch(con, branch_id)
-        repository.require_branch(con, into)
-        if b["status"] != "open":
-            raise HTTPException(status_code=409, detail=f"branch is '{b['status']}', not open")
-        con.execute(
-            "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, "
-            "w_readiness=?, w_need=?, w_strategic=? WHERE branch_id=?",
-            [b["scenario"], b["growth_2030"], b["growth_2035"],
-             b["w_readiness"], b["w_need"], b["w_strategic"], into],
-        )
-        con.execute("DELETE FROM added_candidates WHERE branch_id = ?", [into])
-        repository.copy_projects(con, branch_id, into)
-        repository.clear_branch_extras(con, into)
-        repository.copy_branch_extras(con, branch_id, into)
-        con.execute("UPDATE branches SET status='merged', merged_at=? WHERE branch_id=?", [now(), branch_id])
-        out = repository.branch_to_client(con, repository.branch_row(con, into))
-    cache.clear()
+        head, base = _pair(con, branch_id, body.into)
+        repository.require_open(con, branch_id, allow_main=False)
+        repository.require_open(con, base["branch_id"])
+        changes = _changes_on_merge(con, base["branch_id"], branch_id)
+    verdict, evidence = _gate(branch_id, base["branch_id"], changes)
+    if verdict.blockers:
+        code, message = "blocked", verdict.blockers[0].message
+    elif verdict.warnings and not body.acknowledge:
+        n = len(verdict.warnings)
+        code, message = "warnings_unacknowledged", f"{n} warning{'s' if n != 1 else ''} to acknowledge before merging: {verdict.warnings[0].message}"
+    else:
+        code = message = None
+    with scenarios.cursor() as con:
+        ledger.record_merge(con, merge_id="mg-" + uuid.uuid4().hex[:8], branch_id=branch_id, into=base["branch_id"],
+                            outcome="refused" if code else "merged", verdict=verdict.model_dump(),
+                            acknowledged=body.acknowledge, evidence=evidence, at=now())
+        if code:
+            raise HTTPException(status_code=409, detail={"code": code, "message": message, "fresh": evidence["fresh"],
+                                                         "verdict": verdict.model_dump()})
+        repository.merge_into(con, head, base["branch_id"])
+        out = repository.branch_to_client(con, repository.branch_row(con, base["branch_id"]))
+    plans.invalidate("plan")
     return out
 
 
 @router.post("/branches/{branch_id}/discard")
 def discard_branch(branch_id: str) -> dict:
-    """Soft-discard a branch (kept for audit; main cannot be discarded)."""
+    """Soft-discard an open branch (kept for audit; main cannot be discarded, a merged one neither)."""
     if branch_id == "main":
         raise HTTPException(status_code=400, detail="cannot discard main")
     with scenarios.cursor() as con:
-        repository.require_branch(con, branch_id)
-        con.execute("UPDATE branches SET status='discarded' WHERE branch_id=?", [branch_id])
+        repository.require_open(con, branch_id)
+        repository.set_branch_status(con, branch_id, "discarded")
         return repository.branch_to_client(con, repository.branch_row(con, branch_id))
 
 
@@ -191,15 +220,6 @@ def branch_suggestions(branch_id: str, limit: int = MAX_SUGGESTIONS, with_narrat
 
 
 # --- planned maintenance and simulated reinforcements --------------------------
-def _require_editable(con, branch_id: str) -> None:
-    """Outages and reinforcements are proposals: main (the plan of record) is changed only by merging."""
-    b = repository.require_branch(con, branch_id)
-    if branch_id == "main":
-        raise HTTPException(status_code=409, detail="main is read-only: open a branch to propose this")
-    if b["status"] != "open":
-        raise HTTPException(status_code=409, detail=f"branch is '{b['status']}', not open")
-
-
 @router.get("/branches/{branch_id}/outages")
 def list_outages(branch_id: str) -> dict:
     """The planned maintenance windows on a branch (studied in each run, in their season)."""
@@ -215,7 +235,7 @@ def add_outage(branch_id: str, body: OutageCreate) -> dict:
     after it; until then the planner shows the result as out of date."""
     _require_element(body.element_kind, body.element_id)
     with scenarios.cursor() as con:
-        _require_editable(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         return repository.insert_outage(con, branch_id, body)
 
 
@@ -246,7 +266,7 @@ def start_best_window(branch_id: str, body: BestWindowRequest) -> dict:
 @router.delete("/branches/{branch_id}/outages/{outage_id}")
 def remove_outage(branch_id: str, outage_id: str) -> dict:
     with scenarios.cursor() as con:
-        _require_editable(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         if not repository.delete_branch_row(con, "branch_outages", "outage_id", branch_id, outage_id):
             raise HTTPException(status_code=404, detail=f"outage '{outage_id}' not on branch '{branch_id}'")
     return {"branch_id": branch_id, "outage_id": outage_id, "removed": True}
@@ -267,14 +287,14 @@ def add_reinforcement(branch_id: str, body: ReinforcementCreate) -> dict:
     if known is not None and str(body.element_id) not in known():
         raise HTTPException(status_code=422, detail=f"{body.kind} '{body.element_id}' is not in the network model")
     with scenarios.cursor() as con:
-        _require_editable(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         return repository.insert_reinforcement(con, branch_id, body)
 
 
 @router.delete("/branches/{branch_id}/reinforcements/{reinforcement_id}")
 def remove_reinforcement(branch_id: str, reinforcement_id: str) -> dict:
     with scenarios.cursor() as con:
-        _require_editable(con, branch_id)
+        repository.require_open(con, branch_id, allow_main=False)
         if not repository.delete_branch_row(con, "branch_reinforcements", "reinforcement_id", branch_id, reinforcement_id):
             raise HTTPException(status_code=404, detail=f"reinforcement '{reinforcement_id}' not on branch '{branch_id}'")
     return {"branch_id": branch_id, "reinforcement_id": reinforcement_id, "removed": True}

@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from .. import repository
-from ..deps import cache, scenarios, warehouse
+from ..deps import plans, scenarios, warehouse
 from ..schemas import NewCandidate
 
 router = APIRouter()
@@ -25,6 +25,7 @@ def registry() -> list[dict]:
 def add_candidate(body: NewCandidate) -> dict:
     """Add a project to a branch (stored in the API scenarios DB; warehouse untouched)."""
     with scenarios.cursor() as con:
+        repository.require_open(con, body.branch_id, allow_main=False)
         row = repository.insert_candidate(con, body.branch_id, body, warehouse.valid_bus_ids())
-    cache.clear()  # candidate set changed
+    plans.invalidate("plan")  # the candidate set changed
     return repository.to_client(row)

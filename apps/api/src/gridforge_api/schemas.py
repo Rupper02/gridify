@@ -59,7 +59,26 @@ class BranchCreate(BaseModel):
 
 
 class MergeRequest(BaseModel):
+    """Merge a branch into `into` (default main). Blockers always refuse the merge; warnings refuse it
+    until `acknowledge` is true (the operator has read them)."""
+
     into: str = "main"
+    acknowledge: bool = False
+
+
+class ScenarioUpdate(BaseModel):
+    """A branch's demand profile: the pathway and its two growth anchors."""
+
+    scenario: str
+    growth_2030: float
+    growth_2035: float
+
+
+class FindingStatusSet(BaseModel):
+    """The operator's call on a finding: acknowledge it (default), resolve it by hand, or reopen it."""
+
+    status: Literal["open", "acknowledged", "resolved"] = "acknowledged"
+    note: str = ""
 
 
 class RegistryAdd(BaseModel):

@@ -221,3 +221,48 @@ def copy_branch_extras(con: Cursor, from_branch: str, to_branch: str) -> None:
 def clear_branch_extras(con: Cursor, branch_id: str) -> None:
     for table in ("branch_outages", "branch_reinforcements"):
         con.execute(f"DELETE FROM {table} WHERE branch_id = ?", [branch_id])
+
+
+# --- guards and writes the routers share --------------------------------------
+def require_open(con: Cursor, branch_id: str, *, allow_main: bool = True) -> dict:
+    """The branch exists (404) and is open (409). With allow_main=False, main is refused too (409):
+    the plan of record is changed only by merging into it."""
+    row = require_branch(con, branch_id)
+    if not allow_main and branch_id == "main":
+        raise HTTPException(status_code=409, detail="main is read-only: open a branch to propose this")
+    if row["status"] != "open":
+        raise HTTPException(status_code=409, detail=f"branch is '{row['status']}', not open")
+    return row
+
+
+def base_of(con: Cursor, head: dict) -> dict:
+    """The branch a head is compared with and merges into by default: its parent, else main."""
+    return branch_row(con, head["parent_id"] or "main") or branch_row(con, "main")
+
+
+def set_schedule(con: Cursor, branch_id: str, request_id: str, year: int | None) -> None:
+    con.execute("UPDATE added_candidates SET scheduled_year = ? WHERE branch_id = ? AND request_id = ?",
+                [year, branch_id, request_id])
+
+
+def update_scenario(con: Cursor, branch_id: str, scenario: str, growth_2030: float, growth_2035: float) -> None:
+    con.execute("UPDATE branches SET scenario=?, growth_2030=?, growth_2035=? WHERE branch_id=?",
+                [scenario, growth_2030, growth_2035, branch_id])
+
+
+def set_branch_status(con: Cursor, branch_id: str, status: str, merged_at: str | None = None) -> None:
+    con.execute("UPDATE branches SET status=?, merged_at=? WHERE branch_id=?", [status, merged_at, branch_id])
+
+
+def merge_into(con: Cursor, head: dict, into: str) -> None:
+    """Squash-merge: `into` adopts the head's scenario, projects, planned works and reinforcements
+    (replacing its own), and the head is marked merged."""
+    con.execute(
+        "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, w_readiness=?, w_need=?, w_strategic=? WHERE branch_id=?",
+        [head["scenario"], head["growth_2030"], head["growth_2035"], head["w_readiness"], head["w_need"], head["w_strategic"], into],
+    )
+    con.execute("DELETE FROM added_candidates WHERE branch_id = ?", [into])
+    copy_projects(con, head["branch_id"], into)
+    clear_branch_extras(con, into)
+    copy_branch_extras(con, head["branch_id"], into)
+    set_branch_status(con, head["branch_id"], "merged", now())

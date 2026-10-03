@@ -5,8 +5,8 @@ warehouse) and runs the connection-queue optimizer. Projects added via the UI ar
 stored in a separate scenarios DB, so the pipeline baseline is never mutated.
 
 This module only assembles the app: the work lives in `routers/` (HTTP), `service` (engine runs),
-`repository` + `store` (scenarios DB), `warehouse` (read-only baseline), `cache`, `jobs` and
-`narration`; `deps` wires them together.
+`repository` + `ledger` + `store` (scenarios DB), `warehouse` (read-only baseline), `cache`, `jobs`
+and `narration`; `deps` wires them together.
 """
 
 from contextlib import asynccontextmanager
@@ -18,7 +18,7 @@ from starlette.responses import JSONResponse
 
 from .config import log
 from .deps import jobs, plans, scenarios, warehouse
-from .routers import branches, model, optimize, registry
+from .routers import branches, findings, model, optimize, registry
 
 
 @asynccontextmanager
@@ -58,5 +58,5 @@ async def _json_errors(request: Request, call_next):
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for _router in (model.router, registry.router, optimize.router, branches.router):
+for _router in (model.router, registry.router, optimize.router, branches.router, findings.router):
     app.include_router(_router)

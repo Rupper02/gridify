@@ -6,12 +6,17 @@ fingerprint, so branches never serve each other's results and a code change reti
 
 import hashlib
 import json
+import time
+from collections.abc import Callable
+from typing import TypeVar
 
 from gridforge_optimizer import Candidate, OptimizeParams
 
 from .config import now
 from .store import ScenarioStore
 from .warehouse import Warehouse
+
+T = TypeVar("T")
 
 MAX_TRIAL_CACHE_ENTRIES = 50_000  # bounded: a cold start costs one full run, nothing else
 MAX_YEAR_CACHE_ENTRIES = 2_000  # solved plan years (years.year_signature): an edit re-solves only what it touches
@@ -70,6 +75,33 @@ class ResultCache:
         if len(cache) > MAX_YEAR_CACHE_ENTRIES:
             cache.clear()
         return cache
+
+    def has(self, key: str) -> bool:
+        """Whether a result for this key exists, in process or durably: the merge gate's freshness test."""
+        if key in self.compute:
+            return True
+        with self._store.cursor() as con:
+            return con.execute("SELECT 1 FROM result_cache WHERE cache_key = ?", [key]).fetchone() is not None
+
+    def through(self, key: str, kind: str, *, parse: Callable[[str], T], compute: Callable[[], T],
+                dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None) -> T:
+        """The one read-through path every engine result takes: the in-process dict, then the durable
+        table (`parse`d from JSON), then `compute` (stored with `dump` and its compute time). `on_hit`
+        sees a value that did not come from `compute` (a cached plan still reaches a per-year callback)."""
+        if key in self.compute:
+            value, hit = self.compute[key], True
+        else:
+            cached = self.get(key)
+            if cached is not None:
+                value, hit = parse(cached), True
+            else:
+                t0 = time.perf_counter()
+                value, hit = compute(), False
+                self.put(key, kind, int((time.perf_counter() - t0) * 1000), dump(value))
+            self.compute[key] = value
+        if hit and on_hit is not None:
+            on_hit(value)
+        return value
 
     def get(self, key: str) -> str | None:
         with self._store.cursor() as con:

@@ -1,5 +1,5 @@
 """The scenarios store: branches, added projects, schedules, planned outages, simulated
-reinforcements and the durable result cache.
+reinforcements, the durable result cache, the findings ledger and the merge audit.
 
 One class owns the connection and the lock; the SQL dialect adapter and the schema migrations live
 beside it. Nothing here knows about HTTP, the engine or the cache's policy.
@@ -27,6 +27,15 @@ REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "facto
 BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
     "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by",
+]
+FINDING_COLS = [
+    "finding_id", "branch_id", "fingerprint", "source", "kind", "severity", "year", "study_case", "element_kind",
+    "element_id", "value", "limit_value", "message", "context_json", "status", "note", "evidence_kind",
+    "evidence_ref", "evidence_json", "snapshot_id", "engine", "first_seen_at", "last_seen_at", "acked_at", "resolved_at",
+]
+MERGE_COLS = [
+    "merge_id", "branch_id", "into_branch", "outcome", "ok", "n_blockers", "n_warnings", "acknowledged",
+    "verdict_json", "head_key", "base_key", "snapshot_id", "engine", "created_at",
 ]
 
 _DOUBLE_RE = re.compile(r"\bDOUBLE\b(?! PRECISION)")  # DuckDB's DOUBLE is Postgres's DOUBLE PRECISION
@@ -226,6 +235,30 @@ def migrate(con: Cursor) -> None:
         CREATE TABLE IF NOT EXISTS result_cache (
             cache_key VARCHAR PRIMARY KEY, kind VARCHAR, snapshot_id VARCHAR, engine VARCHAR,
             created_at VARCHAR, compute_ms INTEGER, result_json VARCHAR
+        )
+        """
+    )
+    # the findings ledger: what every run found (and, later, what the agents file), one row per
+    # branch + fingerprint, upserted by each run; never copied on branch create or merge
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS findings (
+            finding_id VARCHAR PRIMARY KEY, branch_id VARCHAR, fingerprint VARCHAR, source VARCHAR,
+            kind VARCHAR, severity VARCHAR, year INTEGER, study_case VARCHAR, element_kind VARCHAR, element_id VARCHAR,
+            value DOUBLE, limit_value DOUBLE, message VARCHAR, context_json VARCHAR,
+            status VARCHAR DEFAULT 'open', note VARCHAR,
+            evidence_kind VARCHAR, evidence_ref VARCHAR, evidence_json VARCHAR, snapshot_id VARCHAR, engine VARCHAR,
+            first_seen_at VARCHAR, last_seen_at VARCHAR, acked_at VARCHAR, resolved_at VARCHAR
+        )
+        """
+    )
+    # the merge audit: every attempt, refused or done, with the gate's verdict
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS merges (
+            merge_id VARCHAR PRIMARY KEY, branch_id VARCHAR, into_branch VARCHAR, outcome VARCHAR,
+            ok BOOLEAN, n_blockers INTEGER, n_warnings INTEGER, acknowledged BOOLEAN, verdict_json VARCHAR,
+            head_key VARCHAR, base_key VARCHAR, snapshot_id VARCHAR, engine VARCHAR, created_at VARCHAR
         )
         """
     )
