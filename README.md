@@ -280,9 +280,9 @@ The Python apps have thin `package.json`s whose turbo tasks shell out to `uv`. B
 ```bash
 pnpm test                                     # everything, via Turborepo
 # or individually
-cd packages/optimizer && uv run pytest -q     # engine: 79 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
+cd packages/optimizer && uv run pytest -q     # engine: 149 tests, 4 workers (pytest-xdist); the N-1 screen is stubbed except where it is under test
 cd apps/api && uv run --with pytest pytest tests -q   # API (each run uses its own temp scenarios DB; the per-year N-1 screen is stubbed; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set): the branch/PR flow, the gate and the ledger, the harness plumbing, the agents end to end with scripted models on a temp DBOS database (test_agents.py), and the key-less path (test_agents_off.py)
-cd apps/web && pnpm test                      # UI: 28 vitest unit tests (reason wording, queue/timeline derivations, Copilot intake and recommendations, run stages)
+cd apps/web && pnpm test                      # UI: 108 vitest unit tests (reason wording, derivations, the gate and findings, the agents' trace, projects, Copilot intake and recommendations, run stages)
 ```
 
 The engine tests are **grid-agnostic**: fixtures are derived from whatever network `build_base_net()` returns, never from hard-coded bus ids. `test_nged.py` adds the NGED data rules:

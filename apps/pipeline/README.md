@@ -71,5 +71,6 @@ Keep the quotes around `'ltds_tables*'`: it selects the root asset and everythin
 ## Notes
 
 - **WARN vs ERROR is deliberate.** ERROR means the model is wrong (it won't solve, or it references things that don't exist). WARN flags a structural concern without blocking.
+- **Telling the API's agents about a new edition.** The API's steward sweeps a project when its data changes; the pipeline is not wired to it yet. After `served_nged` writes a new snapshot, `POST /projects/nged-bickerfen/events` with `{"type": "edition.changed", "payload": {"ltds_edition": "<edition>"}}` (deduplicated by the edition) starts the sweep; the API also notices a new snapshot by itself the next time it starts.
 - **DuckDB today.** The warehouse path is one config value (`src/grid_simulator/config.py`). DuckDB allows one writer per file, so the writer assets carry a retry policy; the API only ever opens it read-only.
 - **Tests live with the logic.** The model and edition rules are tested in `packages/optimizer/tests/` (`test_nged.py`, `test_editions.py`); this package has no unit tests of its own. The asset checks are the pipeline's runtime gate.
