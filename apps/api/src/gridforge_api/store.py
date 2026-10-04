@@ -15,7 +15,7 @@ import duckdb
 
 from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035
 
-from .config import now
+from .config import NGED_PROJECT_ID, now
 
 ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
@@ -26,8 +26,9 @@ OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "wee
 REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "factor", "label", "created_at"]
 BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
-    "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by",
+    "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by", "project_id",
 ]
+PROJECT_COLS = ["project_id", "name", "source_kind", "source_ref", "snapshot_id", "created_at", "meta_json", "report_json", "capabilities_json", "main_id"]
 FINDING_COLS = [
     "finding_id", "branch_id", "fingerprint", "source", "kind", "severity", "year", "study_case", "element_kind",
     "element_id", "value", "limit_value", "message", "context_json", "status", "note", "evidence_kind",
@@ -214,6 +215,18 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
+    # projects: the grids planned on. Every branch belongs to one; the built-in NGED project owns `main`
+    if "project_id" not in con.columns("branches"):
+        con.execute("ALTER TABLE branches ADD COLUMN project_id VARCHAR")
+        con.execute("UPDATE branches SET project_id = ? WHERE project_id IS NULL", [NGED_PROJECT_ID])
+    con.execute(
+        """
+        CREATE TABLE IF NOT EXISTS projects (
+            project_id VARCHAR PRIMARY KEY, name VARCHAR, source_kind VARCHAR, source_ref VARCHAR, snapshot_id VARCHAR,
+            created_at VARCHAR, meta_json VARCHAR, report_json VARCHAR, capabilities_json VARCHAR, main_id VARCHAR
+        )
+        """
+    )
     # planned maintenance windows and simulated reinforcements ("Try on branch"), per branch; both
     # copy on branch create and merge like the projects do
     con.execute(
@@ -302,16 +315,27 @@ def migrate(con: Cursor) -> None:
         "status VARCHAR, created_at VARCHAR)",
     ):
         con.execute(ddl)
-    _ensure_main_branch(con)
+    _ensure_builtin_project(con)
+    ensure_main_branch(con, "main", NGED_PROJECT_ID)
 
 
-def _ensure_main_branch(con: Cursor) -> None:
-    """Seed the 'main' branch (the plan of record) once, with the default demand pathway."""
-    if con.execute("SELECT 1 FROM branches WHERE branch_id = 'main'").fetchone():
+def ensure_main_branch(con: Cursor, branch_id: str, project_id: str) -> None:
+    """Seed a project's main branch (its plan of record) once, with the default demand pathway."""
+    if con.execute("SELECT 1 FROM branches WHERE branch_id = ?", [branch_id]).fetchone():
         return
     con.execute(
         "INSERT INTO branches (branch_id, name, parent_id, scenario, growth_2030, growth_2035, "
-        "w_readiness, w_need, w_strategic, status, created_at) "
-        "VALUES ('main', 'Main', NULL, ?, ?, ?, NULL, NULL, NULL, 'open', ?)",
-        [DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, now()],
+        "w_readiness, w_need, w_strategic, status, created_at, project_id) "
+        "VALUES (?, 'Main', NULL, ?, ?, ?, NULL, NULL, NULL, 'open', ?, ?)",
+        [branch_id, DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, now(), project_id],
+    )
+
+
+def _ensure_builtin_project(con: Cursor) -> None:
+    """The built-in project (NGED, read from the pipeline's warehouse) is a row like any other, once."""
+    if con.execute("SELECT 1 FROM projects WHERE project_id = ?", [NGED_PROJECT_ID]).fetchone():
+        return
+    con.execute(
+        f"INSERT INTO projects ({', '.join(PROJECT_COLS)}) VALUES ({', '.join('?' * len(PROJECT_COLS))})",
+        [NGED_PROJECT_ID, "NGED Bicker Fen 132 kV GSP", "nged", None, "warehouse", now(), None, None, None, "main"],
     )

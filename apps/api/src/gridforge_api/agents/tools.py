@@ -63,6 +63,7 @@ class Harness:
     plans: Any
     store: Any
     warehouse: Any
+    projects: Any  # the grids planned on (baselines, main branches)
     evidence: EvidenceLedger
     solver_gate: SolverGate
     project_id: str
@@ -76,6 +77,8 @@ class AgentDeps:
 
     h: Harness
     run_id: str
+    project_id: str = ""
+    main_id: str = "main"  # the project's plan of record (what a tool reads when no branch is named)
     branch_id: str | None = None
     thread_id: str | None = None
     allowed_studies: tuple[str, ...] = tuple(STUDIES)
@@ -120,7 +123,7 @@ def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[
 
 
 def _branch(ctx: RunContext[AgentDeps], branch_id: str | None) -> str:
-    return branch_id or ctx.deps.branch_id or "main"
+    return branch_id or ctx.deps.branch_id or ctx.deps.main_id
 
 
 # --- read tools -------------------------------------------------------------------------------------------------
@@ -129,15 +132,15 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
 
     @ts.tool
     def project_overview(ctx: RunContext[AgentDeps]) -> dict:
-        """The project at a glance: its branches, main's open findings by severity, the GSP limit, and the budget left for this run."""
+        """The project at a glance: its branches, its main's open findings by severity, the budget left for this run."""
         def work():
-            h = ctx.deps.h
+            h, d = ctx.deps.h, ctx.deps
             with h.store.cursor() as con:
-                ids = [r[0] for r in con.execute("SELECT branch_id FROM branches WHERE status = 'open' ORDER BY (branch_id = 'main') DESC, created_at").fetchall()]
-                branches = [repository.branch_to_client(con, repository.branch_row(con, i)) for i in ids]
-                counts = ledger.counts(con, "main")
-            return ({"project_id": h.project_id, "branches": [{k: b[k] for k in ("branch_id", "name", "scenario", "n_added", "status")} for b in branches],
-                     "main_findings": counts, "snapshot_id": h.warehouse.baseline_id(),
+                ids = repository.branch_ids(con, d.project_id)
+                branches = [b for b in (repository.branch_to_client(con, repository.branch_row(con, i)) for i in ids) if b["status"] == "open"]
+                counts = ledger.counts(con, d.main_id)
+            return ({"project_id": d.project_id, "main_branch": d.main_id, "branches": [{k: b[k] for k in ("branch_id", "name", "scenario", "n_added", "status")} for b in branches],
+                     "main_findings": counts, "snapshot_id": h.projects.baseline(d.project_id),
                      "run_budget_left": {"tool_calls": ctx.deps.budget["max_tool_calls"] - ctx.deps.tool_calls,
                                          "solves": ctx.deps.budget["max_solves"] - ctx.deps.solves}}, None, 0)
         return _recorded(ctx, "project_overview", {}, work)
@@ -308,13 +311,13 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
 
     @ts.tool
     def propose_branch(ctx: RunContext[AgentDeps], name: str, note: str) -> dict:
-        """Propose opening a branch off main to try something (the operator approves; nothing changes on main)."""
+        """Propose opening a branch off the project's main to try something (the operator approves; nothing changes on main)."""
         def work():
-            h = ctx.deps.h
+            h, main = ctx.deps.h, ctx.deps.main_id
             with h.store.cursor() as con:
-                bid = repository.open_branch(con, repository.require_branch(con, "main"), name, created_by="agent:answerer")
+                bid = repository.open_branch(con, repository.require_branch(con, main), name, created_by="agent:answerer")
             h.plans.invalidate("plan")
-            return ({"branch_id": bid, "name": name, "note": note, "summary": f"opened {name} ({bid}) off main"}, None, 0)
+            return ({"branch_id": bid, "name": name, "note": note, "summary": f"opened {name} ({bid}) off {main}"}, None, 0)
         return _recorded(ctx, "propose_branch", {"name": name, "note": note}, work)
 
     @ts.tool

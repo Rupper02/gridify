@@ -63,8 +63,15 @@ def branch_to_client(con: Cursor, row: dict) -> dict:
         "branch_id": row["branch_id"], "name": row["name"], "parent_id": row["parent_id"],
         **branch_params(row),
         "status": row["status"], "created_at": row["created_at"], "merged_at": row["merged_at"],
-        "created_by": row.get("created_by") or "operator", "n_added": int(n_added),
+        "created_by": row.get("created_by") or "operator", "project_id": row.get("project_id"), "n_added": int(n_added),
     }
+
+
+def branch_ids(con: Cursor, project_id: str | None = None) -> list[str]:
+    """Branch ids, a project's main first then newest-created; every project's when `project_id` is None."""
+    where = "WHERE project_id = ?" if project_id else ""
+    cur = con.execute(f"SELECT branch_id FROM branches {where} ORDER BY (parent_id IS NULL) DESC, created_at", [project_id] if project_id else [])
+    return [r[0] for r in cur.fetchall()]
 
 
 def open_branch(con: Cursor, parent: dict, name: str, *, created_by: str, overrides: dict | None = None) -> str:
@@ -75,12 +82,12 @@ def open_branch(con: Cursor, parent: dict, name: str, *, created_by: str, overri
     bid = "br-" + uuid.uuid4().hex[:8]
     con.execute(
         "INSERT INTO branches (branch_id, name, parent_id, scenario, growth_2030, growth_2035, "
-        "w_readiness, w_need, w_strategic, status, created_at, created_by) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
+        "w_readiness, w_need, w_strategic, status, created_at, created_by, project_id) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
         [bid, name, parent["branch_id"],
          pick(o.get("scenario"), parent["scenario"]), pick(o.get("growth_2030"), parent["growth_2030"]),
          pick(o.get("growth_2035"), parent["growth_2035"]), pick(o.get("w_readiness"), parent["w_readiness"]),
-         pick(o.get("w_need"), parent["w_need"]), pick(o.get("w_strategic"), parent["w_strategic"]), now(), created_by],
+         pick(o.get("w_need"), parent["w_need"]), pick(o.get("w_strategic"), parent["w_strategic"]), now(), created_by, parent["project_id"]],
     )
     copy_projects(con, parent["branch_id"], bid)
     copy_branch_extras(con, parent["branch_id"], bid)

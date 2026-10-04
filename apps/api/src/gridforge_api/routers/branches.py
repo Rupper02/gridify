@@ -11,7 +11,7 @@ from gridforge_optimizer.config import MAX_SUGGESTIONS
 from .. import ledger, narration, proposals, repository
 from ..agents import events
 from ..config import now
-from ..deps import agents, jobs, narrator, plans, scenarios, warehouse
+from ..deps import agents, jobs, narrator, plans, projects, scenarios
 from ..schemas import (
     BestWindowRequest,
     BranchCreate,
@@ -33,27 +33,30 @@ def create_branch(body: BranchCreate) -> dict:
         parent = repository.require_branch(con, body.from_branch)
         bid = repository.open_branch(con, parent, body.name, created_by="operator",
                                      overrides=body.model_dump(include={"scenario", "growth_2030", "growth_2035", "w_readiness", "w_need", "w_strategic"}))
-        valid = warehouse.valid_bus_ids()
+        valid = projects.element_ids(parent["project_id"])["buses"]
         for p in body.added_projects:
             repository.insert_candidate(con, bid, p, valid)
         return repository.branch_to_client(con, repository.branch_row(con, bid))
 
 
 @router.get("/branches")
-def list_branches() -> dict:
-    """All branches, main first then newest-created."""
+def list_branches(project_id: str | None = None) -> dict:
+    """All branches (or one project's), each project's main first then newest-created."""
     with scenarios.cursor() as con:
-        ids = [r[0] for r in con.execute(
-            "SELECT branch_id FROM branches ORDER BY (branch_id = 'main') DESC, created_at"
-        ).fetchall()]
+        ids = repository.branch_ids(con, project_id)
         branches = [repository.branch_to_client(con, repository.branch_row(con, i)) for i in ids]
     return {"branches": branches}
+
+
+def _project_of(branch_id: str) -> str:
+    with scenarios.cursor() as con:
+        return repository.require_branch(con, branch_id)["project_id"]
 
 
 @router.post("/branches/{branch_id}/registry")
 def add_from_registry(branch_id: str, body: RegistryAdd) -> dict:
     """Pull a projected project from the registry onto a branch (copies it into the branch's plan)."""
-    row = {r["request_id"]: r for r in warehouse.registry_rows()}.get(body.request_id)
+    row = {r["request_id"]: r for r in projects.registry_rows(_project_of(branch_id))}.get(body.request_id)
     if row is None:
         raise HTTPException(status_code=404, detail=f"registry project '{body.request_id}' not found")
     with scenarios.cursor() as con:
@@ -178,7 +181,7 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
         repository.merge_into(con, head, base["branch_id"])
         out = repository.branch_to_client(con, repository.branch_row(con, base["branch_id"]))
     plans.invalidate("plan")
-    events.emit(agents, "branch.merged", {"branch_id": branch_id, "into": base["branch_id"], "run_key": evidence.get("head_years_key", "")})
+    events.emit(agents, "branch.merged", {"project_id": base["project_id"], "branch_id": branch_id, "into": base["branch_id"], "run_key": evidence.get("head_years_key", "")})
     return out
 
 
@@ -224,14 +227,15 @@ def add_outage(branch_id: str, body: OutageCreate) -> dict:
     """Schedule a works window (maintenance, like-for-like replacement or repowering) on a line,
     transformer or existing generator. The next run studies it, and a repowering changes the years
     after it; until then the planner shows the result as out of date."""
-    _require_element(body.element_kind, body.element_id)
+    _require_element(branch_id, body.element_kind, body.element_id)
     with scenarios.cursor() as con:
         repository.require_open(con, branch_id, allow_main=False)
         return repository.insert_outage(con, branch_id, body)
 
 
-def _require_element(kind: str, element_id: str) -> None:
-    known = {"line": warehouse.line_ids, "trafo": warehouse.trafo_ids, "gen": warehouse.generator_ids}[kind]()
+def _require_element(branch_id: str, kind: str, element_id: str) -> None:
+    ids = projects.element_ids(_project_of(branch_id))
+    known = {"line": ids["lines"], "trafo": ids["trafos"], "gen": ids["generators"]}[kind]
     if element_id not in known:
         raise HTTPException(status_code=422, detail=f"{kind} '{element_id}' is not in the network model")
 
@@ -243,7 +247,7 @@ def start_best_window(branch_id: str, body: BestWindowRequest) -> dict:
     reinforcements and other windows), ranked by verdict, then curtailment, demand at risk, N-1
     findings during the window and loading. Read-only, so it runs on main too. Runs as a background
     job (progress per year); the job's result is {branch_id, element_kind, element_id, work, options}."""
-    _require_element(body.element_kind, body.element_id)
+    _require_element(branch_id, body.element_kind, body.element_id)
     with scenarios.cursor() as con:
         repository.require_branch(con, branch_id)
 
@@ -274,8 +278,9 @@ def list_reinforcements(branch_id: str) -> dict:
 @router.post("/branches/{branch_id}/reinforcements")
 def add_reinforcement(branch_id: str, body: ReinforcementCreate) -> dict:
     """Propose a reinforcement on a branch (a Copilot lever). The next run measures it against the queue."""
-    known = {"line": warehouse.line_ids, "trafo": warehouse.trafo_ids}.get(body.kind)
-    if known is not None and str(body.element_id) not in known():
+    ids = projects.element_ids(_project_of(branch_id))
+    known = {"line": ids["lines"], "trafo": ids["trafos"]}.get(body.kind)
+    if known is not None and str(body.element_id) not in known:
         raise HTTPException(status_code=422, detail=f"{body.kind} '{body.element_id}' is not in the network model")
     with scenarios.cursor() as con:
         repository.require_open(con, branch_id, allow_main=False)

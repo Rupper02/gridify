@@ -3,7 +3,8 @@
 from fastapi import APIRouter
 
 from .. import repository
-from ..deps import plans, scenarios, warehouse
+from ..config import NGED_PROJECT_ID
+from ..deps import plans, projects, scenarios
 from ..schemas import NewCandidate
 
 router = APIRouter()
@@ -12,20 +13,20 @@ router = APIRouter()
 @router.get("/optimize/candidates")
 def optimize_candidates() -> list[dict]:
     """The registry pool (projected projects available to add to a branch), shaped for the client."""
-    return [repository.to_client(r) for r in warehouse.registry_rows()]
+    return [repository.to_client(r) for r in projects.registry_rows(NGED_PROJECT_ID)]
 
 
 @router.get("/registry")
 def registry() -> list[dict]:
-    """The registry of projected connection projects: the pool branches pull from."""
-    return [repository.to_client(r) for r in warehouse.registry_rows()]
+    """The built-in project's registry of projected connection projects: the pool its branches pull from."""
+    return [repository.to_client(r) for r in projects.registry_rows(NGED_PROJECT_ID)]
 
 
 @router.post("/optimize/candidates")
 def add_candidate(body: NewCandidate) -> dict:
     """Add a project to a branch (stored in the API scenarios DB; warehouse untouched)."""
     with scenarios.cursor() as con:
-        repository.require_open(con, body.branch_id, allow_main=False)
-        row = repository.insert_candidate(con, body.branch_id, body, warehouse.valid_bus_ids())
+        branch = repository.require_open(con, body.branch_id, allow_main=False)
+        row = repository.insert_candidate(con, body.branch_id, body, projects.element_ids(branch["project_id"])["buses"])
     plans.invalidate("plan")  # the candidate set changed
     return repository.to_client(row)

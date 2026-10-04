@@ -17,6 +17,7 @@ from .agents.runtime import AgentRuntime
 from .cache import ResultCache
 from .jobs import JobRunner
 from .narration import NoNarrator, OpenRouterNarrator
+from .projects import Projects
 from .service import PlanService
 from .store import ScenarioStore
 from .warehouse import Warehouse
@@ -24,15 +25,17 @@ from .warehouse import Warehouse
 warehouse = Warehouse(config.WAREHOUSE)
 scenarios = ScenarioStore(config.SCENARIOS_URL or config.SCENARIOS)
 # the engine fingerprint is a hash of the engine's source: a code change invalidates every cached result
-cache = ResultCache(scenarios, warehouse, engine_fingerprint())
+cache = ResultCache(scenarios, engine_fingerprint())
+# the grids planned on: the built-in NGED project from the warehouse, and every imported file
+projects = Projects(scenarios, warehouse, config.PROJECTS_DIR, config.NGED_PROJECT_ID)
 # one power flow at a time in this process: operator jobs and agent studies share the lock
 solver_lock = threading.RLock()
 jobs = JobRunner(solver_lock)
 # without a key there is no narration and there are no agents: the substitute implementations, not exceptions swallowed
 narrator = OpenRouterNarrator() if os.getenv("OPENROUTER_API_KEY") else NoNarrator()
-plans = PlanService(warehouse, scenarios, cache, narrator)
+plans = PlanService(projects, scenarios, cache, narrator)
 evidence = EvidenceLedger(scenarios, cache)
 budget = BudgetMeter(scenarios)
-agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, evidence=evidence, budget=budget,
+agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, projects=projects, evidence=evidence, budget=budget,
                       model_factory=openrouter_model_factory(), system_db_url=config.DBOS_URL, app_version=config.AGENTS_APP_VERSION,
                       project_id=config.NGED_PROJECT_ID)

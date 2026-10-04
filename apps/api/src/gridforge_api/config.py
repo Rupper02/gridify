@@ -31,7 +31,9 @@ MANUAL_STRATEGIC_DEFAULT = 0.5
 ADDED_CANDIDATE_ID_BASE = 2056  # user-added projects are numbered CR-2056, CR-2057, …
 
 # --- the agent harness (agents/) ---------------------------------------------------------------------------
-NGED_PROJECT_ID = "nged-bickerfen"  # the one project today; every agent record is keyed by project
+NGED_PROJECT_ID = "nged-bickerfen"  # the built-in project; imports get their own ids (projects.py)
+PROJECTS_DIR = Path(os.getenv("GRIDFORGE_PROJECTS_DIR") or (SCENARIOS.parent / "projects"))  # the files imported projects were built from
+MAX_IMPORT_BYTES = 50 * 1024 * 1024
 # OpenRouter model ids per role (AGENTS.md rule 2: they plan studies and phrase; the engine computes)
 AGENT_MODELS = {
     "steward": "anthropic/claude-sonnet-5.5",

@@ -1,7 +1,8 @@
 """Result caching: an in-process layer over the durable `result_cache` table.
 
-Every key includes the model snapshot, the parameters, the candidate set and the engine's code
-fingerprint, so branches never serve each other's results and a code change retires stale physics.
+Every key includes the project's baseline (its model snapshot or file fingerprint), the parameters, the
+candidate set and the engine's code fingerprint, so branches and projects never serve each other's
+results and a code change retires stale physics.
 """
 
 import hashlib
@@ -14,7 +15,6 @@ from gridforge_optimizer import Candidate, OptimizeParams
 
 from .config import now
 from .store import ScenarioStore
-from .warehouse import Warehouse
 
 T = TypeVar("T")
 
@@ -41,9 +41,8 @@ def params_key(params: OptimizeParams) -> tuple:
 class ResultCache:
     """In-process dicts (engine results, enriched payloads, trial caches) plus the durable table."""
 
-    def __init__(self, store: ScenarioStore, warehouse: Warehouse, engine: str):
+    def __init__(self, store: ScenarioStore, engine: str):
         self._store = store
-        self._warehouse = warehouse
         self.engine = engine
         self.compute: dict = {}  # key -> OptimizeResult / suggestions
         self.payload: dict = {}  # key -> the enriched /optimize payload
@@ -58,20 +57,22 @@ class ResultCache:
         self.compute.clear()
         self.payload.clear()
 
-    def key(self, kind: str, params: OptimizeParams, ckey: str, extra: str = "") -> str:
-        sig = json.dumps([kind, params_key(params), ckey, self._warehouse.baseline_id(), self.engine, extra], default=str)
+    def key(self, kind: str, params: OptimizeParams, ckey: str, baseline: str, extra: str = "") -> str:
+        """The key a result lives under: its kind, the parameters, the candidate set, the project's baseline
+        (the model snapshot or an imported file's fingerprint), the engine fingerprint and what else it depends on."""
+        sig = json.dumps([kind, params_key(params), ckey, baseline, self.engine, extra], default=str)
         return hashlib.sha256(sig.encode()).hexdigest()[:32]
 
-    def trial_cache(self, params: OptimizeParams) -> dict:
-        cache = self._trials.setdefault((params_key(params), self._warehouse.baseline_id(), self.engine), {})
+    def trial_cache(self, params: OptimizeParams, baseline: str) -> dict:
+        cache = self._trials.setdefault((params_key(params), baseline, self.engine), {})
         if len(cache) > MAX_TRIAL_CACHE_ENTRIES:
             cache.clear()
         return cache
 
-    def year_cache(self) -> dict:
+    def year_cache(self, baseline: str) -> dict:
         """Solved plan years by `years.year_signature` (which already covers the parameters), per
-        snapshot and engine: what a re-run after a small edit reuses."""
-        cache = self._years.setdefault((self._warehouse.baseline_id(), self.engine), {})
+        baseline and engine: what a re-run after a small edit reuses."""
+        cache = self._years.setdefault((baseline, self.engine), {})
         if len(cache) > MAX_YEAR_CACHE_ENTRIES:
             cache.clear()
         return cache
@@ -83,7 +84,7 @@ class ResultCache:
         with self._store.cursor() as con:
             return con.execute("SELECT 1 FROM result_cache WHERE cache_key = ?", [key]).fetchone() is not None
 
-    def through(self, key: str, kind: str, *, parse: Callable[[str], T], compute: Callable[[], T],
+    def through(self, key: str, kind: str, *, baseline: str, parse: Callable[[str], T], compute: Callable[[], T],
                 dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None) -> T:
         """The one read-through path every engine result takes: the in-process dict, then the durable
         table (`parse`d from JSON), then `compute` (stored with `dump` and its compute time). `on_hit`
@@ -97,7 +98,7 @@ class ResultCache:
             else:
                 t0 = time.perf_counter()
                 value, hit = compute(), False
-                self.put(key, kind, int((time.perf_counter() - t0) * 1000), dump(value))
+                self.put(key, kind, baseline, int((time.perf_counter() - t0) * 1000), dump(value))
             self.compute[key] = value
         if hit and on_hit is not None:
             on_hit(value)
@@ -108,13 +109,13 @@ class ResultCache:
             row = con.execute("SELECT result_json FROM result_cache WHERE cache_key = ?", [key]).fetchone()
         return row[0] if row else None
 
-    def put(self, key: str, kind: str, compute_ms: int, result_json: str) -> None:
+    def put(self, key: str, kind: str, baseline: str, compute_ms: int, result_json: str) -> None:
         with self._store.cursor() as con:
             con.execute(
                 "INSERT INTO result_cache VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT (cache_key) DO UPDATE SET result_json = EXCLUDED.result_json, created_at = EXCLUDED.created_at, "
                 "compute_ms = EXCLUDED.compute_ms",
-                [key, kind, self._warehouse.baseline_id(), self.engine, now(), compute_ms, result_json],
+                [key, kind, baseline, self.engine, now(), compute_ms, result_json],
             )
 
     def stats(self) -> dict:

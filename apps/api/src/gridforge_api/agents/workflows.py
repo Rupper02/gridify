@@ -84,7 +84,7 @@ def steward_run(project_id: str, event: dict) -> dict:
         return {"run_id": run_id, "status": "skipped_budget", "reason": begun["reason"]}
     allowed = [s for s in event.get("allowed_specialists", []) if s in SPECIALISTS]
     try:
-        deps = rt.deps_for(run_id, branch_id=event.get("branch_id"))
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
         prompt = (f"Event: {json.dumps({k: v for k, v in event.items() if k not in ('allowed_specialists',)}, default=str)}\n"
                   f"Allowed specialists now: {', '.join(allowed) or 'none'}. Each studies: {rt.remits()}.\n"
                   "Read the project overview and the open findings, then plan.")
@@ -101,7 +101,7 @@ def steward_run(project_id: str, event: dict) -> dict:
                 reports.append({"kind": req.kind, "status": "failed", "error": f"{type(e).__name__}: {e}"[:300]})
         brief_prompt = (f"Event: {event.get('type')}. Your triage note: {plan.note}\n"
                         f"Specialist reports: {json.dumps(reports, default=str)}\nWrite the HealthBrief.")
-        brief_deps = rt.deps_for(run_id, branch_id=event.get("branch_id"))
+        brief_deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
         res = rt.agents["steward_brief"].run_sync(brief_prompt, deps=brief_deps, usage_limits=_limits())
         brief: HealthBrief = res.output
         text = f"{brief.headline}\n\n{brief.body}" + (f"\n\nNot studied: {'; '.join(brief.not_studied)}" if brief.not_studied else "") \
@@ -129,7 +129,7 @@ def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) 
     if begun["paused"]:
         return {"kind": kind, "run_id": run_id, "status": "skipped_budget"}
     try:
-        deps = rt.deps_for(run_id, branch_id=branch_id, allowed=rt.studies_for(kind))
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for(kind))
         prompt = (f"Study branch '{branch_id}'. Why you were asked: {scope.get('why', '')} (event: {scope.get('event', '')}).\n"
                   f"Your studies: {', '.join(rt.studies_for(kind))}. Keep the scope small enough for the run budget.")
         res = rt.agents[kind].run_sync(prompt, deps=deps, usage_limits=_limits())
@@ -175,7 +175,7 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_budget"}
     try:
-        deps = rt.deps_for(run_id, branch_id=branch_id, allowed=rt.studies_for("reviewer"))
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for("reviewer"))
         deps.context["merge_check"] = mc
         prompt = (f"Review branch '{branch_id}' against '{mc['into']}'. The merge gate says:\n{json.dumps(mc, default=str)}\n"
                   "Read the diff and the findings if you need context, then write the ReviewComment.")
@@ -258,7 +258,7 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
         _close(run_id, {"t": "final", "status": "failed", "seq": 10_000})
         return {"run_id": run_id, "status": "skipped_budget"}
     try:
-        deps = rt.deps_for(run_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
         history = ModelMessagesTypeAdapter.validate_python(loaded["history"]) if loaded["history"] else None
         res = rt.agents["answerer"].run_sync(loaded["question"], deps=deps, message_history=history, usage_limits=_limits())
         done = _step(lambda: _answered(rt, project_id, thread_id, message_id, run_id, res, deps))
@@ -292,7 +292,7 @@ def answer_resume(project_id: str, thread_id: str, message_id: str, approval_id:
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_budget"}
     try:
-        deps = rt.deps_for(run_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
         decision: Any = ToolApproved() if approved else ToolDenied(message=f"The operator declined: {note or 'no reason given'}")
         results = DeferredToolResults(approvals={a["tool_call_id"]: decision})
         res = rt.agents["answerer"].run_sync(None, deps=deps, message_history=ModelMessagesTypeAdapter.validate_python(loaded["history"]),

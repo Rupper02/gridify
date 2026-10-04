@@ -353,6 +353,16 @@ def validate_net(net) -> ValidationReport:
                 warnings.append(f"the base case already breaks a limit: {why.message}; every project would be deferred for it")
         except Exception as e:  # a non-convergent file is a report, not a crash
             errors.append(f"the power flow did not converge: {type(e).__name__}: {e}")
+    if converged:  # the plan grows demand to 2035: a small network can collapse there even if today's case solves
+        from .config import DEFAULT_SCENARIO, GROWTH_2035
+        from .network import grow_demand
+        grown = copy.deepcopy(net)
+        grow_demand(grown, GROWTH_2035, DEFAULT_SCENARIO, 2035)
+        try:
+            pp.runpp(grown)
+        except Exception:
+            warnings.append(f"with demand grown to 2035 (x{GROWTH_2035:g}, the default pathway) the power flow does not converge: "
+                            "every plan year it fails in is reported as non-convergent, and projects rank as if the grid were full")
     recorded = [ModelAssumption(**{k: v for k, v in r.items()}, count=len(r.get("element_ids", [])) or None)
                 for r in (net["assumptions"].values() if isinstance(net.get("assumptions"), dict) else [])]
     return ValidationReport(ok=not errors, errors=errors, warnings=warnings, counts=counts, islands=islands, converged=converged,

@@ -42,7 +42,7 @@ def durable(name: str, fn: Callable[[], Any]) -> Any:
 
 
 class AgentRuntime:
-    def __init__(self, *, store, cache, plans, jobs, warehouse, evidence: EvidenceLedger, budget: BudgetMeter,
+    def __init__(self, *, store, cache, plans, jobs, warehouse, projects, evidence: EvidenceLedger, budget: BudgetMeter,
                  model_factory: Callable[[str], Any] | None, system_db_url: str, app_version: str, project_id: str):
         self.model_factory = model_factory
         self.system_db_url = system_db_url
@@ -50,7 +50,7 @@ class AgentRuntime:
         self.project_id = project_id
         self.budget = budget
         self.evidence = evidence
-        self.harness = Harness(plans=plans, store=store, warehouse=warehouse, evidence=evidence,
+        self.harness = Harness(plans=plans, store=store, warehouse=warehouse, projects=projects, evidence=evidence,
                                solver_gate=SolverGate(jobs, jobs.solver_lock), project_id=project_id, in_workflow=in_workflow, durable=durable)
         self.agents: dict[str, Any] = {}
         self.launched = False
@@ -109,7 +109,9 @@ class AgentRuntime:
         sink = self._sinks.setdefault(run_id, [])
         return sink.append
 
-    def deps_for(self, run_id: str, *, branch_id: str | None = None, thread_id: str | None = None, allowed: tuple[str, ...] | None = None) -> AgentDeps:
+    def deps_for(self, run_id: str, *, project_id: str | None = None, branch_id: str | None = None, thread_id: str | None = None,
+                 allowed: tuple[str, ...] | None = None) -> AgentDeps:
+        pid = project_id or self.project_id
         emit = self.emit_for(run_id)
 
         async def emit_async(ev: dict) -> None:
@@ -118,8 +120,8 @@ class AgentRuntime:
             else:
                 emit(ev)
 
-        return AgentDeps(h=self.harness, run_id=run_id, branch_id=branch_id, thread_id=thread_id, allowed_studies=allowed if allowed is not None else tuple(),
-                         emit=emit, emit_async=emit_async, budget=dict(AGENT_RUN_BUDGET))
+        return AgentDeps(h=self.harness, run_id=run_id, project_id=pid, main_id=self.harness.projects.main_id(pid), branch_id=branch_id, thread_id=thread_id,
+                         allowed_studies=allowed if allowed is not None else tuple(), emit=emit, emit_async=emit_async, budget=dict(AGENT_RUN_BUDGET))
 
     def captured(self, run_id: str) -> list:
         return list(self._sinks.get(run_id, []))
@@ -128,31 +130,33 @@ class AgentRuntime:
     def start(self, workflow_name: str, dedup: str, event: dict) -> str:
         """Enqueue one workflow for an event under a deterministic id (the same event never runs twice)."""
         fn, args_of = workflows.WORKFLOWS[workflow_name]
+        pid = event.get("project_id") or self.project_id
         wid = f"{workflow_name}:{dedup}"
         queue = STEWARD_QUEUE if workflow_name == "steward_run" else CHAT_QUEUE
-        opts = SetEnqueueOptions(queue_partition_key=self.project_id) if queue == STEWARD_QUEUE else nullcontext()
+        opts = SetEnqueueOptions(queue_partition_key=pid) if queue == STEWARD_QUEUE else nullcontext()  # one steward activity per project
         with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"]) * 3), opts:
-            DBOS.enqueue_workflow(queue, fn, *args_of(self.project_id, event))
+            DBOS.enqueue_workflow(queue, fn, *args_of(pid, event))
         return wid
 
-    def resume_answer(self, thread_id: str, message_id: str, approval_id: str, approved: bool, note: str) -> str:
+    def resume_answer(self, project_id: str, thread_id: str, message_id: str, approval_id: str, approved: bool, note: str) -> str:
         wid = f"answer_resume:{approval_id}"
         with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"])):
-            DBOS.enqueue_workflow(CHAT_QUEUE, workflows.answer_resume, self.project_id, thread_id, message_id, approval_id, approved, note)
+            DBOS.enqueue_workflow(CHAT_QUEUE, workflows.answer_resume, project_id, thread_id, message_id, approval_id, approved, note)
         return wid
 
     # --- status and startup events ----------------------------------------------------------------------------
-    def status(self) -> dict:
+    def status(self, project_id: str | None = None) -> dict:
+        pid = project_id or self.project_id
         if not self.enabled:
             return {"status": "off", "enabled": False, "launched": False, "reason": "OPENROUTER_API_KEY is not set", "models": AGENT_MODELS,
-                    "running": 0, "budget": None, "last_events": []}
-        state = self.budget.check(self.project_id)
+                    "running": 0, "budget": None, "last_events": [], "project_id": pid}
+        state = self.budget.check(pid)
         with self.harness.store.cursor() as con:
-            running = runs.running_count(con, self.project_id) if self.launched else 0
-            last = runs.recent_events(con, self.project_id) if self.launched else []
+            running = runs.running_count(con, pid) if self.launched else 0
+            last = runs.recent_events(con, pid) if self.launched else []
         status = "paused" if state.paused else "running" if running else "idle" if self.launched else "off"
         return {"status": status, "enabled": True, "launched": self.launched, "paused_reason": state.paused_reason if state.paused else "",
-                "running": running, "budget": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": self.project_id}
+                "running": running, "budget": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
 
     def emit_startup_events(self) -> list[dict]:
         """What changed while the API was down: a new model snapshot or LTDS edition wakes the steward."""

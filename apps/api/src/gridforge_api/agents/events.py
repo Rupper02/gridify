@@ -27,7 +27,7 @@ TRIGGERS: dict[str, Trigger] = {
     # the plan of record changed: the steward sweeps what a merge can move
     "branch.merged": Trigger(("steward_run",), ("thermal", "voltage", "boundary", "demand_security", "works"), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
     # a new model: everything, data quality first
-    "project.imported": Trigger(("steward_run",), ("data_quality", "thermal", "voltage", "demand_security", "boundary"), lambda p: f"snapshot:{p['snapshot_id']}"),
+    "project.imported": Trigger(("steward_run",), ("data_quality", "thermal", "voltage", "demand_security", "boundary"), lambda p: f"snapshot:{p.get('project_id', '')}:{p['snapshot_id']}"),
     # NGED published a new LTDS edition
     "edition.changed": Trigger(("steward_run",), ("data_quality", "thermal"), lambda p: f"edition:{p['ltds_edition']}"),
     # the operator asked a question
@@ -42,7 +42,7 @@ def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
     if not rt.enabled or not rt.launched or not trigger.applies(payload):
         return None
     dedup = trigger.dedup(payload)
-    project_id = rt.project_id
+    project_id = payload.get("project_id") or rt.project_id  # the built-in project unless the event names one
     with rt.harness.store.cursor() as con:
         existing = runs.event_by_dedup(con, project_id, dedup)
         if existing:
@@ -52,7 +52,7 @@ def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
         runs.insert_event(con, event_id=event_id, project_id=project_id, type_=type_, dedup_id=dedup, payload={**payload, "type": type_})
     if paused:
         return {"event_id": event_id, "workflow_ids": [], "deduplicated": False, "paused": True}
-    event = {**payload, "type": type_, "event_id": event_id, "dedup_id": dedup, "allowed_specialists": list(trigger.allowed_specialists)}
+    event = {**payload, "project_id": project_id, "type": type_, "event_id": event_id, "dedup_id": dedup, "allowed_specialists": list(trigger.allowed_specialists)}
     workflow_ids = [rt.start(name, dedup, event) for name in trigger.workflows]
     with rt.harness.store.cursor() as con:
         runs.set_event_workflows(con, event_id, workflow_ids)

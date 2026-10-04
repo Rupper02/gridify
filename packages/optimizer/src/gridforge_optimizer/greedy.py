@@ -116,7 +116,11 @@ class _Run:
         """Order the rankable candidates; set aside the rest as rejected."""
         # one power flow under max growth to read 'need' at every candidate bus
         need_net = self._study_net(self.params.growth_2035, 2035)
-        pp.runpp(need_net)
+        try:
+            pp.runpp(need_net)
+            solved = True
+        except Exception:  # a (small, imported) grid that collapses under the plan's growth: it is full everywhere
+            solved = False
         self.net_bus_ids = {int(b) for b in need_net.bus.index}
 
         # a candidate is rankable only if it passed intake AND its connection bus exists in the network.
@@ -124,7 +128,7 @@ class _Run:
         valid = [c for c in self.candidates if _is_valid(c) and int(c.bus_id) in self.net_bus_ids]
         valid_ids = {c.request_id for c in valid}
         self.rejected = [c for c in self.candidates if c.request_id not in valid_ids]
-        self.need = {c.request_id: grid_need_from_solved(need_net, c.bus_id) for c in valid}
+        self.need = {c.request_id: grid_need_from_solved(need_net, c.bus_id) if solved else 1.0 for c in valid}
         self.ranked = sorted(
             valid,
             key=lambda c: (-self.rank_score(c), -c.readiness_score, c.rating_mw, c.request_id),

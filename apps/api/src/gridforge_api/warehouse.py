@@ -35,16 +35,18 @@ class Warehouse:
     def baseline_model(self) -> dict:
         """The geolocated grid (buses, lines, transformers, loads) for the map."""
         buses = self.query("SELECT bus_id, name, vn_kv, lon, lat FROM buses WHERE lon IS NOT NULL")
-        lines = self.query(
-            """
-            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv, l.from_bus, l.to_bus,
+        line_sql = """
+            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv, l.from_bus, l.to_bus, {length}
                    f.lon AS from_lon, f.lat AS from_lat, t.lon AS to_lon, t.lat AS to_lat
             FROM lines l
             JOIN buses f ON l.from_bus = f.bus_id
             JOIN buses t ON l.to_bus   = t.bus_id
             WHERE f.lon IS NOT NULL AND t.lon IS NOT NULL
             """
-        )
+        try:
+            lines = self.query(line_sql.format(length="l.length_km,"))
+        except Exception:  # warehouse predates the line lengths
+            lines = self.query(line_sql.format(length="0.0 AS length_km,"))
         transformers = self.query(
             """
             SELECT tr.trafo_id, tr.name, tr.sn_mva, tr.hv_bus, tr.lv_bus,

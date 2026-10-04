@@ -12,15 +12,14 @@ from starlette.responses import StreamingResponse
 from .. import repository
 from ..agents import events, runs, threads
 from ..config import now
-from ..deps import agents, evidence, scenarios
+from ..deps import agents, evidence, projects, scenarios
 from ..schemas import ApprovalDecision, EventIn, MessageIn, ThreadCreate
 
 router = APIRouter()
 
 
 def _project(pid: str) -> str:
-    if pid != agents.project_id:
-        raise HTTPException(status_code=404, detail=f"project '{pid}' not found")
+    projects.row(pid)  # 404 for an unknown project
     return pid
 
 
@@ -34,7 +33,7 @@ def _on() -> None:
 def agents_status(pid: str) -> dict:
     """Off (no key), idle, running or paused, with today's budget and the last events."""
     _project(pid)
-    return agents.status()
+    return agents.status(pid)
 
 
 @router.post("/projects/{pid}/agents/pause")
@@ -42,7 +41,7 @@ def pause_agents(pid: str, body: dict | None = None) -> dict:
     _project(pid)
     _on()
     agents.budget.set_paused(pid, True, (body or {}).get("reason") or "operator")
-    return agents.status()
+    return agents.status(pid)
 
 
 @router.post("/projects/{pid}/agents/resume")
@@ -50,7 +49,7 @@ def resume_agents(pid: str) -> dict:
     _project(pid)
     _on()
     agents.budget.set_paused(pid, False)
-    return agents.status()
+    return agents.status(pid)
 
 
 @router.post("/projects/{pid}/events")
@@ -62,7 +61,7 @@ def post_event(pid: str, body: EventIn) -> dict:
     if body.type not in events.TRIGGERS:
         raise HTTPException(status_code=422, detail=f"unknown event type; one of {', '.join(events.TRIGGERS)}")
     try:
-        r = events.emit(agents, body.type, {**body.payload, **({"dedup_id": body.dedup_id} if body.dedup_id else {})})
+        r = events.emit(agents, body.type, {**body.payload, "project_id": pid, **({"dedup_id": body.dedup_id} if body.dedup_id else {})})
     except KeyError as e:
         raise HTTPException(status_code=422, detail=f"the event payload lacks {e}") from None
     return r or {"event_id": None, "workflow_ids": [], "deduplicated": False, "paused": False}
@@ -112,7 +111,7 @@ def post_message(pid: str, tid: str, body: MessageIn) -> dict:
         user = threads.add_message(con, tid, "user", body.content)
         reply = threads.add_message(con, tid, "assistant", "", status="queued")
         threads.set_message(con, reply["message_id"], workflow_id=f"answer:ask:{reply['message_id']}")  # = the answer workflow's id (events.TRIGGERS)
-    r = events.emit(agents, "operator.asked", {"thread_id": tid, "message_id": reply["message_id"]})
+    r = events.emit(agents, "operator.asked", {"project_id": pid, "thread_id": tid, "message_id": reply["message_id"]})
     return {"message_id": user["message_id"], "reply_id": reply["message_id"], "workflow_id": (r or {}).get("workflow_ids", [None])[0], "paused": bool((r or {}).get("paused"))}
 
 
@@ -168,7 +167,7 @@ def decide_approval(pid: str, aid: str, body: ApprovalDecision) -> dict:
         if a["status"] != "pending":
             raise HTTPException(status_code=409, detail=f"approval is '{a['status']}', not pending")
         a = runs.decide_approval(con, aid, "approved" if body.decision == "approve" else "denied", body.note)
-    wid = agents.resume_answer(a["thread_id"], a["message_id"], aid, body.decision == "approve", body.note)
+    wid = agents.resume_answer(pid, a["thread_id"], a["message_id"], aid, body.decision == "approve", body.note)
     return {**a, "workflow_id": wid, "checked_at": now()}
 
 

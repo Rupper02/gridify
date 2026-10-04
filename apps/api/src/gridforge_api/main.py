@@ -1,8 +1,9 @@
 """GridForge API.
 
-Serves the validated canonical grid model (read-only, from the pipeline's DuckDB
-warehouse) and runs the connection-queue optimizer. Projects added via the UI are
-stored in a separate scenarios DB, so the pipeline baseline is never mutated.
+Serves the grids GridForge plans on (the built-in NGED model, read-only from the pipeline's DuckDB
+warehouse, and any grid imported as a project) and runs the connection-queue optimizer on their
+branches. Everything a user does is stored in a separate scenarios DB, so the pipeline baseline is
+never mutated.
 
 This module only assembles the app: the work lives in `routers/` (HTTP), `service` (engine runs),
 `repository` + `ledger` + `store` (scenarios DB), `warehouse` (read-only baseline), `cache`, `jobs`
@@ -20,7 +21,7 @@ from starlette.responses import JSONResponse
 from .config import log
 from .deps import agents, jobs, plans, scenarios, warehouse
 from .routers import agents as agents_router
-from .routers import branches, findings, model, optimize, registry, studies
+from .routers import branches, findings, model, optimize, projects, registry, studies
 
 
 @asynccontextmanager
@@ -64,5 +65,5 @@ async def _json_errors(request: Request, call_next):
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, agents_router.router):
+for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, projects.router, agents_router.router):
     app.include_router(_router)
