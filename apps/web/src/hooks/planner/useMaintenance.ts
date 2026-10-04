@@ -7,6 +7,7 @@ import { useCallback } from "react";
 import { api } from "../../api";
 import { WORK_UI, draftBody } from "../../lib/maintenance";
 import type { ElementSel, Suggestion } from "../../types";
+import { mainIdOf } from "../../lib/projects";
 import type { Core, MaintDraft } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
@@ -30,7 +31,7 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
   const addOutage = useCallback(
     async (sel: ElementSel, bid: string) => {
       const st = ref.current;
-      if (bid === "main") {
+      if (bid === mainIdOf(st.projects, st.projectId)) {
         toastMsg("main is read-only. Open a branch to schedule maintenance.", "warn");
         return;
       }
@@ -50,7 +51,7 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
   const removeOutage = useCallback(
     async (outageId: string) => {
       const st = ref.current;
-      if (st.activeBranch === "main") return;
+      if (st.activeBranch === mainIdOf(st.projects, st.projectId)) return;
       const before = st.outages;
       patch({ outages: before.filter((o) => o.outage_id !== outageId) });
       try {

@@ -4,6 +4,7 @@ import { useCallback } from "react";
 
 import { ApiError, api } from "../../api";
 import { refusedCheck } from "../../lib/gate";
+import { mainIdOf } from "../../lib/projects";
 import { EMPTY_CHAT } from "./core";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
@@ -32,14 +33,15 @@ export function useBranchFlows(
   const createBranch = useCallback(
     async (name?: string): Promise<string | null> => {
       const st = ref.current;
-      const main = st.branches.find((b) => b.branch_id === "main");
-      const n = st.branches.filter((b) => b.branch_id !== "main").length + 1;
+      const mainId = mainIdOf(st.projects, st.projectId);
+      const main = st.branches.find((b) => b.branch_id === mainId);
+      const n = st.branches.filter((b) => b.branch_id !== mainId).length + 1;
       const label = (name ?? "").trim() || `draft-${n}`;
       try {
-        const b = await api.createBranch({ name: label, from_branch: "main", scenario: main?.scenario ?? "ht" });
+        const b = await api.createBranch({ name: label, from_branch: mainId, scenario: main?.scenario ?? "ht" });
         await refreshBranches();
         patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, chat: { ...EMPTY_CHAT } });
-        toastMsg(`Opened ${b.name} off main. Changes stay here until you merge.`);
+        toastMsg(`Opened ${b.name} off main. Changes stay here until you merge.`);  // every project's plan of record is called main
         void loadExtras(b.branch_id);
         void run({ activeBranch: b.branch_id });
         return b.branch_id;
@@ -54,7 +56,7 @@ export function useBranchFlows(
   /** Edits always target a branch (main is the plan of record). On main, open one first. */
   const ensureEditableBranch = useCallback(async (): Promise<string | null> => {
     const st = ref.current;
-    if (st.activeBranch && st.activeBranch !== "main") return st.activeBranch;
+    if (st.activeBranch && st.activeBranch !== mainIdOf(st.projects, st.projectId)) return st.activeBranch;
     const keep = { chat: st.chat, sel: st.sel }; // the action that needed a branch carries on in it
     const id = await createBranch();
     if (id) patch(keep);
@@ -67,7 +69,7 @@ export function useBranchFlows(
       const st = ref.current;
       const fc = st.forecasts.find((f) => f.id === scenario);
       if (!fc) return;
-      const bid = st.activeBranch || "main";
+      const bid = st.activeBranch || mainIdOf(st.projects, st.projectId);
       const before = st.branches;
       patch({ branches: st.branches.map((b) => (b.branch_id === bid ? { ...b, scenario, growth_2030: fc.growth_2030, growth_2035: fc.growth_2035 } : b)) });
       try {
@@ -84,7 +86,7 @@ export function useBranchFlows(
   /** The consequence diff of the active branch vs main (with the optional narration). */
   const refreshDiff = useCallback(
     async (bid: string) => {
-      if (!bid || bid === "main") return;
+      if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
       try {
         const diff = await api.diffBranch(bid, { with_narration: true });
         if (ref.current.activeBranch === bid) patch({ diff });
@@ -98,7 +100,7 @@ export function useBranchFlows(
   /** The merge gate's verdict for a branch (after its diff, so main's years are already cached). */
   const refreshMergeCheck = useCallback(
     async (bid: string) => {
-      if (!bid || bid === "main") return;
+      if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
       try {
         const mergeCheck = await api.mergeCheck(bid);
         if (ref.current.activeBranch === bid) patch({ mergeCheck });
@@ -111,7 +113,7 @@ export function useBranchFlows(
 
   const toggleDiff = useCallback(() => {
     const st = ref.current;
-    if (st.activeBranch === "main") return;
+    if (st.activeBranch === mainIdOf(st.projects, st.projectId)) return;
     const on = !st.diffMode;
     patch({ diffMode: on, ...(on ? { tab: "review" as const, sideOpen: true } : {}) });
     if (on && !st.diff) void refreshDiff(st.activeBranch);
@@ -124,15 +126,16 @@ export function useBranchFlows(
   const mergeBranch = useCallback(
     async (opts: { acknowledge?: boolean } = {}) => {
       const st = ref.current;
-      if (!st.activeBranch || st.activeBranch === "main") return;
+      const mainId = mainIdOf(st.projects, st.projectId);
+      if (!st.activeBranch || st.activeBranch === mainId) return;
       const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
       try {
-        await api.mergeBranch(st.activeBranch, { into: "main", acknowledge: !!opts.acknowledge });
+        await api.mergeBranch(st.activeBranch, { into: mainId, acknowledge: !!opts.acknowledge });
         await refreshBranches();
         toastMsg(`${name} merged into main, the new plan of record.`);
-        patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, tab: "queue", chat: EMPTY_CHAT });
-        void loadExtras("main");
-        void run({ activeBranch: "main" });
+        patch({ activeBranch: mainId, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, tab: "queue", chat: EMPTY_CHAT });
+        void loadExtras(mainId);
+        void run({ activeBranch: mainId });
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
           const refusal = refusedCheck(e.detail, st.mergeCheck, st.activeBranch);
@@ -150,14 +153,15 @@ export function useBranchFlows(
 
   const discardBranch = useCallback(async () => {
     const st = ref.current;
-    if (!st.activeBranch || st.activeBranch === "main") return;
+    const mainId = mainIdOf(st.projects, st.projectId);
+    if (!st.activeBranch || st.activeBranch === mainId) return;
     const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
     try {
       await api.discardBranch(st.activeBranch);
       await refreshBranches();
-      patch({ activeBranch: "main", diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, chat: EMPTY_CHAT });
-      void loadExtras("main");
-      void run({ activeBranch: "main" });
+      patch({ activeBranch: mainId, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, chat: EMPTY_CHAT });
+      void loadExtras(mainId);
+      void run({ activeBranch: mainId });
       toastMsg(`${name} discarded. Back on main.`);
     } catch {
       toastMsg("Discard failed. Check the API is running.", "warn");

@@ -4,6 +4,7 @@
 import type {
   AgentsStatus,
   Approval,
+  Assumption,
   BestWindowRequest,
   BestWindowResult,
   Boundary,
@@ -20,6 +21,7 @@ import type {
   NewCandidate,
   OptimizeResult,
   Outage,
+  Project,
   RegistryItem,
   Review,
   StepEvidence,
@@ -32,8 +34,7 @@ import { getMaxMw, normReason, setMaxMw } from "./lib/reasons";
 
 export const BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
-/** The one project today; the agents' routes are keyed by it (a project registry replaces this constant). */
-export const PROJECT_ID = "nged-bickerfen";
+export { DEFAULT_PROJECT_ID } from "./lib/projects";
 
 /** A failed call: the status and the API's `detail` (a string, or a structured body such as a refused merge's verdict). */
 export class ApiError extends Error {
@@ -76,6 +77,16 @@ const getJson = <T>(path: string) => request<T>("GET", path);
 const postJson = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
 const del = <T>(path: string) => request<T>("DELETE", path);
 
+/** A multipart POST (a file plus fields); errors as `request` reports them. */
+async function postForm<T>(path: string, form: FormData): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, { method: "POST", body: form });
+  if (!r.ok) {
+    const { detail, text } = await errorDetail(r);
+    throw new ApiError(r.status, detail, text);
+  }
+  return (await r.json()) as T;
+}
+
 // ---- reasons: see lib/reasons.ts ---------------------------------------------------------------
 export { normReason } from "./lib/reasons";
 
@@ -113,9 +124,22 @@ export interface RunProgress {
 // ---- endpoints ------------------------------------------------------------------------------
 
 export const api = {
-  getModel: () => getJson<Model>("/model"),
+  // projects: the grids planned on, each with its own main; the built-in one is NGED's
+  listProjects: async () => (await getJson<{ projects: Project[] }>("/projects")).projects ?? [],
+  getProject: (pid: string) => getJson<Project>(`/projects/${pid}`),
+  /** Import a grid as a project: the file, a name and the limits the operator knows (strings, as typed). */
+  importProject: (file: File, name: string, limits: Record<string, string>) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("name", name);
+    Object.entries(limits).forEach(([k, v]) => form.append(k, v));
+    return postForm<Project>("/projects", form);
+  },
+  deleteProject: (pid: string) => del<{ project_id: string; deleted: boolean }>(`/projects/${pid}`),
+  getAssumptions: (pid: string) => getJson<{ project_id: string; assumptions: Assumption[] }>(`/projects/${pid}/assumptions`),
+  getModel: (pid: string) => getJson<Model>(`/projects/${pid}/model`),
   addCandidate: (c: NewCandidate) => postJson<RegistryItem>("/optimize/candidates", c),
-  getRegistry: () => getJson<RegistryItem[]>("/registry"),
+  getRegistry: (pid: string) => getJson<RegistryItem[]>(`/projects/${pid}/registry`),
   addFromRegistry: (branchId: string, requestId: string) =>
     postJson<RegistryItem>(`/branches/${branchId}/registry`, { request_id: requestId }),
   /** Persist the operator's energisation year for a project on a branch (null = follow the recommendation). */
@@ -133,19 +157,20 @@ export const api = {
     if (r.max_connection_mw) setMaxMw(r.max_connection_mw);
     return { forecasts: Array.isArray(r.forecasts) ? r.forecasts : [], maxMw: r.max_connection_mw ?? getMaxMw() };
   },
-  /** The GSP boundary: export/import limits to transmission + the transmission projects behind it. */
-  getBoundary: async (): Promise<Boundary | null> => {
+  /** The project's transmission boundary (export limit, export today, the projects behind it), or null when it models none (404). */
+  getBoundary: async (pid: string): Promise<Boundary | null> => {
     try {
-      return await getJson<Boundary>("/boundary");
-    } catch {
-      return null;
+      return await getJson<Boundary>(`/projects/${pid}/boundary`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
     }
   },
 
   // branches ("git for grids"). A branch = a demand profile + the projects, outages and
   // reinforcements added on it.
   createBranch: (body: { name: string; from_branch: string; scenario: string }) => postJson<Branch>("/branches", body),
-  listBranches: async () => (await getJson<{ branches: Branch[] }>("/branches")).branches ?? [],
+  listBranches: async (pid?: string) => (await getJson<{ branches: Branch[] }>(pid ? `/projects/${pid}/branches` : "/branches")).branches ?? [],
   /**
    * Run a branch as a background job: the queue first, then every year of the plan with
    * `view_year` first. Partial results are handed over as they land.
@@ -178,8 +203,8 @@ export const api = {
   /** The merge gate's verdict for a branch against `into` (default its parent). Read-only. */
   mergeCheck: (id: string, into?: string) => getJson<MergeCheck>(`/branches/${id}/merge-check${into ? `?into=${encodeURIComponent(into)}` : ""}`),
   /** Merge through the gate: a 409 ApiError carries `{code, message, verdict}`; warnings need `acknowledge`. */
-  mergeBranch: (id: string, opts: { into?: string; acknowledge?: boolean } = {}) =>
-    postJson<Branch>(`/branches/${id}/merge`, { into: opts.into ?? "main", acknowledge: !!opts.acknowledge }),
+  mergeBranch: (id: string, opts: { into: string; acknowledge?: boolean }) =>
+    postJson<Branch>(`/branches/${id}/merge`, { into: opts.into, acknowledge: !!opts.acknowledge }),
   discardBranch: (id: string) => postJson<Branch>(`/branches/${id}/discard`),
   /** The findings ledger: what the branch's last run found, with the counts per status. */
   listFindings: (id: string, opts?: { status?: FindingStatus; year?: number }) => {
@@ -222,22 +247,22 @@ export const api = {
   removeReinforcement: (id: string, rid: string) => del<{ removed: boolean }>(`/branches/${id}/reinforcements/${rid}`),
 
   // the agents: status and the pause switch, conversations with a streamed reply, approvals, reviews, evidence
-  agentsStatus: () => getJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents`),
-  pauseAgents: (reason = "operator") => postJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents/pause`, { reason }),
-  resumeAgents: () => postJson<AgentsStatus>(`/projects/${PROJECT_ID}/agents/resume`),
-  listThreads: async () => (await getJson<{ threads: Thread[] }>(`/projects/${PROJECT_ID}/threads`)).threads ?? [],
-  createThread: (branchId: string | null, title: string) => postJson<Thread>(`/projects/${PROJECT_ID}/threads`, { branch_id: branchId, title }),
-  getThread: (tid: string) => getJson<ThreadView>(`/projects/${PROJECT_ID}/threads/${tid}`),
+  agentsStatus: (pid: string) => getJson<AgentsStatus>(`/projects/${pid}/agents`),
+  pauseAgents: (pid: string, reason = "operator") => postJson<AgentsStatus>(`/projects/${pid}/agents/pause`, { reason }),
+  resumeAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/resume`),
+  listThreads: async (pid: string) => (await getJson<{ threads: Thread[] }>(`/projects/${pid}/threads`)).threads ?? [],
+  createThread: (pid: string, branchId: string | null, title: string) => postJson<Thread>(`/projects/${pid}/threads`, { branch_id: branchId, title }),
+  getThread: (pid: string, tid: string) => getJson<ThreadView>(`/projects/${pid}/threads/${tid}`),
   /** Ask: the question is stored, a reply queued and its workflow started; stream the reply by `reply_id`. */
-  postMessage: (tid: string, content: string) =>
-    postJson<{ message_id: string; reply_id: string; workflow_id: string | null; paused: boolean }>(`/projects/${PROJECT_ID}/threads/${tid}/messages`, { content }),
+  postMessage: (pid: string, tid: string, content: string) =>
+    postJson<{ message_id: string; reply_id: string; workflow_id: string | null; paused: boolean }>(`/projects/${pid}/threads/${tid}/messages`, { content }),
   /**
    * Follow a reply as server-sent events (tokens, tool calls with their step ids, results, the final
    * message). The browser reconnects by itself with the last event id; `onDrop` is told each time so
    * the caller can stop once the reply has settled. Returns the function that closes the stream.
    */
-  streamReply: (tid: string, messageId: string, h: { onEvent: (ev: TraceEvent) => void; onEnd: () => void; onDrop?: () => void }): (() => void) => {
-    const es = new EventSource(`${BASE}/projects/${PROJECT_ID}/threads/${tid}/stream?message_id=${encodeURIComponent(messageId)}`);
+  streamReply: (pid: string, tid: string, messageId: string, h: { onEvent: (ev: TraceEvent) => void; onEnd: () => void; onDrop?: () => void }): (() => void) => {
+    const es = new EventSource(`${BASE}/projects/${pid}/threads/${tid}/stream?message_id=${encodeURIComponent(messageId)}`);
     let ended = false;
     const end = () => {
       if (ended) return;
@@ -258,13 +283,13 @@ export const api = {
     };
     return end;
   },
-  listApprovals: async () => (await getJson<{ approvals: Approval[] }>(`/projects/${PROJECT_ID}/approvals`)).approvals ?? [],
-  decideApproval: (aid: string, decision: "approve" | "deny", note = "") =>
-    postJson<Approval & { workflow_id: string }>(`/projects/${PROJECT_ID}/approvals/${aid}`, { decision, note }),
+  listApprovals: async (pid: string) => (await getJson<{ approvals: Approval[] }>(`/projects/${pid}/approvals`)).approvals ?? [],
+  decideApproval: (pid: string, aid: string, decision: "approve" | "deny", note = "") =>
+    postJson<Approval & { workflow_id: string }>(`/projects/${pid}/approvals/${aid}`, { decision, note }),
   /** The reviewer's comments on a branch: the current one, or all with `all`. */
   listReviews: async (branchId: string, all = false) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews${all ? "?all=true" : ""}`)).reviews ?? [],
   /** The evidence behind a step an agent cited. */
-  stepEvidence: (stepId: string) => getJson<StepEvidence>(`/projects/${PROJECT_ID}/agents/steps/${encodeURIComponent(stepId)}`),
+  stepEvidence: (pid: string, stepId: string) => getJson<StepEvidence>(`/projects/${pid}/agents/steps/${encodeURIComponent(stepId)}`),
 };
 
 export type Api = typeof api;

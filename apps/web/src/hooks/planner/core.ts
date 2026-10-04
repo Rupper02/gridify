@@ -1,6 +1,6 @@
 // The planner's state shape and the small core every planner hook shares: the state, a way to patch
 // it, a ref to its latest value, the map handle and the toast. Each hook (run, branches, registry,
-// selection, project edits, maintenance, copilot, agents, ask) takes a `Core` plus only the other hooks' actions
+// selection, project edits, maintenance, copilot, agents, ask, projects) takes a `Core` plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,9 +9,11 @@ import type { MutableRefObject } from "react";
 import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
 import type { ChatMsg, Intake } from "../../lib/intake";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
+import { DEFAULT_PROJECT_ID } from "../../lib/projects";
 import type { MaintChat } from "../../lib/maintCopilot";
 import type {
   AgentsStatus,
+  Assumption,
   Boundary,
   Branch,
   BranchReinforcement,
@@ -24,6 +26,7 @@ import type {
   Model,
   OptimizeResult,
   Outage,
+  Project,
   RegistryItem,
   Review,
   Sel,
@@ -68,6 +71,12 @@ export interface ChatState {
 export type { MaintDraft };
 
 export interface PlannerState {
+  // projects: the grids planned on; the active one owns the model, the branches and the result below
+  projects: Project[];
+  projectId: string;
+  projectsOpen: boolean; // the projects screen (list, import)
+  assumptions: Assumption[] | null; // what the active project's model assumes (loaded on demand)
+  showAssumptions: boolean;
   // data
   model: Model | null;
   forecasts: Forecast[];
@@ -129,6 +138,7 @@ export interface PlannerState {
 export const EMPTY_CHAT: ChatState = { mode: null, intake: null, maint: null, recs: [], input: "", busy: false, recent: [] };
 
 export const INITIAL: PlannerState = {
+  projects: [], projectId: DEFAULT_PROJECT_ID, projectsOpen: false, assumptions: null, showAssumptions: false,
   model: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
   outages: [], reinforcements: [], added: {},

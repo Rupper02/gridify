@@ -37,7 +37,7 @@ import type { Suggestion, WindowOption } from "../types";
 import { intakeCtx, maintCtx } from "../hooks/planner/useCopilot";
 
 export type CopilotTabPlanner = PlannerSlice<
-  "activeBranch" | "boundary" | "branches" | "chat" | "maxMw" | "model" | "result" | "running" | "sel" | "year",
+  "activeBranch" | "boundary" | "branches" | "chat" | "maxMw" | "model" | "projectId" | "projects" | "result" | "running" | "sel" | "year",
   | "addPrelim" | "anotherProject" | "applyLever" | "evidenceDone" | "newChat" | "resume" | "runFromChat" | "scheduleWindow" | "send"
   | "setInput" | "startMaintChat" | "startProject" | "startRecs" | "toggleEvidence",
   "branch" | "hue" | "ix" | "onMain" | "profile" | "q" | "resultProfile"

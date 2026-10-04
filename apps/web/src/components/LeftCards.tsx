@@ -2,19 +2,20 @@
 // and whether it is out of date) and the readings for the selected year. Below 1100px wide they
 // collapse into one pill.
 
-import { X } from "@phosphor-icons/react";
+import { Info, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { alertSummary } from "../lib/demand";
 import { gspTicks, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
+import { assumptionGroups, assumptionText } from "../lib/projects";
 import { C, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "boundary" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showBoundary" | "solving" | "year",
-  "focusSel" | "run" | "setLayer" | "toggleBoundary",
-  "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr"
+  "assumptions" | "boundary" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "year",
+  "focusSel" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
+  "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
 >;
 
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
@@ -56,7 +57,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
 
 function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabel: string }) {
   const { s, actions, derived } = planner;
-  const { stale, resultProfile, yearsSolved, yearsTotal } = derived;
+  const { stale, resultProfile, yearsSolved, yearsTotal, caps, synthetic } = derived;
   const n = s.outages.length;
   const sub = !s.result
     ? "No run yet"
@@ -64,7 +65,7 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
       ? "Updating the years your edit touches…"
       : yearsSolved < yearsTotal
       ? `Solving years · ${yearsSolved} of ${yearsTotal} in`
-      : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}`;
+      : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}`;
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -84,6 +85,25 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
           <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={s.running}>
             {runLabel}
           </button>
+        </div>
+      )}
+      {synthetic && <span className="synthetic-tag">Synthetic layout: the file has no coordinates, so the buses are laid out, not placed.</span>}
+      <button className="assume-btn" onClick={() => void actions.toggleAssumptions()} aria-expanded={s.showAssumptions}>
+        <Info size={12} />
+        {s.showAssumptions ? "Hide what the model assumes" : "What the model assumes"}
+      </button>
+      {s.showAssumptions && (
+        <div className="assume-list">
+          {!s.assumptions && <span className="mute" style={{ fontSize: 11.5 }}>Loading…</span>}
+          {s.assumptions && !s.assumptions.length && <span className="mute" style={{ fontSize: 11.5 }}>Nothing recorded.</span>}
+          {s.assumptions && assumptionGroups(s.assumptions).map((g) => (
+            <div key={g.source} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, letterSpacing: "0.02em" }}>{g.label}</span>
+              {g.rows.map((a) => (
+                <span key={a.key} style={{ fontSize: 11, color: C.ink2, lineHeight: 1.4, textWrap: "pretty" }}>· {assumptionText(a)}</span>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>

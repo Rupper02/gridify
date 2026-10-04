@@ -30,6 +30,7 @@ import {
   recsOpening,
   sortByMw2030,
 } from "../../lib/recs";
+import { mainIdOf } from "../../lib/projects";
 import { EVID, profileOf, techLabel } from "../../theme";
 import type { Season, Suggestion } from "../../types";
 import type { ChatMode, ChatState, Core, PlannerState, RecMsg } from "./core";
@@ -41,14 +42,16 @@ const nowHM = () => new Date().toTimeString().slice(0, 5);
 const branchName = (st: Pick<PlannerState, "activeBranch" | "branches">, bid = st.activeBranch) => st.branches.find((b) => b.branch_id === bid)?.name ?? bid;
 
 /** What the intake needs to know about the branch and the network right now. */
-export function intakeCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "maxMw" | "model" | "result" | "year">): IntakeCtx {
+const onMain = (st: Pick<PlannerState, "activeBranch" | "projects" | "projectId">) => st.activeBranch === mainIdOf(st.projects, st.projectId);
+
+export function intakeCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "maxMw" | "model" | "projectId" | "projects" | "result" | "year">): IntakeCtx {
   const m = st.model;
   const ix = m ? indexModel(m) : null;
   const yr = yearResultFor(st.result, st.year).yr;
   const branch = st.branches.find((b) => b.branch_id === st.activeBranch);
   return {
     maxMw: st.maxMw,
-    branchName: st.activeBranch === "main" ? "a new branch" : (branch?.name ?? st.activeBranch),
+    branchName: onMain(st) ? "a new branch" : (branch?.name ?? st.activeBranch),
     profileLabel: profileOf(branch?.scenario).label,
     busOptions: m && ix ? busSuggestions(m, ix, yr) : [],
     findBus: (t) => (m && ix ? findBus(m, ix, t) : null),
@@ -56,13 +59,13 @@ export function intakeCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "
 }
 
 /** What the Maintenance chat needs: where it schedules, and the elements it can name. */
-export function maintCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "model" | "result" | "sel" | "year">): MaintCtx {
+export function maintCtx(st: Pick<PlannerState, "activeBranch" | "branches" | "model" | "projectId" | "projects" | "result" | "sel" | "year">): MaintCtx {
   const m = st.model;
   const ix = m ? indexModel(m) : null;
   const yr = yearResultFor(st.result, st.year).yr;
   const sel = st.sel && st.sel.kind !== "project" && st.sel.kind !== "region" ? st.sel : null;
   return {
-    branchName: st.activeBranch === "main" ? "a new branch" : branchName(st),
+    branchName: onMain(st) ? "a new branch" : branchName(st),
     suggestions: ix ? elementSuggestions(ix, yr, sel) : [],
     findElement: (t) => (m && ix ? findElement(m, ix, t) : null),
   };
@@ -98,7 +101,7 @@ export function useCopilot(
       const v = text.trim();
       if (!v || !st.result) return;
       const q = st.result.queue;
-      const bid = st.activeBranch || "main";
+      const bid = st.activeBranch || mainIdOf(st.projects, st.projectId);
       const intent = recIntent(v, q);
       setChat((c) => ({ input: "", busy: true, recs: [...c.recs, { user: true, text: v }, { user: false, text: "Re-solving the levers…", loading: true }] }));
       try {
@@ -155,7 +158,7 @@ export function useCopilot(
   const searchWindows = useCallback(
     async (m: MaintChat) => {
       const st = ref.current;
-      const bid = st.activeBranch || "main";
+      const bid = st.activeBranch || mainIdOf(st.projects, st.projectId);
       setChat({ busy: true });
       try {
         const res = await api.bestWindowJob(bid, searchRequest(m), (stage, f) => setMaint((x) => searchProgress(x, stage, f)));

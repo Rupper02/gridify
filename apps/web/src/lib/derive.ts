@@ -62,9 +62,9 @@ export const lensFor = (year: number): { label: string; c: string } =>
 
 // ---- branches ----------------------------------------------------------------------------------
 /** A branch's identity hue: main is silver; open branches take the hues in creation order. */
-export function branchHue(branches: Branch[], id: string): string {
-  if (!id || id === "main") return MAIN_HUE;
-  const others = branches.filter((b) => b.branch_id !== "main").sort((a, b) => a.created_at.localeCompare(b.created_at));
+export function branchHue(branches: Branch[], id: string, mainId = "main"): string {
+  if (!id || id === mainId) return MAIN_HUE;
+  const others = branches.filter((b) => b.branch_id !== mainId).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const i = others.findIndex((b) => b.branch_id === id);
   return BRANCH_HUES[(i < 0 ? 0 : i) % BRANCH_HUES.length];
 }

@@ -20,7 +20,7 @@ export function useRegistry(
   const loadRegistry = useCallback(async () => {
     if (ref.current.registryLoaded) return;
     try {
-      const registry = await api.getRegistry();
+      const registry = await api.getRegistry(ref.current.projectId);
       patch({ registry, registryLoaded: true });
     } catch {
       toastMsg("Could not load the registry. Check the API is running.", "warn");

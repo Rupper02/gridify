@@ -30,7 +30,7 @@ import { DiffTile } from "./ui";
 export type ReviewTabPlanner = PlannerSlice<
   "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "reviews" | "year",
   "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
-  "branch" | "gate" | "hue" | "ix" | "onMain" | "reviewStale" | "yearDelta"
+  "branch" | "gate" | "hue" | "ix" | "mainId" | "onMain" | "reviewStale" | "yearDelta"
 >;
 
 const statusLabel = (st: Status | null, year?: number | null): string =>
@@ -54,7 +54,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
       </div>
     );
 
-  const main = s.branches.find((b) => b.branch_id === "main");
+  const main = s.branches.find((b) => b.branch_id === derived.mainId);
   const mismatch = main && branch && main.scenario !== branch.scenario;
   const d = s.diff;
   const open = branch?.status === "open";

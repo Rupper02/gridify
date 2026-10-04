@@ -1,12 +1,13 @@
-// Running the plan for the active branch, and booting the planner (load the model, then the first run).
+// Running the plan for the active branch (the planner boots in useProjects: the projects, then the default one).
 //
 // A run is one background job: the greedy queue first, then every year of the plan with the viewed
 // year first. The overlay shows until the queue and the viewed year are in; the remaining years keep
 // arriving as partial results (`solving`), so the slider never starts a run of its own.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import { RunCancelled, api } from "../../api";
+import { mainIdOf } from "../../lib/projects";
 import { mergeQuiet } from "../../lib/refresh";
 import type { OptimizeResult, Status } from "../../types";
 import type { Core } from "./core";
@@ -22,7 +23,7 @@ export type RunFn = (over?: RunOverride) => Promise<void>;
 
 const hhmm = () => new Date().toTimeString().slice(0, 5);
 
-export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branchId: string) => void) {
+export function useRun({ patch, ref, toastMsg }: Core, afterRun: (branchId: string) => void) {
   // in-flight bookkeeping lives in refs, not React state: a coalesced re-run must see the previous
   // run finish synchronously, before React has flushed `running: false`
   const inFlight = useRef(false);
@@ -45,7 +46,7 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branch
       }
       inFlight.current = true;
       const quiet = !!over.quiet;
-      const bid = over.activeBranch ?? st.activeBranch ?? "main";
+      const bid = over.activeBranch ?? st.activeBranch ?? mainIdOf(st.projects, st.projectId);
       const prev = st.result;
       const prevStatus: Record<string, Status> = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
       // the gate's verdict belongs to the result being replaced: drop it now, so Merge reads "checking"
@@ -108,27 +109,6 @@ export function useRun({ patch, ref, mapApi, toastMsg }: Core, afterRun: (branch
     },
     [afterRun, patch, ref, toastMsg],
   );
-
-  // ---- boot --------------------------------------------------------------------------------
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [model, fc, boundary, branches] = await Promise.all([
-          api.getModel(), api.getForecasts(), api.getBoundary(), api.listBranches(),
-        ]);
-        if (cancelled) return;
-        patch({ model, forecasts: fc.forecasts, maxMw: fc.maxMw, boundary, branches, branchesLoaded: true });
-        mapApi.current?.fit(false);
-        void run({ activeBranch: "main" });
-      } catch (e) {
-        if (!cancelled) toastMsg(`Could not load the model: ${e instanceof Error ? e.message : "is the API running?"}`, "warn");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mapApi, patch, run, toastMsg]);
 
   return run;
 }

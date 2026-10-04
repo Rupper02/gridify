@@ -11,6 +11,7 @@ import {
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { gateState, openCounts } from "../../lib/gate";
+import { ALL_CAPABILITIES, mainIdOf, projectOf } from "../../lib/projects";
 import { isSuperseded } from "../../lib/trace";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
@@ -20,9 +21,13 @@ export function useDerived(s: PlannerState) {
   const ix = useMemo(() => (s.model ? indexModel(s.model) : null), [s.model]);
 
   const view = useMemo(() => {
-    const onMain = !s.activeBranch || s.activeBranch === "main";
-    const branch = s.branches.find((b) => b.branch_id === (s.activeBranch || "main")) ?? null;
-    const hue = branchHue(s.branches, s.activeBranch);
+    const project = projectOf(s.projects, s.projectId);
+    const mainId = mainIdOf(s.projects, s.projectId);
+    const caps = project?.capabilities ?? ALL_CAPABILITIES;
+    const synthetic = s.model?.crs === "synthetic";
+    const onMain = !s.activeBranch || s.activeBranch === mainId;
+    const branch = s.branches.find((b) => b.branch_id === (s.activeBranch || mainId)) ?? null;
+    const hue = branchHue(s.branches, s.activeBranch, mainId);
     const profile = profileOf(branch?.scenario ?? "ht");
     const resultProfile = s.result ? profileOf(s.result.params.scenario) : profile;
     const q: QueueItem[] = s.result ? s.result.queue : [];
@@ -43,8 +48,8 @@ export function useDerived(s: PlannerState) {
     const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
     const reviewStale = reviewCurrent ? isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
-    return { onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
-  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.outages, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
+    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
+  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);

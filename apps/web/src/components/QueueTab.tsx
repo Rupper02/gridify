@@ -14,7 +14,7 @@ import { TechTile } from "./ui";
 export type QueueTabPlanner = PlannerSlice<
   "registry" | "registryLoaded" | "sel",
   "addRegistryProject" | "loadRegistry" | "selectProject",
-  "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q"
+  "branchOnly" | "caps" | "hue" | "ix" | "onMain" | "prelim" | "q"
 >;
 
 const isQ = (x: QueueItem | RegistryItem): x is QueueItem => "rank" in x;
@@ -36,8 +36,8 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
         <div className="empty" style={{ margin: "4px 4px 0" }}>
           <b>{derived.onMain ? "main has no queued projects" : "Nothing queued on this branch yet"}</b>
           <span>
-            main is the network as it exists today. Pull projects from the registry below, or start a New project in Copilot. Both land in
-            Preliminary until the next run.
+            main is the network as it exists today. {derived.caps.registry ? "Pull projects from the registry below, or start" : "Start"} a New project in the Ask tab.
+            {derived.caps.registry ? " Both land" : " It lands"} in Preliminary until the next run.
           </span>
         </div>
       )}
@@ -90,6 +90,7 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
         </div>
       ))}
 
+      {derived.caps.registry && (
       <div className="qgroup">
         <button
           className="btn"
@@ -131,6 +132,7 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
           </>
         )}
       </div>
+      )}
     </div>
   );
 }

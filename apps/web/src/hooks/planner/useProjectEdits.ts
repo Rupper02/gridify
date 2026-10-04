@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 
 import { api } from "../../api";
+import { mainIdOf } from "../../lib/projects";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
@@ -14,8 +15,10 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
    */
   const setSchedule = useCallback(
     async (rid: string, yr: number | null) => {
-      const bid = ref.current.activeBranch || "main";
-      if (bid === "main") {
+      const st = ref.current;
+      const mainId = mainIdOf(st.projects, st.projectId);
+      const bid = st.activeBranch || mainId;
+      if (bid === mainId) {
         toastMsg("main is read-only. Open a branch to change an energisation year.", "warn");
         return;
       }

@@ -14,7 +14,8 @@ import { Switch, TechIcon } from "./ui";
 
 export type LayerTogglePlanner = PlannerSlice<
   "layer" | "showDeferred" | "showMenuOpen" | "sideOpen" | "visible",
-  "setLayer" | "showAll" | "showOnly" | "toggleDeferred" | "toggleFeatureShown" | "toggleShowMenu"
+  "setLayer" | "showAll" | "showOnly" | "toggleDeferred" | "toggleFeatureShown" | "toggleShowMenu",
+  "caps"
 >;
 
 const LAYERS: [MapLayer, string, typeof WaveSine][] = [
@@ -25,10 +26,11 @@ const LAYERS: [MapLayer, string, typeof WaveSine][] = [
 ];
 
 export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; layout: Layout }) {
-  const { s, actions } = planner;
+  const { s, actions, derived } = planner;
+  const layers = LAYERS.filter(([k]) => k !== "demand" || derived.caps.regions); // no demand groups, no Demand layer
   return (
     <div className="layers glass" style={{ top: layout.layers.top, right: layout.layers.right, width: LAYERS_W }}>
-      {LAYERS.map(([k, label, I]) => (
+      {layers.map(([k, label, I]) => (
         <button key={k} className={s.layer === k ? "on" : ""} onClick={() => actions.setLayer(k)} aria-pressed={s.layer === k}>
           <I size={14} />
           {label}

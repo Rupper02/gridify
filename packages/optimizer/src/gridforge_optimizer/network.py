@@ -488,7 +488,7 @@ def overloaded_line_ids(net) -> list[int]:
 def line_loadings(net) -> dict[int, float]:
     """Per-line loading_percent from the last solve (for the map heat overlay)."""
     lp = net.res_line["loading_percent"]
-    return {int(i): round(float(v), 1) for i, v in lp.items()}
+    return {int(i): round(float(v), 1) for i, v in lp.items() if v == v}  # a non-convergent solve leaves NaN: no figure, not null
 
 
 def trafo_loadings(net) -> dict[int, float]:
@@ -500,7 +500,7 @@ def trafo_loadings(net) -> dict[int, float]:
 def bus_voltages(net) -> dict[int, float]:
     """Per-bus voltage magnitude (pu) from the last solve (for the map voltage overlay)."""
     vm = net.res_bus["vm_pu"]
-    return {int(i): round(float(v), 4) for i, v in vm.items()}
+    return {int(i): round(float(v), 4) for i, v in vm.items() if v == v}
 
 
 def voltage_violation_bus_ids(net) -> list[int]:

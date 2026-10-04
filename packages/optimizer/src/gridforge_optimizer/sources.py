@@ -84,6 +84,7 @@ _GENERIC = {
     "taps_enabled": "Transformers with a tap range but no tap-changer type were given a ratio tap changer, regulated as the others are",
     "no_oltc": "No tap range in the file: modelled as a fixed-tap transformer",
     "tech_unknown": "Generators whose technology the file does not name are dispatched as firm in every case",
+    "rated_from_dispatch": "Generators are rated at the output the file dispatches them at (a unit's maximum is a limit the fleet never reaches at once); the base case is the file's own dispatch",
     "unsupplied_dropped": "Buses the slack cannot reach were dropped",
     "gsp_limit_entered": "Export limit to the external grid entered by the operator at import",
     "min_demand_entered": "Minimum-demand factor entered by the operator at import, applied to every load",
@@ -178,12 +179,16 @@ def _normalise_sgens(net, rec: _Records) -> None:
         net.sgen["fleet_id"] = pd.Series(dtype=object)
     if "type" not in net.sgen.columns:
         net.sgen["type"] = pd.Series(dtype=object)
-    unknown = []
+    unknown, from_dispatch = [], []
     for i in net.sgen.index:
         rated = net.sgen.at[i, "p_rated_mw"]
         if _isnan(rated):
+            # the file's dispatch is the generator's rating here: a file's max_p_mw is a unit limit the whole
+            # fleet never reaches at once (case9 dispatches 248 MW of a 550 MW maximum into 315 MW of load)
+            p = float(net.sgen.at[i, "p_mw"])
             mx = net.sgen.at[i, "max_p_mw"] if "max_p_mw" in net.sgen.columns else None
-            net.sgen.at[i, "p_rated_mw"] = float(mx) if not _isnan(mx) and float(mx) > 0 else float(net.sgen.at[i, "p_mw"])
+            net.sgen.at[i, "p_rated_mw"] = p if p > 0 else (float(mx) if not _isnan(mx) and float(mx) > 0 else 0.0)
+            from_dispatch.append(int(i))
         if _isnan(net.sgen.at[i, "import_mw"]):
             net.sgen.at[i, "import_mw"] = float(net.sgen.at[i, "p_rated_mw"])
         if _isnan(net.sgen.at[i, "fleet_id"]):
@@ -194,6 +199,8 @@ def _normalise_sgens(net, rec: _Records) -> None:
             unknown.append(int(i))
     if unknown:
         rec.add("tech_unknown", source="file", element_kind="gen", element_ids=unknown)
+    if from_dispatch:
+        rec.add("rated_from_dispatch", source="file", element_kind="gen", element_ids=from_dispatch)
 
 
 def _normalise_trafos(net, rec: _Records) -> None:

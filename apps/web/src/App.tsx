@@ -8,6 +8,7 @@ import { Header } from "./components/Header";
 import { LeftCards } from "./components/LeftCards";
 import { DiffBanner, LayerToggle, MapCorner } from "./components/MapControls";
 import { MapView } from "./components/MapView";
+import { ProjectsScreen } from "./components/ProjectsScreen";
 import { RegionCard } from "./components/RegionCard";
 import { Roadmap } from "./components/Roadmap";
 import { RunOverlay } from "./components/RunOverlay";
@@ -84,7 +85,7 @@ export function App() {
   const showFrame = !derived.onMain;
   return (
     <div className={`stage${layout.narrow ? " narrow" : ""}`} style={hueVars(derived.hue, derived.onMain)}>
-      <MapView planner={planner} geo={geo} layout={layout} reducedMotion={reducedMotion} />
+      <MapView key={s.model?.crs ?? "wgs84"} planner={planner} geo={geo} layout={layout} reducedMotion={reducedMotion} />
       {showFrame && <div className="branch-frame" />}
       <Header planner={planner} layout={layout} />
       <LeftCards planner={planner} layout={layout} />
@@ -94,6 +95,7 @@ export function App() {
       <DetailCards planner={planner} layout={layout} />
       {s.sel?.kind === "region" && <RegionCard planner={planner} layout={layout} />}
       {s.study && <StudyDrawer planner={planner} />}
+      {s.projectsOpen && <ProjectsScreen planner={planner} />}
       {layout.showDock && <Roadmap planner={planner} layout={layout} />}
       <SidePanel planner={planner} layout={layout} />
       {s.running && <RunOverlay planner={planner} layout={layout} />}

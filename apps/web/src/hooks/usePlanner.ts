@@ -3,7 +3,7 @@
 //
 // This file only composes. The state and shared core live in planner/core.ts; each concern is its
 // own hook under planner/ (run + boot, branch list, branch flows, registry, selection, project
-// edits, maintenance, copilot, the agents, ask, derived values), taking the core plus only the other hooks' actions
+// edits, maintenance, copilot, the agents, ask, projects, derived values), taking the core plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useMemo, useRef } from "react";
@@ -20,6 +20,7 @@ import { useFindings } from "./planner/useFindings";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
 import { useMapFeatures } from "./planner/useMapFeatures";
+import { useProjects } from "./planner/useProjects";
 import { useProjectEdits } from "./planner/useProjectEdits";
 import { useRegistry } from "./planner/useRegistry";
 import { useRun } from "./planner/useRun";
@@ -38,6 +39,7 @@ export function usePlanner() {
 
   const { refreshBranches } = useBranchList(core);
   const run = useRun(core, afterRun);
+  const projects = useProjects(core, run);
   const edited = useAutoRefresh(core, run);
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
@@ -70,6 +72,7 @@ export function usePlanner() {
       ...findings,
       ...agents,
       ...ask,
+      ...projects,
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
       setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
@@ -97,7 +100,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 
   return { s, patch, actions, derived, mapApi };

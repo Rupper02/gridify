@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import { api } from "../../api";
+import { mainIdOf } from "../../lib/projects";
 import type { Core } from "./core";
 
 const SETTLE_POLL_MS = 1000;
@@ -19,16 +20,18 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
 
   const loadThreads = useCallback(async () => {
     try {
-      patch({ threads: await api.listThreads() });
+      const pid = ref.current.projectId;
+      const threads = await api.listThreads(pid);
+      if (ref.current.projectId === pid) patch({ threads });
     } catch {
       /* the picker lists none */
     }
-  }, [patch]);
+  }, [patch, ref]);
 
   /** Re-read a thread as stored (ignored if another thread is open by then). */
   const reload = useCallback(
     async (tid: string) => {
-      const t = await api.getThread(tid);
+      const t = await api.getThread(ref.current.projectId, tid);
       if (ref.current.thread?.thread_id === tid) patch({ thread: t });
       return t;
     },
@@ -40,7 +43,7 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
     (tid: string, messageId: string) => {
       stop.current?.();
       setBusy(true);
-      const end = api.streamReply(tid, messageId, {
+      const end = api.streamReply(ref.current.projectId, tid, messageId, {
         onEvent: (ev) => patch((st) => ({ trace: [...st.trace, ev] })),
         onEnd: () => {
           stop.current = null;
@@ -51,14 +54,14 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
         },
         // the connection dropped: if the reply has settled meanwhile, stop following it
         onDrop: () =>
-          void api.getThread(tid).then((t) => {
+          void api.getThread(ref.current.projectId, tid).then((t) => {
             const m = t.messages.find((x) => x.message_id === messageId);
             if (m && m.status !== "queued" && m.status !== "streaming") end();
           }),
       });
       stop.current = end;
     },
-    [loadThreads, patch, reload, setBusy],
+    [loadThreads, patch, ref, reload, setBusy],
   );
 
   /** Open a stored conversation (and follow a reply still on its way). */
@@ -66,7 +69,7 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
     async (tid: string) => {
       stop.current?.();
       try {
-        const t = await api.getThread(tid);
+        const t = await api.getThread(ref.current.projectId, tid);
         patch((st) => ({ thread: t, trace: [], chat: { ...st.chat, mode: "ask", input: "", busy: false }, tab: "ask", sideOpen: true }));
         const live = t.messages.find((m) => m.role === "assistant" && (m.status === "queued" || m.status === "streaming"));
         if (live) follow(tid, live.message_id);
@@ -74,7 +77,7 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
         toastMsg(`Could not open the conversation: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
       }
     },
-    [follow, patch, toastMsg],
+    [follow, patch, ref, toastMsg],
   );
 
   /** A new conversation on the active branch (the thread is created with the first question). */
@@ -98,11 +101,11 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
       try {
         let tid = st.thread?.thread_id;
         if (!tid) {
-          const t = await api.createThread(st.activeBranch === "main" ? null : st.activeBranch, v.slice(0, 60));
+          const t = await api.createThread(st.projectId, st.activeBranch === mainIdOf(st.projects, st.projectId) ? null : st.activeBranch, v.slice(0, 60));
           tid = t.thread_id;
           patch({ thread: { ...t, messages: [], approvals: [] } });
         }
-        const r = await api.postMessage(tid, v);
+        const r = await api.postMessage(st.projectId, tid, v);
         await reload(tid);
         patch({ trace: [] });
         if (r.paused) {
@@ -126,7 +129,7 @@ export function useAsk({ patch, ref, toastMsg }: Core, refreshBranches: () => Pr
       const before = ref.current.thread?.messages.length ?? 0;
       setBusy(true);
       try {
-        await api.decideApproval(approvalId, decision, note);
+        await api.decideApproval(ref.current.projectId, approvalId, decision, note);
         for (let i = 0; i < SETTLE_MAX_POLLS; i++) {
           await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
           const t = await reload(tid);

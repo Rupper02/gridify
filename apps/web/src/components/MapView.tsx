@@ -18,6 +18,8 @@ import type { MapMarkersPlanner } from "./MapMarkers";
 import { RegionLabels, type RegionLabelsPlanner } from "./RegionLabels";
 
 const STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json";
+/** No basemap under a synthetic layout: the positions are a drawing, not places (the app remounts the map when `crs` changes). */
+const BLANK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: "bg", type: "background" as const, paint: { "background-color": "#0a111c" } }] };
 const CLICK_LAYERS: [string, Sel["kind"]][] = [
   ["existing", "gen"],
   ["trafos", "trafo"],
@@ -80,7 +82,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
       center: [-0.1, 52.98],
       zoom: 8.6,
       maxZoom: 16,
-      style: STYLE,
+      style: live.current.model?.crs === "synthetic" ? BLANK_STYLE : STYLE,
     });
     mapRef.current = map;
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "top-left");

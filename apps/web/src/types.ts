@@ -66,6 +66,8 @@ export interface Model {
   generators: Generator[];
   /** The demand groups as they stand today (before growth); empty on a warehouse that predates them. */
   regions?: Region[];
+  /** `wgs84` when the positions are real; `synthetic` when the file carried none and this is a layout. */
+  crs?: "wgs84" | "synthetic";
 }
 
 /** A demand group (one LTDS Table 3 row: a primary, or a BSP's own 33 kV group), GET /model. */
@@ -293,6 +295,8 @@ export interface Branch {
   branch_id: string;
   name: string;
   parent_id: string | null;
+  /** The project the branch belongs to (every project has its own main). */
+  project_id?: string | null;
   scenario: string;
   growth_2030: number;
   growth_2035: number;
@@ -808,4 +812,50 @@ export interface StepEvidence {
   result: unknown;
   current_engine: string;
   stale: boolean;
+}
+
+// ---- projects (API projects.py, routes /projects) ----
+/** What a project can do; the planner hides what a project cannot (no boundary card, no Demand layer, no registry). */
+export interface Capabilities {
+  boundary: boolean;
+  regions: boolean;
+  registry: boolean;
+  editions: boolean;
+  summer_case: boolean;
+  crs: "wgs84" | "synthetic";
+}
+/** Something the model assumes or could not provide, stated: a builder fallback, an operator-entered limit, a gap in a file. */
+export interface Assumption {
+  key: string;
+  message: string;
+  source: "engine-default" | "operator-entered" | "file" | string;
+  element_kind: string | null;
+  count: number | null;
+  element_ids: (number | string)[];
+}
+/** The import's validation: structural checks and one power flow, what can be studied, what was assumed. */
+export interface ImportReport {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  counts: Record<string, number>;
+  islands: number;
+  converged: boolean;
+  feasible: boolean | null;
+  reason: string | null;
+  cases: string[];
+  assumptions: Assumption[];
+}
+export interface Project {
+  project_id: string;
+  name: string;
+  source_kind: string;
+  snapshot_id: string;
+  created_at: string;
+  main_id: string;
+  builtin: boolean;
+  file_name: string | null;
+  meta: Record<string, unknown> | null;
+  capabilities: Capabilities;
+  report: ImportReport | null;
 }

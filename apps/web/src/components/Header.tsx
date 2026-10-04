@@ -1,7 +1,7 @@
-// The floating header: logo, branch capsule + menu, Diff / Merge on a branch, the agents pill, the demand
-// profile control and the Run button ("Re-run" when the shown result is out of date).
+// The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu, Diff / Merge
+// on a branch, the agents pill, the demand profile control and the Run button ("Re-run" when the shown result is out of date).
 
-import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Sparkle, Warning } from "@phosphor-icons/react";
+import { CaretDown, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Play, Sparkle, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
@@ -13,14 +13,14 @@ import { PROFILES, profileOf, tint } from "../theme";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "running",
-  "createBranch" | "goReview" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
-  "branch" | "gate" | "hue" | "onMain" | "prelim" | "profile" | "stale"
+  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "projects" | "running",
+  "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
+  "branch" | "gate" | "hue" | "mainId" | "onMain" | "prelim" | "profile" | "project" | "stale"
 >;
 
 export function Header({ planner, layout }: { planner: HeaderPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
-  const { onMain, branch, hue, profile, stale, prelim, gate } = derived;
+  const { onMain, branch, hue, profile, stale, prelim, gate, project } = derived;
   const wide = layout.wide;
   const nAdded = branch?.n_added ?? 0;
   const sub = onMain ? "plan of record" : `from main · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
@@ -29,9 +29,18 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
 
   return (
     <header className="header glass">
-      <div className="logo" title="GridForge · NGED Bicker Fen 132 kV GSP">
+      <div className="logo" title="GridForge">
         <Lightning size={17} weight="bold" />
       </div>
+
+      <button className="capsule project" onClick={actions.openProjects} title="Projects: switch or import a grid" aria-haspopup="dialog">
+        <span className="chip-ic"><Globe size={15} weight="bold" /></span>
+        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
+          <span className="nm ellipsis" style={{ maxWidth: wide ? 220 : 120 }}>{project?.name ?? "Loading…"}</span>
+          {wide && <span className="sub">{project?.builtin ? "built-in · open data" : project ? "imported" : ""}{s.projects.length > 1 ? ` · ${s.projects.length} projects` : ""}</span>}
+        </span>
+        <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
+      </button>
 
       <div style={{ position: "relative" }}>
         <button className="capsule" onClick={actions.toggleMenu} aria-haspopup="menu" aria-expanded={s.menuOpen}>
@@ -102,10 +111,11 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
 }
 
 function BranchMenu({ planner }: { planner: HeaderPlanner }) {
-  const { s, actions } = planner;
+  const { s, actions, derived } = planner;
+  const { mainId } = derived;
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState("");
-  const open = s.branches.filter((b) => b.branch_id === "main" || b.status === "open");
+  const open = s.branches.filter((b) => b.branch_id === mainId || b.status === "open");
   const box = useRef<HTMLDivElement>(null);
   // a click anywhere else closes the menu
   useEffect(() => {
@@ -119,8 +129,8 @@ function BranchMenu({ planner }: { planner: HeaderPlanner }) {
   return (
     <div className="menu" role="menu" ref={box}>
       {open.map((b) => {
-        const hue = branchHue(s.branches, b.branch_id);
-        const on = b.branch_id === (s.activeBranch || "main");
+        const hue = branchHue(s.branches, b.branch_id, mainId);
+        const on = b.branch_id === (s.activeBranch || mainId);
         return (
           <button
             key={b.branch_id}
@@ -131,8 +141,8 @@ function BranchMenu({ planner }: { planner: HeaderPlanner }) {
           >
             <span className="dot" style={{ background: hue, boxShadow: `0 0 0 3px ${tint(hue, "33")}` }} />
             <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, lineHeight: 1.3 }}>
-              <span className="mono ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{b.branch_id === "main" ? "main" : b.name}</span>
-              <span style={{ fontSize: 11, color: "var(--mute)" }}>{b.branch_id === "main" ? "plan of record" : `from main · ${b.n_added} added · open`}</span>
+              <span className="mono ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{b.branch_id === mainId ? "main" : b.name}</span>
+              <span style={{ fontSize: 11, color: "var(--mute)" }}>{b.branch_id === mainId ? "plan of record" : `from main · ${b.n_added} added · open`}</span>
             </span>
             <span style={{ fontSize: 11, color: "var(--mute)" }}>{profileOf(b.scenario).label}</span>
           </button>
