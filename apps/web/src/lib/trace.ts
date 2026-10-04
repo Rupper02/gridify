@@ -25,6 +25,8 @@ export interface TraceChip {
   status: "running" | "done" | "failed";
   summary: string;
   solves: number;
+  /** The latest stage a running study reported ("part 1 of 2", "winter peak"); gone once it is done. */
+  progress?: string;
 }
 
 export interface FoldedTrace {
@@ -41,10 +43,14 @@ export function foldTrace(events: TraceEvent[]): FoldedTrace {
   for (const ev of events) {
     if (ev.t === "token") out.text += ev.text;
     else if (ev.t === "tool_call") out.chips.push({ step_id: ev.step_id, tool: ev.tool, stage: ev.stage, status: "running", summary: "", solves: 0 });
+    else if (ev.t === "progress") {
+      const c = out.chips.find((x) => x.step_id === ev.step_id);
+      if (c && c.status === "running") c.progress = progressLabel(ev.stage);
+    }
     else if (ev.t === "tool_result") {
       const c = out.chips.find((x) => x.step_id === ev.step_id);
       const status = ev.summary.startsWith("error") ? "failed" : "done";
-      if (c) Object.assign(c, { status, summary: ev.summary, solves: ev.solves });
+      if (c) Object.assign(c, { status, summary: ev.summary, solves: ev.solves, progress: undefined });
       else out.chips.push({ step_id: ev.step_id, tool: ev.tool, stage: stageOf(ev.tool), status, summary: ev.summary, solves: ev.solves });
     } else if (ev.t === "cite") out.cited = true;
     else if (ev.t === "final") {
@@ -55,6 +61,9 @@ export function foldTrace(events: TraceEvent[]): FoldedTrace {
   }
   return out;
 }
+
+/** A progress stage without the study's own name ("contingency_ranking: winter peak" reads "winter peak" next to the chip's label). */
+export const progressLabel = (stage: string): string => (stage.includes(": ") ? stage.slice(stage.indexOf(": ") + 2) : stage);
 
 /** A stored message's recorded tool calls as finished chips. */
 export function traceFromMessage(m: Pick<ThreadMessage, "tool_trace">): TraceChip[] {
@@ -89,10 +98,10 @@ export const flagLines = (flags: string[] | null | undefined): string[] => (flag
 /** A review is of an earlier run when the shown result's key differs from the one it was written for. */
 export const isSuperseded = (review: Pick<Review, "run_key">, runKey: string | null | undefined): boolean => !!runKey && review.run_key !== runKey;
 
-/** The header pill: off (no key), idle, running or paused. */
+/** The header pill: starting (the API's runtime is not up yet), idle, running or paused. */
 export function agentsPill(st: AgentsStatus | null): { label: string; tone: "neutral" | "good" | "warn" | "bad"; title: string } {
   if (!st) return { label: "agents", tone: "neutral", title: "Checking the agents…" };
-  if (st.status === "off") return { label: "agents off", tone: "neutral", title: st.reason ?? "The agents need OPENROUTER_API_KEY on the API; everything else works." };
+  if (st.status === "starting") return { label: "agents starting", tone: "neutral", title: "The agents are starting with the API; they answer, review and propose as soon as they are up." };
   if (st.status === "paused") {
     const why = st.paused_reason === "budget" ? "today's budget is spent" : `by the operator${st.paused_reason && st.paused_reason !== "operator" ? `: ${st.paused_reason}` : ""}`;
     return { label: "agents paused", tone: "warn", title: `Paused ${why}. Resume from the Ask tab.` };

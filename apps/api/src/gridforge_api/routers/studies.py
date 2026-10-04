@@ -17,9 +17,13 @@ def study_catalogue() -> dict:
     an estimated cost in power-flow solves at its default parameters (the agents see the same catalogue as tools)."""
     out = []
     for kind, spec in STUDIES.items():
-        defaults = spec.params_model()
-        out.append({"kind": kind, "description": spec.description, "needs_plan": spec.needs_plan,
-                    "params_schema": spec.params_model.model_json_schema(), "cost_hint_solves": spec.cost_hint(defaults)})
+        schema = spec.params_model.model_json_schema()
+        try:
+            cost = spec.cost_hint(spec.params_model())
+        except ValidationError:  # a study about one project or element has no default parameters, so no default cost
+            cost = None
+        out.append({"kind": kind, "description": spec.description, "needs_plan": spec.needs_plan, "params_schema": schema,
+                    "required": list(schema.get("required", [])), "cost_hint_solves": cost})
     return {"studies": out}
 
 

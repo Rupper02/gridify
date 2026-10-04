@@ -1,9 +1,9 @@
 // The detail cards over the map. A project opens the project card (details, energisation year with
-// recommend-then-override, the binding constraint and "What would it take?"); a line, transformer or
-// existing generator opens the element card (rating, loading in the year, its maintenance windows and
-// the form to schedule one).
+// recommend-then-override, the binding constraint and a question to the agents about its options); a
+// line, transformer or existing generator opens the element card (rating, loading in the year, its
+// maintenance windows and the form to schedule one).
 
-import { Intersect, Lightbulb, LineSegment, Trash, Wrench, X } from "@phosphor-icons/react";
+import { Intersect, LineSegment, Sparkle, Trash, Wrench, X } from "@phosphor-icons/react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -17,7 +17,7 @@ import { VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
   "diffMode" | "maintDraft" | "outages" | "result" | "sel" | "sideOpen" | "year",
-  "removeOutage" | "scheduleOutage" | "select" | "setDraft" | "setSchedule" | "startRecs",
+  "askAbout" | "removeOutage" | "scheduleOutage" | "select" | "setDraft" | "setSchedule",
   "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q" | "qById" | "yr"
 >;
 
@@ -109,9 +109,9 @@ function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; lay
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.45 }}>{nameElements(x.reason.why, derived.ix)}</span>
           <span style={{ fontSize: 11.5, color: C.ink2, lineHeight: 1.45 }}>{nameElements(x.reason.action, derived.ix)}</span>
           {x.status === "Deferred" && (
-            <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => actions.startRecs(id)}>
-              <Lightbulb size={13} />
-              What would it take?
+            <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`How could ${id} connect? What would it take?`)}>
+              <Sparkle size={13} weight="fill" />
+              Ask the agents how it could connect
             </button>
           )}
         </div>

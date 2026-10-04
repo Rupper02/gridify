@@ -83,6 +83,7 @@ export function staleness(
   outages: Outage[],
   reinforcements: BranchReinforcement[],
   prelimCount: number,
+  changed = 0,
 ): Staleness {
   if (!r || !branch) return { stale: false, text: "" };
   const was = profileOf(r.params.scenario).label;
@@ -98,6 +99,8 @@ export function staleness(
     xs.map((x) => `${x.kind}:${x.element_id}:${x.action}`).sort().join("|");
   if (sig(r.studied?.reinforcements ?? []) !== sig(reinforcements))
     return { stale: true, text: "The proposed reinforcements changed since this run." };
+  if (changed)
+    return { stale: true, text: `${changed} project${changed > 1 ? "s" : ""} changed (connection point, size or year) since this run.` };
   const sched = r.studied?.schedule ?? {};
   if (r.queue.some((q) => (q.scheduled_year ?? undefined) !== sched[q.request_id]))
     return { stale: true, text: "An energisation year changed. The years below still show the old schedule." };
@@ -135,6 +138,24 @@ export const preliminaryOf = (added: RegistryItem[], r: OptimizeResult | null): 
   const inRun = new Set((r?.queue ?? []).map((q) => q.request_id));
   return added.filter((a) => !inRun.has(a.request_id));
 };
+
+/** The branch's stored projects plus the ones added in this session that the store has not been re-read for (by id, the store wins). */
+export const knownProjects = (stored: RegistryItem[], added: RegistryItem[]): RegistryItem[] => [
+  ...stored,
+  ...added.filter((a) => !stored.some((c) => c.request_id === a.request_id)),
+];
+
+/** How many stored projects differ from what the shown run ranked (connection point, rating, import or year): an edit the next run must see. */
+export function changedProjects(stored: RegistryItem[], q: QueueItem[]): number {
+  const by = new Map(q.map((x) => [x.request_id, x]));
+  return stored.filter((c) => {
+    const x = by.get(c.request_id);
+    return (
+      !!x &&
+      (x.bus_id !== c.bus_id || (x.rating_mw ?? 0) !== (c.rating_mw ?? 0) || (x.import_mw ?? null) !== (c.import_mw ?? null) || (x.commissioning_year ?? null) !== (c.commissioning_year ?? null))
+    );
+  }).length;
+}
 
 // ---- the roadmap dock ---------------------------------------------------------------------------
 export interface RoadmapChip {
@@ -368,46 +389,6 @@ export function projectLabel(x: QueueItem | RegistryItem): string {
 }
 
 export const deferredMw = (q: QueueItem[]): number => sumMw(byStatus(q, "Deferred"));
-
-// ---- connection points for the intake -----------------------------------------------------------
-export interface BusOption {
-  id: number;
-  label: string;
-}
-/**
- * Buses where a new connection would land with the most room: connection-level buses (33 kV and
- * above) whose most loaded attached circuit is least loaded in the viewed year. A pointer only:
- * the engine decides feasibility when the project is run.
- */
-export function busSuggestions(m: Model, ix: ModelIndex, yr: YearResult | null, n = 3): BusOption[] {
-  if (!yr) return [];
-  const worst = new Map<number, number>();
-  m.lines.forEach((l) => {
-    const pct = yr.line_loading?.[l.line_id];
-    if (pct == null) return;
-    [l.from_bus, l.to_bus].forEach((b) => b != null && worst.set(b, Math.max(worst.get(b) ?? 0, pct)));
-  });
-  return m.buses
-    .filter((b) => b.vn_kv >= 33 && worst.has(b.bus_id) && busPlace(ix, b.bus_id))
-    .sort((a, b) => (worst.get(a.bus_id) ?? 0) - (worst.get(b.bus_id) ?? 0))
-    .filter((b, i, xs) => xs.findIndex((x) => busPlace(ix, x.bus_id) === busPlace(ix, b.bus_id)) === i) // one per substation
-    .slice(0, n)
-    .map((b) => ({ id: b.bus_id, label: busLabel(ix, b.bus_id) }));
-}
-
-/** A typed connection point ("1102", "bus 1102", "Boston") to a bus, preferring 33 kV and above. */
-export function findBus(m: Model, ix: ModelIndex, text: string): BusOption | null {
-  const num = text.match(/\b(\d{1,6})\b/);
-  if (num && ix.bus.has(+num[1])) return { id: +num[1], label: busLabel(ix, +num[1]) };
-  const t = text.toLowerCase().replace(/bus|·|\d+(\.\d+)?\s*kv/g, " ").trim();
-  if (!t) return null;
-  const hits = m.buses.filter((b) => {
-    const p = busPlace(ix, b.bus_id).toLowerCase();
-    return !!p && (p.includes(t) || t.includes(p));
-  });
-  const best = hits.sort((a, b) => b.vn_kv - a.vn_kv)[0];
-  return best ? { id: best.bus_id, label: busLabel(ix, best.bus_id) } : null;
-}
 
 /** Engine text names elements by index ("line 16", "transformer 30", "bus 7"): say where they are. */
 export function nameElements(text: string, ix: ModelIndex | null): string {

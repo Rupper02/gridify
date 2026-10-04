@@ -91,8 +91,9 @@ class PhaseResult(BaseModel):
     gsp_export_mw: float = 0.0  # peak power pushed UP through the GSP to transmission (worst case)
     gsp_import_mw: float = 0.0  # peak power drawn DOWN from transmission (worst case)
     gsp_limit_mw: float | None = None  # the GSP's export limit to transmission; None = unlimited
-    n1_screened: int = 0  # EHV elements outaged one at a time in the N-1 screen
-    n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, type, element_id, value, message}
+    n1_cases: list[str] = []  # the study cases the N-1 screen ran in (config.N1_CASES, those the net supports)
+    n1_screened: int = 0  # EHV elements outaged one at a time in the N-1 screen (per case)
+    n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, case, type, element_id, value, message}; islands on the first case only
 
 
 class Outage(BaseModel):
@@ -128,9 +129,10 @@ class N1During(BaseModel):
 
     cases: list[str] = []
     screened: int = 0  # second faults studied, summed over the cases
-    findings: int = 0  # second faults that breach a limit or strand demand
-    second_fault_at_risk_mw: float = 0.0  # demand stranded by the worst second fault
-    worst: str = ""  # that finding's message ("" when nothing is stranded)
+    findings: int = 0  # second faults that breach a limit or strand demand (len(violations))
+    violations: list[dict] = []  # those findings, worst first: network.n1_screen dicts (outage, case, type, element, value, message)
+    second_fault_at_risk_mw: float = 0.0  # demand stranded by the worst second fault, beyond what the window strands
+    worst: str = ""  # the worst finding in words ("" when there is none)
 
 
 # how bad a window's verdict is, worst last: the order maintenance folds cases by and diff compares by

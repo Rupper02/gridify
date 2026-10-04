@@ -50,7 +50,7 @@ const study = (over: Partial<OutageStudy> = {}): OutageStudy => ({
 const year = (y: number, studies: OutageStudy[]): YearResult => ({
   year: y, growth: 1, energised: [], accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 40, min_vm_pu: 0.97,
   max_vm_pu: 1.03, overloaded_line_ids: [], line_loading: {}, bus_vm: {}, voltage_violation_bus_ids: [], gsp_export_mw: 200,
-  gsp_import_mw: 0, gsp_limit_mw: 527, n1_screened: 30, n1_violations: [], trafo_loading: {}, outage_studies: studies,
+  gsp_import_mw: 0, gsp_limit_mw: 527, n1_cases: ["winter_peak"], n1_screened: 30, n1_violations: [], trafo_loading: {}, outage_studies: studies,
 });
 
 const result = (studied: string[], studies: OutageStudy[] = []): OptimizeResult => ({
@@ -100,7 +100,7 @@ describe("windowView", () => {
     expect(windowView(out(), ctx(result(["o"])))).toMatchObject({ state: "solving", chip: null });
   });
   it("reads a feasible window with its worst loadings and the N-1 screen during it", () => {
-    const v = windowView(out(), ctx(result(["o"], [study({ n1_during: { cases: ["winter_peak"], screened: 12, findings: 0, second_fault_at_risk_mw: 0, worst: "" } })])));
+    const v = windowView(out(), ctx(result(["o"], [study({ n1_during: { cases: ["winter_peak"], screened: 12, findings: 0, violations: [], second_fault_at_risk_mw: 0, worst: "" } })])));
     expect(v.chip).toEqual({ label: "Feasible", c: "#5ee6a8" });
     expect(v.lines[0]).toBe("Within limits in summer min. Worst line 71%, worst transformer 40%.");
     expect(v.lines[1]).toBe("A second fault during the window: 12 faults screened, none breaches a limit.");
@@ -120,7 +120,13 @@ describe("windowView", () => {
     const other = out({ outage_id: "p", element_kind: "trafo", element_id: "5" });
     const s = study({
       ok: false, verdict: "demand_at_risk", demand_at_risk_mw: 14.2, with_ids: ["p"], work: "repowering",
-      n1_during: { cases: ["summer_min"], screened: 10, findings: 2, second_fault_at_risk_mw: 30, worst: "" },
+      n1_during: {
+        cases: ["summer_min"], screened: 10, findings: 2, second_fault_at_risk_mw: 30, worst: "line 10 out as well cuts off another 30.0 MW at summer minimum demand",
+        violations: [
+          { outage_type: "line", outage_id: 10, outage_name: "", case: "summer_min", type: "islanded", element_id: 1, value: 31, message: "line 10 out islands 31.0 MW of demand at 2 bus(es) at summer minimum demand" },
+          { outage_type: "line", outage_id: 10, outage_name: "", case: "summer_min", type: "line", element_id: 11, value: 150, message: "line 11 overloaded at 150% of its summer rating at summer minimum demand" },
+        ],
+      },
       after: "from 2031, line 10 comes back at 1.5x its rating",
     });
     const o = out({ work: "repowering", repower: "uprate", factor: 1.5 });
@@ -130,6 +136,8 @@ describe("windowView", () => {
       "14.2 MW of demand at risk during the window.",
       "Studied together with the other summer 2030 work: Bicker Fen 132/33 kV transformer (full outage).",
       "A second fault during the window: 2 findings, 30 MW at risk.",
+      "Boston to Bicker Fen 132 kV out islands 31.0 MW of demand at 2 bus(es) at summer minimum demand.",
+      "Boston to Bicker Fen 132 kV out as well: Kirton to Boston 33 kV overloaded at 150% of its summer rating at summer minimum demand.",
       "After the window: from 2031, Boston to Bicker Fen 132 kV comes back at 1.5x its rating.",
     ]);
   });

@@ -4,8 +4,10 @@ Where the queue run and the plan years answer "does this plan hold?", a study an
 sharper question about the network itself: where can new generation or demand connect before a
 limit breaks (hosting capacity), which single outage hurts most (contingency ranking), which
 elements are structural single points of failure (no power flow needed), which tap changers have run
-out of range (tap margin), how the GSP margin evolves year by year, and what the model had to assume
-(data quality). Each study is bounded, pure given its `net_factory`, and returns `StudyItem`s whose
+out of range (tap margin), how the GSP margin evolves year by year, what the model had to assume
+(data quality), how one project could connect when its busbar cannot take it (connection options: a
+firm size or a flexible connection, the parallel-circuit chain, the higher-voltage busbars that take
+it) and the best window for a planned work. Each study is bounded, pure given its `net_factory`, and returns `StudyItem`s whose
 figures are the engine's and whose fingerprints are stable, so a finding filed against an item keeps
 its identity across runs. Every study also says what it did NOT study.
 
@@ -20,18 +22,26 @@ from collections.abc import Callable
 from typing import Any, Literal, NamedTuple
 
 import networkx as nx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .config import (
+    BEST_WINDOW_N1_SHORTLIST,
+    CONNECTION_OPTION_BUSES,
     CONTINGENCY_MIN_KV,
     CONTINGENCY_SEVERITY_WEIGHTS,
+    GENERATION_FACTOR_DEFAULT,
+    GENERATION_FACTORS,
     GSP_MARGIN_WARN_FRACTION,
     HOSTING_MAX_BUSES,
     HOSTING_MIN_KV,
     HOSTING_STEP_MW,
+    IMPORT_ONLY_TECHS,
     LINE_LOADING_MAX_PCT,
     MAX_CONNECTION_MW,
+    MAX_REINFORCE_STEPS,
     N1_ISLAND_MIN_MW,
+    PLAN_END_YEAR,
+    PLAN_START_YEAR,
     TAP_MARGIN_MIN_STEPS,
     TRAFO_LOADING_MAX_PCT,
 )
@@ -53,21 +63,26 @@ from .network import (
     tap_positions,
     voltage_limits,
 )
-from .types import Candidate, ModelAssumption, OptimizeParams, OptimizeResult, StudyItem, StudyResult
+from .suggest import discover_chain, phase_net
+from .types import Candidate, ModelAssumption, OptimizeParams, OptimizeResult, Outage, Reason, StudyItem, StudyResult
+from .windows import SEASONS, best_windows
 
 _NOOP: Progress = lambda _s, _f: None  # noqa: E731
 
 
 class StudyContext(NamedTuple):
     """What a study may read: the plan's network (already reinforced for the branch), its parameters,
-    candidates and result (the plan years, for studies that read them), and a progress callback (where
-    cancellation lands)."""
+    candidates and result (the plan years, for studies that read them), the branch's planned works and
+    the operator's schedule (for studies that study the plan year by year), and a progress callback
+    (where cancellation lands)."""
 
     net_factory: NetFactory = build_base_net
     params: OptimizeParams | None = None
     candidates: list[Candidate] = []
     result: OptimizeResult | None = None
     progress: Progress = _NOOP
+    schedule: dict[str, int | None] = {}
+    outages: list[Outage] = []
 
 
 # --- parameters (the tool schemas the agents see) ---------------------------------------------------------
@@ -104,6 +119,43 @@ class GspMarginParams(BaseModel):
 
 class DataQualityParams(BaseModel):
     """What the model had to assume (the builder's fallbacks) and other data gaps."""
+
+
+class ConnectionOptionsParams(BaseModel):
+    """How one project could connect: what its own busbar takes of it (a firm size, or a flexible
+    connection firm to that MW), how far a chain of parallel circuits gets it, and which higher-voltage
+    busbars nearby take its full MW (needs the plan)."""
+
+    request_id: str = Field(description="the project, as the queue names it")
+    step_mw: float = Field(default=HOSTING_STEP_MW, ge=1.0, description="resolution of the MW answers")
+    max_buses: int = Field(default=CONNECTION_OPTION_BUSES, ge=0, le=12, description="higher-voltage busbars to probe, nearest first by network steps")
+    part: Literal["all", "site", "bus"] = Field(default="all", description="a chunk: the project's own site (its busbar and the chain), one higher-voltage busbar (bus_ids), or everything")
+    bus_ids: list[int] | None = Field(default=None, description="the higher-voltage busbars to probe instead of the nearest ones")
+
+
+class BestWindowParams(BaseModel):
+    """The windows for a planned work on one element, every season of every year in the range, studied
+    against the plan as it stands that year (windows.best_windows; needs the plan)."""
+
+    element_kind: Literal["line", "trafo", "gen"]
+    element_id: str = Field(description="the element as the model names it: a line or transformer index, or a generator's id")
+    work: str = Field(default="maintenance", description="maintenance | replacement | repowering (maintenance.WORKS)")
+    kind: str = Field(default="outage", description="outage | derate (maintenance only)")
+    repower: str | None = Field(default=None, description="repowering only: uprate | add_parallel")
+    factor: float | None = Field(default=None, gt=1.0, le=4.0, description="repowering uprate only: the rating multiplier")
+    weeks: int = Field(default=4, ge=1, le=52)
+    years: tuple[int, int] = Field(default=(PLAN_START_YEAR, PLAN_END_YEAR), description="[from, to] within the plan")
+    seasons: list[str] | None = Field(default=None, description="the seasons to probe; default: all four")
+    n1: bool = Field(default=True, description="screen second faults (N-1) during the shortlisted windows; roughly doubles their cost")
+
+    @model_validator(mode="after")
+    def _range(self):
+        lo, hi = self.years
+        if not (PLAN_START_YEAR <= lo <= hi <= PLAN_END_YEAR):
+            raise ValueError(f"years must be [from, to] within {PLAN_START_YEAR}..{PLAN_END_YEAR}")
+        if self.seasons is not None and not self.seasons:
+            raise ValueError("seasons, when given, must not be empty")
+        return self
 
 
 class StudySpec(NamedTuple):
@@ -163,22 +215,55 @@ def _probe_buses(net, p: HostingParams) -> list[int]:
     return buses[:p.max_buses]
 
 
-def _hosting_probe(net, case, bus: int, mw: float, direction: str) -> tuple[bool, Any, int]:
-    """Inject `mw` at `bus` (firm export, or a demand connection importing it), solve the case with the
-    taps regulated, then leave the net exactly as found. Returns (within limits, the binding reason, solves)."""
+def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
+    """Inject something (`inject` adds an sgen and returns its index), solve the case with the taps
+    regulated, then leave the net exactly as found. Returns (within limits, the binding reason, solves)."""
     taps = tap_positions(net)
-    idx = (inject_sgen(net, bus, mw, "hosting-probe", "other") if direction == "export"
-           else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw))
+    idx = inject()
     try:
         res = _run_case(net, case.name, case.load_scale, case.rating_ratio, regulate=True)
     finally:
         drop_sgen(net, idx)
         set_tap_positions(net, taps)
     if res is None:
-        from .types import Reason
         return False, Reason(type="non_convergent", case=case.name, message=f"power flow does not converge at {_CASE_LABEL[case.name]}"), 1
     r = _case_reason(net, case.name, res["vm"], res["line_pct"], res["trafo_pct"]) or _gsp_reason(net, -res["p_ext_mw"], case.name)
     return r is None, r, 1
+
+
+def _hosting_probe(net, case, bus: int, mw: float, direction: str) -> tuple[bool, Any, int]:
+    """Probe `mw` of new firm export (or a demand connection importing it) at `bus`."""
+    return _probe(net, case, lambda: (inject_sgen(net, bus, mw, "hosting-probe", "other") if direction == "export"
+                                      else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw)))
+
+
+def _bisect_mw(probe: Callable[[float], tuple[bool, Any, int]], cap: float, step: float,
+               at_cap: tuple[bool, Any] | None = None) -> tuple[float, Any, int]:
+    """The most MW `probe` accepts between 0 and `cap`, to `step`: (value, the binding reason or None
+    when nothing binds within the cap, solves). The cap is probed first (often nothing binds; `at_cap`
+    hands in that answer when the caller already has it), then 0 (the network as it is), then by bisection."""
+    solves = 0
+    if at_cap is None:
+        ok_cap, reason_cap, n = probe(cap)
+        solves += n
+    else:
+        ok_cap, reason_cap = at_cap
+    if ok_cap:
+        return cap, None, solves
+    ok0, reason0, n = probe(0.0)
+    solves += n
+    if not ok0:
+        return 0.0, reason0, solves
+    lo, hi, binding = 0.0, cap, reason_cap
+    while hi - lo > step:
+        mid = (lo + hi) / 2
+        ok, reason, n = probe(mid)
+        solves += n
+        if ok:
+            lo = mid
+        else:
+            hi, binding = mid, reason
+    return math.floor(lo / step) * step, binding, solves
 
 
 def _hosting_capacity(ctx: StudyContext, p: HostingParams) -> StudyResult:
@@ -191,26 +276,8 @@ def _hosting_capacity(ctx: StudyContext, p: HostingParams) -> StudyResult:
     for i, bus in enumerate(buses):
         ctx.progress(f"hosting capacity: bus {bus} ({i + 1}/{len(buses)})", i / max(len(buses), 1))
         for case in cases.values():
-            ok_cap, reason_cap, n = _hosting_probe(net, case, bus, cap, p.direction)
+            value, binding, n = _bisect_mw(lambda mw: _hosting_probe(net, case, bus, mw, p.direction), cap, p.step_mw)
             solves += n
-            if ok_cap:
-                value, binding = cap, None
-            else:
-                lo, hi, binding = 0.0, cap, reason_cap
-                ok0, reason0, n = _hosting_probe(net, case, bus, 0.0, p.direction)  # the network as it is
-                solves += n
-                if not ok0:
-                    value, binding = 0.0, reason0
-                else:
-                    while hi - lo > p.step_mw:
-                        mid = (lo + hi) / 2
-                        ok, reason, n = _hosting_probe(net, case, bus, mid, p.direction)
-                        solves += n
-                        if ok:
-                            lo = mid
-                        else:
-                            hi, binding = mid, reason
-                    value = math.floor(lo / p.step_mw) * p.step_mw
             label = _CASE_LABEL[case.name]
             where = _bus_name(net, bus)
             if binding is None:
@@ -469,6 +536,276 @@ def _data_quality(ctx: StudyContext, p: DataQualityParams) -> StudyResult:
     return StudyResult(kind="data_quality", params=p.model_dump(), items=items, solves=0, not_studied=not_studied, summary=summary)
 
 
+# --- connection options ---------------------------------------------------------------------------------------------
+_REASON_UNIT = {"line": "%", "trafo": "%", "voltage": "pu", "gsp": "MW"}
+
+
+def _bisect_solves(step: float) -> int:
+    return 2 + math.ceil(math.log2(MAX_CONNECTION_MW / step))
+
+
+def _candidate_of(ctx: StudyContext, request_id: str) -> Candidate:
+    c = next((c for c in ctx.candidates if c.request_id == request_id), None)
+    if c is None:
+        raise ValueError(f"{request_id} is not a project on this branch")
+    if c.bus_id is None:
+        raise ValueError(f"{request_id} has no connection point (bus) in the model")
+    return c
+
+
+def _asks(c: Candidate) -> tuple[str, float]:
+    """What the project asks of the network: its export, or its import for a demand connection."""
+    if (c.technology or "").lower() in IMPORT_ONLY_TECHS:
+        return "import", float(c.import_mw or 0.0)
+    return "export", float(c.rating_mw or 0.0)
+
+
+def _project_probe(net, case, bus: int, c: Candidate, mw: float, direction: str) -> tuple[bool, Any, int]:
+    """Probe `mw` of THIS project at `bus`: its own technology, so the case dispatch applies (PV at nil
+    at winter peak, a battery charging), with its import scaled along."""
+    asked = _asks(c)[1]
+    if direction == "import":
+        return _probe(net, case, lambda: inject_sgen(net, bus, 0.0, "connection-probe", c.technology, import_mw=mw))
+    imp = None if c.import_mw is None or not asked else float(c.import_mw) * mw / asked
+    return _probe(net, case, lambda: inject_sgen(net, bus, mw, "connection-probe", c.technology, import_mw=imp))
+
+
+def _probed_cases(cases: dict, c: Candidate, direction: str) -> dict:
+    """The cases where the project does something: an export project is not probed in a case its
+    technology dispatches at nil (PV or wind at winter peak), where any MW would trivially fit."""
+    if direction != "export":
+        return cases
+    tech = (c.technology or "").lower()
+    return {k: v for k, v in cases.items() if GENERATION_FACTORS.get(k, {}).get(tech, GENERATION_FACTOR_DEFAULT.get(k, 1.0)) != 0.0}
+
+
+def _higher_buses(net, bus: int) -> list[tuple[int, int]]:
+    """Every busbar at a higher voltage than `bus`, nearest first by network steps (then the lower voltage
+    level, the better connected, the id), as (bus, steps)."""
+    g, _ = _simple_graph(net)
+    if bus not in g:
+        return []
+    kv0 = float(net.bus.at[bus, "vn_kv"])
+    deg = _degree(net)
+    steps = nx.single_source_shortest_path_length(g, bus)
+    higher = [(int(b), int(d)) for b, d in steps.items() if int(b) != bus and float(net.bus.at[int(b), "vn_kv"]) > kv0]
+    higher.sort(key=lambda bd: (bd[1], float(net.bus.at[bd[0], "vn_kv"]), -deg.get(bd[0], 0), bd[0]))
+    return higher
+
+
+def _plan_net(ctx: StudyContext, exclude: str) -> tuple[Any, str]:
+    """The network the options are probed on: the plan's hardest phase (demand grown to it, the projects
+    accepted by then energised, the branch's reinforcements applied), without `exclude` itself."""
+    phase = max(ctx.result.phases, key=int) if ctx.result and ctx.result.phases else None
+    if phase is None:
+        return ctx.net_factory(), "today"
+    return phase_net(ctx.candidates, ctx.params or OptimizeParams(), ctx.result, phase, net_factory=ctx.net_factory, exclude=exclude), phase
+
+
+def _size_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem]) -> int:
+    """What the project's own busbar takes of it, per case: a firm size, or a flexible connection firm to that MW."""
+    direction, asked = _asks(c)
+    rid, bus = c.request_id, int(c.bus_id)
+    where = _bus_name(net, bus)
+    solves = 0
+    for case in cases.values():
+        value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, bus, c, mw, direction), MAX_CONNECTION_MW, p.step_mw)
+        solves += n
+        label = _CASE_LABEL[case.name]
+        fits = value >= asked
+        if binding is None:
+            msg = f"{where} takes at least {MAX_CONNECTION_MW:.0f} MW of {rid} at {label}: no limit reached within the intake cap"
+        else:
+            msg = f"{where} takes about {value:.0f} MW of {rid}'s {asked:.0f} MW at {label}, then {binding.message}"
+            if not fits:
+                msg += f"; as a firm connection size it to about {value:.0f} MW, or connect it flexibly, firm to {value:.0f} MW and curtailed above"
+        items.append(_item(len(items), "connection_options", element_kind="bus", element_id=bus, element_name=where, case=case.name,
+                           value=round(value, 1), limit=round(asked, 1), unit="MW", severity="info" if fits else "warn", message=msg,
+                           fp_extra=("size", rid),
+                           extra={"option": "size", "request_id": rid, "direction": direction, "asked_mw": asked, "fits": fits, "phase": phase,
+                                  "binding": binding.model_dump() if binding else None}))
+    return solves
+
+
+def _chain_item(ctx: StudyContext, c: Candidate, where: str, phase: str, items: list[StudyItem]) -> int:
+    """How far a chain of parallel circuits (suggest.discover_chain) gets the project at its own busbar."""
+    rid = c.request_id
+    accepted = ctx.result.phases[phase].accepted if ctx.result and phase in ctx.result.phases else []
+    if rid in accepted:
+        items.append(_item(len(items), "connection_options", element_kind="project", element_id=rid, element_name=where, severity="info",
+                           message=f"{rid} already connects at {where} in the plan's {phase} phase", fp_extra=("reinforce",),
+                           extra={"option": "reinforce", "request_id": rid, "connects": True, "reinforcements": [], "binding": None}))
+        return 0
+    reinf, connected, last, solves = discover_chain(ctx.candidates, ctx.params or OptimizeParams(), ctx.result, rid, net_factory=ctx.net_factory)
+    noun = {"line": "line", "trafo": "transformer"}
+    parts = ", ".join(f"{noun.get(r.kind, r.kind)} {r.element_id}" for r in reinf)
+    circuits = f"{len(reinf)} parallel circuit{'s' if len(reinf) != 1 else ''}"
+    if connected and not reinf:
+        msg = f"{rid} connects at {where} as the plan stands: no reinforcement needed"
+    elif connected:
+        msg = f"{rid} connects at {where} after {circuits} ({parts})"
+    elif reinf:
+        msg = (f"after {circuits} ({parts}) {rid} is still held at {where}: {last.message}; "
+               "the chain adds one circuit per element and stops when one of them binds again")
+    else:
+        msg = f"no parallel-circuit chain applies to {rid} at {where}" + (f": {last.message}" if last else "")
+    items.append(_item(len(items), "connection_options", element_kind="project", element_id=rid, element_name=where,
+                       case=last.case if last else None, value=last.value if last else None, limit=last.limit if last else None,
+                       unit=_REASON_UNIT.get(last.type, "") if last else "", severity="info" if connected else "warn", message=msg,
+                       fp_extra=("reinforce",),
+                       extra={"option": "reinforce", "request_id": rid, "connects": connected, "reinforcements": [r.model_dump() for r in reinf],
+                              "binding": last.model_dump() if last else None}))
+    return solves
+
+
+def _move_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem]) -> int:
+    """The project's full MW probed at higher-voltage busbars, nearest first; where it does not fit, how much does."""
+    direction, asked = _asks(c)
+    rid, home = c.request_id, int(c.bus_id)
+    where = _bus_name(net, home)
+    tech = c.technology or "project"
+    higher = dict(_higher_buses(net, home))
+    buses = [int(b) for b in p.bus_ids if int(b) in net.bus.index] if p.bus_ids else list(higher)[:p.max_buses]
+    solves = 0
+    for b in buses:
+        there, steps = _bus_name(net, b), higher.get(b)
+        for case in cases.values():
+            label = _CASE_LABEL[case.name]
+            ok, reason, n = _project_probe(net, case, b, c, asked, direction)
+            solves += n
+            if ok:
+                value, binding, fits = asked, None, True
+                msg = f"{rid} ({asked:.0f} MW {tech}) connects at {there} at {label} within every limit"
+            else:
+                value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, b, c, mw, direction), asked, p.step_mw, at_cap=(ok, reason))
+                solves += n
+                fits = False
+                msg = f"{there} takes about {value:.0f} MW of {rid}'s {asked:.0f} MW at {label}, then {binding.message}"
+            if steps is not None:
+                msg += f" ({steps} step{'s' if steps != 1 else ''} from {where})"
+            items.append(_item(len(items), "connection_options", element_kind="bus", element_id=b, element_name=there, case=case.name,
+                               value=round(value, 1), limit=round(asked, 1), unit="MW", severity="info" if fits else "warn", message=msg,
+                               fp_extra=("move", rid),
+                               extra={"option": "move", "request_id": rid, "direction": direction, "vn_kv": float(net.bus.at[b, "vn_kv"]), "steps": steps,
+                                      "asked_mw": asked, "fits": fits, "phase": phase, "binding": binding.model_dump() if binding else None}))
+    return solves
+
+
+def _connection_options(ctx: StudyContext, p: ConnectionOptionsParams) -> StudyResult:
+    c = _candidate_of(ctx, p.request_id)
+    direction, asked = _asks(c)
+    net, phase = _plan_net(ctx, exclude=c.request_id)
+    every_case = _cases_for(net, None)
+    cases = _probed_cases(every_case, c, direction)
+    skipped = [k for k in every_case if k not in cases]
+    where = _bus_name(net, int(c.bus_id))
+    items: list[StudyItem] = []
+    solves = 0
+    if p.part in ("all", "site"):
+        ctx.progress(f"connection options: {c.request_id} at its own busbar", 0.0)
+        solves += _size_items(p, c, net, cases, phase, items)
+        ctx.progress(f"connection options: the parallel-circuit chain for {c.request_id}", 0.3)
+        solves += _chain_item(ctx, c, where, phase, items)
+    if p.part in ("all", "bus"):
+        ctx.progress(f"connection options: higher-voltage busbars for {c.request_id}", 0.5)
+        solves += _move_items(p, c, net, cases, phase, items)
+    sizes = [it for it in items if it.extra.get("option") == "size"]
+    chain = next((it for it in items if it.extra.get("option") == "reinforce"), None)
+    moves = [it for it in items if it.extra.get("option") == "move"]
+    bits = [f"{c.request_id}: {asked:.0f} MW {c.technology or 'project'} ({direction}) at {where}"]
+    if sizes:
+        least = min(sizes, key=lambda it: it.value or 0.0)
+        bits.append(f"its busbar takes about {least.value:.0f} MW of it ({_CASE_LABEL[least.case]})")
+    if chain is not None:
+        bits.append("the parallel-circuit chain connects it" if chain.extra.get("connects") else "the parallel-circuit chain does not reach it")
+    if moves:
+        by_bus: dict[str, list[StudyItem]] = {}
+        for it in moves:
+            by_bus.setdefault(it.element_name, []).append(it)
+        for name, its in by_bus.items():
+            if all(it.extra.get("fits") for it in its):
+                bits.append(f"{name} takes its full MW in every case")
+            else:
+                worst = min(its, key=lambda it: it.value or 0.0)
+                binding = (worst.extra.get("binding") or {}).get("message", "")
+                bits.append(f"{name} takes about {worst.value:.0f} MW of it ({_CASE_LABEL[worst.case]}{', then ' + binding if binding else ''})")
+    where_probed = (f"the other plan years: probed in the {phase} phase (demand grown to it, the projects accepted by then energised, "
+                    "the branch's reinforcements applied)" if phase != "today"
+                    else "demand growth and the plan's projects: today's network, as the branch reinforces it")
+    not_studied = [where_probed,
+                   *[f"{_CASE_LABEL[k]}: {c.technology or 'the project'} dispatches at nil in that case, so any MW fits there" for k in skipped],
+                   "the works a new point of connection needs (a bay, a transformer, the circuit to it) and their cost",
+                   "transmission works (NESO) and the wider transmission queue",
+                   "the hours a flexible connection would be curtailed (no time series)",
+                   "fault levels"]
+    return StudyResult(kind="connection_options", params=p.model_dump(), items=items, solves=solves, not_studied=not_studied, summary="; ".join(bits) + ".")
+
+
+def _connection_chunks(ctx: StudyContext, p: ConnectionOptionsParams) -> list[BaseModel]:
+    """The project's own site as one part, then one part per higher-voltage busbar."""
+    if p.part != "all":
+        return [p]
+    try:
+        c = _candidate_of(ctx, p.request_id)
+    except ValueError:
+        return [p]  # the run itself says why
+    buses = p.bus_ids or [b for b, _ in _higher_buses(ctx.net_factory(), int(c.bus_id))[:p.max_buses]]
+    return [p.model_copy(update={"part": "site"})] + [p.model_copy(update={"part": "bus", "bus_ids": [b]}) for b in buses]
+
+
+def _connection_cost(p: ConnectionOptionsParams) -> int:
+    b = _bisect_solves(p.step_mw)
+    site = (MAX_REINFORCE_STEPS + 1 + 2 * b) if p.part in ("all", "site") else 0
+    n_buses = len(p.bus_ids) if p.bus_ids else p.max_buses
+    bus = n_buses * 2 * (1 + b) if p.part in ("all", "bus") else 0
+    return site + bus
+
+
+# --- the best window for a planned work ------------------------------------------------------------------------------
+_VERDICT_SEVERITY = {"feasible": "info", "curtailment": "warn", "demand_at_risk": "breach", "not_feasible": "breach"}
+_ELEMENT_NOUN = {"line": "line", "trafo": "transformer", "gen": "generator"}
+
+
+def _best_window(ctx: StudyContext, p: BestWindowParams) -> StudyResult:
+    lo, hi = p.years
+    options = best_windows(ctx.result, ctx.candidates, ctx.params or OptimizeParams(), (p.element_kind, p.element_id), range(lo, hi + 1),
+                           p.seasons or SEASONS, work=p.work, kind=p.kind, repower=p.repower, factor=p.factor, weeks=p.weeks,
+                           scheduled=ctx.schedule, reinforcements=(), outages=ctx.outages, n1=p.n1, net_factory=ctx.net_factory,
+                           progress=ctx.progress)
+    noun = _ELEMENT_NOUN.get(p.element_kind, p.element_kind)
+    name = f"{noun} {p.element_id}"
+    items = [_item(i, "best_window", element_kind=p.element_kind, element_id=p.element_id, element_name=name, case=o.season, year=o.year,
+                   value=round(o.curtailed_mw, 1), unit="MW", severity=_VERDICT_SEVERITY.get(o.verdict, "warn"),
+                   message=f"{o.season} {o.year}, {p.work} ({p.kind}, {p.weeks} weeks) of {name}: {o.verdict}; {o.message}",
+                   fp_extra=(p.work, p.kind, p.repower or "", str(p.weeks)),
+                   extra={"rank": o.rank, "verdict": o.verdict, "curtailed_mw": o.curtailed_mw, "demand_at_risk_mw": o.demand_at_risk_mw,
+                          "n1_findings": o.n1_findings, "worst_line_loading_pct": o.worst_line_loading_pct,
+                          "worst_trafo_loading_pct": o.worst_trafo_loading_pct})
+             for i, o in enumerate(options)]
+    best = options[0] if options else None
+    summary = (f"{len(options)} window(s) for {name} ({p.work}) in {lo}..{hi}; the best is {best.season} {best.year}: {best.verdict}"
+               + (f", {best.curtailed_mw:.0f} MW curtailed" if best.curtailed_mw else "") + "." if best else f"No window for {name} in {lo}..{hi}.")
+    not_studied = ["where in the season the weeks fall (a window is studied in its season's case(s), not placed in the calendar)",
+                   "second faults during the windows outside the N-1 shortlist" if p.n1 else "second faults during the window (N-1 not screened)",
+                   "the curtailment as an optimal re-dispatch (a bounded first-order search)",
+                   "fault levels"]
+    return StudyResult(kind="best_window", params=p.model_dump(), items=items, solves=0, not_studied=not_studied, summary=summary)
+
+
+def _window_chunks(ctx: StudyContext, p: BestWindowParams) -> list[BaseModel]:
+    """One part per year when no N-1 screen is asked for (the shortlist is picked over the whole ranking)."""
+    if p.n1:
+        return [p]
+    lo, hi = p.years
+    return [p.model_copy(update={"years": (y, y)}) for y in range(lo, hi + 1)]
+
+
+def _window_cost(p: BestWindowParams) -> int:
+    lo, hi = p.years
+    n_seasons = len(p.seasons) if p.seasons else len(SEASONS)
+    return (hi - lo + 1) * n_seasons * 3 + (BEST_WINDOW_N1_SHORTLIST * 60 if p.n1 else 0)
+
+
 # --- the registry ----------------------------------------------------------------------------------------------------
 STUDIES: dict[str, StudySpec] = {
     "hosting_capacity": StudySpec(
@@ -497,6 +834,20 @@ STUDIES: dict[str, StudySpec] = {
     "data_quality": StudySpec(
         _data_quality, DataQualityParams, cost_hint=lambda p: 0,
         description="What the model had to assume: blank ratings filled, lengths defaulted, tap steps assumed, power factors defaulted, and which elements."),
+    "connection_options": StudySpec(
+        _connection_options, ConnectionOptionsParams, cost_hint=_connection_cost, needs_plan=True,
+        description=("How one project (request_id) could connect, probed in the plan's hardest phase on the branch's reinforced network: "
+                     "what its own busbar takes of it (a firm size, or a flexible connection firm to that MW), how far a chain of parallel "
+                     "circuits gets it, and which higher-voltage busbars nearby (nearest first) take its full MW and what binds there. "
+                     "Not studied: the works and cost of a new point of connection, transmission works, curtailment hours, fault levels."),
+        chunk=_connection_chunks),
+    "best_window": StudySpec(
+        _best_window, BestWindowParams, cost_hint=_window_cost, needs_plan=True,
+        description=("The windows for a planned work on one element (maintenance, replacement or repowering; an outage or a derate): every "
+                     "season of every year in the range, studied against the plan as it stands that year together with the branch's other "
+                     "windows, with the verdict, the curtailment and the demand at risk of each; with n1 the shortlist is also screened for "
+                     "second faults. Not studied: where the weeks fall in the season, the curtailment as an optimal re-dispatch, fault levels."),
+        chunk=_window_chunks),
 }
 
 

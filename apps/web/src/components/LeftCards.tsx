@@ -5,16 +5,17 @@
 import { Info, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
+import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
 import { gspTicks, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
-import { C, fmtMw } from "../theme";
+import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "year",
-  "focusSel" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "year",
+  "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
 >;
 
@@ -59,13 +60,15 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
   const { s, actions, derived } = planner;
   const { stale, resultProfile, yearsSolved, yearsTotal, caps, synthetic } = derived;
   const n = s.outages.length;
-  const sub = !s.result
-    ? "No run yet"
-    : s.refreshing
-      ? "Updating the years your edit touches…"
-      : yearsSolved < yearsTotal
-      ? `Solving years · ${yearsSolved} of ${yearsTotal} in`
-      : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}`;
+  const sub =
+    gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
+    (!s.result
+      ? "No run yet"
+      : s.refreshing
+        ? "Updating the years your edit touches…"
+        : yearsSolved < yearsTotal
+          ? `Solving years · ${yearsSolved} of ${yearsTotal} in`
+          : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}`);
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -84,6 +87,14 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
           <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={s.running}>
             {runLabel}
+          </button>
+        </div>
+      )}
+      {s.modelError && (
+        <div className="box amber">
+          <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{GRID_LOAD_HINT}</span>
+          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.retryLoad()} disabled={s.modelLoading}>
+            Retry
           </button>
         </div>
       )}
@@ -159,7 +170,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
             {yr ? `${yr.n1_violations.length} / ${yr.n1_screened}` : "–"}
           </span>
-          <span className="n">132 kV outages screened, reported only</span>
+          <span className="n">132 kV outages screened{yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only</span>
         </div>
       </div>
       {yr?.alerts && <CustomerAlerts planner={planner} />}

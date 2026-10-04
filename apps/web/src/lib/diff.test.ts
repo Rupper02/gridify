@@ -27,7 +27,8 @@ const yd = (over: Partial<YearDelta> = {}): YearDelta => ({
 
 const work = (over: Partial<WorkDelta> = {}): WorkDelta => ({
   outage_id: "mw-1", year: 2032, work: "maintenance", with_ids: [], verdict_on_main: "feasible", verdict_on_branch: "curtailment",
-  curtailed_mw_main: 0, curtailed_mw_branch: 40, demand_at_risk_mw_main: 0, demand_at_risk_mw_branch: 0, change: "worse",
+  curtailed_mw_main: 0, curtailed_mw_branch: 40, demand_at_risk_mw_main: 0, demand_at_risk_mw_branch: 0,
+  n1_findings_main: null, n1_findings_branch: null, n1_new: [], n1_cleared: [], change: "worse",
   consequence: "Feasible on main, but needs 40.0 MW of curtailment on this branch.", message: "", ...over,
 });
 

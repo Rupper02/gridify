@@ -3,7 +3,8 @@ plan as it would stand then, so the timeline switches between stored results ins
 
 A year's network is today's network with demand grown to that year (interpolated between the 2030
 and 2035 anchors) and every accepted project whose energisation year (the operator's scheduled year,
-else the optimizer's recommendation) has arrived. It is solved in both study cases, screened N-1,
+else the optimizer's recommendation) has arrived. It is solved in both study cases, screened N-1 in
+each case of config.N1_CASES,
 and that year's planned windows are studied in their season (maintenance.study_windows). Works
 finished in an earlier year leave their change behind (a repowered element, maintenance.WORKS), so
 later years are solved with it; the queue is not re-decided for it. The demand side (demand.py:
@@ -32,6 +33,7 @@ from .network import (
     interpolate_growth_for_year,
     line_loadings,
     n1_screen,
+    n1_screen_cases,
     overloaded_line_ids,
     trafo_loadings,
     voltage_violation_bus_ids,
@@ -81,9 +83,12 @@ def evaluate_year(
     outages: list[Outage] = (),
     reinforcements: list[Reinforcement] = (),
     n1: bool = True,
+    n1_windows: bool | None = None,
     net_factory: NetFactory = build_base_net,
 ) -> YearResult:
-    """Solve one year of the plan (see the module docstring)."""
+    """Solve one year of the plan (see the module docstring). `n1` runs the year's own N-1 screen;
+    `n1_windows` the screen during that year's works windows (the year's setting when None)."""
+    screen_windows = n1 if n1_windows is None else n1_windows
     growth = interpolate_growth_for_year(year, params.growth_2030, params.growth_2035)
     net = net_factory()
     grow_demand(net, growth, params.scenario, _horizon(year))
@@ -98,8 +103,8 @@ def evaluate_year(
             energised.append(c.request_id)
 
     feasibility(net)  # settles the taps for the intact state
-    studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if n1 else None)
-    screen = n1_screen(net) if n1 else {"screened": 0, "violations": []}
+    studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if screen_windows else None)
+    screen = n1_screen_cases(net) if n1 else {"cases": [], "screened": 0, "violations": []}
     _, intact_reason, m = feasibility(net)  # the intact envelope the map and readings show
     yr = YearResult(
         year=year,
@@ -119,6 +124,7 @@ def evaluate_year(
         gsp_export_mw=m.get("gsp_export_mw", 0.0),
         gsp_import_mw=m.get("gsp_import_mw", 0.0),
         gsp_limit_mw=m.get("gsp_limit_mw"),
+        n1_cases=screen["cases"],
         n1_screened=screen["screened"],
         n1_violations=screen["violations"],
         outage_studies=studies,

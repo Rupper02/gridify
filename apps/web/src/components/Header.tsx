@@ -13,7 +13,7 @@ import { PROFILES, profileOf, tint } from "../theme";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "projects" | "running",
+  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "model" | "projects" | "running",
   "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
   "branch" | "gate" | "hue" | "mainId" | "onMain" | "prelim" | "profile" | "project" | "stale"
 >;
@@ -102,7 +102,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         </div>
       </div>
 
-      <button className="btn primary" onClick={() => void actions.run()} disabled={s.running}>
+      <button className="btn primary" onClick={() => void actions.run()} disabled={s.running || !s.model}>
         <Play size={13} weight="bold" />
         {runLabel}
       </button>

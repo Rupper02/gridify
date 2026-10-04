@@ -12,7 +12,9 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from dbos import DBOS, SetWorkflowID
+from dbos._error import DBOSWorkflowCancelledError
 from pydantic_ai import DeferredToolRequests, DeferredToolResults, ModelMessagesTypeAdapter, ToolApproved, ToolDenied, UsageLimits
+from pydantic_ai.messages import ModelResponse, TextPart
 
 from .. import repository
 from ..config import AGENT_RUN_BUDGET, now
@@ -207,14 +209,37 @@ def _dump_messages(msgs) -> list:
 
 def _close(run_id: str, final: dict) -> None:
     rt = _rt()
-    rt.emit_for(run_id)(final)
-    if rt.harness.in_workflow():
-        DBOS.close_stream("events")
+    try:
+        rt.emit_for(run_id)(final)
+        if rt.harness.in_workflow():
+            DBOS.close_stream("events")
+    except DBOSWorkflowCancelledError:  # the operator cancelled: the stream ends with the workflow
+        pass
+
+
+def _cancelled(rt: AgentRuntime, message_id: str) -> bool:
+    """The operator cancelled this reply (routers.agents.cancel_reply): its message is final, never overwritten."""
+    with rt.harness.store.cursor() as con:
+        m = threads.message_row(con, message_id)
+    return bool(m and m["status"] == "cancelled")
+
+
+def _failed(rt: AgentRuntime, run_id: str, project_id: str, message_id: str, e: Exception) -> None:
+    """An answer that did not finish: a cancellation keeps the operator's message; any other failure is written up."""
+    if isinstance(e, DBOSWorkflowCancelledError) or _cancelled(rt, message_id):
+        _finish(run_id, project_id, status="cancelled", summary="cancelled by the operator")
+        return
+    with rt.harness.store.cursor() as con:
+        threads.set_message(con, message_id, status="failed", content=f"The answer failed: {type(e).__name__}: {e}")
+    _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
+    _close(run_id, {"t": "error", "message": str(e), "seq": 10_000})
 
 
 def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str, run_id: str, res, deps) -> dict:
     """Store the answerer's result: a text answer (flags for figures no step produced), or the
-    proposals that wait for the operator's approval."""
+    proposals that wait for the operator's approval. A reply the operator cancelled meanwhile is left as it is."""
+    if _cancelled(rt, message_id):
+        return {"status": "cancelled", "text": "", "approvals": [], "flags": []}
     out = res.output
     step_outputs = [s.get("result") for s in rt.evidence.steps(run_id) if s.get("result") is not None]
     trace = [{"step_id": s["step_id"], "tool": s["tool"], "args": s["args"], "solves": s.get("solves", 0)} for s in rt.evidence.steps(run_id)]
@@ -225,7 +250,11 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
             for call in out.approvals:
                 approvals.append(runs.add_approval(con, project_id=project_id, thread_id=thread_id, message_id=message_id, run_id=run_id,
                                                    tool_call_id=call.tool_call_id, tool=call.tool_name, args=call.args_as_dict()))
-            text = "I propose: " + "; ".join(f"{a['tool']} {json.dumps(a['args'])}" for a in approvals) + ". Waiting for your approval."
+            # what the model said alongside its proposals (the figures it read, the option it favours), then the proposals themselves
+            last = res.all_messages()[-1]
+            said = "\n".join(p.content.strip() for p in last.parts if isinstance(p, TextPart) and p.content.strip()) if isinstance(last, ModelResponse) else ""
+            proposed = "I propose: " + "; ".join(f"{a['tool']} {json.dumps(a['args'])}" for a in approvals) + ". Waiting for your approval."
+            text = f"{said}\n\n{proposed}" if said else proposed
             threads.set_message(con, message_id, status="awaiting_approval", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),
                                 usage=_usage(res), cost_credits=_usage(res)["cost_credits"], evidence=evidence)
         return {"status": "awaiting_approval", "approvals": [a["approval_id"] for a in approvals], "text": text}
@@ -262,56 +291,60 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
         history = ModelMessagesTypeAdapter.validate_python(loaded["history"]) if loaded["history"] else None
         res = rt.agents["answerer"].run_sync(loaded["question"], deps=deps, message_history=history, usage_limits=_limits())
         done = _step(lambda: _answered(rt, project_id, thread_id, message_id, run_id, res, deps))
-        _finish(run_id, project_id, status="done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
+        _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
         _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": 10_000})
         return {"run_id": run_id, **done}
     except Exception as e:
-        with rt.harness.store.cursor() as con:
-            threads.set_message(con, message_id, status="failed", content=f"The answer failed: {type(e).__name__}: {e}")
-        _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
-        _close(run_id, {"t": "error", "message": str(e), "seq": 10_000})
+        _failed(rt, run_id, project_id, message_id, e)
         raise
 
 
 @DBOS.workflow()
-def answer_resume(project_id: str, thread_id: str, message_id: str, approval_id: str, approved: bool, note: str) -> dict:
-    """Continue an answer whose proposal the operator decided: the deferred tool runs (or is denied)."""
+def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
+    """Continue an answer once the operator has decided every proposal it made: the approved deferred
+    tools run, the denied ones are refused to the model, and it writes the rest of the answer (or proposes
+    again). One resume per reply, so a reply that made two proposals waits for both decisions."""
     rt = _rt()
-    run_id = DBOS.workflow_id or f"resume:{approval_id}"
+    run_id = DBOS.workflow_id or f"resume:{message_id}"
 
     def load():
         with rt.harness.store.cursor() as con:
-            a = runs.approval_row(con, approval_id)
+            approvals = runs.approvals_for_message(con, message_id)
             prior = threads.message_row(con, message_id)
             reply = threads.add_message(con, thread_id, "assistant", "", status="streaming", run_id=run_id, workflow_id=DBOS.workflow_id)
             t = threads.thread_row(con, thread_id)
-            return {"approval": a, "history": prior["model_messages"] or [], "reply_id": reply["message_id"], "branch_id": t["branch_id"] if t else None}
+            return {"approvals": approvals, "history": prior["model_messages"] or [], "reply_id": reply["message_id"], "branch_id": t["branch_id"] if t else None}
     loaded = _step(load)
-    a = loaded["approval"]
-    begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id, parent=a["run_id"])
+    approvals = loaded["approvals"]
+    begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id,
+                   parent=approvals[0]["run_id"] if approvals else None)
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_budget"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
-        decision: Any = ToolApproved() if approved else ToolDenied(message=f"The operator declined: {note or 'no reason given'}")
-        results = DeferredToolResults(approvals={a["tool_call_id"]: decision})
+        decisions: dict[str, Any] = {
+            a["tool_call_id"]: ToolApproved() if a["status"] == "approved" else ToolDenied(message=f"The operator declined: {a.get('note') or 'no reason given'}")
+            for a in approvals
+        }
         res = rt.agents["answerer"].run_sync(None, deps=deps, message_history=ModelMessagesTypeAdapter.validate_python(loaded["history"]),
-                                             deferred_tool_results=results, usage_limits=_limits())
+                                             deferred_tool_results=DeferredToolResults(approvals=decisions), usage_limits=_limits())
         done = _step(lambda: _answered(rt, project_id, thread_id, loaded["reply_id"], run_id, res, deps))
 
         def settle():
             with rt.harness.store.cursor() as con:
-                runs.set_approval_result(con, approval_id, "applied" if approved else "denied", {"status": done["status"]})
-            return True
-        _step(settle)
-        _finish(run_id, project_id, status="done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
-        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "seq": 10_000})
+                for a in approvals:
+                    runs.set_approval_result(con, a["approval_id"], "applied" if a["status"] == "approved" else "denied", {"status": done["status"]})
+            ran = next((s["result"] for s in rt.evidence.steps(run_id) if s["tool"] == "propose_run" and (s.get("result") or {}).get("run_key")), None)
+            return {"ran": ran}
+        settled = _step(settle)
+        if settled["ran"]:  # an approved run is a run like any other: the reviewer (and the steward) hear about it
+            from .events import emit
+            emit(rt, "run.finished", {"project_id": project_id, "branch_id": settled["ran"]["branch_id"], "run_key": settled["ran"]["run_key"]})
+        _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
+        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": 10_000})
         return {"run_id": run_id, "reply_id": loaded["reply_id"], **done}
     except Exception as e:
-        with rt.harness.store.cursor() as con:
-            threads.set_message(con, loaded["reply_id"], status="failed", content=f"The answer failed: {type(e).__name__}: {e}")
-        _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
-        _close(run_id, {"t": "error", "message": str(e), "seq": 10_000})
+        _failed(rt, run_id, project_id, loaded["reply_id"], e)
         raise
 
 

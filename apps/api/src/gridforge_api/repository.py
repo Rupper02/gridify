@@ -11,7 +11,7 @@ from gridforge_optimizer import Outage, Reinforcement
 from gridforge_optimizer.config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 from gridforge_optimizer.nged import commission_year
 
-from .config import ADDED_CANDIDATE_ID_BASE, now
+from .config import ADDED_CANDIDATE_ID_BASE, MANUAL_READINESS_DEFAULT, MANUAL_STRATEGIC_DEFAULT, now
 from .schemas import NewCandidate, OptimizeRequest, OutageCreate, ReinforcementCreate
 from .store import ADDED_COLS, BRANCH_COLS, OUTAGE_COLS, REINFORCEMENT_COLS, Cursor
 
@@ -162,6 +162,33 @@ def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_
         "readiness_rationale": body.readiness_rationale, "status": status,
         "review_reasons": review, "commissioning_year": year, "import_mw": body.import_mw, "branch_id": branch_id,
     }
+
+
+_CANDIDATE_EDITS = ("bus_id", "rating_mw", "import_mw", "commissioning_year")
+
+
+def update_candidate(con: Cursor, branch_id: str, request_id: str, changes: dict, valid_bus_ids: set[int]) -> dict:
+    """Change a project's point of connection, export rating, import capacity or requested year on a
+    branch (an agent's approved proposal or the operator's edit), re-triaged like a new entry; returns
+    the stored row (client fields). KeyError when the project is not on the branch."""
+    current = next((r for r in candidate_rows(con, branch_id) if r["request_id"] == request_id), None)
+    if current is None:
+        raise KeyError(request_id)
+    row = {**current, **{k: v for k, v in changes.items() if k in _CANDIDATE_EDITS and v is not None}}
+    body = NewCandidate(
+        applicant=row.get("applicant"), bus_id=row.get("bus_id"), technology=row.get("technology"), rating_mw=row.get("rating_mw"),
+        readiness_score=float(row["readiness_score"]) if row.get("readiness_score") is not None else MANUAL_READINESS_DEFAULT,
+        strategic_fit=float(row["strategic_fit"]) if row.get("strategic_fit") is not None else MANUAL_STRATEGIC_DEFAULT,
+        readiness_rationale=row.get("readiness_rationale") or "", commissioning_year=row.get("commissioning_year"),
+        import_mw=row.get("import_mw"), branch_id=branch_id,
+    )
+    status, review = triage(body, valid_bus_ids)
+    con.execute(
+        "UPDATE added_candidates SET bus_id = ?, rating_mw = ?, import_mw = ?, commissioning_year = ?, status = ?, review_reasons = ? "
+        "WHERE branch_id = ? AND request_id = ?",
+        [row.get("bus_id"), row.get("rating_mw"), row.get("import_mw"), row.get("commissioning_year"), status, review, branch_id, request_id],
+    )
+    return to_client({**row, "status": status, "review_reasons": review, "branch_id": branch_id})
 
 
 def copy_projects(con: Cursor, from_branch: str, to_branch: str) -> None:

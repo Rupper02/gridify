@@ -329,16 +329,19 @@ input { font-family: inherit; }
 .summary { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; padding: 10px 12px; border-radius: 12px; background: rgba(5, 10, 18, 0.35); border: var(--well-bd); font-size: 11.5px; }
 .summary > :nth-child(odd) { color: var(--mute); }
 .summary > :nth-child(even) { font-family: var(--mono); text-align: right; }
-.lever { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
 .composer-wrap { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: rgba(5, 10, 18, 0.18); }
 .quick { height: 28px; padding: 0 11px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); color: var(--ink-2); font-size: 11.5px; font-weight: 500; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .quick.on { border-color: rgba(124, 227, 255, 0.6); background: rgba(124, 227, 255, 0.14); color: var(--ink); }
 .quick.go { border-color: rgba(124, 227, 255, 0.6); background: rgba(124, 227, 255, 0.2); color: var(--accent); }
+.ask-q { text-align: left; padding: 8px 11px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.04); color: var(--ink-2); font-size: 12px; line-height: 1.4; text-wrap: pretty; }
+.ask-q:hover:not(:disabled) { border-color: rgba(124, 227, 255, 0.5); color: var(--ink); background: rgba(124, 227, 255, 0.07); }
+.ask-q:disabled { opacity: 0.5; }
 .composer { display: flex; align-items: center; gap: 8px; height: 42px; padding: 0 5px 0 13px; border-radius: 12px; background: rgba(5, 10, 18, 0.45); border: 1px solid rgba(255, 255, 255, 0.14); }
 .composer:focus-within { border-color: rgba(124, 227, 255, 0.5); }
 .composer input { flex: 1; min-width: 0; height: 100%; border: none; outline: none; background: transparent; color: var(--ink); font-size: 12.5px; }
 .composer input::placeholder { color: var(--mute-2); }
 .composer button { width: 32px; height: 32px; border-radius: 9px; border: none; background: var(--accent); color: #062030; display: grid; place-items: center; }
+.composer button[data-stop] { background: var(--amber); color: #2a1a00; }
 
 /* review */
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -452,7 +455,7 @@ input { font-family: inherit; }
 .agents-pill[data-live] svg { animation: gfBreath 1.6s ease-in-out infinite; }
 .trace { display: flex; flex-wrap: wrap; gap: 5px; }
 .tchip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); font-size: 10.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
-.tchip .stage { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--mute-2); }
+.tchip .tstage { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--mute-2); } /* not `.stage`: that is the map container */
 .tchip[data-status="running"] { border-color: rgba(124, 227, 255, 0.6); color: var(--accent); animation: gfBreath 1.6s ease-in-out infinite; }
 .tchip[data-status="failed"] { border-color: rgba(255, 107, 107, 0.5); color: var(--red-ink); }
 .tchip:disabled { cursor: default; }

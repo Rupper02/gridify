@@ -22,7 +22,7 @@ export function useBranchFlows(
     (id: string) => {
       patch({ menuOpen: false });
       if (id === ref.current.activeBranch) return;
-      patch({ activeBranch: id, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, outages: [], reinforcements: [], chat: EMPTY_CHAT });
+      patch({ activeBranch: id, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, outages: [], reinforcements: [], candidates: [], chat: EMPTY_CHAT });
       void loadExtras(id);
       void run({ activeBranch: id });
     },
@@ -40,7 +40,7 @@ export function useBranchFlows(
       try {
         const b = await api.createBranch({ name: label, from_branch: mainId, scenario: main?.scenario ?? "ht" });
         await refreshBranches();
-        patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, chat: { ...EMPTY_CHAT } });
+        patch({ activeBranch: b.branch_id, menuOpen: false, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, candidates: [], chat: { ...EMPTY_CHAT } });
         toastMsg(`Opened ${b.name} off main. Changes stay here until you merge.`);  // every project's plan of record is called main
         void loadExtras(b.branch_id);
         void run({ activeBranch: b.branch_id });

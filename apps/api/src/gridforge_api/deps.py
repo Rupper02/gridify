@@ -4,7 +4,6 @@ Routers import these instances; everything they are built from takes its depende
 so tests can build their own.
 """
 
-import os
 import threading
 
 from gridforge_optimizer import engine_fingerprint
@@ -16,12 +15,14 @@ from .agents.models import openrouter_model_factory
 from .agents.runtime import AgentRuntime
 from .cache import ResultCache
 from .jobs import JobRunner
-from .narration import NoNarrator, OpenRouterNarrator
+from .narration import OpenRouterNarrator
 from .projects import Projects
 from .service import PlanService
 from .store import ScenarioStore
 from .warehouse import Warehouse
 
+# the key every model call needs: GridForge does not start without it (no degraded, key-less mode)
+openrouter_key = config.require_openrouter_key()
 warehouse = Warehouse(config.WAREHOUSE)
 scenarios = ScenarioStore(config.SCENARIOS_URL or config.SCENARIOS)
 # the engine fingerprint is a hash of the engine's source: a code change invalidates every cached result
@@ -31,11 +32,10 @@ projects = Projects(scenarios, warehouse, config.PROJECTS_DIR, config.NGED_PROJE
 # one power flow at a time in this process: operator jobs and agent studies share the lock
 solver_lock = threading.RLock()
 jobs = JobRunner(solver_lock)
-# without a key there is no narration and there are no agents: the substitute implementations, not exceptions swallowed
-narrator = OpenRouterNarrator() if os.getenv("OPENROUTER_API_KEY") else NoNarrator()
+narrator = OpenRouterNarrator()
 plans = PlanService(projects, scenarios, cache, narrator)
 evidence = EvidenceLedger(scenarios, cache)
 budget = BudgetMeter(scenarios)
 agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, projects=projects, evidence=evidence, budget=budget,
-                      model_factory=openrouter_model_factory(), system_db_url=config.DBOS_URL, app_version=config.AGENTS_APP_VERSION,
+                      model_factory=openrouter_model_factory(openrouter_key), system_db_url=config.DBOS_URL, app_version=config.AGENTS_APP_VERSION,
                       project_id=config.NGED_PROJECT_ID)

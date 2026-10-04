@@ -4,7 +4,8 @@
 * `studies`: one tool per `studies.STUDIES` entry, run through `PlanService.study` with the solver gate
   taken per chunk (one power flow at a time, operators first) and recorded as evidence; a study outside
   the agent's remit or over its solve budget is refused in the tool's answer, never raised;
-* `proposals`: actions that wait for the operator's approval (a branch, a reinforcement, a works window).
+* `proposals`: actions that wait for the operator's approval (a branch, a reinforcement, a works window,
+  a project or a change to one, a run of the branch).
 
 Every tool body runs as a durable step when it is called inside a DBOS workflow and plainly outside one,
 and every call is recorded in `agent_steps` with its arguments and output (or its cache key), so a
@@ -22,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
@@ -30,7 +31,7 @@ from gridforge_optimizer import STUDIES
 
 from .. import ledger, repository
 from ..config import AGENT_RUN_BUDGET, SOLVER_GATE_MAX_WAIT_S, now
-from ..schemas import OutageCreate, ReinforcementCreate
+from ..schemas import NewCandidate, OutageCreate, ReinforcementCreate
 from .evidence import EvidenceLedger
 
 TOP_ITEMS = 25  # how many study items a tool returns to the model (the full study stays in the cache)
@@ -96,9 +97,11 @@ class AgentDeps:
 
 
 # --- the recorded step every tool runs through --------------------------------------------------------------
-def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[[], tuple[dict, str | None, int]]) -> dict:
+def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[..., tuple[dict, str | None, int]], *, reports: bool = False) -> dict:
     """Run `work` (payload, cache key, solves) as a durable step, record it as evidence, and return the
-    payload with its step id, the handle the model cites and a finding names."""
+    payload with its step id, the handle the model cites and a finding names. With `reports`, `work` is
+    handed a `report(stage, fraction)` that streams the step's progress to the planner's trace (a study's
+    chunks landing), so a long study is never a silent chip."""
     deps = ctx.deps
     deps.tool_calls += 1
     if deps.tool_calls > deps.budget["max_tool_calls"]:  # an answer, not a retry: the model must now write up what it has
@@ -106,10 +109,13 @@ def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[
     step_id = f"{deps.run_id}:{ctx.tool_call_id or uuid.uuid4().hex[:8]}"
     seq = deps.next_seq()
 
+    def report(stage: str, fraction: float) -> None:
+        deps.emit({"t": "progress", "tool": tool, "step_id": step_id, "stage": str(stage), "fraction": round(float(fraction), 3), "seq": deps.next_seq()})
+
     def step() -> dict:
         t0 = now()
         try:
-            payload, key, solves = work()
+            payload, key, solves = work(report) if reports else work()
             err = None
         except Exception as e:  # the step records the failure and the model hears it
             payload, key, solves, err = {"error": f"{type(e).__name__}: {e}"}, None, 0, str(e)
@@ -177,7 +183,10 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
                      "min_vm_pu": y.min_vm_pu, "max_vm_pu": y.max_vm_pu, "overloaded_line_ids": y.overloaded_line_ids,
                      "voltage_violation_bus_ids": y.voltage_violation_bus_ids, "gsp_export_mw": y.gsp_export_mw, "gsp_limit_mw": y.gsp_limit_mw,
                      "n1_findings": [v.get("message") for v in y.n1_violations][:TOP_ITEMS], "alerts": [a.message for a in y.alerts][:TOP_ITEMS],
-                     "works": [{"outage_id": s.outage_id, "verdict": s.verdict, "message": s.message} for s in y.outage_studies],
+                     "works": [{"outage_id": s.outage_id, "verdict": s.verdict, "message": s.message,
+                                "second_faults": [f"{v.get('outage_type')} {v.get('outage_id')} out as well: {v.get('message')}" for v in s.n1_during.violations][:TOP_ITEMS]
+                                if s.n1_during else None}
+                               for s in y.outage_studies],
                      "energised": y.energised, "converged": y.converged,
                      "summary": f"{year}: worst line {y.worst_line_loading_pct:.0f}%, worst transformer {y.worst_trafo_loading_pct:.0f}%, "
                                 f"voltage {y.min_vm_pu:.3f}-{y.max_vm_pu:.3f} pu, GSP export {y.gsp_export_mw:.0f} of {y.gsp_limit_mw or 0:.0f} MW, "
@@ -275,17 +284,22 @@ def _study_tool(kind: str):
         deps = ctx.deps
         if kind not in deps.allowed_studies:  # refusals are answers the model reads, not retries that end the run
             return {"refused": f"{kind} is not in your remit; you may run: {', '.join(deps.allowed_studies)}", "solves": 0}
-        p = params if params is not None else params_model()
+        try:
+            p = params if params is not None else params_model()
+        except ValidationError as e:  # a study about one project or element: the model must say which
+            missing = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors())
+            return {"refused": f"{kind} needs its parameters: {missing}", "solves": 0}
         left = deps.budget["max_solves"] - deps.solves
         if spec.cost_hint(p) > left:
             return {"refused": f"{kind} with these parameters would cost about {spec.cost_hint(p)} solves; this run has {left} left. Narrow it (fewer buses or elements) or say it was not studied.", "solves": 0}
         h = deps.h
 
-        def work():
-            res = h.plans.study(bid, kind, p, chunked=True, hold=h.solver_gate.hold)  # the solver per chunk: operators get it between chunks
+        def work(report):
+            # the solver per chunk (operators get it between chunks); each chunk and the study's own stages stream to the trace
+            res = h.plans.study(bid, kind, p, progress=report, chunked=True, hold=h.solver_gate.hold)
             return (_compact(res), h.plans.study_key(bid, kind, p), res.solves)
 
-        return _recorded(ctx, f"study_{kind}", {"branch_id": bid, "params": p.model_dump()}, work)
+        return _recorded(ctx, f"study_{kind}", {"branch_id": bid, "params": p.model_dump()}, work, reports=True)
 
     run.__name__ = f"study_{kind}"
     run.__doc__ = spec.description + " `params` are the study's parameters (all optional)."
@@ -344,6 +358,56 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
                 row = repository.insert_outage(con, branch_id, body)
             return ({**row, "summary": f"window {row['outage_id']} on {branch_id}"}, None, 0)
         return _recorded(ctx, "propose_works_window", {"branch_id": branch_id, "element_kind": element_kind, "element_id": element_id, "season": season, "year": year, "weeks": weeks, "work": work}, do)
+
+    @ts.tool
+    def propose_candidate(ctx: RunContext[AgentDeps], branch_id: str, applicant: str, technology: str, bus_id: int, rating_mw: float,
+                          import_mw: float | None = None, commissioning_year: int | None = None, readiness_rationale: str = "") -> dict:
+        """Propose adding a connection project to a branch: technology solar | wind | battery | hybrid | demand | electrolyser | other, rating_mw its export (0 for a demand connection), import_mw its import (batteries, demand), commissioning_year the year asked for. Intake-triaged like the operator's own entry; the next run ranks it. The operator approves; main is never edited."""
+        def work():
+            h = ctx.deps.h
+            body = NewCandidate(applicant=applicant, technology=technology, bus_id=bus_id, rating_mw=rating_mw, import_mw=import_mw,
+                                commissioning_year=commissioning_year, readiness_rationale=readiness_rationale, branch_id=branch_id)
+            with h.store.cursor() as con:
+                branch = repository.require_open(con, branch_id, allow_main=False)
+                row = repository.insert_candidate(con, branch_id, body, h.projects.element_ids(branch["project_id"])["buses"])
+            h.plans.invalidate("plan")
+            client = repository.to_client(row)
+            return ({**client, "summary": f"{row['request_id']} ({client['status']}) added to {branch_id}"}, None, 0)
+        return _recorded(ctx, "propose_candidate", {"branch_id": branch_id, "applicant": applicant, "technology": technology, "bus_id": bus_id, "rating_mw": rating_mw,
+                                                    "import_mw": import_mw, "commissioning_year": commissioning_year, "readiness_rationale": readiness_rationale}, work)
+
+    @ts.tool
+    def propose_candidate_change(ctx: RunContext[AgentDeps], branch_id: str, request_id: str, bus_id: int | None = None, rating_mw: float | None = None,
+                                 import_mw: float | None = None, commissioning_year: int | None = None) -> dict:
+        """Propose changing a project on a branch: its point of connection (bus_id, e.g. the higher-voltage busbar connection_options found), its export rating (a firm size), its import capacity or its requested year; omitted fields keep their value. Re-triaged; the next run measures it. The operator approves."""
+        def work():
+            h = ctx.deps.h
+            changes = {k: v for k, v in {"bus_id": bus_id, "rating_mw": rating_mw, "import_mw": import_mw, "commissioning_year": commissioning_year}.items() if v is not None}
+            with h.store.cursor() as con:
+                branch = repository.require_open(con, branch_id, allow_main=False)
+                row = repository.update_candidate(con, branch_id, request_id, changes, h.projects.element_ids(branch["project_id"])["buses"])
+            h.plans.invalidate("plan")
+            return ({**row, "summary": f"{request_id} on {branch_id}: " + ", ".join(f"{k} -> {v}" for k, v in changes.items())}, None, 0)
+        return _recorded(ctx, "propose_candidate_change", {"branch_id": branch_id, "request_id": request_id, "bus_id": bus_id, "rating_mw": rating_mw,
+                                                           "import_mw": import_mw, "commissioning_year": commissioning_year}, work)
+
+    @ts.tool
+    def propose_run(ctx: RunContext[AgentDeps], branch_id: str) -> dict:
+        """Propose running the branch now (the queue, then every plan year) so what was proposed is measured and reviewed. A full run: operators' own jobs wait for it. The operator approves."""
+        def work():
+            h = ctx.deps.h
+            with h.store.cursor() as con:
+                row = repository.require_branch(con, branch_id)
+            with h.solver_gate.hold():
+                out = h.plans.optimize_payload(repository.branch_request(row), branch_id)
+            queue = out.get("queue", [])
+            by: dict[str, int] = {}
+            for q in queue:
+                by[q["status"]] = by.get(q["status"], 0) + 1
+            deferred = [{"request_id": q["request_id"], "reason": (q.get("reason") or {}).get("message")} for q in queue if q["status"] == "Deferred"]
+            return ({"branch_id": branch_id, "run_key": out.get("run_key"), "statuses": by, "deferred": deferred,
+                     "summary": f"ran {branch_id}: " + (", ".join(f"{n} {s}" for s, n in sorted(by.items())) or "an empty queue")}, out.get("run_key"), 0)
+        return _recorded(ctx, "propose_run", {"branch_id": branch_id}, work)
 
     return ts
 

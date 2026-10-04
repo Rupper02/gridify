@@ -10,7 +10,7 @@ export interface Layout {
   wide: boolean;
   /** vw < 1100: the left cards collapse into one pill. */
   narrow: boolean;
-  /** vh < 820: the Copilot draft grid collapses into a row of pills. */
+  /** vh < 820: the maintenance draft grid collapses into a row of pills. */
   compactH: boolean;
   /** vh >= 760: the readings card shows. */
   showReadings: boolean;

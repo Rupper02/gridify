@@ -2,6 +2,7 @@ import pytest
 
 from _grid import base_net, grid_deferred, saturating_candidates, stiff_bus
 from gridforge_optimizer import Candidate, OptimizeParams, optimize, suggest_unblock
+from gridforge_optimizer.suggest import discover_chain, phase_net
 
 
 @pytest.fixture(scope="module")
@@ -45,6 +46,19 @@ def test_suggest_is_deterministic(run):
     cands, base, sugs = run
     again = [s.model_dump() for s in suggest_unblock(cands, OptimizeParams(), base=base)]
     assert [s.model_dump() for s in sugs] == again
+
+
+def test_phase_net_and_the_chain_are_public_seams_for_the_studies(run):
+    cands, base, _ = run
+    accepted = base.phases["2035"].accepted
+    assert accepted
+    with_all = phase_net(cands, OptimizeParams(), base, "2035")
+    without = phase_net(cands, OptimizeParams(), base, "2035", exclude=accepted[0])
+    assert accepted[0] in set(with_all.sgen["name"]) and accepted[0] not in set(without.sgen["name"])
+    assert len(without.sgen) == len(with_all.sgen) - 1
+    reinf, connected, last, solves = discover_chain(cands, OptimizeParams(), base, grid_deferred(base.queue)[0].request_id)
+    assert solves > 0 and (connected or last is not None)
+    assert all(r.action == "add_parallel" for r in reinf)
 
 
 def test_no_suggestions_when_nothing_deferred():

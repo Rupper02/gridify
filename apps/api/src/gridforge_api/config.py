@@ -20,10 +20,23 @@ SCENARIOS = Path(
 # instead of the DuckDB file (same schema, same SQL; see store.ScenarioStore)
 SCENARIOS_URL: str | None = os.getenv("GRIDFORGE_SCENARIOS_URL") or None
 
-# reuse the pipeline's OPENROUTER_API_KEY for the LLM narration (dev)
+# the pipeline's .env carries OPENROUTER_API_KEY; the API loads it from there
 load_dotenv(REPO_ROOT / "apps" / "pipeline" / ".env")
 
 log = logging.getLogger("gridforge_api")
+
+
+def require_openrouter_key() -> str:
+    """The OpenRouter key every model call needs. GridForge does not run without it: the agents and the
+    narration are not optional, so a missing key stops the API at startup with the reason, never a
+    degraded mode."""
+    key = os.getenv("OPENROUTER_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY is not set. GridForge needs it (put it in apps/pipeline/.env, which the API loads): "
+            "the agents and the narration are not optional, and nothing runs without a model."
+        )
+    return key
 
 # placeholder scores for a manually added project: it bypasses the registry's published-facts scoring
 MANUAL_READINESS_DEFAULT = 0.5
@@ -39,7 +52,7 @@ AGENT_MODELS = {
     "steward": "anthropic/claude-sonnet-5.5",
     "reviewer": "anthropic/claude-sonnet-5.5",
     "answerer": "anthropic/claude-sonnet-5.5",
-    "specialist": "anthropic/claude-haiku-4.5",
+    "specialist": "anthropic/claude-sonnet-5.5",
 }
 # per project and day: OpenRouter credits, tokens and power-flow solves before the agents pause themselves
 AGENT_BUDGET_DAILY = {"credits": 5.0, "tokens": 2_000_000, "solves": 3_000}

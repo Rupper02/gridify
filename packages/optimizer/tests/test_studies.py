@@ -1,9 +1,11 @@
 """The study registry: deterministic, bounded analyses with stable fingerprints (grid-agnostic)."""
 
+from types import SimpleNamespace
+
 import pytest
 
-from _grid import base_net, stiff_bus, weak_buses
-from gridforge_optimizer import STUDIES, OptimizeParams, OptimizeResult, StudyContext, YearResult, run_study
+from _grid import base_net, grid_deferred, saturating_candidates, stiff_bus, weak_buses
+from gridforge_optimizer import STUDIES, OptimizeParams, OptimizeResult, StudyContext, YearResult, optimize, run_study
 from gridforge_optimizer.config import HOSTING_STEP_MW, MAX_CONNECTION_MW, TAP_MARGIN_MIN_STEPS
 from gridforge_optimizer.network import _oltc_trafos, build_base_net, n1_screen
 from gridforge_optimizer.studies import HostingParams, chunk_study, merge_chunks
@@ -20,23 +22,37 @@ def _yr(year, export, limit):
 
 _PLAN = OptimizeResult(params=OptimizeParams(), queue=[], phases={}, years={"2030": _yr(2030, 300.0, 527.0), "2035": _yr(2035, 500.0, 527.0)})
 
+@pytest.fixture(scope="module")
+def plan():
+    """A real run that defers projects on the grid (what connection options and best windows read),
+    with the plan years it needs faked: the years only gate `needs_plan`; these studies do not read them."""
+    net = base_net()
+    cands = saturating_candidates(net, n=4)
+    result = optimize(cands, OptimizeParams()).model_copy(update={"years": {"2030": _yr(2030, 300.0, 527.0), "2035": _yr(2035, 500.0, 527.0)}})
+    deferred = grid_deferred(result.queue)
+    assert deferred, "the fixture must defer a project on the grid"
+    return SimpleNamespace(cands=cands, result=result, deferred=deferred[0].request_id)
+
+
 # cheap parameters per study, so the whole module stays well under a minute
 _CHEAP = {
-    "hosting_capacity": lambda net: {"bus_ids": weak_buses(net, 2), "cases": ["winter_peak"], "step_mw": 25.0},
-    "contingency_ranking": lambda net: {"min_kv": 132.0, "cases": ["winter_peak"], "top": 5},
-    "structural_weak_points": lambda net: {},
-    "tap_margin": lambda net: {"cases": ["winter_peak"]},
-    "gsp_margin_by_year": lambda net: {},
-    "data_quality": lambda net: {},
+    "hosting_capacity": lambda net, plan: {"bus_ids": weak_buses(net, 2), "cases": ["winter_peak"], "step_mw": 25.0},
+    "contingency_ranking": lambda net, plan: {"min_kv": 132.0, "cases": ["winter_peak"], "top": 5},
+    "structural_weak_points": lambda net, plan: {},
+    "tap_margin": lambda net, plan: {"cases": ["winter_peak"]},
+    "gsp_margin_by_year": lambda net, plan: {},
+    "data_quality": lambda net, plan: {},
+    "connection_options": lambda net, plan: {"request_id": plan.deferred, "step_mw": 50.0, "max_buses": 1},
+    "best_window": lambda net, plan: {"element_kind": "line", "element_id": str(int(net.line.index[0])), "years": (2030, 2030), "seasons": ["Winter"], "n1": False},
 }
 
 
-def test_every_study_runs_through_the_registry_and_is_deterministic():
+def test_every_study_runs_through_the_registry_and_is_deterministic(plan):
     net = base_net()
     assert set(_CHEAP) == set(STUDIES)
     for kind, spec in STUDIES.items():
-        params = _CHEAP[kind](net)
-        ctx = _ctx(result=_PLAN if spec.needs_plan else None)
+        params = _CHEAP[kind](net, plan)
+        ctx = _ctx(result=plan.result if spec.needs_plan else None, candidates=plan.cands)
         a, b = run_study(kind, ctx, params), run_study(kind, ctx, params)
         assert a.kind == kind and a.model_dump() == b.model_dump(), kind
         assert a.solves >= 0 and a.summary and a.not_studied, kind
@@ -163,3 +179,72 @@ def test_data_quality_lists_the_builders_assumptions():
 
 def test_hosting_step_is_the_configured_resolution_by_default():
     assert HostingParams().step_mw == HOSTING_STEP_MW
+
+
+def test_connection_options_size_the_project_chain_circuits_and_probe_higher_busbars(plan):
+    net = base_net()
+    rid = plan.deferred
+    c = next(x for x in plan.cands if x.request_id == rid)
+    ctx = _ctx(result=plan.result, candidates=plan.cands)
+    params = {"request_id": rid, "step_mw": 50.0, "max_buses": 2}
+    r = run_study("connection_options", ctx, params)
+    sizes = [it for it in r.items if it.extra["option"] == "size"]
+    chain = [it for it in r.items if it.extra["option"] == "reinforce"]
+    moves = [it for it in r.items if it.extra["option"] == "move"]
+    assert sizes and len(chain) == 1 and moves
+    # the size: what its own busbar takes of it, per case, against what it asks
+    for it in sizes:
+        assert it.element_id == c.bus_id and it.limit == c.rating_mw and 0.0 <= it.value <= MAX_CONNECTION_MW and it.unit == "MW"
+        assert it.severity == ("info" if it.extra["fits"] else "warn") and it.extra["fits"] == (it.value >= c.rating_mw)
+        if not it.extra["fits"]:
+            assert "flexibly" in it.message and it.extra["binding"]["message"] in it.message
+    # the chain names what it reinforced and whether the project then connects, or why it stops
+    ch = chain[0]
+    assert ch.element_kind == "project" and ch.element_id == rid and ch.severity == ("info" if ch.extra["connects"] else "warn")
+    if not ch.extra["connects"]:
+        assert ch.extra["binding"] and ch.extra["binding"]["message"] in ch.message
+    # the higher-voltage busbars really are higher, nearest first, probed with the project's full MW
+    kv0 = float(net.bus.at[c.bus_id, "vn_kv"])
+    assert all(it.extra["vn_kv"] > kv0 and it.limit == c.rating_mw and it.unit == "MW" for it in moves)
+    steps = [it.extra["steps"] for it in moves]
+    assert steps == sorted(steps) and len({it.element_id for it in moves}) <= 2
+    assert all(it.severity == ("info" if it.extra["fits"] else "warn") and it.extra["fits"] == (it.value >= c.rating_mw) for it in moves)
+    assert len({it.fingerprint for it in r.items}) == len(r.items) and r.solves > 0
+    assert any("2035" in n for n in r.not_studied) and rid in r.summary
+    assert "takes its full MW" in r.summary or "takes about" in r.summary  # each probed busbar is summed up by name
+    # chunks: the site, then one part per busbar; merged, they equal the whole study item for item
+    parts = chunk_study("connection_options", ctx, params)
+    assert [p.part for p in parts] == ["site", "bus", "bus"] and all(len(p.bus_ids) == 1 for p in parts[1:])
+    merged = merge_chunks("connection_options", params, [run_study("connection_options", ctx, p) for p in parts])
+    strip = lambda its: [it.model_dump(exclude={"index"}) for it in its]  # noqa: E731
+    assert strip(merged.items) == strip(r.items) and merged.solves == r.solves
+    assert STUDIES["connection_options"].cost_hint(parts[0]) + sum(STUDIES["connection_options"].cost_hint(p) for p in parts[1:]) >= r.solves
+
+
+def test_connection_options_refuse_a_project_that_is_not_on_the_branch(plan):
+    with pytest.raises(ValueError):
+        run_study("connection_options", _ctx(result=plan.result, candidates=plan.cands), {"request_id": "nope"})
+    with pytest.raises(ValueError):  # the plan is required
+        run_study("connection_options", _ctx(candidates=plan.cands), {"request_id": plan.deferred})
+
+
+def test_best_window_study_wraps_the_search_and_chunks_by_year_without_n1(plan):
+    net = base_net()
+    lid = str(int(net.line.index[0]))
+    ctx = _ctx(result=plan.result, candidates=plan.cands)
+    r = run_study("best_window", ctx, {"element_kind": "line", "element_id": lid, "years": (2030, 2031), "seasons": ["Winter", "Summer"], "n1": False})
+    assert {(it.year, it.case) for it in r.items} == {(2030, "Winter"), (2030, "Summer"), (2031, "Winter"), (2031, "Summer")} and len(r.items) == 4
+    for it in r.items:
+        assert it.element_kind == "line" and it.element_id == lid and it.unit == "MW"
+        assert it.extra["verdict"] in ("feasible", "curtailment", "demand_at_risk", "not_feasible") and it.extra["n1_findings"] is None
+        assert it.severity == {"feasible": "info", "curtailment": "warn"}.get(it.extra["verdict"], "breach")
+        assert it.extra["verdict"] in it.message and f"line {lid}" in it.message
+    assert "the best is" in r.summary and any("not screened" in n for n in r.not_studied)
+    assert len({it.fingerprint for it in r.items}) == 4
+    parts = chunk_study("best_window", ctx, {"element_kind": "line", "element_id": lid, "years": (2030, 2032), "n1": False})
+    assert [tuple(p.years) for p in parts] == [(2030, 2030), (2031, 2031), (2032, 2032)]
+    assert len(chunk_study("best_window", ctx, {"element_kind": "line", "element_id": lid, "years": (2030, 2032)})) == 1  # the N-1 shortlist needs the whole ranking
+    with pytest.raises(ValueError):
+        run_study("best_window", ctx, {"element_kind": "line", "element_id": lid, "years": (2035, 2030)})
+    with pytest.raises(ValueError):
+        run_study("best_window", ctx, {"element_kind": "line", "element_id": "999999", "years": (2030, 2030), "seasons": ["Winter"], "n1": False})

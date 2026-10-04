@@ -25,9 +25,6 @@ from .types import SEVERITY_ORDER, VERDICT_SEVERITY, Finding, OptimizeResult, Ye
 GRID_REASON_TYPES = ("line", "trafo", "voltage", "gsp", "non_convergent")
 # works verdicts that put supply, not just generation output, at stake
 SEVERE_VERDICTS = tuple(v for v, s in VERDICT_SEVERITY.items() if s >= VERDICT_SEVERITY["not_feasible"])
-# the N-1 screen's case (network.n1_screen defaults to it; years.evaluate_year calls it that way)
-N1_CASE = "winter_peak"
-
 
 def fingerprint(kind: str, element_kind: str | None = None, element_id=None, year: int | None = None,
                 case: str | None = None, extra: tuple = ()) -> str:
@@ -123,7 +120,7 @@ def _n1(ctx: _Ctx) -> list[Finding]:
         for v in y.n1_violations:
             out.append(_finding("n1", "warn", f"{v.get('message', 'N-1 finding')} in {y.year}",
                                 element_kind=v.get("outage_type"), element_id=v.get("outage_id"), year=y.year,
-                                case=N1_CASE, value=v.get("value"),
+                                case=v.get("case"), value=v.get("value"),
                                 context={"breach_type": v.get("type"), "breach_element_id": v.get("element_id"),
                                          "outage_name": v.get("outage_name")},
                                 extra=(v.get("type"), v.get("element_id"))))

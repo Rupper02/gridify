@@ -107,6 +107,16 @@ class RegistryAdd(BaseModel):
     request_id: str
 
 
+class CandidateChange(BaseModel):
+    """A change to a project on a branch (the operator's, or an agent's approved proposal): its point of
+    connection, its export rating, its import capacity or its requested year. Omitted fields keep their value."""
+
+    bus_id: int | None = None
+    rating_mw: float | None = Field(default=None, ge=0.0)
+    import_mw: float | None = Field(default=None, ge=0.0)
+    commissioning_year: int | None = None
+
+
 class ScheduleSet(BaseModel):
     """The operator's chosen energisation year for a project on a branch (None = follow the
     optimizer's recommendation)."""

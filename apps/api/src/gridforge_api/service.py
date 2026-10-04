@@ -75,7 +75,8 @@ class BranchInputs(NamedTuple):
     schedule: dict[str, int]
     project_id: str
     baseline: str  # the project's content identity (its snapshot or file fingerprint): part of every key
-    net_factory: Callable  # the project's network with the branch's simulated reinforcements applied
+    net_factory: Callable  # the project's network WITH the branch's simulated reinforcements applied: studies, suggestions, the boundary
+    base_factory: Callable  # the project's network as it is: for the engine calls that take `reinforcements` and apply them themselves
 
 
 class Freshness(NamedTuple):
@@ -89,10 +90,12 @@ class Freshness(NamedTuple):
 
 
 def reinf_key(reinforcements) -> str:
-    """Cache-key part for simulated reinforcements ("" when none, so plain runs keep their keys)."""
+    """Cache-key part for simulated reinforcements ("" when none, so plain runs keep their keys). The
+    "r2:" salt retires results solved before the engine was handed the plain network: those applied
+    every reinforcement twice (once in the factory, once in the engine)."""
     if not reinforcements:
         return ""
-    return hashlib.md5(json.dumps([r.model_dump() for r in reinforcements], sort_keys=True).encode()).hexdigest()
+    return "r2:" + hashlib.md5(json.dumps([r.model_dump() for r in reinforcements], sort_keys=True).encode()).hexdigest()
 
 
 def years_key(b: BranchInputs) -> str:
@@ -158,8 +161,9 @@ class PlanService:
         cands = self.candidates(branch_id)
         schedule = {r["request_id"]: int(r["scheduled_year"]) for r in rows if r.get("scheduled_year") is not None}
         pid = row["project_id"]
+        base = self.projects.source(pid).build_net
         return BranchInputs(repository.branch_request(row), cands, cand_key(cands), reinf, outages, schedule, pid,
-                            self.projects.baseline(pid), reinforced_factory(reinf, self.projects.source(pid).build_net))
+                            self.projects.baseline(pid), reinforced_factory(reinf, base), base)
 
     def invalidate(self, scope: Literal["plan", "payload"]) -> None:
         """Drop the in-process result layers after an edit: "plan" when the candidate set changed
@@ -189,7 +193,7 @@ class PlanService:
             self._optimize_key(b, params), "optimize", baseline=b.baseline,
             parse=OptimizeResult.model_validate_json,
             compute=lambda: optimize(b.cands, params, list(b.reinforcements), trial_cache=self.cache.trial_cache(params, b.baseline),
-                                     net_factory=b.net_factory, progress=progress),
+                                     net_factory=b.base_factory, progress=progress),
             dump=lambda r: r.model_dump_json(),
         )
 
@@ -207,7 +211,7 @@ class PlanService:
             self._years_key(b, params), "years", baseline=b.baseline,
             parse=lambda s: {k: YearResult.model_validate(v) for k, v in json.loads(s).items()},
             compute=lambda: evaluate_years(result, b.cands, params, scheduled=b.schedule, outages=b.outages,
-                                           reinforcements=b.reinforcements, view_year=view_year, net_factory=b.net_factory,
+                                           reinforcements=b.reinforcements, view_year=view_year, net_factory=b.base_factory,
                                            progress=progress, on_year=on_year, cache=self.cache.year_cache(b.baseline)),
             dump=lambda years: json.dumps({k: v.model_dump() for k, v in years.items()}),
             on_hit=(lambda years: [on_year(y) for y in years.values()]) if on_year else None,
@@ -222,8 +226,9 @@ class PlanService:
         """Another branch's planned windows studied on this plan's energised network (its projects,
         schedule, parameters and reinforcements; the windows' own repowers apply after them), so the
         diff can tell what the branch's projects do to each window. Only the years with a window are
-        solved, without the N-1 screens (the verdict does not depend on them): per year one intact
-        solve pair plus the window study and its curtailment search. Cached like the years: the key
+        solved, without the year's own N-1 screen but with the screen during the windows (so the diff
+        can compare the second faults each side adds): per year one intact solve pair plus the window
+        study, its curtailment search and the backbone screened with the window in place. Cached like the years: the key
         is this plan's years key with the outages swapped for the windows studied."""
         if not outages:
             return []
@@ -236,7 +241,7 @@ class PlanService:
                 s
                 for y in sorted({o.year for o in outages})
                 for s in evaluate_year(y, plan.cands, params, in_service, outages=on.outages,
-                                       reinforcements=plan.reinforcements, n1=False, net_factory=plan.net_factory).outage_studies
+                                       reinforcements=plan.reinforcements, n1=False, n1_windows=True, net_factory=plan.base_factory).outage_studies
             ]
 
         return self.cache.through(
@@ -338,7 +343,7 @@ class PlanService:
             options = best_windows(
                 result, b.cands, params, (body.element_kind, body.element_id), range(lo, hi + 1),
                 work=body.work, kind=body.kind, repower=body.repower, factor=body.factor, weeks=body.weeks,
-                scheduled=b.schedule, reinforcements=b.reinforcements, outages=b.outages, net_factory=b.net_factory,
+                scheduled=b.schedule, reinforcements=b.reinforcements, outages=b.outages, net_factory=b.base_factory,
                 progress=lambda s, f: report(s, 0.3 + 0.7 * f), **kw,
             )
             return [o.model_dump() for o in options]
@@ -372,13 +377,20 @@ class PlanService:
         def context() -> StudyContext:
             result = self.result_with_years(b) if spec.needs_plan else None
             return StudyContext(net_factory=b.net_factory, params=engine_params, candidates=b.cands,
-                                result=result, progress=progress or (lambda _s, _f: None))
+                                result=result, progress=progress or (lambda _s, _f: None), schedule=b.schedule, outages=b.outages)
+
+        report = progress or (lambda _s, _f: None)
 
         def compute() -> StudyResult:
             if chunked:
                 parts = chunk_study(kind, context(), p)
                 if len(parts) > 1:
-                    return merge_chunks(kind, p, [self.study(branch_id, kind, part, progress, hold=hold) for part in parts])
+                    results = []
+                    for i, part in enumerate(parts):  # each chunk lands as a progress report, so a long study is never silent
+                        report(f"{kind}: part {i + 1} of {len(parts)}", i / len(parts))
+                        results.append(self.study(branch_id, kind, part, progress, hold=hold))
+                    report(f"{kind}: {len(parts)} parts done", 1.0)
+                    return merge_chunks(kind, p, results)
             with hold():
                 return run_study(kind, context(), p)
 

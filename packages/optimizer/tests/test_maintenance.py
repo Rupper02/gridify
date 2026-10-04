@@ -161,6 +161,13 @@ def test_the_n1_screen_runs_with_the_window_in_place(settled):
     s = study_windows(settled, [_window("n", "line", line, season="Spring")], screen=n1_screen)[0]
     assert s.n1_during is not None and s.n1_during.cases == s.cases == ["winter_peak", "summer_min"]
     assert s.n1_during.screened > 0 and s.n1_during.second_fault_at_risk_mw >= 0.0
+    # the second faults the window adds are listed, worst first, each the screen's own finding with its case
+    n1 = s.n1_during
+    assert n1.findings == len(n1.violations)
+    assert all(v["case"] in n1.cases and v["outage_type"] in ("line", "trafo") and v["message"] for v in n1.violations)
+    assert (n1.worst != "") == (n1.findings > 0)
+    if n1.findings:
+        assert f"{n1.violations[0]['outage_type']} {n1.violations[0]['outage_id']} out as well" in n1.worst and n1.worst in s.message
     # without a screen (a year solved without N-1) there is no N-1 during the window
     assert study_windows(settled, [_window("n", "line", line)])[0].n1_during is None
 

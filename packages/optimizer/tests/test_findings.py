@@ -41,7 +41,7 @@ def _res(queue=(), years=()):
 
 
 _N1 = {"outage_type": "line", "outage_id": 7, "outage_name": "x", "type": "islanded", "element_id": 3, "value": 2.5,
-       "message": "line 7 out islands 2.5 MW of demand at 1 bus(es)"}
+       "case": "winter_peak", "message": "line 7 out islands 2.5 MW of demand at 1 bus(es)"}
 
 
 def _busy():

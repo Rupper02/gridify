@@ -1,6 +1,7 @@
 from _grid import base_net, stiff_bus
 from gridforge_optimizer import (
     Candidate,
+    N1During,
     OptimizeParams,
     OptimizeResult,
     PhaseResult,
@@ -163,9 +164,15 @@ def _yr(year, line_loading, trafo_loading, *, energised=(), gsp=0.0, n1=(), stud
     )
 
 
-def _study(oid, year, verdict, curtailed=0.0, at_risk=0.0):
+def _study(oid, year, verdict, curtailed=0.0, at_risk=0.0, n1=None):
     return OutageStudy(outage_id=oid, year=year, cases=["summer_min"], ok=verdict == "feasible", message=f"{oid} {verdict}",
-                       verdict=verdict, curtailed_mw=curtailed, demand_at_risk_mw=at_risk)
+                       verdict=verdict, curtailed_mw=curtailed, demand_at_risk_mw=at_risk,
+                       n1_during=None if n1 is None else N1During(cases=["summer_min"], screened=27, findings=len(n1), violations=list(n1)))
+
+
+def _fault(outage_id, element_id, value=150.0):
+    return {"outage_type": "line", "outage_id": outage_id, "outage_name": "", "case": "summer_min", "type": "line", "element_id": element_id,
+            "value": value, "message": f"line {element_id} overloaded at {value:.0f}% of its summer rating at summer minimum demand"}
 
 
 _N1 = {"outage_type": "line", "outage_id": 7, "outage_name": "x", "type": "line", "element_id": 3, "value": 120.0, "message": "m"}
@@ -210,6 +217,27 @@ def test_works_compare_the_branch_window_with_the_same_window_on_main():
     # more curtailment under the same verdict is still worse
     more = diff_works([_study("w", 2030, "curtailment", curtailed=10.0)], [_study("w", 2030, "curtailment", curtailed=25.0)])
     assert more[0].change == "worse"
+
+
+def test_works_compare_the_second_faults_during_the_window_not_their_count():
+    a, b, c = _fault(1, 63), _fault(4, 63, 149.0), _fault(5, 89, 112.0)
+    # the same count on both sides, but a different fault: the branch adds one and clears one
+    [w] = diff_works([_study("w", 2032, "feasible", n1=[a, c])], [_study("w", 2032, "feasible", n1=[a, b])])
+    assert w.n1_findings_main == 2 and w.n1_findings_branch == 2
+    assert w.n1_new == [b] and w.n1_cleared == [c] and w.change == "worse"
+    assert "adds 1 problem" in w.consequence and "line 4 out as well" in w.consequence and "clears 1" in w.consequence
+    # the same faults on both sides: unchanged, whatever their order
+    [same] = diff_works([_study("w", 2032, "feasible", n1=[c, a])], [_study("w", 2032, "feasible", n1=[a, c])])
+    assert same.change == "unchanged" and same.n1_new == [] and same.n1_cleared == []
+    # fewer faults on the branch: better, and the consequence says what it clears
+    [better] = diff_works([_study("w", 2032, "feasible", n1=[a, c])], [_study("w", 2032, "feasible", n1=[a])])
+    assert better.change == "better" and better.n1_cleared == [c] and "clears 1" in better.consequence
+    # main's plan not screened during the window: the branch's list stands, the change is not judged on it
+    [unscreened] = diff_works([_study("w", 2032, "feasible")], [_study("w", 2032, "feasible", n1=[a])])
+    assert unscreened.n1_findings_main is None and unscreened.n1_new == [a] and unscreened.change == "unchanged"
+    # a verdict change still comes first
+    [worse] = diff_works([_study("w", 2032, "feasible", n1=[a, c])], [_study("w", 2032, "curtailment", curtailed=5.0, n1=[a])])
+    assert worse.change == "worse" and worse.n1_cleared == [c]
 
 
 def test_diff_results_carries_years_and_works():

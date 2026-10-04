@@ -33,7 +33,7 @@ import pandapower as pp
 import pandas as pd
 
 from .cim import CgmesMeta
-from .config import OLTC_TAP_STEP_PERCENT
+from .config import N1_MIN_KV, OLTC_TAP_STEP_PERCENT
 from .geometry import h01 as _h01
 from .geometry import interpolate_positions
 from .gridmodel import model_from_net
@@ -144,7 +144,8 @@ def _bus_degree(net) -> dict[int, int]:
 
 def _site_buses(net, names: tuple[str, ...], kv: float, deg: dict[int, int]) -> tuple[list[int], str]:
     """The buses to connect a named site at: every busbar of the named substation at the connection
-    voltage (a double busbar runs coupled, so a site there is shared across its sections); else the
+    voltage (the ECR names the substation, not the bar, so a site there is shared across its sections;
+    whether the sections are coupled is the LTDS's connectivity, see _assume_structure); else the
     named substation at its nearest voltage level; else the best-connected bus at that voltage.
     Substation names are matched after stripping the voltage suffix, then by shorter and shorter
     word prefixes ('Warth Lane Skegness' -> 'Warth Lane'). Returns (buses, how it was placed)."""
@@ -252,6 +253,8 @@ _ASSUMPTION_TEXT = {
     "pf_default": "LTDS left the power factor blank: 0.95 lagging assumed (nged._pf)",
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
     "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
+    "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (the N-1 screen reads that as it is; NGED publishes the connectivity, not the running arrangement)",
+    "mv_mesh_closed": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and a 132 kV outage routes power through it (post-fault 33 kV and grid-transformer loadings read as that mesh carries them)",
 }
 
 
@@ -582,6 +585,41 @@ def _add_gsp_infeed(net) -> int:
     return slack
 
 
+def _assume_structure(net) -> None:
+    """Two things the LTDS connectivity leaves to the reader, recorded so the N-1 figures are read right
+    (and never filled in): EHV substations whose busbars are separate nodes with no coupler or section
+    circuit between them run split, and the 33 kV circuits that close a loop make the 33 kV network a
+    closed mesh in parallel with the 132 kV (no normal-open points are published)."""
+    import networkx as nx
+    kv = net.bus["vn_kv"].astype(float)
+    joined = {frozenset((int(a), int(b))) for a, b in zip(net.line["from_bus"], net.line["to_bus"])}
+    joined |= {frozenset((int(a), int(b))) for a, b in zip(net.trafo["hv_bus"], net.trafo["lv_bus"])}
+    by_site: dict[tuple[str, float], list[int]] = {}
+    for b in net.bus.index:
+        if kv.loc[b] >= N1_MIN_KV:
+            by_site.setdefault((_substation(net.bus.at[b, "name"]).lower(), float(kv.loc[b])), []).append(int(b))
+    for buses in by_site.values():
+        site = nx.Graph()
+        site.add_nodes_from(buses)
+        site.add_edges_from((a, b) for i, a in enumerate(buses) for b in buses[i + 1:] if frozenset((a, b)) in joined)
+        if nx.number_connected_components(site) > 1:  # bars (with their tees) that no element joins
+            for b in buses:
+                _assume(net, "bus_sections_split", "bus", b)
+    floor = float(kv.min())  # the lowest level modelled (11 kV): its feeders are radial by construction
+    g = nx.Graph()
+    lines_by_pair: dict[frozenset, list[int]] = {}
+    for i in net.line.index:
+        a, b = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
+        if bool(net.line.at[i, "in_service"]) and floor < kv.loc[a] < N1_MIN_KV:
+            g.add_edge(a, b)
+            lines_by_pair.setdefault(frozenset((a, b)), []).append(int(i))
+    bridges = {frozenset(e) for e in nx.bridges(g)} if g.number_of_edges() else set()
+    for pair, ids in lines_by_pair.items():
+        if len(ids) > 1 or pair not in bridges:  # a parallel pair is a loop of its own
+            for i in ids:
+                _assume(net, "mv_mesh_closed", "line", i)
+
+
 def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict.
 
@@ -611,6 +649,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     _add_loads(net, dem, gb)
     existing = _add_existing_fleet(net, tables)
     slack = _add_gsp_infeed(net)
+    _assume_structure(net)  # after the unreachable buses are dropped
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
             "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}

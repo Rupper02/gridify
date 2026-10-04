@@ -120,3 +120,7 @@ export const voltColor = (v: number | null | undefined, lo: number, hi: number):
 
 export const PLAN_YEARS = Array.from({ length: 10 }, (_, i) => 2026 + i);
 export const ADDED_ID_BASE = 2056; // manual projects are numbered CR-2056, CR-2057, … (mirrors the API)
+
+/** A study case as the planner names it; a case it does not know passes through. */
+export const CASE_LABEL: Record<string, string> = { summer_min: "summer min", winter_peak: "winter peak" };
+export const caseLabel = (c: string | null | undefined): string => CASE_LABEL[c ?? ""] ?? (c || "studied");

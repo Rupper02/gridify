@@ -1,7 +1,8 @@
-"""Optional LLM narration. The engine decides; narration only restates its figures.
+"""LLM narration. The engine decides; narration only restates its figures.
 
-The API depends on the `Narrator` protocol, not on OpenRouter: tests and key-less runs use
-`NoNarrator`, and the summaries below are the only text the model ever sees.
+The API depends on the `Narrator` protocol, not on OpenRouter: the composition root wires the
+OpenRouter one (the key is required at startup), tests inject a scripted one, and the summaries
+below are the only text the model ever sees.
 """
 
 from typing import Protocol
@@ -28,21 +29,9 @@ class OpenRouterNarrator:
         return opt_llm.narrate_suggestion(summary)
 
 
-class NoNarrator:
-    """No narration at all: every method returns an empty string."""
-
-    def justify(self, summary: str) -> str:
-        return ""
-
-    def narrate_diff(self, summary: str) -> str:
-        return ""
-
-    def narrate_suggestion(self, summary: str) -> str:
-        return ""
-
-
 def safely(fn, summary: str) -> str:
-    """Narration is garnish: any failure (no key, network, quota) yields an empty string."""
+    """Narration is garnish on an engine result: a failed call (network, quota) yields an empty
+    string rather than failing the run whose figures are already decided."""
     try:
         return fn(summary)
     except Exception:

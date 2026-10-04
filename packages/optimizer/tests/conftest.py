@@ -16,5 +16,7 @@ def fast_n1(request, monkeypatch):
     if request.node.get_closest_marker("n1"):
         return
     stub = lambda net, *a, **k: {"case": "winter_peak", "screened": 0, "violations": []}  # noqa: E731
-    monkeypatch.setattr(greedy, "n1_screen", stub)
-    monkeypatch.setattr(years, "n1_screen", stub)
+    stub_cases = lambda net, *a, **k: {"cases": [], "screened": 0, "violations": []}  # noqa: E731
+    monkeypatch.setattr(greedy, "n1_screen_cases", stub_cases)
+    monkeypatch.setattr(years, "n1_screen", stub)  # the works windows' screen during a window
+    monkeypatch.setattr(years, "n1_screen_cases", stub_cases)

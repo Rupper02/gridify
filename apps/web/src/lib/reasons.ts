@@ -64,7 +64,7 @@ const line: Normaliser = ({ eid, pct, base }) => ({
   element: { line_id: eid ?? undefined },
   short: `Overloads line ${eid}${pct != null ? ` to ${pct}%` : ""}: a grid limit, not the project`,
   why: `Connecting this would overload line ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""}. The wires between here and the rest of the grid are the bottleneck. The project itself is fine.`,
-  action: `Reinforce line ${eid} (add a parallel circuit), or hold this project to 2035. Ask Copilot ▸ Recommendations for the exact plan and the MW it frees.`,
+  action: `Reinforce line ${eid} (a parallel circuit), size the project to what its busbar takes or move it to a busbar that takes it, or hold it to 2035. Ask the agents how it could connect: they measure each option.`,
 });
 
 const trafo: Normaliser = ({ eid, pct, base }) => ({
@@ -73,7 +73,7 @@ const trafo: Normaliser = ({ eid, pct, base }) => ({
   element: null,
   short: `Overloads transformer ${eid}${pct != null ? ` to ${pct}%` : ""}`,
   why: `Connecting this would overload transformer ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""} The substation can't pass this much power.`,
-  action: `Uprate or reinforce transformer ${eid} (see Copilot ▸ Recommendations), or hold this project to 2035.`,
+  action: `Uprate or reinforce transformer ${eid}, size the project to what the substation takes or move it, or hold it to 2035. Ask the agents how it could connect.`,
 });
 
 const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
@@ -87,7 +87,7 @@ const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
       element: { bus_id: eid ?? undefined },
       short: `Too much export: bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
       why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above its ${lim} pu statutory limit. The local network is too weak for this much export.`,
-      action: `Reinforce the feeder or add reactive support at bus ${eid} (see Copilot ▸ Recommendations), or site a smaller project at this bus.`,
+      action: `Reinforce the feeder or add reactive support at bus ${eid}, or site a smaller project at this bus. Ask the agents how it could connect.`,
     };
   }
   return {
@@ -96,7 +96,7 @@ const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
     element: { bus_id: eid ?? undefined },
     short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
     why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below its ${lim} pu statutory limit. The network is too weak here under this demand.`,
-    action: `Reinforce the feeder to bus ${eid} (see Copilot ▸ Recommendations), or hold this project to 2035.`,
+    action: `Reinforce the feeder to bus ${eid}, or hold this project to 2035. Ask the agents how it could connect.`,
   };
 };
 
@@ -130,8 +130,7 @@ const intake: Normaliser = ({ msg, item, base }) => {
   if (m.includes("not in") || m.includes("does not exist") || (m.includes("bus") && !m.includes("busbar"))) {
     short = "Connection point not in the network model";
     why = `The point of connection${item.bus_id != null ? ` (bus ${item.bus_id})` : ""} isn't in this network model, so it can't be assessed.`;
-    action =
-      "Pick a real connection point: start a New project in Copilot and choose one of the suggested buses.";
+    action = "Pick a real connection point: a busbar in the model. Ask the agents where a project of this size could connect.";
   } else if (m.includes("rating") && (m.includes("exceed") || m.includes("range") || m.includes("cap"))) {
     short = `Capacity over the ${cap} MW connection cap`;
     why = `The requested capacity${item.rating_mw != null ? ` (${item.rating_mw} MW)` : ""} is above the ${cap} MW connection cap for this network.`;

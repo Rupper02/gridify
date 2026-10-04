@@ -222,3 +222,6 @@ dist/
 
 # Claude Code agent worktrees (temporary checkouts)
 .claude/worktrees/
+
+# the API's scenarios store, DBOS database and imported project files: local state, never committed
+apps/api/data/

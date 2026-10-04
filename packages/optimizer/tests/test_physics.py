@@ -124,3 +124,24 @@ def test_n1_screen_reports_backbone_outages_without_gating():
     assert net.line["in_service"].all() and net.trafo["in_service"].all()
     # an islanded generator spur with no demand is not a violation
     assert all(v["type"] != "islanded" or (v["value"] or 0) >= 1.0 for v in out["violations"])
+
+
+@pytest.mark.n1
+def test_n1_screen_cases_covers_every_case_and_reports_islands_once():
+    from gridforge_optimizer.config import N1_CASES
+    from gridforge_optimizer.network import n1_screen_cases
+
+    net = build_base_net()
+    out = n1_screen_cases(net)
+    assert out["cases"] == list(N1_CASES) and out["screened"] > 0
+    by_case = {c: [v for v in out["violations"] if v["case"] == c] for c in out["cases"]}
+    assert set(by_case) == set(N1_CASES)
+    # every finding names its case; islanded demand is reported on the first case only
+    assert all(v["case"] in N1_CASES for v in out["violations"])
+    assert all(v["type"] != "islanded" for c in out["cases"][1:] for v in by_case[c])
+    islands = [v for v in by_case[out["cases"][0]] if v["type"] == "islanded"]
+    assert islands == [v for v in n1_screen(net, out["cases"][0])["violations"] if v["type"] == "islanded"]
+    # the summer case is where a net-exporting GSP is thermally bound: its findings are the screen's, with their case
+    summer = n1_screen(net, "summer_min")["violations"]
+    assert [v for v in summer if v["type"] != "islanded"] == by_case["summer_min"]
+    assert net.line["in_service"].all() and net.trafo["in_service"].all()

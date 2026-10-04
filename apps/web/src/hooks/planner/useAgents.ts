@@ -60,12 +60,11 @@ export function useAgents({ patch, ref, toastMsg }: Core) {
   );
   const closeEvidence = useCallback(() => patch({ study: null }), [patch]);
 
-  // the status, once at start and then every few seconds while the agents are on; a branch's
-  // reviews refresh with it (the reviewer comments a few seconds after a run)
+  // the status, once at start and then every few seconds; a branch's reviews refresh with it (the
+  // reviewer comments a few seconds after a run)
   useEffect(() => {
     void loadAgents();
     const id = window.setInterval(() => {
-      if (ref.current.agents?.enabled === false) return;
       void loadAgents();
       const bid = ref.current.activeBranch;
       if (bid && bid !== mainIdOf(ref.current.projects, ref.current.projectId)) void loadReviews(bid);

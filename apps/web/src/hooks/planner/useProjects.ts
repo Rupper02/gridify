@@ -1,23 +1,32 @@
 // Projects: the grids the planner can plan on. Boot loads the list and opens the default project;
-// switching loads that project's model, boundary and branches, then runs its main; importing a file
-// adds a project (the API validates it) and the projects screen shows the report; deleting an import
-// removes it and falls back to the built-in project. The project's assumptions load on demand.
+// switching loads that project's model and branches, runs its main and fetches its boundary card on
+// its own; importing a file adds a project (the API validates it) and the projects screen shows the
+// report; deleting an import removes it and falls back to the built-in project. The project's
+// assumptions load on demand.
+//
+// Loading is told, not assumed: the result stamp says the grid is loading, and a step that fails (the
+// API still starting, or restarting under --reload) is retried with a growing pause (lib/boot.ts) and
+// then shown on the stamp with a Retry, never only as a toast that fades.
 
 import { useCallback, useEffect } from "react";
 
 import { api } from "../../api";
+import { retrying, retryable } from "../../lib/boot";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import type { Project } from "../../types";
 import { EMPTY_CHAT } from "./core";
 import type { Core, PlannerState } from "./core";
 import type { RunFn } from "./useRun";
 
-/** What a project switch resets: everything that belonged to the previous project's branches and result. */
+/** What a project switch resets: everything that belonged to the previous project's grid, branches and result. */
 const FRESH: Partial<PlannerState> = {
-  result: null, resultAt: "", prevStatus: {}, added: {}, outages: [], reinforcements: [],
+  model: null, boundary: null, modelLoading: true, modelError: null,
+  result: null, resultAt: "", prevStatus: {}, added: {}, outages: [], reinforcements: [], candidates: [],
   diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], study: null,
   registry: [], registryLoaded: false, assumptions: null, showAssumptions: false, sel: null, chat: EMPTY_CHAT,
 };
+
+const failureText = (e: unknown): string => (e instanceof Error ? e.message : "is the API running?");
 
 export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) {
   const loadProjects = useCallback(async (): Promise<Project[] | null> => {
@@ -30,21 +39,46 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
     }
   }, [patch]);
 
-  /** Load a project's grid into the planner and run its main (ignored if the planner moved to another project meanwhile). */
+  /** The project's transmission boundary card, fetched after the grid is up: on a cold API it is a full power flow. */
+  const loadBoundary = useCallback(
+    async (pid: string) => {
+      try {
+        const boundary = await retrying(() => api.getBoundary(pid), { shouldRetry: (e) => ref.current.projectId === pid && retryable(e) });
+        if (ref.current.projectId === pid) patch({ boundary });
+      } catch (e) {
+        if (ref.current.projectId === pid) toastMsg(`Could not load the boundary card: ${failureText(e)}`, "warn");
+      }
+    },
+    [patch, ref, toastMsg],
+  );
+
+  /**
+   * Load a project's grid into the planner and run its main. The model and the branches come first
+   * (the map is drawn as soon as they are in); the run starts and the boundary card follows on its own.
+   * A failure is retried, then recorded for the stamp. Ignored if the planner moved to another project meanwhile.
+   */
   const loadProject = useCallback(
     async (pid: string, projects?: Project[]) => {
       const mainId = mainIdOf(projects ?? ref.current.projects, pid);
       const caps = (projects ?? ref.current.projects).find((p) => p.project_id === pid)?.capabilities;
-      const [model, boundary, branches] = await Promise.all([api.getModel(pid), api.getBoundary(pid), api.listBranches(pid)]);
-      if (ref.current.projectId !== pid) return;
-      patch((st) => ({
-        model, boundary, branches, branchesLoaded: true, activeBranch: mainId,
-        layer: caps && !caps.regions && st.layer === "demand" ? "flow" : st.layer, // no demand groups, no Demand layer
-      }));
+      const current = () => ref.current.projectId === pid;
+      patch({ modelLoading: true, modelError: null });
+      try {
+        const [model, branches] = await retrying(() => Promise.all([api.getModel(pid), api.listBranches(pid)]), { shouldRetry: (e) => current() && retryable(e) });
+        if (!current()) return;
+        patch((st) => ({
+          model, branches, branchesLoaded: true, activeBranch: mainId, modelLoading: false,
+          layer: caps && !caps.regions && st.layer === "demand" ? "flow" : st.layer, // no demand groups, no Demand layer
+        }));
+      } catch (e) {
+        if (current()) patch({ modelLoading: false, modelError: failureText(e) });
+        return;
+      }
       mapApi.current?.fit(false);
       void run({ activeBranch: mainId });
+      void loadBoundary(pid);
     },
-    [mapApi, patch, ref, run],
+    [loadBoundary, mapApi, patch, ref, run],
   );
 
   /** Switch to a project: the map, the branches, the queue and every panel follow it. */
@@ -55,13 +89,9 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
         return;
       }
       patch({ projectId: pid, projectsOpen: false, menuOpen: false, ...FRESH });
-      try {
-        await loadProject(pid);
-      } catch (e) {
-        toastMsg(`Could not open the project: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
-      }
+      await loadProject(pid);
     },
-    [loadProject, patch, ref, toastMsg],
+    [loadProject, patch, ref],
   );
 
   /**
@@ -87,7 +117,7 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
         toastMsg(`${name} removed, with its branches.`);
         if (ref.current.projectId === pid) await openProject(DEFAULT_PROJECT_ID);
       } catch (e) {
-        toastMsg(`Could not remove ${name}: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not remove ${name}: ${failureText(e)}`, "warn");
       }
     },
     [loadProjects, ref, openProject, toastMsg],
@@ -114,22 +144,35 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
   }, [patch, ref, toastMsg]);
 
   // ---- boot: the projects and the forecasts, then the default project ---------------------------------------
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
+  /** `isCancelled` stops a boot the component has left behind (React's development double-mount). */
+  const boot = useCallback(
+    async (isCancelled: () => boolean) => {
+      patch({ modelLoading: true, modelError: null });
       try {
-        const [projects, fc] = await Promise.all([api.listProjects(), api.getForecasts()]);
-        if (cancelled) return;
+        const [projects, fc] = await retrying(() => Promise.all([api.listProjects(), api.getForecasts()]), { shouldRetry: (e) => !isCancelled() && retryable(e) });
+        if (isCancelled()) return;
         patch({ projects, forecasts: fc.forecasts, maxMw: fc.maxMw });
         await loadProject(ref.current.projectId, projects);
       } catch (e) {
-        if (!cancelled) toastMsg(`Could not load the model: ${e instanceof Error ? e.message : "is the API running?"}`, "warn");
+        if (!isCancelled()) patch({ modelLoading: false, modelError: failureText(e) });
       }
-    })();
+    },
+    [loadProject, patch, ref],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void boot(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [loadProject, patch, ref, toastMsg]);
+  }, [boot]);
 
-  return { loadProjects, openProject, importProject, deleteProject, openProjects, closeProjects, toggleAssumptions };
+  /** Try again after a failed load (the stamp's Retry): the projects too, if they never arrived. */
+  const retryLoad = useCallback(
+    () => (ref.current.projects.length ? loadProject(ref.current.projectId) : boot(() => false)),
+    [boot, loadProject, ref],
+  );
+
+  return { loadProjects, openProject, importProject, deleteProject, openProjects, closeProjects, toggleAssumptions, retryLoad };
 }

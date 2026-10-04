@@ -43,17 +43,30 @@ class _Candidates(dict):
         self.net_factory = net_factory
 
 
-def _phase_net(cand_by_id, params, base, phase_key, reinf):
-    """A phase net grown + reinforced, with everything the base run already connected replayed in."""
+def _phase_net(cand_by_id, params, base, phase_key, reinf, exclude: str | None = None):
+    """A phase net grown + reinforced, with everything the base run already connected replayed in
+    (except `exclude`, a project about to be probed on its own)."""
     net = cand_by_id.net_factory()
     grow_demand(net, getattr(params, f"growth_{phase_key}"), params.scenario, int(phase_key))
     for r in reinf:
         apply_reinforcement(net, r)
     for rid in base.phases[phase_key].accepted:
         c = cand_by_id.get(rid)
-        if c is not None:
+        if c is not None and rid != exclude:
             inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
     return net
+
+
+def phase_net(candidates, params, base, phase_key, *, net_factory: NetFactory = build_base_net, exclude: str | None = None):
+    """The plan's network in one phase of `base`: demand grown to it and every project the run connected
+    by then energised (except `exclude`), on `net_factory`'s network. What a study probes against."""
+    return _phase_net(_Candidates(candidates, net_factory), params, base, phase_key, [], exclude=exclude)
+
+
+def discover_chain(candidates, params, base, target_rid: str, *, net_factory: NetFactory = build_base_net):
+    """The parallel-circuit chain for one project the base run deferred (see `_discover_chain`):
+    (reinforcements, connected, the last binding reason, solves)."""
+    return _discover_chain(_Candidates(candidates, net_factory), params, base, target_rid)
 
 
 def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, q_factor=0.0):
@@ -90,7 +103,7 @@ def _discover_chain(cand_by_id, params, base, target_rid):
     if target is None:
         return reinf, False, None, solves
     for _ in range(MAX_REINFORCE_STEPS + 1):
-        net = _phase_net(cand_by_id, params, base, _HARDEST_PHASE, reinf)
+        net = _phase_net(cand_by_id, params, base, _HARDEST_PHASE, reinf, exclude=target_rid)
         inject_sgen(net, target.bus_id, target.rating_mw, target.request_id, target.technology, import_mw=target.import_mw)
         ok, reason, _ = feasibility(net)
         solves += 1

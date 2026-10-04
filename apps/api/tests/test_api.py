@@ -796,6 +796,24 @@ def test_the_findings_and_merges_tables_migrate_on_an_old_db(tmp_path):
     con.close()
 
 
+def test_a_project_on_a_branch_can_be_changed_and_is_re_triaged():
+    """An agent's approved proposal or the operator's edit: the point of connection, the rating, the import or the year."""
+    from gridforge_api import deps, repository
+
+    bid = _create("Change", added_projects=[_good(applicant="Changer")])["branch_id"]
+    with deps.scenarios.cursor() as con:
+        rid = repository.candidate_rows(con, bid)[0]["request_id"]
+    new_bus = _weak_buses(1)[0]
+    r = client.patch(f"/branches/{bid}/candidates/{rid}", json={"bus_id": new_bus, "rating_mw": 7.5})
+    assert r.status_code == 200, r.text
+    assert r.json()["bus_id"] == new_bus and r.json()["rating_mw"] == 7.5 and r.json()["status"] == "valid" and r.json()["request_id"] == rid
+    assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": 0}).json()["status"] == "rejected"  # re-triaged: out of range
+    assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": 7.5}).json()["status"] == "valid"
+    assert client.patch(f"/branches/{bid}/candidates/CR-nope", json={"bus_id": new_bus}).status_code == 404
+    assert client.patch(f"/branches/main/candidates/{rid}", json={"bus_id": new_bus}).status_code == 409
+    assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": -1}).status_code == 422
+
+
 def test_main_is_changed_only_by_merging():
     """Projects, schedules, works and reinforcements go on branches; main takes them through the gate."""
     assert client.post("/optimize/candidates", json={**_good(), "branch_id": "main"}).status_code == 409

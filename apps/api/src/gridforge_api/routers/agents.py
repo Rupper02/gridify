@@ -24,14 +24,15 @@ def _project(pid: str) -> str:
 
 
 def _on() -> None:
-    if not agents.enabled or not agents.launched:
-        raise HTTPException(status_code=503, detail={"agents": "off", "message": "the agents need OPENROUTER_API_KEY on the API; everything else works without it"})
+    """The runtime launches at startup; until it has, the routes that need it say so (a transient state)."""
+    if not agents.launched:
+        raise HTTPException(status_code=503, detail={"agents": "starting", "message": "the agents are still starting; retry in a moment"})
 
 
 # --- status, pause, events ----------------------------------------------------------------------------------
 @router.get("/projects/{pid}/agents")
 def agents_status(pid: str) -> dict:
-    """Off (no key), idle, running or paused, with today's budget and the last events."""
+    """Starting, idle, running or paused, with today's budget and the last events."""
     _project(pid)
     return agents.status(pid)
 
@@ -92,7 +93,8 @@ def get_thread(pid: str, tid: str) -> dict:
         t = threads.thread_row(con, tid)
         if t is None:
             raise HTTPException(status_code=404, detail=f"thread '{tid}' not found")
-        return {**t, "messages": threads.messages(con, tid), "approvals": runs.list_approvals(con, pid, status="pending", thread_id=tid)}
+        # every proposal of the thread with its status: the planner shows the pending ones as cards and knows what the others became
+        return {**t, "messages": threads.messages(con, tid), "approvals": runs.list_approvals(con, pid, status=None, thread_id=tid)}
 
 
 @router.post("/projects/{pid}/threads/{tid}/messages")
@@ -113,6 +115,28 @@ def post_message(pid: str, tid: str, body: MessageIn) -> dict:
         threads.set_message(con, reply["message_id"], workflow_id=f"answer:ask:{reply['message_id']}")  # = the answer workflow's id (events.TRIGGERS)
     r = events.emit(agents, "operator.asked", {"project_id": pid, "thread_id": tid, "message_id": reply["message_id"]})
     return {"message_id": user["message_id"], "reply_id": reply["message_id"], "workflow_id": (r or {}).get("workflow_ids", [None])[0], "paused": bool((r or {}).get("paused"))}
+
+
+@router.post("/projects/{pid}/threads/{tid}/cancel")
+def cancel_reply(pid: str, tid: str) -> dict:
+    """Stop the reply on its way in this thread: the message is marked cancelled at once (the composer
+    is free again) and its workflow is cancelled at its next step; what it had already computed stays in
+    the cache. 409 when no reply is on its way."""
+    _project(pid)
+    _on()
+    with scenarios.cursor() as con:
+        live = next((m for m in threads.messages(con, tid) if m["role"] == "assistant" and m["status"] in ("queued", "streaming")), None)
+        if live is None:
+            raise HTTPException(status_code=409, detail={"code": "idle", "message": "no reply is on its way in this thread"})
+        threads.set_message(con, live["message_id"], status="cancelled", content="Cancelled by the operator.")
+        if live.get("run_id") and runs.run_row(con, live["run_id"]):
+            runs.finish_run(con, live["run_id"], status="cancelled", summary="cancelled by the operator")
+    if live.get("workflow_id"):
+        try:
+            agents.cancel(live["workflow_id"])
+        except Exception:  # it may have just finished: the message above is what the operator sees either way
+            pass
+    return {"thread_id": tid, "message_id": live["message_id"], "status": "cancelled", "cancelled_at": now()}
 
 
 def _sse(workflow_id: str, after: int) -> Iterator[bytes]:
@@ -157,7 +181,9 @@ def list_approvals(pid: str, status: str | None = "pending") -> dict:
 
 @router.post("/projects/{pid}/approvals/{aid}")
 def decide_approval(pid: str, aid: str, body: ApprovalDecision) -> dict:
-    """Approve or deny a proposed action; approving runs it on the branch and the answer continues."""
+    """Approve or deny a proposed action. The decision is recorded at once; the answer continues (the
+    approved tools run on the branch, the denied ones are refused to the model) once every proposal of
+    that reply is decided. Until then `waiting_for` lists the proposals still open and `workflow_id` is null."""
     _project(pid)
     _on()
     with scenarios.cursor() as con:
@@ -167,8 +193,9 @@ def decide_approval(pid: str, aid: str, body: ApprovalDecision) -> dict:
         if a["status"] != "pending":
             raise HTTPException(status_code=409, detail=f"approval is '{a['status']}', not pending")
         a = runs.decide_approval(con, aid, "approved" if body.decision == "approve" else "denied", body.note)
-    wid = agents.resume_answer(pid, a["thread_id"], a["message_id"], aid, body.decision == "approve", body.note)
-    return {**a, "workflow_id": wid, "checked_at": now()}
+        waiting = [s["approval_id"] for s in runs.approvals_for_message(con, a["message_id"]) if s["status"] == "pending"]
+    wid = None if waiting else agents.resume_answer(pid, a["thread_id"], a["message_id"])
+    return {**a, "workflow_id": wid, "waiting_for": waiting, "checked_at": now()}
 
 
 # --- reviews and the audit trail ------------------------------------------------------------------------------------

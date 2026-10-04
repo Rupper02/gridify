@@ -92,7 +92,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           <Tiles d={d} />
           <YearPick year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
-          <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} onPick={actions.setYear} />
+          <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} name={(t) => nameElements(t, ix)} onPick={actions.setYear} />
           <Changed d={d} name={(t) => nameElements(t, ix)} />
           <MergeChanges m={d.on_merge} hue={hue} title={(o) => outageTitle(o, ix)} />
         </>
@@ -190,7 +190,7 @@ const REVIEW_TONE: Record<ReviewVerdict, { background: string; color: string }> 
 /** The reviewer agent's comment on the branch's current run, like a PR bot: the gate restated, prepared for engineer review. */
 function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boolean; agents: AgentsStatus | null; ix: ModelIndex | null }) {
   const rv = reviews.find((r) => r.status === "prepared_for_review") ?? null;
-  const off = !agents || agents.status === "off";
+  const starting = !agents || agents.status === "starting";
   const restate = (b: Review["blockers"][number], cls: string, i: number) => (
     <span key={`${cls}${i}`} className={`gate-row ${cls}`}>
       <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
@@ -202,8 +202,8 @@ function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boo
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ fontSize: 12.5, fontWeight: 600 }}>Review</span>
-      {off ? (
-        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>No reviewer: the agents need OPENROUTER_API_KEY on the API. The gate above decides either way.</span>
+      {starting ? (
+        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>The agents are starting with the API; the reviewer comments a few seconds after every run once they are up. The gate above decides either way.</span>
       ) : !rv ? (
         <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>
           {agents.status === "paused" ? "The agents are paused; no review comes until they resume." : "Waiting for the reviewer: it comments a few seconds after every run."}
@@ -313,7 +313,7 @@ function NetworkEffect({ yd, year, names }: { yd: YearDelta | null; year: number
 }
 
 /** The branch's planned works: each window's verdict on main's plan and on the branch's, and what that means. */
-function Works({ works, year, title, onPick }: { works: WorkDelta[]; year: number; title: (w: WorkDelta) => string; onPick: (y: number) => void }) {
+function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year: number; title: (w: WorkDelta) => string; name: (t: string) => string; onPick: (y: number) => void }) {
   if (!works.length) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -338,7 +338,7 @@ function Works({ works, year, title, onPick }: { works: WorkDelta[]; year: numbe
             </span>
             <span className="effect" style={{ fontSize: 11.5, lineHeight: 1.4, color: TONE_INK[ch.tone] }}>
               <ToneIcon tone={ch.tone} />
-              {w.consequence}
+              {name(w.consequence)}
             </span>
           </button>
         );

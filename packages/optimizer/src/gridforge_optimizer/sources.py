@@ -34,7 +34,7 @@ import pandapower as pp
 import pandapower.topology as top
 import pandas as pd
 
-from .config import MAX_CONNECTION_MW, N1_MIN_KV, VOLTAGE_BANDS
+from .config import MAX_CONNECTION_MW, N1_CASES, N1_MIN_KV, VOLTAGE_BANDS
 from .geometry import SYNTHETIC_CENTER, interpolate_positions, synthetic_positions
 from .gridmodel import UNRATED_I_KA, fleet_of, model_from_net
 from .types import GridModel, ImportMeta, ModelAssumption, ValidationReport
@@ -70,7 +70,7 @@ class SourceSpec(NamedTuple):
 _GENERIC = {
     "gb_voltage_bands": "Statutory GB voltage bands assumed by level (" + "; ".join(
         f"{lo:.2f}-{hi:.2f} pu from {kv:g} kV" for kv, lo, hi in sorted(VOLTAGE_BANDS, key=lambda b: -b[0])) + "); a non-GB grid may use other limits",
-    "n1_scope": f"The N-1 screen covers elements at {N1_MIN_KV:g} kV and above at winter peak; it is reported, never a gate",
+    "n1_scope": f"The N-1 screen covers elements at {N1_MIN_KV:g} kV and above in each study case the grid supports ({', '.join(N1_CASES)}); it is reported, never a gate",
     "no_seasonal_ratings": "No seasonal line ratings in the file: the summer-minimum case is not studied unless a summer rating ratio is entered",
     "no_min_demand": "No minimum-demand factor in the file: the summer-minimum case is not studied unless one is entered",
     "no_gsp_limit": "No export limit to the external grid in the file: the slack's export is reported, never limited",

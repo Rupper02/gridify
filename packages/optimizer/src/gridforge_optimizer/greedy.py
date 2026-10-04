@@ -16,7 +16,7 @@ from .network import (
     grow_demand,
     inject_sgen,
     line_loadings,
-    n1_screen,
+    n1_screen_cases,
     overloaded_line_ids,
     set_tap_positions,
     tap_positions,
@@ -189,7 +189,7 @@ class _Run:
         self.report(f"phase {phase_key}: intact state", (phase_i + 0.82) / n_phases)
         feasibility(net)  # settles taps for the final state (also when every trial was cached)
         self.report(f"phase {phase_key}: N-1 screen", (phase_i + 0.86) / n_phases)
-        n1 = n1_screen(net)
+        n1 = n1_screen_cases(net)
         _, _, m = feasibility(net)
         return PhaseResult(
             accepted=[a.request_id for a in self.accepted_order],
@@ -204,6 +204,7 @@ class _Run:
             gsp_export_mw=m.get("gsp_export_mw", 0.0),
             gsp_import_mw=m.get("gsp_import_mw", 0.0),
             gsp_limit_mw=m.get("gsp_limit_mw"),
+            n1_cases=n1["cases"],
             n1_screened=n1["screened"],
             n1_violations=n1["violations"],
         )

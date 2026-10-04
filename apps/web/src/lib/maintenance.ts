@@ -3,8 +3,8 @@
 // N-1 during the window, what the work leaves behind). Pure: every figure restates the engine's study.
 // A new kind of work is one entry in WORK_UI; a new verdict is one entry in VERDICTS.
 
-import { C, PLAN_YEARS, fmtMw, techLabel } from "../theme";
-import type { Curtailment, ElementKind, ElementSel, OptimizeResult, Outage, OutageStudy, QueueItem, Repower, Season, Verdict, Work } from "../types";
+import { C, PLAN_YEARS, caseLabel, fmtMw, techLabel } from "../theme";
+import type { Curtailment, ElementKind, ElementSel, N1During, N1Violation, OptimizeResult, Outage, OutageStudy, QueueItem, Repower, Season, Verdict, Work } from "../types";
 import { busLabel, elementInfo, lineName, nameElements, outageSel, outageStudyOf, trafoName, type ModelIndex } from "./derive";
 
 // ---- the schedule form -------------------------------------------------------------------------
@@ -129,8 +129,6 @@ export const VERDICTS: Record<Verdict, VerdictUi> = {
   not_feasible: { label: "Not feasible", c: C.red, ink: C.redInk, count: (n) => `${n} not feasible` },
 };
 
-const CASE_LABEL: Record<string, string> = { summer_min: "summer min", winter_peak: "winter peak" };
-const caseLabel = (c: string | null | undefined): string => CASE_LABEL[c ?? ""] ?? (c || "studied");
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
 
@@ -207,11 +205,31 @@ export function windowView(o: Outage, ctx: NameCtx): WindowView {
   if (study.with_ids?.length)
     lines.push(`Studied together with the other ${o.season.toLowerCase()} ${o.year} work: ${study.with_ids.map((id) => windowName(id, ctx)).join(", ")}.`);
   const n1 = study.n1_during;
-  if (n1 && n1.findings > 0)
+  if (n1 && n1.findings > 0) {
     lines.push(`A second fault during the window: ${plural(n1.findings, "finding")}${n1.second_fault_at_risk_mw > 0 ? `, ${fmtMw(n1.second_fault_at_risk_mw)} MW at risk` : ""}.`);
-  else if (n1 && n1.screened > 0) lines.push(`A second fault during the window: ${plural(n1.screened, "fault")} screened, none breaches a limit.`);
+    secondFaultLines(n1, ctx.ix).forEach((l) => lines.push(l));
+  } else if (n1 && n1.screened > 0) lines.push(`A second fault during the window: ${plural(n1.screened, "fault")} screened, none breaches a limit.`);
   if (workOf(o) !== "maintenance" && study.after) lines.push(`After the window: ${nameGens(nameElements(study.after, ctx.ix), ctx.ix)}.`);
   return { state, verdict: v, chip: { label: VERDICTS[v].label, c: VERDICTS[v].c }, lines, c: VERDICTS[v].ink };
+}
+
+/** How many second-fault findings a window card lists by name; the rest are counted. */
+export const SECOND_FAULTS_SHOWN = 3;
+
+/** One second-fault finding of the screen during a window, in words, elements named by place. */
+export function secondFaultText(v: N1Violation, ix: ModelIndex | null): string {
+  if (v.type === "islanded") return cap(nameElements(v.message, ix)); // the message already names the fault
+  const fault = `${v.outage_type === "trafo" ? "Transformer" : "Line"} ${v.outage_id} out as well`;
+  return nameElements(`${fault}: ${v.message}`, ix);
+}
+
+/** The listed second faults of a window, worst first, then a count of the rest. */
+export function secondFaultLines(n1: N1During, ix: ModelIndex | null): string[] {
+  const all = n1.violations ?? [];
+  const shown = all.slice(0, SECOND_FAULTS_SHOWN).map((v) => `${secondFaultText(v, ix)}.`);
+  const rest = all.length - shown.length;
+  if (rest > 0) shown.push(`And ${plural(rest, "more second-fault finding")}.`);
+  return shown;
 }
 
 /** The verdict colour a tag or chip borders in, or null while unstudied. */

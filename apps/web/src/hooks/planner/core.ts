@@ -1,16 +1,14 @@
 // The planner's state shape and the small core every planner hook shares: the state, a way to patch
 // it, a ref to its latest value, the map handle and the toast. Each hook (run, branches, registry,
-// selection, project edits, maintenance, copilot, agents, ask, projects) takes a `Core` plus only the other hooks' actions
+// selection, project edits, maintenance, agents, ask, projects) takes a `Core` plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
-import type { ChatMsg, Intake } from "../../lib/intake";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import { DEFAULT_PROJECT_ID } from "../../lib/projects";
-import type { MaintChat } from "../../lib/maintCopilot";
 import type {
   AgentsStatus,
   Assumption,
@@ -45,27 +43,11 @@ export interface MapApi {
   focusOn(ll: [number, number] | null, kMin?: number): void;
 }
 
-/** A Recommendations message: text, plus the engine's levers when it has them. */
-export interface RecMsg {
-  user: boolean;
-  text: string;
-  levers?: Suggestion[];
-  action?: "run";
-  loading?: boolean;
-}
-
-export type ChatMode = "project" | "recs" | "maint" | "ask";
-
+/** The Ask tab's conversation view: open (a thread, or a new one before its first question), the composer's draft, a request in flight. */
 export interface ChatState {
-  mode: ChatMode | null;
-  intake: Intake | null;
-  /** The Maintenance chat (lib/maintCopilot.ts). */
-  maint: MaintChat | null;
-  recs: RecMsg[];
+  open: boolean;
   input: string;
   busy: boolean;
-  /** Chats started on this branch in this session, newest first. */
-  recent: { mode: ChatMode; title: string; at: string }[];
 }
 
 export type { MaintDraft };
@@ -79,6 +61,8 @@ export interface PlannerState {
   showAssumptions: boolean;
   // data
   model: Model | null;
+  modelLoading: boolean; // the active project's grid (model + branches) is on its way
+  modelError: string | null; // why it could not load (the stamp says so, with a Retry)
   forecasts: Forecast[];
   maxMw: number;
   boundary: Boundary | null;
@@ -92,6 +76,8 @@ export interface PlannerState {
   // the branch's own proposals beyond projects
   outages: Outage[];
   reinforcements: BranchReinforcement[];
+  /** The branch's projects as stored (added by hand, pulled from the registry, or proposed by an agent and approved). */
+  candidates: RegistryItem[];
   /** Projects added per branch since its last run (shown as Preliminary until a run includes them). */
   added: Record<string, RegistryItem[]>;
   // the run
@@ -135,13 +121,13 @@ export interface PlannerState {
   toast: { text: string; tone: "ok" | "warn" } | null;
 }
 
-export const EMPTY_CHAT: ChatState = { mode: null, intake: null, maint: null, recs: [], input: "", busy: false, recent: [] };
+export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
 export const INITIAL: PlannerState = {
   projects: [], projectId: DEFAULT_PROJECT_ID, projectsOpen: false, assumptions: null, showAssumptions: false,
-  model: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,
+  model: null, modelLoading: true, modelError: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
-  outages: [], reinforcements: [], added: {},
+  outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
   diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null,
   agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
@@ -162,8 +148,6 @@ export interface Core {
   mapApi: MutableRefObject<MapApi | null>;
   toastMsg: (t: string, tone?: "ok" | "warn") => void;
 }
-
-export type { ChatMsg };
 
 /** Create the planner state and its core. */
 export function useCore(): { s: PlannerState; core: Core } {

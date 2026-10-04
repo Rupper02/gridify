@@ -35,7 +35,7 @@ from .config import (
     TRAFO_LOADING_MAX_PCT,
 )
 from .diff import ConsequenceDiff, YearDelta, diff_results, n1_key
-from .findings import GRID_REASON_TYPES, N1_CASE, SEVERE_VERDICTS, against_recommendation, fingerprint
+from .findings import GRID_REASON_TYPES, SEVERE_VERDICTS, against_recommendation, fingerprint
 from .types import Alert, GateFinding, MergeVerdict, OptimizeResult, YearResult
 
 _EPS = 0.05  # movements below this (loading points, MW, pu) are noise, not a change
@@ -250,9 +250,9 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
         for k in sorted(hk.keys() - bk.keys(), key=str):
             v = hk[k]
             kind = "n1_new_islanded" if v.get("type") == "islanded" else "n1_new_limit"
-            out.append(_finding(kind, f"New N-1 finding in {y}: {v.get('message', '')}", year=y, case=N1_CASE,
+            out.append(_finding(kind, f"New N-1 finding in {y}: {v.get('message', '')}", year=y, case=v.get("case"),
                                 element_kind=v.get("outage_type"), element_id=v.get("outage_id"), value=v.get("value"),
-                                ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, N1_CASE,
+                                ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, v.get("case"),
                                         (v.get("type"), v.get("element_id")))))
         same = 0
         for k in sorted(hk.keys() & bk.keys(), key=str):
@@ -260,16 +260,16 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
             if hv is not None and bv is not None and hv - bv > _EPS:
                 v = hk[k]
                 out.append(_finding("n1_worse", f"N-1 finding worse in {y}: {v.get('message', '')} ({bv:g} on {ctx.base_label}).",
-                                    year=y, case=N1_CASE, element_kind=v.get("outage_type"), element_id=v.get("outage_id"),
+                                    year=y, case=v.get("case"), element_kind=v.get("outage_type"), element_id=v.get("outage_id"),
                                     value=hv, base_value=bv,
-                                    ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, N1_CASE,
+                                    ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, v.get("case"),
                                             (v.get("type"), v.get("element_id")))))
             else:
                 same += 1
         if same:
             out.append(_finding("preexisting", f"{same} N-1 finding{'s' if same != 1 else ''} in {y} already on "
                                                f"{ctx.base_label}; this branch leaves {'them' if same != 1 else 'it'} as {'they are' if same != 1 else 'it is'}.",
-                                year=y, case=N1_CASE))
+                                year=y))
     return out
 
 

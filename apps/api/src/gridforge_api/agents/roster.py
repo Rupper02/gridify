@@ -27,6 +27,7 @@ SPECIALIST_STUDIES: dict[str, tuple[str, ...]] = {
     "boundary": ("gsp_margin_by_year",),
     "data_quality": ("data_quality",),
     "works": ("contingency_ranking",),
+    "connections": ("connection_options",),
 }
 
 
@@ -44,7 +45,9 @@ AGENTS: dict[str, AgentSpec] = {
     **{kind: AgentSpec("specialist", prompts.specialist_prompt(kind), ("read", "studies"), SpecialistReport, SPECIALIST_STUDIES[kind])
        for kind in SPECIALIST_STUDIES},
     "reviewer": AgentSpec("reviewer", prompts.REVIEWER, ("read", "studies"), ReviewComment, ("contingency_ranking",)),
-    "answerer": AgentSpec("answerer", prompts.ANSWERER, ("read", "studies", "proposals"), [str, DeferredToolRequests], tuple(SPECIALIST_STUDIES["thermal"] + SPECIALIST_STUDIES["voltage"] + SPECIALIST_STUDIES["demand_security"] + SPECIALIST_STUDIES["boundary"] + SPECIALIST_STUDIES["data_quality"])),
+    "answerer": AgentSpec("answerer", prompts.ANSWERER, ("read", "studies", "proposals"), [str, DeferredToolRequests],
+                          tuple(dict.fromkeys(SPECIALIST_STUDIES["thermal"] + SPECIALIST_STUDIES["voltage"] + SPECIALIST_STUDIES["demand_security"]
+                                              + SPECIALIST_STUDIES["boundary"] + SPECIALIST_STUDIES["data_quality"] + SPECIALIST_STUDIES["connections"] + ("best_window",)))),
 }
 SPECIALISTS: tuple[str, ...] = tuple(SPECIALIST_STUDIES)
 

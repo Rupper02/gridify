@@ -4,7 +4,9 @@ import { useMemo } from "react";
 
 import {
   branchHue,
+  changedProjects,
   indexModel,
+  knownProjects,
   preliminaryOf,
   staleness,
   yearResultFor,
@@ -32,8 +34,9 @@ export function useDerived(s: PlannerState) {
     const resultProfile = s.result ? profileOf(s.result.params.scenario) : profile;
     const q: QueueItem[] = s.result ? s.result.queue : [];
     const qById: Record<string, QueueItem> = Object.fromEntries(q.map((x) => [x.request_id, x]));
-    const prelim = preliminaryOf(s.added[s.activeBranch] ?? [], s.result);
-    const stale = staleness(s.result, branch, s.outages, s.reinforcements, prelim.length);
+    // the branch's projects: as stored (the API), plus the ones added this session before the store was re-read
+    const prelim = preliminaryOf(knownProjects(s.candidates, s.added[s.activeBranch] ?? []), s.result);
+    const stale = staleness(s.result, branch, s.outages, s.reinforcements, prelim.length, changedProjects(s.candidates, q));
     const yearsSolved = s.result ? Object.keys(s.result.years ?? {}).length : 0;
     const yearsTotal = s.result?.years_total ?? 10;
     // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
@@ -49,7 +52,7 @@ export function useDerived(s: PlannerState) {
     const reviewStale = reviewCurrent ? isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
     return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
-  }, [s.activeBranch, s.added, s.branches, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
+  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { AgentsStatus, ThreadMessage, TraceEvent } from "../types";
-import { agentsPill, argsLine, evidenceLine, flagLines, foldTrace, isSuperseded, stageOf, toolLabel, traceFromMessage } from "./trace";
+import { agentsPill, argsLine, evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, stageOf, toolLabel, traceFromMessage } from "./trace";
 
 describe("stages and labels", () => {
   it("maps a tool to its planning stage by prefix, defaulting to ASSEMBLE", () => {
@@ -40,6 +40,19 @@ describe("foldTrace", () => {
     expect(f.chips[0].summary).toBe("5 projects");
     expect(f.cited).toBe(false);
     expect(f.final).toBeNull();
+  });
+  it("shows a running study's latest stage and drops it once the result lands", () => {
+    const mid = foldTrace([...events, { t: "progress", tool: "study_tap_margin", step_id: "r:2", stage: "tap_margin: part 1 of 2", fraction: 0 }]);
+    expect(mid.chips[1].progress).toBe("part 1 of 2");
+    const done = foldTrace([
+      ...events,
+      { t: "progress", tool: "study_tap_margin", step_id: "r:2", stage: "tap_margin: part 2 of 2", fraction: 0.5 },
+      { t: "tool_result", tool: "study_tap_margin", step_id: "r:2", summary: "2 at a stop", solves: 4 },
+    ]);
+    expect(done.chips[1].status).toBe("done");
+    expect(done.chips[1].progress).toBeUndefined();
+    expect(progressLabel("contingency_ranking: winter peak")).toBe("winter peak");
+    expect(progressLabel("years done")).toBe("years done");
   });
   it("marks a failed step, the citation, the final event and an error", () => {
     const f = foldTrace([
@@ -81,9 +94,9 @@ describe("reviews and the pill", () => {
     expect(isSuperseded({ run_key: "k1" }, null)).toBe(false); // no result shown yet: nothing to compare
   });
   it("words the agents pill for every state", () => {
-    const base: AgentsStatus = { status: "idle", enabled: true, launched: true, running: 0, budget: null, last_events: [], models: {} };
+    const base: AgentsStatus = { status: "idle", launched: true, running: 0, budget: null, last_events: [], models: {} };
     expect(agentsPill(null).label).toBe("agents");
-    expect(agentsPill({ ...base, status: "off", enabled: false, reason: "no key" })).toMatchObject({ label: "agents off", tone: "neutral", title: "no key" });
+    expect(agentsPill({ ...base, status: "starting", launched: false })).toMatchObject({ label: "agents starting", tone: "neutral" });
     expect(agentsPill(base)).toMatchObject({ label: "agents idle", tone: "good" });
     expect(agentsPill({ ...base, status: "running", running: 2 })).toMatchObject({ label: "agents · 2 running", tone: "good" });
     expect(agentsPill({ ...base, status: "paused", paused_reason: "budget" }).title).toContain("budget");

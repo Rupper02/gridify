@@ -16,9 +16,20 @@ def run_optimize(body: OptimizeRequest) -> dict:
     return ran("main", plans.optimize_payload(body, "main"))
 
 
+def works_flagged(out: dict) -> tuple[int, int]:
+    """The payload's works windows, and how many of them a planner should look at: not simply feasible,
+    or with second faults found during the window."""
+    studies = [s for y in (out.get("years") or {}).values() for s in (y.get("outage_studies") or [])]
+    flagged = sum(1 for s in studies if s.get("verdict") != "feasible" or ((s.get("n1_during") or {}).get("findings") or 0) > 0)
+    return len(studies), flagged
+
+
 def ran(branch_id: str, out: dict) -> dict:
-    """A run finished: the agents hear about it (a no-op when they are off; deduplicated by the result's identity)."""
-    events.emit(agents, "run.finished", {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", "")})
+    """A run finished: the agents hear about it (deduplicated by the result's identity; a no-op only while the
+    runtime is still starting), with how many works windows it studied and how many of those it flagged."""
+    n_works, flagged = works_flagged(out)
+    events.emit(agents, "run.finished", {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""),
+                                         "n_works": n_works, "works_flagged": flagged})
     return out
 
 

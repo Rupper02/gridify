@@ -375,7 +375,7 @@ Baseline = dict[str, dict[tuple, float]]
 
 
 def _finding_key(v: dict) -> tuple:
-    return (v.get("outage_type"), v.get("outage_id"), v.get("type"), None if v.get("type") == "islanded" else v.get("element_id"))
+    return (v.get("outage_type"), v.get("outage_id"), v.get("case"), v.get("type"), None if v.get("type") == "islanded" else v.get("element_id"))
 
 
 def _baseline_screen(net, screen: Screen, season_name: str) -> Baseline:
@@ -397,13 +397,30 @@ def _baseline_screen(net, screen: Screen, season_name: str) -> Baseline:
     return out
 
 
+_N1_ORDER = {"non_convergent": 0, "islanded": 1, "line": 2, "trafo": 2, "voltage": 3}
+
+
+def _n1_rank(v: dict, extra_mw: float) -> tuple:
+    """Worst first: no convergence, then demand stranded (most first), then thermal (highest first), then voltage."""
+    return (_N1_ORDER.get(v.get("type"), 4), -(extra_mw if v.get("type") == "islanded" else float(v.get("value") or 0.0)))
+
+
+def _n1_words(v: dict, extra_mw: float) -> str:
+    """One second-fault finding in words, naming the fault and what it does (ids; the planner names them)."""
+    fault = f"{v.get('outage_type')} {v.get('outage_id')} out as well"
+    if v.get("type") == "islanded":
+        return f"{fault} cuts off another {extra_mw:.1f} MW at {_CASE_LABEL.get(v.get('case'), v.get('case'))}"
+    return f"{fault}: {v.get('message', '')}"
+
+
 def _screen_during(net, screen: Screen, solved: dict[str, _CaseState], baseline: Baseline) -> N1During:
     """The N-1 screen with the window in place, in each of the window's cases (seasonal ratings).
     A finding counts only when the window adds it: not already found without the window (`baseline`),
     not a breach the window causes on its own, and for an island at least N1_ISLAND_MIN_MW of demand
-    beyond what the window or the same fault without the window strands."""
+    beyond what the window or the same fault without the window strands. The findings are listed
+    worst first (`violations`, the screen's own dicts) and the worst is said in words."""
     n1 = N1During()
-    worst_mw, worst_msg = 0.0, ""
+    found: list[tuple[tuple, float, dict]] = []
     for name, own in solved.items():
         s = screen(net, name, rating_ratio=own.ratio)
         base = baseline.get(name, {})
@@ -411,16 +428,19 @@ def _screen_during(net, screen: Screen, solved: dict[str, _CaseState], baseline:
         n1.screened += int(s.get("screened", 0))
         for v in s.get("violations", []):
             key = _finding_key(v)
+            extra = 0.0
             if v.get("type") == "islanded":
                 extra = float(v.get("value") or 0.0) - max(own.stranded_mw, base.get(key, 0.0))
                 if extra < N1_ISLAND_MIN_MW:
                     continue
-                if extra > worst_mw:
-                    worst_mw, worst_msg = extra, f"{v['outage_type']} {v['outage_id']} as well, at {_CASE_LABEL[name]}"
             elif key in base or (v.get("type"), v.get("element_id")) in own.breaches:
                 continue
-            n1.findings += 1
-    n1.second_fault_at_risk_mw, n1.worst = round(worst_mw, 1), worst_msg
+            found.append((_n1_rank(v, extra), extra, {**v, "case": v.get("case") or name}))
+    found.sort(key=lambda t: t[0])
+    n1.violations = [v for _, _, v in found]
+    n1.findings = len(n1.violations)
+    n1.second_fault_at_risk_mw = round(max((extra for _, extra, _ in found), default=0.0), 1)
+    n1.worst = _n1_words(found[0][2], found[0][1]) if found else ""
     return n1
 
 
@@ -476,9 +496,7 @@ def _message(o: Outage, with_ids: list[str], g: _GroupResult) -> str:
         body = f"Not feasible: {found}. Constraining nearby generation does not clear it."
     text = f"{head}. {body}"
     if g.n1 is not None and g.n1.findings:
-        text += f" During the window the N-1 screen finds {g.n1.findings} more second-fault problem(s)"
-        text += (f"; the worst, losing {g.n1.worst}, cuts off another {g.n1.second_fault_at_risk_mw:.1f} MW."
-                 if g.n1.worst else ".")
+        text += f" During the window the N-1 screen finds {g.n1.findings} more second-fault problem(s); the worst: {g.n1.worst}."
     return text + f" After the window, {WORKS[o.work].note(o)}."
 
 

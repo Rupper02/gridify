@@ -166,11 +166,13 @@ export interface QueueItem {
   against_recommendation: boolean;
 }
 
-/** One finding of the single-outage (N-1) screen of the 132 kV backbone. */
+/** One finding of the single-outage (N-1) screen of the 132 kV backbone, in one study case. */
 export interface N1Violation {
   outage_type: "line" | "trafo";
   outage_id: number;
   outage_name: string;
+  /** The study case the outage was screened in (islanded findings: the first case only). */
+  case: string | null;
   type: string; // "line" | "trafo" | "voltage" | "islanded" | "non_convergent"
   element_id: number | null;
   value: number | null;
@@ -192,6 +194,8 @@ export interface PhaseResult {
   gsp_export_mw: number;
   gsp_import_mw: number;
   gsp_limit_mw: number | null;
+  /** The study cases the N-1 screen ran in (the engine's N1_CASES, those the network supports). */
+  n1_cases: string[];
   n1_screened: number;
   n1_violations: N1Violation[];
 }
@@ -234,7 +238,10 @@ export interface N1During {
   cases: string[];
   screened: number;
   findings: number;
+  /** The second faults the window adds, worst first (the screen's own findings, with their case). */
+  violations: N1Violation[];
   second_fault_at_risk_mw: number;
+  /** The worst finding in words (ids; name them with nameElements). */
   worst: string;
 }
 
@@ -506,6 +513,12 @@ export interface WorkDelta {
   curtailed_mw_branch: number;
   demand_at_risk_mw_main: number | null;
   demand_at_risk_mw_branch: number;
+  /** Second faults during the window on each side; null where that side was not screened. */
+  n1_findings_main: number | null;
+  n1_findings_branch: number | null;
+  /** Second-fault findings the branch adds during the window, worst first, and those it clears. */
+  n1_new: N1Violation[];
+  n1_cleared: N1Violation[];
   change: WorkChange;
   consequence: string;
   message: string;
@@ -668,7 +681,8 @@ export interface FindingCounts {
 }
 
 // ---- the agents (API agents/, routes /projects/{pid}/agents, threads, approvals, reviews, steps) ----
-export type AgentsState = "off" | "idle" | "running" | "paused";
+/** starting: the API's runtime is not launched yet (the key is required, so there is no "off"). */
+export type AgentsState = "starting" | "idle" | "running" | "paused";
 export interface AgentsBudget {
   day: string;
   credits: number;
@@ -681,9 +695,7 @@ export interface AgentsBudget {
 }
 export interface AgentsStatus {
   status: AgentsState;
-  enabled: boolean;
   launched: boolean;
-  reason?: string;
   paused_reason?: string;
   running: number;
   budget: AgentsBudget | null;
@@ -700,7 +712,7 @@ export interface Thread {
   created_at: string;
   updated_at: string | null;
 }
-export type MessageStatus = "queued" | "streaming" | "done" | "failed" | "awaiting_approval";
+export type MessageStatus = "queued" | "streaming" | "done" | "failed" | "awaiting_approval" | "cancelled";
 export interface TraceStep {
   step_id: string;
   tool: string;
@@ -755,6 +767,7 @@ export type TraceEvent =
   | { t: "token"; text: string; seq?: number }
   | { t: "tool_call"; tool: string; stage: TraceStage; step_id: string; args: Record<string, unknown>; seq?: number }
   | { t: "tool_result"; tool: string; step_id: string; summary: string; solves: number; seq?: number }
+  | { t: "progress"; tool: string; step_id: string; stage: string; fraction: number; seq?: number }
   | { t: "cite"; stage: "CITE"; seq?: number }
   | { t: "final"; status: MessageStatus; text?: string; approvals?: string[]; flags?: string[]; seq?: number }
   | { t: "error"; message: string; seq?: number };

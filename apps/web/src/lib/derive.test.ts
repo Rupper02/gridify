@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { Branch, Model, OptimizeResult, Outage, YearResult } from "../types";
+import type { Branch, Model, OptimizeResult, Outage, RegistryItem, YearResult } from "../types";
 import {
   branchHue,
   busPlace,
-  busSuggestions,
+  changedProjects,
   effYearOf,
-  findBus,
   gspTicks,
   indexModel,
   lineName,
@@ -24,7 +23,7 @@ import { item } from "./test-fixtures";
 const year = (y: number, over: Partial<YearResult> = {}): YearResult => ({
   year: y, growth: 1, energised: [], accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 40, min_vm_pu: 0.97,
   max_vm_pu: 1.03, overloaded_line_ids: [], line_loading: {}, bus_vm: {}, voltage_violation_bus_ids: [], gsp_export_mw: 200,
-  gsp_import_mw: 0, gsp_limit_mw: 527, n1_screened: 30, n1_violations: [], trafo_loading: {}, outage_studies: [], ...over,
+  gsp_import_mw: 0, gsp_limit_mw: 527, n1_cases: ["winter_peak"], n1_screened: 30, n1_violations: [], trafo_loading: {}, outage_studies: [], ...over,
 });
 
 const result = (over: Partial<OptimizeResult> = {}): OptimizeResult => ({
@@ -147,13 +146,15 @@ describe("naming and readings", () => {
 });
 
 
-describe("connection points", () => {
-  it("suggests the least-loaded connection buses and resolves typed ones", () => {
-    const yr = year(2030, { line_loading: { "10": 80, "11": 20 } });
-    expect(busSuggestions(model, ix, yr).map((b) => b.id)).toEqual([3, 1, 2]);
-    expect(findBus(model, ix, "bus 3")?.id).toBe(3);
-    expect(findBus(model, ix, "Kirton")?.id).toBe(3);
-    expect(findBus(model, ix, "Nowhere")).toBeNull();
+describe("stored projects against the shown run", () => {
+  it("counts the projects whose connection point, rating, import or year changed since the run", () => {
+    const q = [item({ request_id: "A", bus_id: 1, rating_mw: 10 }), item({ request_id: "B", bus_id: 2, rating_mw: 20, commissioning_year: 2030 })];
+    const row = (over: Partial<RegistryItem>): RegistryItem => ({ request_id: "A", applicant: "", bus_id: 1, technology: "solar", rating_mw: 10, readiness_score: 0.5, status: "valid", ...over });
+    expect(changedProjects([row({}), row({ request_id: "B", bus_id: 2, rating_mw: 20, commissioning_year: 2030 })], q)).toBe(0);
+    expect(changedProjects([row({ bus_id: 7 })], q)).toBe(1); // moved
+    expect(changedProjects([row({ rating_mw: 5 }), row({ request_id: "B", bus_id: 2, rating_mw: 20, commissioning_year: 2031 })], q)).toBe(2); // resized, re-dated
+    expect(changedProjects([row({ request_id: "C", bus_id: 9 })], q)).toBe(0); // not in the run: preliminary, not changed
+    expect(staleness(result({ queue: q }), { scenario: "ht" }, [], [], 0, 1).text).toContain("1 project changed");
   });
 });
 

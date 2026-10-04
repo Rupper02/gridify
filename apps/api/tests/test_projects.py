@@ -5,6 +5,8 @@ layout; a branch with a hand-entered project at one of its buses runs through th
 
 import os
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 os.environ.setdefault("GRIDFORGE_SCENARIOS_DB", str(Path(tempfile.mkdtemp()) / "scenarios.duckdb"))
@@ -125,3 +127,27 @@ def test_nged_own_cgmes_export_imports_as_a_project_with_the_same_elements_and_e
     assert p2["snapshot_id"] == p["snapshot_id"] and p2["project_id"] != pid
     client.delete(f"/projects/{p2['project_id']}")
     client.delete(f"/projects/{pid}")
+
+
+def test_the_boundary_is_one_power_flow_however_many_ask_at_once(monkeypatch):
+    """The planner's boot and the startup warm-up ask for the boundary together on a cold process; each ask
+    used to run its own power flow, and the first page load waited for the slowest of them."""
+    from gridforge_api import deps
+    from gridforge_api.projects import WarehouseNgedSource
+
+    calls: list[int] = []
+
+    def slow_boundary(self):
+        calls.append(1)
+        time.sleep(0.3)  # long enough for every request to be waiting on the first
+        return {"gsp_name": "stub", "export_limit_mw": 1.0}
+
+    monkeypatch.setattr(WarehouseNgedSource, "boundary", slow_boundary)
+    deps.projects.forget()  # the earlier tests cached the real card
+    try:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            rs = list(ex.map(lambda _: client.get(f"/projects/{NGED_PROJECT_ID}/boundary"), range(6)))
+        assert all(r.status_code == 200 for r in rs) and {r.json()["gsp_name"] for r in rs} == {"stub"}
+        assert len(calls) == 1
+    finally:
+        deps.projects.forget()  # the stub must not outlive the test

@@ -18,27 +18,34 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .config import log
-from .deps import agents, jobs, plans, scenarios, warehouse
+from .config import NGED_PROJECT_ID, log
+from .deps import agents, jobs, plans, projects, scenarios, warehouse
 from .routers import agents as agents_router
-from .routers import branches, findings, model, optimize, projects, registry, studies
+from .routers import branches, findings, model, optimize, registry, studies
+from .routers import projects as projects_router  # aliased: `projects` here is the deps instance the warm-up uses
 
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests
-    never race on DDL), then warm pandapower's numba JIT and pre-compute main on every demand profile."""
+    never race on DDL), then compute the built-in project's model and boundary card (the planner's first
+    reads; the boundary's power flow warms pandapower's numba JIT) and pre-compute main on every demand profile."""
     scenarios.init()
-    if agents.enabled:  # the durable runtime: workflows interrupted by the last shutdown resume from their last step
-        await asyncio.to_thread(agents.launch)  # off the event loop: DBOS's sync calls (register_queue, ...) refuse a running loop
+    # the durable runtime: workflows interrupted by the last shutdown resume from their last step
+    await asyncio.to_thread(agents.launch)  # off the event loop: DBOS's sync calls (register_queue, ...) refuse a running loop
 
     def _warm() -> None:
         try:
-            from gridforge_optimizer.network import build_base_net, feasibility
-            feasibility(build_base_net())
             if warehouse.exists():
+                # the planner's first reads, ready before it asks: the built-in project's model, then its boundary
+                # card (a full power flow, which also warms pandapower's numba JIT), then main on every demand profile
+                projects.model(NGED_PROJECT_ID)
+                projects.boundary(NGED_PROJECT_ID)
                 plans.warm("main", idle=jobs.idle)
                 agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
+            else:
+                from gridforge_optimizer.network import build_base_net, feasibility
+                feasibility(build_base_net())  # nothing to serve yet: still warm the JIT
         except Exception:  # warming is best-effort; a broken network surfaces on the first real call
             log.exception("warm-up failed")
 
@@ -65,5 +72,5 @@ async def _json_errors(request: Request, call_next):
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, projects.router, agents_router.router):
+for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, projects_router.router, agents_router.router):
     app.include_router(_router)

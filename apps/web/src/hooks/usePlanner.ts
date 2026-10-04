@@ -3,7 +3,7 @@
 //
 // This file only composes. The state and shared core live in planner/core.ts; each concern is its
 // own hook under planner/ (run + boot, branch list, branch flows, registry, selection, project
-// edits, maintenance, copilot, the agents, ask, projects, derived values), taking the core plus only the other hooks' actions
+// edits, maintenance, the agents, ask, projects, derived values), taking the core plus only the other hooks' actions
 // it needs.
 
 import { useCallback, useMemo, useRef } from "react";
@@ -14,7 +14,6 @@ import { useAgents } from "./planner/useAgents";
 import { useAsk } from "./planner/useAsk";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
-import { useCopilot } from "./planner/useCopilot";
 import { useDerived } from "./planner/useDerived";
 import { useFindings } from "./planner/useFindings";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
@@ -45,7 +44,7 @@ export function usePlanner() {
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const findings = useFindings(core);
   const agents = useAgents(core);
-  const ask = useAsk(core, refreshBranches);
+  const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
     void findings.loadFindings(bid);
@@ -58,7 +57,6 @@ export function usePlanner() {
   const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
   const { select, selectProject, focusSel } = useSelection(core);
   const { setSchedule } = useProjectEdits(core, edited);
-  const copilot = useCopilot(core, run, flows.ensureEditableBranch, maint.tryLever, maint.loadExtras, edited);
   const mapView = useMapFeatures(core, s.visible);
   const derived = useDerived(s);
 
@@ -67,7 +65,6 @@ export function usePlanner() {
       run, toastMsg: core.toastMsg, select, selectProject, focusSel, setSchedule, loadRegistry, addRegistryProject,
       ...flows,
       ...maint,
-      ...copilot,
       ...mapView,
       ...findings,
       ...agents,
@@ -100,7 +97,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(copilot), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 
   return { s, patch, actions, derived, mapApi };

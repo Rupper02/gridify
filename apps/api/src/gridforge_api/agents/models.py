@@ -1,12 +1,12 @@
-"""The one place that knows OpenRouter: a model per agent role, or nothing when there is no key.
+"""The one place that knows OpenRouter: a model per agent role.
 
-The harness takes a `model_factory(role) -> Model`; this builds the real one. Tests pass scripted
-`FunctionModel`s instead, so nothing else in the harness imports a provider.
+The harness takes a `model_factory(role) -> Model`; this builds the real one from the key the API
+requires at startup (`config.require_openrouter_key`). Tests pass scripted `FunctionModel`s instead,
+so nothing else in the harness imports a provider.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 
 from pydantic_ai.models import Model
@@ -16,11 +16,8 @@ from ..config import AGENT_MODELS, OPENROUTER_APP
 ModelFactory = Callable[[str], Model]
 
 
-def openrouter_model_factory() -> ModelFactory | None:
-    """A factory of OpenRouter models by role, or None without `OPENROUTER_API_KEY` (agents off)."""
-    key = os.getenv("OPENROUTER_API_KEY")
-    if not key:
-        return None
+def openrouter_model_factory(key: str) -> ModelFactory:
+    """A factory of OpenRouter models by role, on `key`."""
     from openai import AsyncOpenAI
     from pydantic_ai.models.openrouter import OpenRouterModel
     from pydantic_ai.providers.openrouter import OpenRouterProvider

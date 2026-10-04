@@ -1,9 +1,9 @@
 """The agent runtime: owns the DBOS lifecycle, the queues, the built agents and the pause switch.
 
-Constructed once in `deps.py` with every collaborator handed in. `enabled` is false without a model
-factory (no `OPENROUTER_API_KEY`): nothing launches, every agent route answers "off", and the rest of
-the API is untouched. With one, `launch()` starts DBOS on its system database (SQLite by default,
-Postgres when configured) and workflows resume after a restart from their last completed step.
+Constructed once in `deps.py` with every collaborator handed in, the model factory included (the API
+requires the OpenRouter key at startup; there is no key-less mode). `launch()` starts DBOS on its
+system database (SQLite by default, Postgres when configured) and workflows resume after a restart
+from their last completed step; until it has, the agent routes answer 503 "starting".
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ def durable(name: str, fn: Callable[[], Any]) -> Any:
 
 class AgentRuntime:
     def __init__(self, *, store, cache, plans, jobs, warehouse, projects, evidence: EvidenceLedger, budget: BudgetMeter,
-                 model_factory: Callable[[str], Any] | None, system_db_url: str, app_version: str, project_id: str):
+                 model_factory: Callable[[str], Any], system_db_url: str, app_version: str, project_id: str):
         self.model_factory = model_factory
         self.system_db_url = system_db_url
         self.app_version = app_version
@@ -57,13 +57,9 @@ class AgentRuntime:
         self._lock = threading.Lock()
         self._sinks: dict[str, list] = {}  # run_id -> captured events, outside a workflow (tests)
 
-    @property
-    def enabled(self) -> bool:
-        return self.model_factory is not None
-
     # --- lifecycle --------------------------------------------------------------------------------------
     def launch(self) -> None:
-        if not self.enabled or self.launched:
+        if self.launched:
             return
         with self._lock:
             if self.launched:
@@ -138,25 +134,28 @@ class AgentRuntime:
             DBOS.enqueue_workflow(queue, fn, *args_of(pid, event))
         return wid
 
-    def resume_answer(self, project_id: str, thread_id: str, message_id: str, approval_id: str, approved: bool, note: str) -> str:
-        wid = f"answer_resume:{approval_id}"
+    def resume_answer(self, project_id: str, thread_id: str, message_id: str) -> str:
+        """Continue the reply `message_id` once every proposal it made is decided (one resume per reply)."""
+        wid = f"answer_resume:{message_id}"
         with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"])):
-            DBOS.enqueue_workflow(CHAT_QUEUE, workflows.answer_resume, project_id, thread_id, message_id, approval_id, approved, note)
+            DBOS.enqueue_workflow(CHAT_QUEUE, workflows.answer_resume, project_id, thread_id, message_id)
         return wid
 
     # --- status and startup events ----------------------------------------------------------------------------
     def status(self, project_id: str | None = None) -> dict:
+        """starting (the runtime has not launched yet), idle, running or paused, with today's budget and the last events."""
         pid = project_id or self.project_id
-        if not self.enabled:
-            return {"status": "off", "enabled": False, "launched": False, "reason": "OPENROUTER_API_KEY is not set", "models": AGENT_MODELS,
-                    "running": 0, "budget": None, "last_events": [], "project_id": pid}
         state = self.budget.check(pid)
         with self.harness.store.cursor() as con:
             running = runs.running_count(con, pid) if self.launched else 0
             last = runs.recent_events(con, pid) if self.launched else []
-        status = "paused" if state.paused else "running" if running else "idle" if self.launched else "off"
-        return {"status": status, "enabled": True, "launched": self.launched, "paused_reason": state.paused_reason if state.paused else "",
+        status = "starting" if not self.launched else "paused" if state.paused else "running" if running else "idle"
+        return {"status": status, "launched": self.launched, "paused_reason": state.paused_reason if state.paused else "",
                 "running": running, "budget": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
+
+    def cancel(self, workflow_id: str) -> None:
+        """Stop a workflow (an answer the operator gave up on): DBOS cancels it at its next step."""
+        DBOS.cancel_workflow(workflow_id)
 
     def emit_startup_events(self) -> list[dict]:
         """What changed while the API was down: a new model snapshot or LTDS edition wakes the steward."""

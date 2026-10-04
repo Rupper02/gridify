@@ -87,6 +87,11 @@ BEST_WINDOW_N1_SHORTLIST = 6
 # reported per phase, not enforced as a connection gate. Roughly ENA P2/8 security of supply.
 N1_MIN_KV = 132.0
 N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a generator spur, a tee) is not a supply violation
+# The cases the backbone is screened in, every plan year and after every phase (network.n1_screen_cases):
+# each contributes its thermal, voltage and convergence findings (export binds at summer minimum, demand at
+# winter peak). Islanded demand is reported on the FIRST case only, the demand case the P2/8-style check
+# reads: an island is topology, the same in every case, and its MW is the peak's.
+N1_CASES = ("winter_peak", "summer_min")
 
 # --- studies (studies.py): deterministic analyses the agents and the API run on a plan ----------------
 # Hosting capacity: per bus, the MW of new export (or import) before the first limit breaks, found by
@@ -95,6 +100,10 @@ N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a genera
 HOSTING_STEP_MW = 5.0
 HOSTING_MIN_KV = 33.0
 HOSTING_MAX_BUSES = 24
+# Connection options: how a project could connect when its own busbar cannot take it. Besides its own
+# bus (sized by bisection) and the parallel-circuit chain, this many higher-voltage busbars, nearest
+# first by network steps from the project's bus, are probed with the project's full MW.
+CONNECTION_OPTION_BUSES = 4
 # Contingency ranking: the N-1 screen's mechanics extended to every circuit and transformer at or above
 # this kV, in both study cases, each contingency scored by what it does. The index is a RANKING
 # HEURISTIC (a weighted sum of islanded demand in MW, thermal excess in MVA and the worst voltage

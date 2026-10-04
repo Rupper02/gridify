@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,9 @@ class Projects:
         self._models: dict[tuple[str, str], GridModel] = {}
         self._boundaries: dict[tuple[str, str], dict | None] = {}
         self._cgmes: dict[tuple[str, str, str], bytes] = {}
+        # one computation per cache, however many requests ask at once: on a cold process the planner's boot and
+        # the startup warm-up ask for the boundary (a full power flow) together, and each used to run its own
+        self._locks = {"model": threading.Lock(), "boundary": threading.Lock(), "cgmes": threading.Lock()}
         store.on_reset(self.forget)
 
     def forget(self) -> None:
@@ -136,10 +140,11 @@ class Projects:
 
     def model(self, pid: str) -> GridModel:
         key = (pid, self.baseline(pid))
-        if key not in self._models:
-            self._models = {k: v for k, v in self._models.items() if k[0] != pid}  # one model per project
-            self._models[key] = self.source(pid).model()
-        return self._models[key]
+        with self._locks["model"]:
+            if key not in self._models:
+                self._models = {k: v for k, v in self._models.items() if k[0] != pid}  # one model per project
+                self._models[key] = self.source(pid).model()
+            return self._models[key]
 
     def model_dict(self, pid: str) -> dict:
         return self.model(pid).model_dump()
@@ -164,21 +169,23 @@ class Projects:
 
     def boundary(self, pid: str) -> dict | None:
         key = (pid, self.baseline(pid))
-        if key not in self._boundaries:
-            self._boundaries[key] = self.source(pid).boundary()
-        return self._boundaries[key]
+        with self._locks["boundary"]:
+            if key not in self._boundaries:
+                self._boundaries[key] = self.source(pid).boundary()
+            return self._boundaries[key]
 
     def cgmes_zip(self, pid: str, engine: str) -> bytes:
         """The project's network as a CGMES exchange, per baseline and engine (the same bytes until one changes)."""
         key = (pid, self.baseline(pid), engine)
-        if key not in self._cgmes:
-            src = self.source(pid)
-            net = src.build_net()
-            feasibility(net)  # settle the tap changers so the SSH carries today's regulated steps
-            meta = getattr(src, "cgmes_meta", None)
-            files = export_cgmes(net, self.model(pid), key[1], **({"meta": meta} if meta else {}))
-            self._cgmes = {key: cgmes_zip_bytes(files)}
-        return self._cgmes[key]
+        with self._locks["cgmes"]:
+            if key not in self._cgmes:
+                src = self.source(pid)
+                net = src.build_net()
+                feasibility(net)  # settle the tap changers so the SSH carries today's regulated steps
+                meta = getattr(src, "cgmes_meta", None)
+                files = export_cgmes(net, self.model(pid), key[1], **({"meta": meta} if meta else {}))
+                self._cgmes = {key: cgmes_zip_bytes(files)}
+            return self._cgmes[key]
 
     # --- import and delete ------------------------------------------------------------------------------
     def create(self, name: str, filename: str, data: bytes, meta: ImportMeta | None) -> dict:

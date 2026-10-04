@@ -27,6 +27,28 @@ def test_ltds_removed_equipment_is_not_in_todays_network():
     assert removed_trafos and len(net.trafo) <= len(_live(_load("t2a"), "Status"))
 
 
+def test_the_structure_the_ltds_leaves_open_is_recorded_not_filled():
+    """NGED publishes the connectivity, not the running arrangement: the 132 kV bars of a substation
+    are separate nodes with no coupler row, and the 33 kV network has no normal-open points. The
+    model keeps both as published and says so, per element, instead of inventing a coupler or an
+    open point."""
+    net = build_nged_net()
+    recs = net["assumptions"]
+    split = recs["bus_sections_split"]
+    names = {str(net.bus.at[b, "name"]) for b in split["element_ids"]}
+    assert split["element_kind"] == "bus" and {"Boston 132kV 603", "Boston 132kV 503"} <= names
+    joined = {frozenset((int(a), int(b))) for a, b in zip(net.line.from_bus, net.line.to_bus)}
+    joined |= {frozenset((int(a), int(b))) for a, b in zip(net.trafo.hv_bus, net.trafo.lv_bus)}
+    by_name = {str(net.bus.at[b, "name"]): int(b) for b in split["element_ids"]}
+    assert frozenset((by_name["Boston 132kV 603"], by_name["Boston 132kV 503"])) not in joined  # nothing was invented between them
+    assert len(net.switch) == 0
+    # a substation whose bars are joined (Bicker Fen's one 132 kV bar, every 11 kV bar) is not flagged
+    assert not any(n.startswith("Bicker Fen") for n in by_name)
+    mesh = recs["mv_mesh_closed"]
+    assert mesh["element_kind"] == "line" and len(mesh["element_ids"]) >= 2
+    assert all(11.0 < float(net.bus.at[int(net.line.at[i, "from_bus"]), "vn_kv"]) < 132.0 for i in mesh["element_ids"])
+
+
 def test_projects_not_built_yet_are_registry_only():
     net = build_nged_net()
     registry = nged_candidates(MAX_CONNECTION_MW)

@@ -4,6 +4,7 @@ projects, test feasibility (statutory voltage bands, thermal limits, the GSP bou
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable
 from typing import NamedTuple
 
 import networkx as nx
@@ -12,6 +13,7 @@ import pandapower.topology as top
 import pandas as pd
 
 from .config import (
+    N1_CASES,
     GENERATION_FACTOR_DEFAULT,
     GENERATION_FACTORS,
     OLTC_DEADBAND_PU,
@@ -606,17 +608,17 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
     elements = n1_elements(net)
     violations: list[dict] = []
     for o in outage_results(net, case, load_scale, rating_ratio, elements):
-        head = {"outage_type": o.kind, "outage_id": o.eid, "outage_name": o.name}
+        head = {"outage_type": o.kind, "outage_id": o.eid, "outage_name": o.name, "case": case}
         if o.res is None:
             violations.append({**head, "type": "non_convergent", "element_id": None, "value": None,
-                               "message": f"power flow does not converge with {o.kind} {o.eid} out"})
+                               "message": f"power flow does not converge with {o.kind} {o.eid} out at {_CASE_LABEL[case]}"})
             continue
         # demand stranded on an island: a supply violation only if it is material (a generator
         # spur or a tee-point with no customers is not)
         if o.lost_mw >= N1_ISLAND_MIN_MW:
             violations.append({**head, "type": "islanded", "element_id": o.island[0], "value": round(o.lost_mw, 2),
                                "islanded_bus_ids": o.island,  # demand.py attributes it to regions
-                               "message": f"{o.kind} {o.eid} out islands {o.lost_mw:.1f} MW of demand at {len(o.island)} bus(es)"})
+                               "message": f"{o.kind} {o.eid} out islands {o.lost_mw:.1f} MW of demand at {len(o.island)} bus(es) at {_CASE_LABEL[case]}"})
             continue
         r = _case_reason(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"])
         if r is not None:
@@ -624,6 +626,21 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
             violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": msg})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state
     return {"case": case, "screened": len(elements), "violations": violations}
+
+
+def n1_screen_cases(net, cases: Iterable[str] = N1_CASES) -> dict:
+    """The N-1 screen in each of `cases` the network supports (config.N1_CASES), as one list: every
+    case's thermal, voltage and convergence findings, each carrying its `case`; islanded demand from the
+    first case only (an island is topology, the same in every case; the demand case is where the P2/8-
+    style check reads it). `screened` is the elements outaged, the same in each case."""
+    supported = {c.name for c in _study_cases(net)}
+    run = [c for c in cases if c in supported]
+    out: dict = {"cases": run, "screened": 0, "violations": []}
+    for i, case in enumerate(run):
+        s = n1_screen(net, case)
+        out["screened"] = s["screened"]
+        out["violations"].extend(v for v in s["violations"] if i == 0 or v["type"] != "islanded")
+    return out
 
 
 # --- planned outages (maintenance windows) ----------------------------------------------------

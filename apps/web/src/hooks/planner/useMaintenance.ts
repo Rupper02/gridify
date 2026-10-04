@@ -1,28 +1,28 @@
-// A branch's proposals beyond projects: planned maintenance windows and simulated reinforcements.
-// Both are stored on the branch (the API). Windows refresh the plan by themselves (only their years
-// re-solve); a reinforcement changes the queue's trials, so it waits for Run (lib/refresh.ts).
+// A branch's proposals beyond the run: its projects as stored, planned maintenance windows and simulated
+// reinforcements. All are stored on the branch (the API). Windows refresh the plan by themselves (only
+// their years re-solve); a reinforcement changes the queue's trials, so it waits for Run (lib/refresh.ts).
 
 import { useCallback } from "react";
 
 import { api } from "../../api";
 import { WORK_UI, draftBody } from "../../lib/maintenance";
-import type { ElementSel, Suggestion } from "../../types";
+import type { ElementSel } from "../../types";
 import { mainIdOf } from "../../lib/projects";
 import type { Core, MaintDraft } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
 export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn) {
-  /** Load the outages and reinforcements of a branch (on switch and boot). */
+  /** Load a branch's stored projects, outages and reinforcements (on switch and boot, and after an agent's proposal is approved). */
   const loadExtras = useCallback(
     async (bid: string) => {
       try {
-        const [outages, reinforcements] = await Promise.all([api.listOutages(bid), api.listReinforcements(bid)]);
-        if (ref.current.activeBranch === bid) patch({ outages, reinforcements });
-      } catch {
-        /* an older API without these endpoints: nothing planned */
+        const [outages, reinforcements, candidates] = await Promise.all([api.listOutages(bid), api.listReinforcements(bid), api.listCandidates(bid)]);
+        if (ref.current.activeBranch === bid) patch({ outages, reinforcements, candidates });
+      } catch (e) {
+        toastMsg(`Could not load the branch's proposals: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
       }
     },
-    [patch, ref],
+    [patch, ref, toastMsg],
   );
 
   const setDraft = useCallback((d: Partial<MaintDraft>) => patch((st) => ({ maintDraft: { ...st.maintDraft, ...d } })), [patch]);
@@ -65,24 +65,6 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
     [edited, patch, ref, toastMsg],
   );
 
-  /** Try a Copilot lever on the branch: store its reinforcements; the next run measures them. */
-  const tryLever = useCallback(
-    async (bid: string, s: Suggestion): Promise<boolean> => {
-      try {
-        const added = await Promise.all(
-          s.reinforcements.map((r) => api.addReinforcement(bid, { kind: r.kind, element_id: r.element_id, action: r.action, factor: r.factor, label: s.action })),
-        );
-        if (ref.current.activeBranch === bid) patch((x) => ({ reinforcements: [...x.reinforcements, ...added] }));
-        edited("reinforcement");
-        return true;
-      } catch (e) {
-        toastMsg(`Could not add the lever: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
-        return false;
-      }
-    },
-    [patch, ref, toastMsg],
-  );
-
   const removeReinforcement = useCallback(
     async (rid: string) => {
       const st = ref.current;
@@ -98,5 +80,5 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
     [edited, patch, ref],
   );
 
-  return { loadExtras, setDraft, addOutage, removeOutage, tryLever, removeReinforcement };
+  return { loadExtras, setDraft, addOutage, removeOutage, removeReinforcement };
 }

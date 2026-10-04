@@ -22,8 +22,10 @@ class Trigger(NamedTuple):
 
 
 TRIGGERS: dict[str, Trigger] = {
-    # a run finished on a branch: the reviewer comments like a PR bot (cheap, one call); no sweep
-    "run.finished": Trigger(("review_branch",), (), lambda p: f"run:{p['branch_id']}:{p['run_key']}", applies=lambda p: p["branch_id"] != "main"),
+    # a run finished on a branch: the reviewer comments like a PR bot, and the steward may send the connections
+    # specialist after the projects the run deferred on a grid limit, or the works specialist when the run flags a
+    # works window (`works_flagged` in the payload: not simply feasible, or second faults found during it)
+    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}", applies=lambda p: p["branch_id"] != "main"),
     # the plan of record changed: the steward sweeps what a merge can move
     "branch.merged": Trigger(("steward_run",), ("thermal", "voltage", "boundary", "demand_security", "works"), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
     # a new model: everything, data quality first
@@ -37,9 +39,10 @@ TRIGGERS: dict[str, Trigger] = {
 
 def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
     """Record an event and start its workflows. Returns what happened (`deduplicated`, `paused`, the
-    workflow ids), or None when the agents are off or the trigger does not apply to this payload. Unknown types are a KeyError (the router 422s)."""
+    workflow ids), or None when the runtime has not launched yet or the trigger does not apply to this
+    payload. Unknown types are a KeyError (the router 422s)."""
     trigger = TRIGGERS[type_]
-    if not rt.enabled or not rt.launched or not trigger.applies(payload):
+    if not rt.launched or not trigger.applies(payload):
         return None
     dedup = trigger.dedup(payload)
     project_id = payload.get("project_id") or rt.project_id  # the built-in project unless the event names one

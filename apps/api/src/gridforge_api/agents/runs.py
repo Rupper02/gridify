@@ -108,6 +108,12 @@ def approval_row(con: Cursor, approval_id: str) -> dict | None:
     return _row(APPROVAL_COLS, r) if r else None
 
 
+def approvals_for_message(con: Cursor, message_id: str) -> list[dict]:
+    """Every proposal one reply made, in the order it made them (the reply resumes once all are decided)."""
+    cur = con.execute(f"SELECT {', '.join(APPROVAL_COLS)} FROM approvals WHERE message_id = ? ORDER BY created_at", [message_id])
+    return [_row(APPROVAL_COLS, r) for r in cur.fetchall()]
+
+
 def list_approvals(con: Cursor, project_id: str, *, status: str | None = "pending", thread_id: str | None = None) -> list[dict]:
     where, params = ["project_id = ?"], [project_id]
     if status:

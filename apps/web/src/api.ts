@@ -139,6 +139,8 @@ export const api = {
   getAssumptions: (pid: string) => getJson<{ project_id: string; assumptions: Assumption[] }>(`/projects/${pid}/assumptions`),
   getModel: (pid: string) => getJson<Model>(`/projects/${pid}/model`),
   addCandidate: (c: NewCandidate) => postJson<RegistryItem>("/optimize/candidates", c),
+  /** A branch's projects as stored (added by hand, pulled from the registry, or an agent's approved proposal): what its next run ranks. */
+  listCandidates: (id: string) => getJson<RegistryItem[]>(`/branches/${id}/candidates`),
   getRegistry: (pid: string) => getJson<RegistryItem[]>(`/projects/${pid}/registry`),
   addFromRegistry: (branchId: string, requestId: string) =>
     postJson<RegistryItem>(`/branches/${branchId}/registry`, { request_id: requestId }),
@@ -270,7 +272,7 @@ export const api = {
       es.close();
       h.onEnd();
     };
-    for (const kind of ["token", "tool_call", "tool_result", "cite", "final", "error"]) {
+    for (const kind of ["token", "tool_call", "tool_result", "progress", "cite", "final", "error"]) {
       es.addEventListener(kind, (e) => {
         if (!(e instanceof MessageEvent)) return; // the browser's own error event, not the server's
         const ev = JSON.parse(e.data as string) as TraceEvent;
@@ -283,9 +285,12 @@ export const api = {
     };
     return end;
   },
+  /** Stop the reply on its way in a thread: marked cancelled at once, its workflow cancelled at its next step. */
+  cancelReply: (pid: string, tid: string) => postJson<{ thread_id: string; message_id: string; status: "cancelled" }>(`/projects/${pid}/threads/${tid}/cancel`),
   listApprovals: async (pid: string) => (await getJson<{ approvals: Approval[] }>(`/projects/${pid}/approvals`)).approvals ?? [],
+  /** Decide a proposal. The answer continues once every proposal of its reply is decided; until then `waiting_for` lists the open ones. */
   decideApproval: (pid: string, aid: string, decision: "approve" | "deny", note = "") =>
-    postJson<Approval & { workflow_id: string }>(`/projects/${pid}/approvals/${aid}`, { decision, note }),
+    postJson<Approval & { workflow_id: string | null; waiting_for: string[] }>(`/projects/${pid}/approvals/${aid}`, { decision, note }),
   /** The reviewer's comments on a branch: the current one, or all with `all`. */
   listReviews: async (branchId: string, all = false) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews${all ? "?all=true" : ""}`)).reviews ?? [],
   /** The evidence behind a step an agent cited. */

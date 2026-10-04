@@ -146,6 +146,10 @@ class WorkDelta(BaseModel):
     curtailed_mw_branch: float = 0.0
     demand_at_risk_mw_main: float | None = None
     demand_at_risk_mw_branch: float = 0.0
+    n1_findings_main: int | None = None  # second faults during the window on main's plan; None = not screened there
+    n1_findings_branch: int | None = None
+    n1_new: list[dict] = []  # second-fault findings the branch adds during the window (by n1_key), worst first
+    n1_cleared: list[dict] = []  # second-fault findings main's plan has during the window and the branch's does not
     change: str = "unchanged"  # worse|better|unchanged|unstudied
     consequence: str = ""
     message: str = ""  # the branch study's own summary
@@ -299,8 +303,8 @@ def _over(loading: dict[int, float], limit: float) -> set[int]:
 
 
 def n1_key(v: dict) -> tuple:
-    """A finding's identity: which element was lost and which limit broke on what."""
-    return (v.get("outage_type"), str(v.get("outage_id")), v.get("type"), v.get("element_id"))
+    """A finding's identity: which element was lost, in which case, and which limit broke on what."""
+    return (v.get("outage_type"), str(v.get("outage_id")), v.get("case"), v.get("type"), v.get("element_id"))
 
 
 def diff_year(base: YearResult, head: YearResult) -> YearDelta:
@@ -364,31 +368,73 @@ def _burden(s: OutageStudy) -> float:
     return s.curtailed_mw + s.demand_at_risk_mw
 
 
+def _n1_during(s: OutageStudy | None) -> dict[tuple, dict] | None:
+    """A window's second-fault findings by identity, or None when the study ran without the screen."""
+    if s is None or s.n1_during is None:
+        return None
+    return {n1_key(v): v for v in s.n1_during.violations}
+
+
+def _work_n1(on_main: OutageStudy | None, on_branch: OutageStudy) -> tuple[list[dict], list[dict]]:
+    """The second-fault findings the branch adds during the window and those it clears, when both
+    sides were screened; the branch's own list stands when main's plan was not."""
+    b, h = _n1_during(on_main), _n1_during(on_branch)
+    if h is None:
+        return [], []
+    if b is None:
+        return list(h.values()), []
+    return [h[k] for k in h if k not in b], [b[k] for k in b if k not in h]
+
+
 def _work_change(on_main: OutageStudy | None, on_branch: OutageStudy) -> str:
+    """Worse or better by verdict first, then by MW curtailed or at risk, then by the second faults the
+    branch adds or clears during the window (both sides screened)."""
     if on_main is None:
         return "unstudied"
     b, h = VERDICT_SEVERITY.get(on_main.verdict, 0), VERDICT_SEVERITY.get(on_branch.verdict, 0)
     if h != b:
         return "worse" if h > b else "better"
     step = _burden(on_branch) - _burden(on_main)
-    if abs(step) < _EPS:
+    if abs(step) >= _EPS:
+        return "worse" if step > 0 else "better"
+    if _n1_during(on_main) is None or on_branch.n1_during is None:
         return "unchanged"
-    return "worse" if step > 0 else "better"
+    new, cleared = _work_n1(on_main, on_branch)
+    if new:
+        return "worse"
+    return "better" if cleared else "unchanged"
 
 
-def _consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: str) -> str:
+def _second_faults_text(new: list[dict], cleared: list[dict]) -> str:
+    """What the branch does to the second faults during the window, in words (ids; the planner names them)."""
+    parts = []
+    if new:
+        worst = new[0]
+        parts.append(f"a second fault during the window adds {len(new)} problem{'s' if len(new) != 1 else ''} on this branch"
+                     f" (the worst: {worst.get('outage_type')} {worst.get('outage_id')} out as well, {worst.get('message', '')})")
+    if cleared:
+        parts.append(f"this branch clears {len(cleared)} second-fault problem{'s' if len(cleared) != 1 else ''} main's plan has during the window")
+    return "; ".join(parts)
+
+
+def _consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: str, new: list[dict] = (), cleared: list[dict] = ()) -> str:
     here = _verdict_text(on_branch)
     if on_main is None:
         return f"{here[:1].upper()}{here[1:]} on this branch (not studied on main's plan)."
     there = _verdict_text(on_main)
     there = there[:1].upper() + there[1:]
+    faults = _second_faults_text(list(new), list(cleared))
+    tail = f" {faults[:1].upper()}{faults[1:]}." if faults else ""
     if change == "unchanged":
         if on_branch.verdict == "feasible":
             return "Feasible on main and on this branch: the branch does not change this window."
         return f"{there}, on main and on this branch alike."
+    same_verdict = on_main.verdict == on_branch.verdict and abs(_burden(on_branch) - _burden(on_main)) < _EPS
+    if same_verdict:
+        return f"{there} on main and on this branch alike, but {faults}." if change == "worse" else f"{there} on main and on this branch alike; {faults}."
     if change == "worse":
-        return f"{there} on main, but {here} on this branch."
-    return f"{there} on main; {here} on this branch."
+        return f"{there} on main, but {here} on this branch.{tail}"
+    return f"{there} on main; {here} on this branch.{tail}"
 
 
 def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy]) -> list[WorkDelta]:
@@ -398,6 +444,7 @@ def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy]) -> list
     for s in sorted(on_branch, key=lambda s: (s.year, s.outage_id)):
         m = main_by.get((s.outage_id, s.year))
         change = _work_change(m, s)
+        new, cleared = _work_n1(m, s)
         out.append(
             WorkDelta(
                 outage_id=s.outage_id,
@@ -410,8 +457,12 @@ def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy]) -> list
                 curtailed_mw_branch=s.curtailed_mw,
                 demand_at_risk_mw_main=m.demand_at_risk_mw if m else None,
                 demand_at_risk_mw_branch=s.demand_at_risk_mw,
+                n1_findings_main=m.n1_during.findings if m and m.n1_during else None,
+                n1_findings_branch=s.n1_during.findings if s.n1_during else None,
+                n1_new=new,
+                n1_cleared=cleared,
                 change=change,
-                consequence=_consequence(m, s, change),
+                consequence=_consequence(m, s, change, new, cleared),
                 message=s.message,
             )
         )
