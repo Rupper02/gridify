@@ -47,6 +47,7 @@ from .network import (
     drop_sgen,
     inject_sgen,
     n1_elements,
+    emergency_ratio,
     outage_results,
     set_tap_positions,
     tap_positions,
@@ -251,6 +252,7 @@ def _contingency_ranking(ctx: StudyContext, p: ContingencyParams) -> StudyResult
             _run_case(net, case.name, case.load_scale, case.rating_ratio, regulate=True)  # pre-fault taps for this case
             solves += 1
             elements = n1_elements(net, p.min_kv)
+            k_emergency = emergency_ratio(net)
             for o in outage_results(net, case.name, case.load_scale, case.rating_ratio, elements):
                 solves += 1
                 if o.res is None:
@@ -264,7 +266,7 @@ def _contingency_ranking(ctx: StudyContext, p: ContingencyParams) -> StudyResult
                         excess += (pct - LINE_LOADING_MAX_PCT) / 100.0 * _line_mva(net, int(lid))
                 for tid, pct in tp.items():
                     if pct == pct and pct > TRAFO_LOADING_MAX_PCT:
-                        excess += (pct - TRAFO_LOADING_MAX_PCT) / 100.0 * float(net.trafo.at[tid, "sn_mva"]) * float(net.trafo.at[tid, "parallel"])
+                        excess += (pct - TRAFO_LOADING_MAX_PCT) / 100.0 * float(net.trafo.at[tid, "sn_mva"]) * float(net.trafo.at[tid, "parallel"]) * float(k_emergency.loc[tid])  # pct is of the emergency rating
                 v = vm.reindex(net.bus.index)
                 short = float(max((vmin - v).max(), (v - vmax).max(), 0.0)) if v.notna().any() else 0.0
                 lost = o.lost_mw if o.lost_mw >= N1_ISLAND_MIN_MW else 0.0

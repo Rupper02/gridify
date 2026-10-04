@@ -257,8 +257,7 @@ def _runpp(net) -> None:
 def _solve(net, regulate: bool = True) -> bool:
     """Run the AC power flow in place, letting the on-load tap changers settle (up to
     OLTC_MAX_PASSES passes; tap positions persist on the net so later solves start settled).
-    `regulate=False` keeps the taps where they are (used by the N-1 screen, where the intact
-    settings are the honest pre-fault state). Return False if the power flow fails to converge."""
+    `regulate=False` keeps the taps where they are. Return False if the power flow fails to converge."""
     try:
         _runpp(net)
         if regulate:
@@ -558,18 +557,33 @@ def n1_elements(net, min_kv: float = N1_MIN_KV) -> list[tuple[str, int]]:
     return lines + trafos
 
 
+def emergency_ratio(net) -> pd.Series:
+    """Each transformer's post-fault rating over its nominal one (LTDS Table 2a's emergency rating;
+    1.0 when the net carries none): what the N-1 screen judges post-fault loading against."""
+    if "emergency_ratio" in net.trafo.columns:
+        return pd.to_numeric(net.trafo["emergency_ratio"], errors="coerce").fillna(1.0).clip(lower=1.0)
+    return pd.Series(1.0, index=net.trafo.index)
+
+
 def outage_results(net, case: str, load_scale, rating_ratio, elements):
-    """Each element out in turn, solved with the taps as they are (the pre-fault settings: a tap
-    changer does not move in the instant after a fault), restored before the next. Shared by the N-1
-    screen and the contingency ranking (studies.py); callers settle the taps for the case first."""
+    """Each element out in turn, solved as the post-fault steady state: the tap changers re-regulate
+    (the AVC relays act within a minute of a fault; the pre-fault taps are restored before the next
+    element) and transformer loading is read against the emergency rating (`trafo_pct` is % of it).
+    Shared by the N-1 screen and the contingency ranking (studies.py); callers settle the taps for
+    the case first."""
     tables = {"line": net.line, "trafo": net.trafo}
+    k_emergency = emergency_ratio(net)
     for kind, eid in elements:
         table = tables[kind]
+        taps = tap_positions(net)
         table.at[eid, "in_service"] = False
         try:
-            res = _run_case(net, case, load_scale, rating_ratio, regulate=False)
+            res = _run_case(net, case, load_scale, rating_ratio, regulate=True)
         finally:
             table.at[eid, "in_service"] = True
+            set_tap_positions(net, taps)
+        if res is not None and len(res["trafo_pct"]):
+            res["trafo_pct"] = res["trafo_pct"] / k_emergency.reindex(res["trafo_pct"].index).fillna(1.0)
         name = str(table.at[eid, "name"] or f"{kind} {eid}")
         lost, island = _islanded_mw(net, res["vm"]) if res is not None else (0.0, [])
         yield OutageResult(kind, eid, name, res, lost, island)
@@ -586,9 +600,8 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
     load_scale, case_ratio = cases[case]
     rating_ratio = case_ratio if rating_ratio is None else rating_ratio
     # the pre-fault state is the intact network with its taps regulated for THIS case. feasibility()
-    # leaves them as the last study case (summer minimum) settled them, which would make every winter
-    # outage look like a voltage breach, so settle them for the screened case first; each outage then
-    # runs with those taps frozen (outage_results).
+    # leaves them as the last study case (summer minimum) settled them, so settle them for the screened
+    # case first; each outage then starts from those taps and lets the relays re-regulate (outage_results).
     _run_case(net, case, load_scale, rating_ratio, regulate=True)
     elements = n1_elements(net)
     violations: list[dict] = []
@@ -607,7 +620,8 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
             continue
         r = _case_reason(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"])
         if r is not None:
-            violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": r.message})
+            msg = r.message + (" (post-fault, of its emergency rating)" if r.type == "trafo" else "")
+            violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": msg})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state
     return {"case": case, "screened": len(elements), "violations": violations}
 

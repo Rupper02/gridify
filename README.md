@@ -80,7 +80,7 @@ The result has **139 buses, 128 lines, 44 transformers and 149 MW of demand at w
 rank_score = 0.5 · readiness + 0.35 · grid_need + 0.15 · strategic_fit
 ```
 - **Readiness** is a deterministic rubric over published facts: land rights 0.30, planning 0.30, connection agreement 0.20, financing 0.10, timeline 0.10. An ECR "accepted to connect" entry is a signed connection agreement. The ECR doesn't publish land, planning or financing, so those earn no credit, and the rationale says so.
-- **Grid need** comes from a power-flow solve: local demand plus voltage depression at the bus.
+- **Grid need** comes from the same power flow as every verdict: the network grown to 2035 at winter peak, the case's dispatch applied, the tap changers settled; the score blends the demand grown at the bus with the voltage depression the relays cannot remove.
 - **Strategic fit** is a simple per-technology prior. Storage scores higher at an export-constrained GSP.
 
 **3. The feasibility gate.** Projects are trialled greedily in rank order for each phase. A project is accepted only if the network passes **both planning study cases**:
@@ -323,6 +323,8 @@ Every number the engine uses is one of five kinds, and this register lists them 
 | What | Method | Where |
 |---|---|---|
 | Line impedance in ohms | LTDS %Z on a 100 MVA base × the circuit's own voltage² / 100 | `nged._add_lines` |
+| Line charging | LTDS B1 (positive-sequence susceptance, % on 100 MVA): B = B1 / kV², C = B / 2πf over the circuit, as nF/km for pandapower (medians 12 nF/km at 132 kV, 42 at 33 kV); 9 circuits with no B1 carry none (`charging_blank`) | `nged._add_lines` |
+| Transformer emergency rating | LTDS Table 2a's emergency rating over the nominal one (1.0 to 2.0 on Bicker Fen): what post-fault loading is judged against in the N-1 screen and the contingency ranking; planned works keep the nominal rating | `net.trafo.emergency_ratio`, `network.outage_results` |
 | Transformer impedance | LTDS X1, R1 on 100 MVA rescaled to the unit's rating; vk clamped to 0.1 to 25% to keep the solver stable on bad rows | `nged._add_transformers` |
 | Seasonal line ratings | LTDS Winter / Intermediate Warm / Summer ratings as ratios of winter | `net.line` ratio columns |
 | A BSP's own demand rows are not extra load | They equal the sum of the primaries under the BSP (e.g. Sleaford 61.6 vs 66.2 MW), so they become the BSP's demand group, not load | `nged._bsp_aggregates` |
@@ -386,7 +388,7 @@ These order and spread things. They never decide feasibility, which only the pow
 | ECR projects | A signed connection agreement plus the published target date; land, planning and financing aren't published, so they earn no credit | `nged.ecr_candidates` |
 | Requested energisation year for LTDS Table 5 projects | 2027 to 2035 from readiness, technology, size and a deterministic jitter; not a developer's date | `nged.commission_year` |
 | Strategic fit | A per-technology prior (storage 0.72 to 0.78, wind 0.72 to 0.75, others 0.66 to 0.68) | `nged.py` registry builders |
-| Grid need | Local demand saturating at 5 MW, blended 50 / 50 with voltage depression | `config.GRID_NEED_*` |
+| Grid need | Local demand (as grown to 2035) saturating at 5 MW, blended 50 / 50 with the voltage depression left after the tap changers settle, read from the winter-peak solve at 2035 demand | `config.GRID_NEED_*`, `greedy._Run.rank` |
 | Per-bus growth shape | Residential ×1.0 vs industrial ×0.25, ±60% seeded spread, +30% tilt toward feeder ends, top 20% as hotspots ×1.8; the GSP total always equals the pathway's figure | `config.GROWTH_*`, `network.per_bus_growth` |
 | Contingency severity index | islanded MW × 1 + thermal excess MVA × 1 + worst voltage shortfall pu × 100; the components are reported with it | `config.CONTINGENCY_SEVERITY_WEIGHTS`, `studies.contingency_ranking` |
 
@@ -401,7 +403,7 @@ These order and spread things. They never decide feasibility, which only the pow
 - **Planned works are reported, not enforced.** A works window is studied in its season's case(s) and its verdict is shown, but it never blocks a connection. The weeks are recorded but not placed in specific calendar weeks (the season stands in for them), so every window in the same season and year is studied as overlapping. The curtailment figure is a first-order estimate from a bounded search (nearest generators first, at most 8 extra solves per case), not an optimal re-dispatch; no other re-dispatch or switching is modelled. The N-1 screen during a window is informational. A repowering changes only the years after its window, and the queue run does not count it (add the upgrade as a reinforcement for that).
 - **Every year is a fixed plan.** The per-year solves show the network in each year; they don't change who connects, which is still decided at the two phase horizons. Demand between them is interpolated linearly.
 - **Tap-changer settings are assumed.** The LTDS gives each transformer's tap range but not its step or its target voltage; 1.25% per tap is used, and taps are regulated towards 1.02 pu with a ±0.01 pu deadband. The target was chosen as the lowest value at which today's network meets the statutory band at winter peak (at 1.00 pu Horncastle 33 kV sits at 0.932 pu); real targets vary by site, and line-drop compensation is not modelled.
-- **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network.
+- **N-1 is reported, not enforced.** The single-outage screen covers the 132 kV backbone at winter peak only; it does not yet apply a security-of-supply standard or screen the 33 kV network. Each outage is judged as the post-fault steady state: the tap changers re-regulate (the relays act within a minute) and transformer loading is read against the LTDS emergency rating, so what remains is what the relays and the short-term rating cannot absorb; the instant after the fault, before the relays act, is not studied.
 - **The demand-side alerts are a simplified P2/8-style check.** Restoration times, switching, transfer capacity between groups and second circuit outages are not modelled, so a group P2/8 would pass by switching can still be flagged, and the classes are applied to each LTDS row as published (a two-transformer site fed from two BSPs appears as two groups). Everything is MW of demand: the open data has no customer counts.
 - **Firm capacity units are read, not stated.** LTDS Table 3's "Firm Capacity of Substation" has no unit in the data; we read it as MVA and convert it to MW at the row's own power factor. A firm capacity of 0 (single-transformer sites and customers' own connections) is reported as is; such a group is only alerted on once it reaches class C. Firm capacity is compared with the group's own peak, not the GSP-coincident share the power flow carries. The "room for new demand" is first-order (≈): no power-flow probe is run for it.
 - **Demand growth comes from a NESO FES pathway, spread per bus** with a seeded spread, distance from the GSP and hotspots. The LTDS's own 5-year substation forecasts are not used yet.

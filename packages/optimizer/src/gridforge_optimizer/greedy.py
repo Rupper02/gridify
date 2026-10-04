@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-import pandapower as pp
 
 from .config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 from .network import (
+    _run_case,
     apply_reinforcement,
     build_base_net,
     bus_voltages,
@@ -114,13 +114,11 @@ class _Run:
 
     def rank(self) -> None:
         """Order the rankable candidates; set aside the rest as rejected."""
-        # one power flow under max growth to read 'need' at every candidate bus
+        # one winter-peak solve under max growth to read 'need' at every candidate bus: the same physics as
+        # every verdict (the case's dispatch, the tap changers settled), not a raw solve with frozen taps
         need_net = self._study_net(self.params.growth_2035, 2035)
-        try:
-            pp.runpp(need_net)
-            solved = True
-        except Exception:  # a (small, imported) grid that collapses under the plan's growth: it is full everywhere
-            solved = False
+        solved = _run_case(need_net, "winter_peak", None, None, regulate=True) is not None
+        # None: a (small, imported) grid that collapses under the plan's growth is full everywhere
         self.net_bus_ids = {int(b) for b in need_net.bus.index}
 
         # a candidate is rankable only if it passed intake AND its connection bus exists in the network.

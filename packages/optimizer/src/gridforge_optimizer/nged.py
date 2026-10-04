@@ -250,6 +250,8 @@ _ASSUMPTION_TEXT = {
     "tap_step_assumed": "LTDS gives the tap range but not the step: 1.25% per tap assumed, regulated towards 1.02 pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
     "pf_default": "LTDS left the power factor blank: 0.95 lagging assumed (nged._pf)",
+    "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
+    "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
 }
 
 
@@ -280,12 +282,18 @@ def _add_lines(net, circ, gb) -> None:
         rating_blank = imax <= 0
         if rating_blank:  # LTDS left the rating blank -> fall back to a plausible rating for its voltage
             imax = _RATING_FALLBACK_KA.get(int(v), 0.5)
+        # line charging: LTDS B1 is the circuit's positive-sequence susceptance in % on the 100 MVA base, so
+        # B (S) = B1 / V_kV² and C = B / (2 pi f) for the whole circuit; pandapower wants nF per km
+        b1 = _num(c.get("B1"))
+        c_nf = (b1 / (v * v)) / (2 * math.pi * 50.0) * 1e9 / length if b1 and b1 > 0 else 0.0
         li = pp.create_line_from_parameters(
             net, a, b, length_km=length, r_ohm_per_km=r / length, x_ohm_per_km=x / length,
-            c_nf_per_km=0.0, max_i_ka=imax, name=c.get("Circuit Code", ""),
+            c_nf_per_km=c_nf, max_i_ka=imax, name=c.get("Circuit Code", ""),
         )
         if rating_blank:
             _assume(net, "rating_fallback", "line", int(li))
+        if c_nf == 0.0:
+            _assume(net, "charging_blank", "line", int(li))
         if length != given_length:
             _assume(net, "length_default", "line", int(li))
         w, s = _num(c["Winter"]), _num(c.get("Summer"))
@@ -346,6 +354,13 @@ def _add_transformers(net, t2a, gb) -> None:
             tap_changer_type="Ratio" if has_oltc else None,  # pandapower 3: taps are inert without a changer type
         )
         _assume(net, "tap_step_assumed" if has_oltc else "no_oltc", "trafo", int(ti))
+        # LTDS Table 2a's emergency rating: what the transformer may carry post-fault (a two-transformer
+        # site's firm capacity); the N-1 screen judges post-fault loading against it, planned works against the nominal
+        emergency = _num(t.get("Emergency Rating"))
+        ratio = emergency / sn if emergency and emergency > 0 else 1.0
+        net.trafo.at[ti, "emergency_ratio"] = max(ratio, 1.0)
+        if not (emergency and emergency > 0):
+            _assume(net, "emergency_rating_blank", "trafo", int(ti))
 
 
 def _demand_group(d: dict) -> str:
