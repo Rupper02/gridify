@@ -25,12 +25,12 @@ from .warehouse import Warehouse
 openrouter_key = config.require_openrouter_key()
 warehouse = Warehouse(config.WAREHOUSE)
 scenarios = ScenarioStore(config.SCENARIOS_URL or config.SCENARIOS)
+# one power flow at a time in this process: operator jobs, agent studies and every cache miss share the lock
+solver_lock = threading.RLock()
 # the engine fingerprint is a hash of the engine's source: a code change invalidates every cached result
-cache = ResultCache(scenarios, engine_fingerprint())
+cache = ResultCache(scenarios, engine_fingerprint(), solver_lock)
 # the grids planned on: the built-in NGED project from the warehouse, and every imported file
 projects = Projects(scenarios, warehouse, config.PROJECTS_DIR, config.NGED_PROJECT_ID)
-# one power flow at a time in this process: operator jobs and agent studies share the lock
-solver_lock = threading.RLock()
 jobs = JobRunner(solver_lock)
 narrator = OpenRouterNarrator()
 plans = PlanService(projects, scenarios, cache, narrator)

@@ -222,6 +222,9 @@ export interface ModelIndex {
 /** A busbar code rather than a name: no spaces, and digits or underscores in it. */
 const isCode = (name: string | null | undefined): boolean => !!name && !/\s/.test(name.trim()) && /[\d_]/.test(name);
 export function indexModel(m: Model): ModelIndex {
+  // the engine names the model (`naming.py`, the names the agents use too); the rules below are its mirror, for a model
+  // served before it carried names (and the tests' small fixtures)
+  if (m.buses.some((b) => b.place !== undefined)) return namedIndex(m);
   const place = new Map<number, string>();
   m.buses.forEach((b) => !isCode(b.name) && placeName(b.name) && place.set(b.bus_id, placeName(b.name)));
   // coded busbars take the place of a transformer on them, else of a named neighbour on a line
@@ -252,6 +255,17 @@ export function indexModel(m: Model): ModelIndex {
   byName.forEach((ids, n) => ids.forEach((id, i) => ix.lineNames.set(id, ids.length > 1 ? `${n}, circuit ${i + 1}` : n)));
   return ix;
 }
+/** The index of a model the engine has named: its places and names as given. */
+function namedIndex(m: Model): ModelIndex {
+  return {
+    bus: new Map(m.buses.map((b) => [b.bus_id, b])),
+    line: new Map(m.lines.map((l) => [l.line_id, l])),
+    trafo: new Map(m.transformers.map((t) => [t.trafo_id, t])),
+    gen: new Map((m.generators ?? []).map((g) => [g.request_id, g])),
+    place: new Map(m.buses.filter((b) => b.place).map((b) => [b.bus_id, b.place!])),
+    lineNames: new Map(m.lines.filter((l) => l.display_name).map((l) => [l.line_id, l.display_name!])),
+  };
+}
 /** A bus's place name (empty when nothing near it is named). */
 export const busPlace = (ix: ModelIndex, id: number | null | undefined): string =>
   id == null ? "" : (ix.place.get(id) ?? "");
@@ -260,6 +274,13 @@ export const busPlace = (ix: ModelIndex, id: number | null | undefined): string 
 export const placeName = (busName: string | null | undefined): string => {
   const s = String(busName || "").replace(/\s*\d+(\.\d+)?\s*kV.*$/i, "").replace(/[_-]+/g, " ").trim();
   return s ? s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+};
+/** Where a project connects, in words ("Sleaford 132 kV"); "bus 19" only when nothing near it is named. */
+export const busWhere = (ix: ModelIndex | null, id: number | null | undefined): string => {
+  if (id == null) return "–";
+  const b = ix?.bus.get(id);
+  const p = ix ? busPlace(ix, id) : "";
+  return b && p ? `${p} ${+b.vn_kv} kV` : `bus ${id}`;
 };
 export const busLabel = (ix: ModelIndex, id: number | null | undefined): string => {
   if (id == null) return "–";
@@ -281,7 +302,7 @@ export const trafoSub = (t: Transformer): string => placeName(t.hv_name || t.nam
 export const trafoRatio = (t: Transformer): string => (t.hv_kv && t.lv_kv ? `${+t.hv_kv}/${+t.lv_kv} kV` : "–");
 export const trafoName = (ix: ModelIndex, id: number): string => {
   const t = ix.trafo.get(id);
-  return t ? `${trafoSub(t)} ${trafoRatio(t)} transformer` : `Transformer ${id}`;
+  return t ? t.display_name || `${trafoSub(t)} ${trafoRatio(t)} transformer` : `Transformer ${id}`;
 };
 /** Capacity of a line = √3 · V · I. */
 export const lineMva = (l: Line): number => (l.voltage_kv ? (Math.sqrt(3) * l.voltage_kv * l.rating_a) / 1000 : 0);
@@ -390,11 +411,24 @@ export function projectLabel(x: QueueItem | RegistryItem): string {
 
 export const deferredMw = (q: QueueItem[]): number => sumMw(byStatus(q, "Deferred"));
 
-/** Engine text names elements by index ("line 16", "transformer 30", "bus 7"): say where they are. */
+// one reference or a list of them ("line 16", "lines 0 and 1", "transformers 29, 30 and 31"); not one the API already
+// named, whose id sits in brackets after its name ("Bicker Fen to Boston 132 kV, circuit 2 (line 1)")
+const REF: Record<"line" | "transformer", RegExp> = {
+  line: /(?<!\()\b(lines?) (\d+(?:(?:,? and |, )\d+)*)\b/gi,
+  transformer: /(?<!\()\b(transformers?) (\d+(?:(?:,? and |, )\d+)*)\b/gi,
+};
+const joinNames = (xs: string[]): string => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
+const nameRefs = (text: string, kind: "line" | "transformer", name: (id: number) => string | null): string =>
+  text.replace(REF[kind], (m, _k, ids: string) => {
+    const named = (ids.match(/\d+/g) ?? []).map((x) => name(+x));
+    return named.every((n) => n) ? joinNames(named as string[]) : m;
+  });
+
+/** Engine text names elements by index ("line 16", "lines 0 and 1", "transformer 30", "bus 7"): say where they are. */
 export function nameElements(text: string, ix: ModelIndex | null): string {
   if (!ix || !text) return text;
-  return text
-    .replace(/\b([Ll])ine (\d+)\b/g, (m, _l, id) => (ix.line.has(+id) ? lineName(ix, +id) : m))
-    .replace(/\b([Tt])ransformer (\d+)\b/g, (m, _t, id) => (ix.trafo.has(+id) ? trafoName(ix, +id) : m))
-    .replace(/\b([Bb])us (\d+)\b(?! ·)/g, (m, _b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
+  const lines = nameRefs(text, "line", (id) => (ix.line.has(id) ? lineName(ix, id) : null));
+  const trafos = nameRefs(lines, "transformer", (id) => (ix.trafo.has(id) ? trafoName(ix, id) : null));
+  // a bus keeps its number and gains its place, unless it is already named ("(bus 19)") or placed ("bus 19 (Sleaford)")
+  return trafos.replace(/(?<!\()\b([Bb])us (\d+)\b(?! ·| \()/g, (m, _b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
 }

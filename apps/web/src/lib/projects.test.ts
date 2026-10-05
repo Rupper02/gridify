@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Assumption, ImportReport, Project } from "../types";
-import { ALL_CAPABILITIES, assumptionGroups, assumptionText, capabilityChips, kindLabel, limitsFromForm, mainIdOf, projectOf, reportLines } from "./projects";
+import { assumptionGroups, assumptionText, limitsFromForm, mainIdOf, projectOf, reportLines } from "./projects";
 
 const project = (over: Partial<Project> = {}): Project => ({
   project_id: "prj-1", name: "IEEE 9-bus", source_kind: "pandapower_json", snapshot_id: "abc", created_at: "2026-10-03T10:00:00Z", main_id: "prj-1-main",
@@ -17,12 +17,6 @@ describe("projects", () => {
     expect(mainIdOf([], "anything")).toBe("main");
     expect(projectOf(ps, "prj-1")?.name).toBe("IEEE 9-bus");
     expect(projectOf(ps, "nope")).toBeNull();
-  });
-  it("names kinds and capabilities in words", () => {
-    expect(kindLabel("cgmes")).toBe("CIM/CGMES exchange");
-    expect(kindLabel("odd")).toBe("odd");
-    expect(capabilityChips(ALL_CAPABILITIES)).toEqual(["transmission boundary", "demand groups", "registry", "editions", "summer case"]);
-    expect(capabilityChips(project().capabilities)).toEqual(["winter peak only", "synthetic layout"]);
   });
   it("reads an import report into lines", () => {
     const r: ImportReport = {

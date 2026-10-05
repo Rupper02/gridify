@@ -58,7 +58,8 @@ AGENT_MODELS = {
 AGENT_BUDGET_DAILY = {"credits": 5.0, "tokens": 2_000_000, "solves": 3_000}
 # per agent run: tool calls, solves and wall time before it is cut short
 AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
-SOLVER_GATE_MAX_WAIT_S = 180.0  # how long an agent study waits for an operator's job before it gives up
+# an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer
+AGENT_ANSWER_RESERVE_S = 60.0
 OPENROUTER_APP = {"app_url": "https://github.com/Rupper02/gridforge", "app_title": "GridForge"}  # OpenRouter attribution headers
 # the durable runtime's own database (DBOS): SQLite beside the scenarios file by default, Postgres when the
 # scenarios store is Postgres (or GRIDFORGE_DBOS_URL). Recovery after a restart is pinned to an application

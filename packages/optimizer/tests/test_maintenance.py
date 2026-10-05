@@ -4,7 +4,7 @@ Grid-agnostic: every element is found from the network itself (the most loaded l
 loss strands demand, a window that needs curtailment), never by a hardcoded id."""
 
 import pytest
-from _grid import base_net
+from _grid import base_net, fleet_generator
 
 from gridforge_optimizer import OptimizeParams, Outage
 from gridforge_optimizer.config import N1_ISLAND_MIN_MW
@@ -73,7 +73,7 @@ def test_add_parallel_repowering_relieves_the_line_in_later_years(plain):
 
 
 def test_repowering_a_generator_raises_its_export_in_later_years(plain):
-    rp = _window("g", "gen", "EX-3000", year=YEAR - 1, work="repowering", repower="uprate", factor=1.5)
+    rp = _window("g", "gen", fleet_generator(base_net()), year=YEAR - 1, work="repowering", repower="uprate", factor=1.5)
     assert _year(YEAR, [rp]).gsp_export_mw > plain[YEAR].gsp_export_mw
 
 

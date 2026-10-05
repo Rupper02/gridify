@@ -13,13 +13,13 @@ import {
   type Namers,
   type Tone,
   VERDICT,
-  WORK_CHANGE,
   flaggedYears,
   mergeChangeCount,
   outageTitle,
   verdictOnBranch,
   verdictOnMain,
   workTitle,
+  workTone,
   worksInOrder,
   yearEffect,
 } from "../lib/diff";
@@ -28,7 +28,7 @@ import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, St
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "reviews" | "year",
+  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "reviews" | "solving" | "year",
   "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
   "branch" | "gate" | "hue" | "ix" | "mainId" | "onMain" | "reviewStale" | "yearDelta"
 >;
@@ -85,7 +85,9 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         </div>
       )}
       {!d ? (
-        <span className="mute" style={{ fontSize: 12 }}>Comparing with main…</span>
+        <span className="mute" style={{ fontSize: 12 }}>
+          {s.solving ? "The comparison with main appears once every year of this run is solved." : "Comparing with main…"}
+        </span>
       ) : (
         <>
           {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
@@ -319,7 +321,7 @@ function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year:
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ fontSize: 12.5, fontWeight: 600 }}>Planned works</span>
       {worksInOrder(works, year).map((w) => {
-        const ch = WORK_CHANGE[w.change];
+        const tone = workTone(w);
         const vm = w.verdict_on_main ? VERDICT[w.verdict_on_main].tone : "neutral";
         const vb = VERDICT[w.verdict_on_branch]?.tone ?? "neutral";
         return (
@@ -330,14 +332,14 @@ function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year:
               <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: C.mute }}>{w.year}</span>
             </span>
             <span className="verdicts">
-              <span style={{ color: C.mute }}>main</span>
+              <span style={{ color: C.mute }}>{w.on_base ? "main" : "main · not scheduled, would be"}</span>
               <span className="chip" style={{ background: tint(TONE_INK[vm], "1f"), color: TONE_INK[vm] }}>{verdictOnMain(w)}</span>
               <ArrowRight size={11} color={C.mute2} />
               <span style={{ color: C.mute }}>branch</span>
               <span className="chip" style={{ background: tint(TONE_INK[vb], "1f"), color: TONE_INK[vb] }}>{verdictOnBranch(w)}</span>
             </span>
-            <span className="effect" style={{ fontSize: 11.5, lineHeight: 1.4, color: TONE_INK[ch.tone] }}>
-              <ToneIcon tone={ch.tone} />
+            <span className="effect" style={{ fontSize: 11.5, lineHeight: 1.4, color: TONE_INK[tone] }}>
+              <ToneIcon tone={tone} />
               {name(w.consequence)}
             </span>
           </button>

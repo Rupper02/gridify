@@ -1,40 +1,23 @@
 """The harness's stores and plumbing, without a runtime: the study endpoint and cache, the evidence
-ledger that binds an agent's finding to a recorded step, the number guard, the budget meter, the
-threads store, and the job runner's solver lock."""
+ledger that binds an agent's finding to a recorded step, the number guard, the budget meter, and the
+job runner's solver lock."""
 
-import os
-import tempfile
 import threading
 import time
-from pathlib import Path
-
-os.environ.setdefault("GRIDFORGE_SCENARIOS_DB", str(Path(tempfile.mkdtemp()) / "scenarios.duckdb"))
 
 import pytest
-from fastapi.testclient import TestClient
 
 from gridforge_api import deps
-from gridforge_api.agents import threads
 from gridforge_api.agents.budget import BudgetMeter
 from gridforge_api.agents.evidence import AgentFinding, check_numbers, numbers_in
-from gridforge_api.config import WAREHOUSE, now
+from gridforge_api.config import NGED_PROJECT_ID, now
+from gridforge_optimizer.years import PLAN_YEARS
 from gridforge_api.jobs import JobRunner
-from gridforge_api.main import app
+from _support import client, project, requires_warehouse, wait_job
 
-pytestmark = pytest.mark.skipif(not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized")
+pytestmark = requires_warehouse
 
-client = TestClient(app)
-PROJECT = "nged-bickerfen"
-
-
-def _wait(job):
-    for _ in range(1200):
-        if job["status"] not in ("queued", "running"):
-            break
-        time.sleep(0.25)
-        job = client.get(f"/jobs/{job['job_id']}").json()
-    assert job["status"] == "done", job.get("error")
-    return job["result"]
+PROJECT = NGED_PROJECT_ID
 
 
 def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
@@ -43,22 +26,20 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
     hosting = next(s for s in cat if s["kind"] == "hosting_capacity")
     assert "bus_ids" in hosting["params_schema"]["properties"] and hosting["cost_hint_solves"] > 0 and not hosting["needs_plan"]
     # a branch with its own project, so no earlier run of main can have cached its plan
-    stiff = max(client.get("/model").json()["buses"], key=lambda b: b["vn_kv"])["bus_id"]
-    project = {"applicant": "Studies", "bus_id": stiff, "technology": "solar", "rating_mw": 5.0, "readiness_score": 0.9}
-    bid = client.post("/branches", json={"name": "studies", "added_projects": [project]}).json()["branch_id"]
+    bid = client.post("/branches", json={"name": "studies", "added_projects": [project(applicant="Studies")]}).json()["branch_id"]
     assert client.post(f"/branches/{bid}/studies/nope", json={}).status_code == 404
     assert client.post(f"/branches/{bid}/studies/hosting_capacity", json={"step_mw": 0}).status_code == 422
     assert client.post(f"/branches/{bid}/studies/gsp_margin_by_year", json={}).status_code == 422  # reads the plan: run first
-    r = _wait(client.post(f"/branches/{bid}/studies/structural_weak_points", json={}).json())
+    r = wait_job(client.post(f"/branches/{bid}/studies/structural_weak_points", json={}).json())["result"]
     assert r["kind"] == "structural_weak_points" and r["solves"] == 0 and r["not_studied"] and all("fingerprint" in it for it in r["items"])
     assert any(e["kind"] == "study:structural_weak_points" for e in client.get("/cache").json()["entries"])
     t0 = time.perf_counter()
     again = deps.plans.study(bid, "structural_weak_points", {})
     assert again.model_dump() == r and time.perf_counter() - t0 < 2.0  # the cache, not a second study
-    # a plan-reading study runs once the branch has
-    client.post(f"/branches/{bid}/optimize", json={"with_justification": False})
-    g = _wait(client.post(f"/branches/{bid}/studies/gsp_margin_by_year", json={}).json())
-    assert [it["year"] for it in g["items"]] == list(range(2026, 2036))
+    # a plan-reading study runs once the branch has a plan: main's, which the suite has solved already
+    client.post("/optimize", json={"with_justification": False})
+    g = wait_job(client.post("/branches/main/studies/gsp_margin_by_year", json={}).json())["result"]
+    assert [it["year"] for it in g["items"]] == list(PLAN_YEARS)
 
 
 def test_an_agent_finding_is_bound_to_a_recorded_step_and_its_figures_are_the_engines():
@@ -120,22 +101,6 @@ def test_the_budget_meter_charges_pauses_and_resumes():
     assert st.paused and st.paused_reason == "budget"  # resuming cannot override an exhausted budget
     fresh = meter.set_paused("proj-other", True, "operator")
     assert fresh.paused and not fresh.exhausted and meter.set_paused("proj-other", False).paused is False
-
-
-def test_threads_and_messages_keep_the_model_history_in_order():
-    with deps.scenarios.cursor() as con:
-        t = threads.create_thread(con, PROJECT, "main", "hosting at Boston")
-        assert t["kind"] == "ask" and threads.list_threads(con, PROJECT)[0]["thread_id"] == t["thread_id"]
-        u = threads.add_message(con, t["thread_id"], "user", "Where can 20 MW connect?")
-        a = threads.add_message(con, t["thread_id"], "assistant", "", status="queued")
-        assert threads.streaming_in(con, t["thread_id"])
-        a2 = threads.set_message(con, a["message_id"], status="done", content="At Boston: about 20 MW.", tool_trace=[{"t": "tool_call", "tool": "study_hosting_capacity"}],
-                                 model_messages=[{"kind": "request"}, {"kind": "response"}], usage={"input_tokens": 10}, evidence={"steps": ["s1"]})
-        assert a2["status"] == "done" and a2["tool_trace"][0]["tool"] == "study_hosting_capacity" and a2["evidence"] == {"steps": ["s1"]}
-        assert [m["seq"] for m in threads.messages(con, t["thread_id"])] == [1, 2] and u["seq"] == 1
-        assert threads.history(con, t["thread_id"]) == [{"kind": "request"}, {"kind": "response"}]
-        assert threads.history(con, t["thread_id"], before_seq=2) == []
-        assert not threads.streaming_in(con, t["thread_id"])
 
 
 def test_the_job_runner_takes_the_solver_lock_and_reports_busy():

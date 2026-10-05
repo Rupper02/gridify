@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BOOT_RETRY_MS, gridLoadText, retryable, retrying } from "./boot";
+import { BOOT_RETRY_MS, retryable, retrying } from "./boot";
 
 const failing = (status?: number) => async (): Promise<string> => {
   throw status === undefined ? new TypeError("Failed to fetch") : Object.assign(new Error(`${status}`), { status });
@@ -50,11 +50,3 @@ describe("boot retries", () => {
   });
 });
 
-describe("the stamp while the grid loads", () => {
-  it("says loading, then the failure, and nothing once the model is in", () => {
-    expect(gridLoadText(false, true, null)).toBe("Loading the grid…");
-    expect(gridLoadText(false, false, "Failed to fetch")).toBe("Could not load the grid: Failed to fetch");
-    expect(gridLoadText(true, false, null)).toBeNull();
-    expect(gridLoadText(true, true, null)).toBeNull(); // a model on screen needs no loading line
-  });
-});

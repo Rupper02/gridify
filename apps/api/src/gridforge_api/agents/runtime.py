@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
@@ -17,7 +18,7 @@ from typing import Any
 
 from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID, SetWorkflowTimeout
 
-from ..config import AGENT_MODELS, AGENT_RUN_BUDGET, log
+from ..config import AGENT_ANSWER_RESERVE_S, AGENT_MODELS, AGENT_RUN_BUDGET, log
 from . import runs, workflows
 from .budget import BudgetMeter
 from .evidence import EvidenceLedger
@@ -26,6 +27,15 @@ from .tools import AgentDeps, Harness, SolverGate
 
 STEWARD_QUEUE = "steward"  # partitioned by project: one steward activity per project at a time
 CHAT_QUEUE = "chat"  # reviews and answers: a few at once
+
+# a DBOS workflow that ended -> the status its run gets when the workflow never recorded its own finish
+_ENDED = {
+    "SUCCESS": ("done", "the workflow finished but did not record its result"),
+    "ERROR": ("failed", "the workflow failed before it recorded its result"),
+    "MAX_RECOVERY_ATTEMPTS_EXCEEDED": ("failed", "the workflow was abandoned after repeated recovery attempts"),
+    "CANCELLED": ("cancelled", "the workflow was cancelled (its time limit passed, possibly while the API was down, or it was stopped) "
+                               "before it recorded its result"),
+}
 
 
 def in_workflow() -> bool:
@@ -76,6 +86,10 @@ class AgentRuntime:
             DBOS.register_queue(CHAT_QUEUE, worker_concurrency=2)
             self.launched = True
             log.info("agents launched on %s (version %s)", self.system_db_url, self.app_version)
+        try:  # runs the last process left open: recovery resumes the live ones, the ended ones are closed here
+            self.reconcile()
+        except Exception:
+            log.exception("could not reconcile agent runs at launch")
 
     def destroy(self) -> None:
         if not self.launched:
@@ -117,7 +131,9 @@ class AgentRuntime:
                 emit(ev)
 
         return AgentDeps(h=self.harness, run_id=run_id, project_id=pid, main_id=self.harness.projects.main_id(pid), branch_id=branch_id, thread_id=thread_id,
-                         allowed_studies=allowed if allowed is not None else tuple(), emit=emit, emit_async=emit_async, budget=dict(AGENT_RUN_BUDGET))
+                         allowed_studies=allowed if allowed is not None else tuple(), emit=emit, emit_async=emit_async, budget=dict(AGENT_RUN_BUDGET),
+                         # the run waits for the solver while its own time allows, keeping a minute to write the answer
+                         deadline=time.monotonic() + max(0.0, float(AGENT_RUN_BUDGET["timeout_s"]) - AGENT_ANSWER_RESERVE_S))
 
     def captured(self, run_id: str) -> list:
         return list(self._sinks.get(run_id, []))
@@ -146,12 +162,32 @@ class AgentRuntime:
         """starting (the runtime has not launched yet), idle, running or paused, with today's budget and the last events."""
         pid = project_id or self.project_id
         state = self.budget.check(pid)
+        if self.launched:
+            self.reconcile(pid)
         with self.harness.store.cursor() as con:
             running = runs.running_count(con, pid) if self.launched else 0
             last = runs.recent_events(con, pid) if self.launched else []
         status = "starting" if not self.launched else "paused" if state.paused else "running" if running else "idle"
         return {"status": status, "launched": self.launched, "paused_reason": state.paused_reason if state.paused else "",
                 "running": running, "budget": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
+
+    def reconcile(self, project_id: str | None = None) -> int:
+        """Close the runs DBOS has already ended. A workflow cancelled at its timeout (or whose deadline passed
+        while the API was down, so recovery cancels it without running it) never reaches its own `_finish`,
+        and its run would count as running for ever. Returns how many runs it closed."""
+        with self.harness.store.cursor() as con:
+            open_ = runs.open_runs(con, project_id)
+        ended = []
+        for run_id, wid in open_:
+            st = DBOS.get_workflow_status(wid) if wid else None
+            if st is not None and st.status in _ENDED:
+                ended.append((run_id, *_ENDED[st.status]))
+        if ended:
+            with self.harness.store.cursor() as con:
+                for run_id, status, error in ended:
+                    runs.close_run(con, run_id, status=status, error=error)
+            log.info("closed %d agent run(s) their workflows had ended: %s", len(ended), ", ".join(r[0] for r in ended))
+        return len(ended)
 
     def cancel(self, workflow_id: str) -> None:
         """Stop a workflow (an answer the operator gave up on): DBOS cancels it at its next step."""

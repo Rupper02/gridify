@@ -34,22 +34,35 @@ async def _lifespan(_app: FastAPI):
     # the durable runtime: workflows interrupted by the last shutdown resume from their last step
     await asyncio.to_thread(agents.launch)  # off the event loop: DBOS's sync calls (register_queue, ...) refuse a running loop
 
-    def _warm() -> None:
+    def _warm_reads() -> None:
         try:
             if warehouse.exists():
                 # the planner's first reads, ready before it asks: the built-in project's model, then its boundary
-                # card (a full power flow, which also warms pandapower's numba JIT), then main on every demand profile
+                # card (a full power flow, which also warms pandapower's numba JIT)
                 projects.model(NGED_PROJECT_ID)
                 projects.boundary(NGED_PROJECT_ID)
-                plans.warm("main", idle=jobs.idle)
-                agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
             else:
                 from gridforge_optimizer.network import build_base_net, feasibility
                 feasibility(build_base_net())  # nothing to serve yet: still warm the JIT
         except Exception:  # warming is best-effort; a broken network surfaces on the first real call
             log.exception("warm-up failed")
 
-    jobs.submit(_warm)
+    def _warm_rest() -> None:
+        try:
+            plans.warm_profiles("main", idle=jobs.idle)  # the other demand profiles, while nobody is waiting
+            agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
+        except Exception:
+            log.exception("warm-up failed")
+
+    # the worker takes these in order: the reads, then main's run as a real job (the planner's first run asks for
+    # the same and joins it, so it shows the run's progress rather than "queued" until a cached copy), then the rest
+    jobs.submit(_warm_reads)
+    if warehouse.exists():
+        try:
+            optimize.start_branch_run("main", with_justification=True)
+        except Exception:
+            log.exception("could not queue main's first run")
+    jobs.submit(_warm_rest)
     yield
     await asyncio.to_thread(agents.destroy)
     jobs.shutdown()

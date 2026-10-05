@@ -15,10 +15,6 @@ def run():
     return cands, base, suggest_unblock(cands, OptimizeParams(), base=base)
 
 
-def _base():  # kept for readability in the tests below
-    raise RuntimeError("use the `run` fixture")
-
-
 def test_fixture_defers_on_the_grid(run):
     _, base, _ = run
     assert grid_deferred(base.queue), "saturating the weakest buses must produce a grid-constrained deferral"

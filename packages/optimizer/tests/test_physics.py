@@ -19,7 +19,6 @@ from gridforge_optimizer.network import (
     voltage_band,
     voltage_limits,
 )
-from gridforge_optimizer.nged import _ctx, _substation
 
 
 def test_voltage_band_is_statutory_by_level():
@@ -93,23 +92,6 @@ def test_summer_minimum_is_the_generation_case():
     s1 = _run_case(base, "summer_min", *cases["summer_min"])["p_ext_mw"]
     assert w1 == pytest.approx(w0, abs=0.5)
     assert s1 < s0 - 15  # ~20 MW more pushed up to transmission (ext_grid p is negative when exporting)
-
-
-def test_existing_fleet_is_sited_at_its_named_substation():
-    ctx = _ctx()
-    net = ctx["net"]
-    placed = 0
-    for g in ctx["existing"]:
-        where = g["placement"]
-        if "site not matched" in where:
-            continue
-        placed += 1
-        site_tok = _substation(where.split(" at ")[0].split(" (")[0]).lower()
-        bus_tok = _substation(net.bus.at[g["bus_id"], "name"]).lower()
-        assert site_tok.startswith(bus_tok) or bus_tok.startswith(site_tok), (g["request_id"], where, bus_tok)
-    assert placed >= len(ctx["existing"]) - 1  # at most one unmatched site
-    # the fleet's total rating is preserved even where a site is shared across busbars
-    assert float(net.sgen["p_mw"].sum()) == pytest.approx(sum(g["rating_mw"] for g in ctx["existing"]), rel=1e-6)
 
 
 @pytest.mark.n1

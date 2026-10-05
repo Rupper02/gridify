@@ -241,7 +241,7 @@ def test_verdict_is_deterministic_and_links_to_the_ledger():
 
 
 def test_every_check_is_registered_and_every_kind_has_a_level():
-    assert len(MERGE_CHECKS) == 15 and len({c.__name__ for c in MERGE_CHECKS}) == 15
+    assert len({c.__name__ for c in MERGE_CHECKS}) == len(MERGE_CHECKS)
     assert set(MERGE_GATE_LEVELS.values()) == {"blocker", "warning", "info"}
     # a busy pair exercises many kinds; each must be in the policy table and land in the right bucket
     base = _full(lambda y: _plain(y, line={2: 105.0}, gsp=400.0, limit=500.0), queue=[_qi("A", "Phase1"), _qi("OLD", "Phase1", 2)])

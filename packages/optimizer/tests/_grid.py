@@ -78,3 +78,7 @@ def grid_deferred(queue):
     """Queue items deferred on a network constraint (line/trafo/voltage), not intake/non-convergence."""
     return [q for q in queue if q.status == "Deferred" and q.reason and q.reason.type in ("line", "trafo", "voltage")]
 
+
+def fleet_generator(net) -> str:
+    """The id of an existing generator, as the outage and repowering studies take it (read from the network)."""
+    return str(net.sgen["fleet_id"].dropna().iloc[0])

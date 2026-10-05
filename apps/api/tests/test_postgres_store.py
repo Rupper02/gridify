@@ -12,12 +12,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gridforge_api import deps, main
-from gridforge_api.config import WAREHOUSE
+from _support import requires_warehouse
 
 PG_URL = os.getenv("GRIDFORGE_TEST_PG_URL")
 pytestmark = [
     pytest.mark.skipif(not PG_URL, reason="set GRIDFORGE_TEST_PG_URL to a writable Postgres database"),
-    pytest.mark.skipif(not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized"),
+    requires_warehouse,
 ]
 
 
@@ -68,4 +68,3 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
     assert merged["branch_id"] == "main" and merged["n_added"] == 1
     with deps.scenarios.cursor() as con:
         assert con.execute("SELECT outcome FROM merges WHERE branch_id = ?", [bid]).fetchone()[0] == "merged"
-        assert con.execute("SELECT count(*) FROM findings WHERE branch_id = ?", [bid]).fetchone()[0] >= 0

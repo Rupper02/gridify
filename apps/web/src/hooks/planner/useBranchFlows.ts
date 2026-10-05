@@ -1,9 +1,10 @@
 // Branch flows ("git for grids"): switch, open, set the demand profile, diff, merge, discard.
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import { ApiError, api } from "../../api";
 import { refusedCheck } from "../../lib/gate";
+import { latestWins } from "../../lib/latest";
 import { mainIdOf } from "../../lib/projects";
 import { EMPTY_CHAT } from "./core";
 import type { Core } from "./core";
@@ -17,6 +18,8 @@ export function useBranchFlows(
   loadExtras: (branchId: string) => Promise<void>,
   edited: EditedFn,
 ) {
+  const begin = useMemo(() => latestWins(), []); // one per planner: the diff and gate loads, latest wins
+
   /** Switch the active branch: the whole view (map, queue, roadmap, panels) follows it. */
   const selectBranch = useCallback(
     (id: string) => {
@@ -83,40 +86,44 @@ export function useBranchFlows(
     [edited, patch, ref, toastMsg],
   );
 
-  /** The consequence diff of the active branch vs main (with the optional narration). */
+  /** The consequence diff of the active branch vs main (with the optional narration). Only the latest load
+   * applies: a diff asked while a run was still solving must not land on top of the one for its result. */
   const refreshDiff = useCallback(
     async (bid: string) => {
       if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
+      const isLatest = begin("diff");
       try {
         const diff = await api.diffBranch(bid, { with_narration: true });
-        if (ref.current.activeBranch === bid) patch({ diff });
+        if (isLatest() && ref.current.activeBranch === bid) patch({ diff });
       } catch {
         /* the review tab shows the diff as unavailable */
       }
     },
-    [patch, ref],
+    [begin, patch, ref],
   );
 
   /** The merge gate's verdict for a branch (after its diff, so main's years are already cached). */
   const refreshMergeCheck = useCallback(
     async (bid: string) => {
       if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
+      const isLatest = begin("mergeCheck");
       try {
         const mergeCheck = await api.mergeCheck(bid);
-        if (ref.current.activeBranch === bid) patch({ mergeCheck });
+        if (isLatest() && ref.current.activeBranch === bid) patch({ mergeCheck });
       } catch {
         /* the Review tab keeps showing "checking" */
       }
     },
-    [patch, ref],
+    [begin, patch, ref],
   );
 
+  /** Show the diff; while a run is still solving it is not asked for (the run asks when it is done). */
   const toggleDiff = useCallback(() => {
     const st = ref.current;
     if (st.activeBranch === mainIdOf(st.projects, st.projectId)) return;
     const on = !st.diffMode;
     patch({ diffMode: on, ...(on ? { tab: "review" as const, sideOpen: true } : {}) });
-    if (on && !st.diff) void refreshDiff(st.activeBranch);
+    if (on && !st.diff && !st.solving) void refreshDiff(st.activeBranch);
   }, [patch, ref, refreshDiff]);
 
   /**

@@ -87,9 +87,11 @@ export function usePlanner() {
         await maint.addOutage(sel, bid);
         await maint.loadExtras(bid); // a new branch loads its (empty) list too: settle on the API's view
       },
-      /** Review the branch: open the Review tab (Merge lives there). */
+      /** Review the branch: open the Review tab (Merge lives there). A run still solving asks for both itself
+       * when it is done, so nothing is asked of a result that is not there yet. */
       goReview: () => {
         patch({ tab: "review", sideOpen: true });
+        if (ref.current.solving) return;
         if (!ref.current.diff) void flows.refreshDiff(ref.current.activeBranch);
         if (!ref.current.mergeCheck) void flows.refreshMergeCheck(ref.current.activeBranch);
       },

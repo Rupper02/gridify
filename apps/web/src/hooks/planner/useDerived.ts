@@ -47,12 +47,13 @@ export function useDerived(s: PlannerState) {
     // the merge gate as the buttons show it, and the ledger's open counts for the tab's badge
     const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running);
     const openFindings = openCounts(s.findings);
-    // the reviewer's current comment, and whether it is of an earlier run than the one shown; the proposals waiting in the open conversation
+    // the reviewer's current comment, and whether it is of an earlier run than the one shown (a run still solving
+    // replaces the result it reviewed, before its own run key is known); the proposals waiting in the open conversation
     const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
-    const reviewStale = reviewCurrent ? isSuperseded(reviewCurrent, s.result?.run_key) : false;
+    const reviewStale = reviewCurrent ? s.solving || isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
     return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
-  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.thread]);
+  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);

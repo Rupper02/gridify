@@ -7,11 +7,9 @@ import {
   diffColor,
   diffMapFor,
   flaggedYears,
+  isNewWorkRisk,
   mergeChangeCount,
-  outageTitle,
-  verdictOnBranch,
-  verdictOnMain,
-  workTitle,
+  workTone,
   worksInOrder,
   yearDeltaFor,
   yearEffect,
@@ -28,7 +26,7 @@ const yd = (over: Partial<YearDelta> = {}): YearDelta => ({
 const work = (over: Partial<WorkDelta> = {}): WorkDelta => ({
   outage_id: "mw-1", year: 2032, work: "maintenance", with_ids: [], verdict_on_main: "feasible", verdict_on_branch: "curtailment",
   curtailed_mw_main: 0, curtailed_mw_branch: 40, demand_at_risk_mw_main: 0, demand_at_risk_mw_branch: 0,
-  n1_findings_main: null, n1_findings_branch: null, n1_new: [], n1_cleared: [], change: "worse",
+  n1_findings_main: null, n1_findings_branch: null, n1_new: [], n1_cleared: [], change: "worse", on_base: true,
   consequence: "Feasible on main, but needs 40.0 MW of curtailment on this branch.", message: "", ...over,
 });
 
@@ -96,34 +94,32 @@ describe("year-aware diff", () => {
 });
 
 describe("planned works in the diff", () => {
-  it("states each verdict with its MW", () => {
-    const w = work();
-    expect(verdictOnMain(w)).toBe("Feasible");
-    expect(verdictOnBranch(w)).toBe("Curtailment 40 MW");
-    expect(verdictOnMain(work({ verdict_on_main: null }))).toBe("Not studied");
-    expect(verdictOnBranch(work({ verdict_on_branch: "demand_at_risk", demand_at_risk_mw_branch: 12.34 }))).toBe("Demand at risk 12.3 MW");
-  });
 
   it("lists the viewed year's windows first, then the ones made worse", () => {
     const ws = [work({ outage_id: "a", year: 2029, change: "unchanged" }), work({ outage_id: "b", year: 2034, change: "worse" }), work({ outage_id: "c", year: 2031, change: "better" })];
     expect(worksInOrder(ws, 2031).map((w) => w.outage_id)).toEqual(["c", "b", "a"]);
   });
 
-  it("titles a window by its work and element", () => {
-    const o: Outage = { outage_id: "mw-1", element_kind: "gen", element_id: "EX-9", season: "Summer", year: 2032, weeks: 4, kind: "outage", work: "maintenance", repower: null, factor: null };
-    expect(workTitle(work({ work: "repowering" }), o, null)).toBe("Repowering · gen EX-9");
-    expect(workTitle(work(), undefined, null)).toBe("Maintenance · mw-1");
-  });
 });
 
 describe("what merging changes on main", () => {
   const o = { outage_id: "mw-2", element_kind: "gen", element_id: "EX-9", season: "Winter", year: 2031, weeks: 4, kind: "outage", work: "replacement", repower: null, factor: null } as Outage;
-  it("titles a window from the window itself", () => {
-    expect(outageTitle(o, null)).toBe("Replacement · gen EX-9");
-  });
   it("counts what is added and removed", () => {
     expect(mergeChangeCount(undefined)).toBe(0);
     const r = { reinforcement_id: "rf-1", kind: "gsp", element_id: 0, action: "add_parallel", factor: 2, label: "Third SGT" };
     expect(mergeChangeCount({ works_added: [o], works_removed: [], reinforcements_added: [r], reinforcements_removed: [] })).toBe(2);
+  });
+});
+
+describe("a works window the branch adds", () => {
+  it("is a new risk when it costs something, even if the projects do not change it", () => {
+    const added = work({ on_base: false, change: "unchanged", verdict_on_main: "curtailment", curtailed_mw_main: 14.2, curtailed_mw_branch: 14.2 });
+    expect(isNewWorkRisk(added)).toBe(true);
+    expect(workTone(added)).toBe("bad");
+  });
+  it("is not a risk when feasible with no second faults, and main's own windows keep the projects' tone", () => {
+    expect(isNewWorkRisk(work({ on_base: false, verdict_on_branch: "feasible", n1_findings_branch: 0 }))).toBe(false);
+    expect(isNewWorkRisk(work({ on_base: false, verdict_on_branch: "feasible", n1_findings_branch: 2 }))).toBe(true);
+    expect(workTone(work({ on_base: true, change: "unchanged", verdict_on_branch: "curtailment" }))).toBe("neutral");
   });
 });

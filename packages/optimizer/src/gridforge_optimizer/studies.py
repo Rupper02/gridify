@@ -563,10 +563,9 @@ def _asks(c: Candidate) -> tuple[str, float]:
 def _project_probe(net, case, bus: int, c: Candidate, mw: float, direction: str) -> tuple[bool, Any, int]:
     """Probe `mw` of THIS project at `bus`: its own technology, so the case dispatch applies (PV at nil
     at winter peak, a battery charging), with its import scaled along."""
-    asked = _asks(c)[1]
     if direction == "import":
         return _probe(net, case, lambda: inject_sgen(net, bus, 0.0, "connection-probe", c.technology, import_mw=mw))
-    imp = None if c.import_mw is None or not asked else float(c.import_mw) * mw / asked
+    imp = c.import_at(mw)
     return _probe(net, case, lambda: inject_sgen(net, bus, mw, "connection-probe", c.technology, import_mw=imp))
 
 

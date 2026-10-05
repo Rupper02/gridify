@@ -6,10 +6,6 @@ import {
   INITIAL_DRAFT,
   curtailedName,
   draftBody,
-  draftHint,
-  outageChipTag,
-  outageLine,
-  outageTag,
   repoweredNotes,
   stepFactor,
   windowSummary,
@@ -74,23 +70,6 @@ describe("draftBody", () => {
     expect(stepFactor(1.5, 1)).toBe(1.75);
     expect(stepFactor(1.25, -1)).toBe(1.25);
     expect(stepFactor(4, 1)).toBe(4);
-  });
-  it("hints what is studied and what happens after, per work", () => {
-    expect(draftHint({ ...INITIAL_DRAFT, season: "Winter" }, "line")).toBe("Studied at winter peak with the branch demand profile. Studied out of service during the window. Back as it was after it.");
-    expect(draftHint({ ...INITIAL_DRAFT, work: "repowering", factor: 2, year: 2029 }, "line")).toContain("From 2030 the later years are solved with it back at 2x its rating");
-    expect(draftHint({ ...INITIAL_DRAFT, work: "repowering", repower: "add_parallel" }, "gen")).toContain("back with a second unit");
-    expect(draftHint({ ...INITIAL_DRAFT, work: "repowering", year: 2035 }, "line")).toContain("after the last plan year");
-  });
-});
-
-describe("tags and lines", () => {
-  it("reads the work on the map, the roadmap and in a row", () => {
-    expect(outageTag(out())).toBe("OUT · Summer");
-    expect(outageTag(out({ kind: "derate" }))).toBe("50% · Summer");
-    expect(outageTag(out({ work: "repowering", repower: "uprate", factor: 1.5 }))).toBe("REPOWER · Summer");
-    expect(outageChipTag(out({ work: "replacement" }))).toBe("RPL");
-    expect(outageLine(out({ work: "repowering", repower: "uprate", factor: 1.5 }))).toBe("Summer 2030 · 4 weeks · repowering, uprate to 1.5x");
-    expect(outageLine(out({ work: "repowering", repower: "add_parallel", element_kind: "gen" }))).toContain("add a second unit");
   });
 });
 

@@ -6,7 +6,7 @@ import { Plus, WarningDiamond } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { effYearOf, headlineMw, nameElements, projectLabel, queueGroups } from "../lib/derive";
+import { busWhere, effYearOf, headlineMw, nameElements, projectLabel, queueGroups } from "../lib/derive";
 import { C, ST, fmtMw, techLabel, tint } from "../theme";
 import type { QueueItem, RegistryItem } from "../types";
 import { TechTile } from "./ui";
@@ -72,7 +72,7 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
                     {onBranch && !derived.onMain && <span className="tag-branch">this branch</span>}
                   </span>
                   <span className="ellipsis" style={{ fontSize: 12, color: C.ink2 }}>{projectLabel(x)}</span>
-                  <span style={{ fontSize: 11, color: C.mute }}>{techLabel(x.technology)} · bus {x.bus_id ?? "–"}</span>
+                  <span style={{ fontSize: 11, color: C.mute }}>{techLabel(x.technology)} · {busWhere(derived.ix, x.bus_id)}</span>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.3 }}>
                   <span className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{fmtMw(mw)} MW</span>

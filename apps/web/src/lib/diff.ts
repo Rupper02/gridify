@@ -136,6 +136,14 @@ export function verdictText(v: WorkVerdict | null, curtailed: number | null, atR
   return label;
 }
 
+/** A window only the branch schedules that costs something (curtailment, demand at risk, second faults during it):
+ * main carries none of it, so it reads as a new risk even when the branch's projects do not change it. */
+export const isNewWorkRisk = (w: WorkDelta): boolean =>
+  w.on_base === false && (w.verdict_on_branch !== "feasible" || (w.n1_findings_branch ?? 0) > 0);
+
+/** The row's tone: a new risk is bad; otherwise what the branch's projects do to the window. */
+export const workTone = (w: WorkDelta): Tone => (isNewWorkRisk(w) ? "bad" : WORK_CHANGE[w.change].tone);
+
 export const verdictOnMain = (w: WorkDelta): string => verdictText(w.verdict_on_main, w.curtailed_mw_main, w.demand_at_risk_mw_main);
 export const verdictOnBranch = (w: WorkDelta): string => verdictText(w.verdict_on_branch, w.curtailed_mw_branch, w.demand_at_risk_mw_branch);
 

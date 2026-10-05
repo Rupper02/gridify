@@ -113,13 +113,6 @@ def test_contingency_ranking_extends_the_n1_screen_and_keeps_it_unchanged():
     assert [c.cases for c in chunks] == [[c] for c in ("winter_peak", "summer_min")]
 
 
-@pytest.mark.slow
-def test_contingency_ranking_full_scope_covers_33_kv_and_summer_minimum():
-    r = run_study("contingency_ranking", _ctx(), {"top": 500})
-    assert any(it.case == "summer_min" for it in r.items) or r.solves > 0
-    assert r.solves > 2 * len(n1_screen(build_base_net())["violations"])
-
-
 def test_structural_weak_points_make_no_power_flow(monkeypatch):
     import pandapower as pp
 

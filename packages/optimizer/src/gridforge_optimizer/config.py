@@ -132,7 +132,7 @@ MERGE_GATE_LEVELS = {
     "gsp_over_limit": "blocker", "gsp_worse": "blocker", "gsp_near_limit": "warning",
     "n1_new_islanded": "blocker", "n1_new_limit": "blocker", "n1_worse": "warning",
     "alert_new_breach": "blocker", "alert_new_warn": "warning", "alert_worse": "warning",
-    "work_worse_severe": "blocker", "work_worse": "warning", "work_infeasible": "warning",
+    "work_worse_severe": "blocker", "work_worse": "warning", "work_infeasible": "warning", "work_new": "warning",
     "against_recommendation": "warning", "profile_differs": "warning", "proposals_removed": "warning",
     "preexisting": "info", "deferred_on_grid": "info",
 }

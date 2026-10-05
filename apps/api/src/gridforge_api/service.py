@@ -444,12 +444,21 @@ class PlanService:
         out["justification"] = ""
         return out
 
-    def warm(self, branch_id: str = "main", idle=lambda: True) -> None:
-        """Pre-compute a branch's plan on its own demand profile, then on every other selectable one,
-        so switching the profile finds the run in the cache. Best-effort, on the job worker: before
-        each extra profile it checks `idle()` and stops as soon as a real job is waiting."""
+    def _payload_key(self, b, body: OptimizeRequest, branch_id: str) -> str:
+        # the payload is per branch (it carries the branch id, schedule and ledger write), while the engine
+        # results underneath it are shared by every branch with the same inputs
+        return self.cache.key("payload", resolve_params(body), b.ckey, b.baseline, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
+
+    def payload_key(self, body: OptimizeRequest, branch_id: str) -> str:
+        """The identity of `optimize_payload(body, branch_id)`'s result (the view year only orders the work):
+        two runs with the same key compute the same thing, so a job for one can serve both."""
+        return self._payload_key(self.inputs(branch_id)._replace(req=body), body, branch_id)
+
+    def warm_profiles(self, branch_id: str = "main", idle=lambda: True) -> None:
+        """Pre-compute a branch's plan on every selectable demand profile other than its own (its own is a
+        real job the planner joins), so switching the profile finds the run in the cache. Best-effort, on
+        the job worker: before each profile it checks `idle()` and stops as soon as a real job is waiting."""
         own = self.inputs(branch_id).req
-        self.optimize_payload(own.model_copy(update={"with_justification": False}), branch_id)
         for fid, fc in FORECASTS.items():
             if not idle():
                 return
@@ -469,9 +478,7 @@ class PlanService:
         stored = self.inputs(branch_id)
         b = stored._replace(req=body)
         params = resolve_params(body)
-        # the payload is per branch (it carries the branch id, schedule and ledger write), while the engine
-        # results underneath it are shared by every branch with the same inputs
-        key = self.cache.key("payload", params, b.ckey, b.baseline, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
+        key = self._payload_key(b, body, branch_id)
         if key in self.cache.payload:
             return self.cache.payload[key]
 
@@ -493,7 +500,7 @@ class PlanService:
             self.record_findings(branch_id, b, result, years)
         if body.with_justification and result.queue:  # nothing queued (main today): nothing to narrate
             report("narration", 0.95)
-            out["justification"] = narration.safely(self.narrator.justify, narration.summarize_queue(result))
+            out["justification"] = narration.safely(self.narrator.justify, narration.summarize_queue(result, self.projects.names(b.project_id)))
 
         self.cache.payload[key] = out
         return out

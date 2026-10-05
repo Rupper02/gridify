@@ -17,7 +17,7 @@ from pydantic_ai.models import Model
 from . import prompts
 from .schemas import HealthBrief, ReviewComment, SpecialistReport, StewardPlan
 from .streaming import on_event
-from .tools import TOOL_GROUPS, AgentDeps
+from .tools import TOOL_GROUPS, AgentDeps, scope_instructions
 
 # which studies each specialist may run (its remit; the tools refuse the rest)
 SPECIALIST_STUDIES: dict[str, tuple[str, ...]] = {
@@ -112,6 +112,7 @@ def build(model_factory: Callable[[str], Model]) -> dict[str, Agent]:
             retries=2,
             capabilities=[DBOSDurability(event_stream_handler=on_event, parallel_execution_mode="sequential")],
         )
+        agent.instructions(scope_instructions)  # every run is told which branch it works on
         if name in VALIDATORS:
             agent.output_validator(VALIDATORS[name])
         agents[name] = agent

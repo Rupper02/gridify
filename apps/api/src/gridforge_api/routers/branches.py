@@ -129,7 +129,7 @@ def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
     out["head_branch"] = branch_id
     out["narration"] = ""
     if with_narration:
-        out["narration"] = narration.safely(narrator.narrate_diff, narration.summarize_diff(d))
+        out["narration"] = narration.safely(narrator.narrate_diff, narration.summarize_diff(d, projects.names(_project_of(branch_id))))
     return out
 
 
@@ -208,7 +208,7 @@ def branch_suggestions(branch_id: str, limit: int = MAX_SUGGESTIONS, with_narrat
         d = s.model_dump()
         d["narration"] = ""
         if with_narration:
-            d["narration"] = narration.safely(narrator.narrate_suggestion, narration.summarize_suggestion(s, base))
+            d["narration"] = narration.safely(narrator.narrate_suggestion, narration.summarize_suggestion(s, base, projects.names(_project_of(branch_id))))
         out.append(d)
     return {"branch_id": branch_id, "request_id": request_id, "suggestions": out}
 

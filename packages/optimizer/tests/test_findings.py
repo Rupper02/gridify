@@ -108,7 +108,7 @@ def test_fingerprints_are_stable_unique_and_value_independent():
 def test_a_clean_result_has_no_findings_and_every_extractor_is_registered():
     clean = _res([_qi("A", "Phase1", 1, recommended=2029)], [_yr(2030, gsp=100.0, limit=527.0)])
     assert extract_findings(clean, scheduled={"A": 2029}) == []
-    assert len(EXTRACTORS) == 9 and len({e.__name__ for e in EXTRACTORS}) == 9
+    assert len({e.__name__ for e in EXTRACTORS}) == len(EXTRACTORS)
 
 
 def test_against_recommendation_truth_table():

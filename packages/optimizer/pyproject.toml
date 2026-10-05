@@ -23,7 +23,6 @@ dev = [
 addopts = "-n 4"  # modules in parallel (pytest-xdist); each worker pays numba's JIT once
 markers = [
     "n1: runs the real N-1 screen inside optimize (stubbed elsewhere for speed)",
-    "slow: a full-scope study (minutes); opt in with -m slow",
 ]
 
 [build-system]

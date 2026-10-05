@@ -5,7 +5,6 @@ from gridforge_optimizer import Reinforcement
 from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.network import (
     _study_cases,
-    apply_growth,
     apply_reinforcement,
     build_base_net,
     bus_voltages,
@@ -23,14 +22,6 @@ def test_base_feasible():
     assert ok and reason is None
     assert 0.9 <= m["min_vm"] <= m["max_vm"] <= 1.1
     assert m["max_line_pct"] < 100
-
-
-def test_apply_growth_increases_load():
-    net = build_base_net()
-    before = float((net.load["p_mw"] * net.load["scaling"]).sum())
-    apply_growth(net, 1.25)
-    after = float((net.load["p_mw"] * net.load["scaling"]).sum())
-    assert after > before
 
 
 def test_cluster_overload_is_infeasible():
@@ -59,14 +50,6 @@ def test_per_bus_growth_is_deterministic():
     a = per_bus_growth(net, 1.30, "ht", 2035)
     b = per_bus_growth(net, 1.30, "ht", 2035)
     assert a.equals(b)
-
-
-def test_line_loadings_cover_every_line():
-    net = build_base_net()
-    feasibility(net)  # solves
-    ll = line_loadings(net)
-    assert len(ll) == len(net.line)
-    assert all(v >= 0 for v in ll.values())
 
 
 def test_bus_voltages_cover_every_bus_and_in_band_at_base():

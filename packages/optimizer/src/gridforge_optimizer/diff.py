@@ -150,7 +150,8 @@ class WorkDelta(BaseModel):
     n1_findings_branch: int | None = None
     n1_new: list[dict] = []  # second-fault findings the branch adds during the window (by n1_key), worst first
     n1_cleared: list[dict] = []  # second-fault findings main's plan has during the window and the branch's does not
-    change: str = "unchanged"  # worse|better|unchanged|unstudied
+    change: str = "unchanged"  # worse|better|unchanged|unstudied: what the branch's projects do to the window
+    on_base: bool = True  # base schedules this window too; False = the branch adds it (its risk is new, whatever `change` says)
     consequence: str = ""
     message: str = ""  # the branch study's own summary
 
@@ -359,6 +360,15 @@ _VERDICT_TEXT: dict[str, Callable[[OutageStudy], str]] = {
 }
 
 
+# the same, finishing "... on main's plan it would ..." (a window main does not schedule)
+_VERDICT_WOULD: dict[str, Callable[[OutageStudy], str]] = {
+    "feasible": lambda s: "be feasible",
+    "curtailment": lambda s: f"need {s.curtailed_mw:.1f} MW of curtailment",
+    "demand_at_risk": lambda s: f"put {s.demand_at_risk_mw:.1f} MW of demand at risk",
+    "not_feasible": lambda s: "not be feasible even with curtailment",
+}
+
+
 def _verdict_text(s: OutageStudy) -> str:
     return _VERDICT_TEXT.get(s.verdict, lambda _s: s.verdict.replace("_", " "))(s)
 
@@ -417,6 +427,20 @@ def _second_faults_text(new: list[dict], cleared: list[dict]) -> str:
     return "; ".join(parts)
 
 
+def _new_window_consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: str) -> str:
+    """A window only the branch schedules: its own cost leads (main does not carry it), then what the same
+    window would cost on main's plan, i.e. what the branch's projects add to it."""
+    here = _verdict_text(on_branch)
+    faults = on_branch.n1_during.findings if on_branch.n1_during else 0
+    lead = f"New on this branch: {here}" + (f", and a second fault during it finds {faults} problem{'s' if faults != 1 else ''}" if faults else "") + "."
+    if on_main is None:
+        return lead
+    there = _VERDICT_WOULD.get(on_main.verdict, lambda s: f"be {_verdict_text(s)}")(on_main)
+    if change == "unchanged":
+        return f"{lead} Main does not schedule it; on main's plan it would {there} too, so the cost is the window's, not the projects'."
+    return f"{lead} Main does not schedule it; on main's plan it would {there}, so the branch's projects make it {change}."
+
+
 def _consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: str, new: list[dict] = (), cleared: list[dict] = ()) -> str:
     here = _verdict_text(on_branch)
     if on_main is None:
@@ -437,14 +461,17 @@ def _consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: st
     return f"{there} on main; {here} on this branch.{tail}"
 
 
-def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy]) -> list[WorkDelta]:
-    """Each branch window (by outage id and year) against the same window studied on main's plan."""
+def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy], scheduled_on_base: set[str] | None = None) -> list[WorkDelta]:
+    """Each branch window (by outage id and year) against the same window studied on main's plan.
+    `scheduled_on_base` is the outage ids main schedules itself (None = not known: every window counts
+    as main's too); a window outside it is one the branch adds, and its consequence says so."""
     main_by = {(s.outage_id, s.year): s for s in on_main}
     out: list[WorkDelta] = []
     for s in sorted(on_branch, key=lambda s: (s.year, s.outage_id)):
         m = main_by.get((s.outage_id, s.year))
         change = _work_change(m, s)
         new, cleared = _work_n1(m, s)
+        on_base = scheduled_on_base is None or s.outage_id in scheduled_on_base
         out.append(
             WorkDelta(
                 outage_id=s.outage_id,
@@ -462,7 +489,8 @@ def diff_works(on_main: list[OutageStudy], on_branch: list[OutageStudy]) -> list
                 n1_new=new,
                 n1_cleared=cleared,
                 change=change,
-                consequence=_consequence(m, s, change, new, cleared),
+                on_base=on_base,
+                consequence=_consequence(m, s, change, new, cleared) if on_base else _new_window_consequence(m, s, change),
                 message=s.message,
             )
         )
@@ -493,7 +521,9 @@ def diff_results(
     of the same id that base itself studied."""
     b_ratings, h_ratings = _ratings(base.queue), _ratings(head.queue)
     projects = _project_deltas(base.queue, head.queue)
-    works = diff_works(_studies(base.years) if works_on_base is None else works_on_base, _studies(head.years))
+    # the windows base schedules itself are the ones its own years studied (unknown when it has no years)
+    scheduled_on_base = {s.outage_id for s in _studies(base.years)} if base.years else None
+    works = diff_works(_studies(base.years) if works_on_base is None else works_on_base, _studies(head.years), scheduled_on_base)
 
     mw2030_b = _mw_by_phase_key(base, "2030", b_ratings)
     mw2030_h = _mw_by_phase_key(head, "2030", h_ratings)
@@ -517,6 +547,7 @@ def diff_results(
         "n_dropped": sum(1 for d in projects if d.change == "dropped"),
         "n_works_worse": sum(1 for w in works if w.change == "worse"),
         "n_works_better": sum(1 for w in works if w.change == "better"),
+        "n_works_new": sum(1 for w in works if not w.on_base),
     }
 
     return ConsequenceDiff(

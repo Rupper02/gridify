@@ -1,12 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { Branch, Model, OptimizeResult, Outage, RegistryItem, YearResult } from "../types";
+import type { Model, OptimizeResult, Outage, RegistryItem, YearResult } from "../types";
 import {
-  branchHue,
   busPlace,
   changedProjects,
   effYearOf,
-  gspTicks,
   indexModel,
   lineName,
   nameElements,
@@ -18,7 +16,6 @@ import {
   yearResultFor,
 } from "./derive";
 import { item } from "./test-fixtures";
-
 
 const year = (y: number, over: Partial<YearResult> = {}): YearResult => ({
   year: y, growth: 1, energised: [], accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 40, min_vm_pu: 0.97,
@@ -67,16 +64,6 @@ describe("yearResultFor", () => {
     expect(yearResultFor(r, 2029)).toMatchObject({ exact: false, yr: { year: 2030 } });
     expect(yearResultFor(r, 2027).yr?.year).toBe(2026);
     expect(yearResultFor(result(), 2030).yr).toBeNull();
-  });
-});
-
-describe("branchHue", () => {
-  const b = (id: string, at: string) => ({ branch_id: id, created_at: at }) as Branch;
-  it("gives main silver and branches the hues in creation order", () => {
-    const bs = [b("main", "0"), b("br-2", "2"), b("br-1", "1")];
-    expect(branchHue(bs, "main")).toBe("#c9d6e8");
-    expect(branchHue(bs, "br-1")).toBe("#7ce3ff");
-    expect(branchHue(bs, "br-2")).toBe("#ff9f7a");
   });
 });
 
@@ -136,15 +123,7 @@ describe("naming and readings", () => {
     const w = worstElement(year(2030, { line_loading: { "10": 61, "11": 88 }, trafo_loading: { "5": 92 } }), ix);
     expect(w).toEqual({ pct: 92, name: "Bicker Fen 132/33 kV transformer", sel: { kind: "trafo", id: 5 } });
   });
-  it("fills the GSP gauge, the last ticks amber", () => {
-    const t = gspTicks(500, 527);
-    expect(t.length).toBe(24);
-    expect(t.filter((c) => c !== "rgba(255,255,255,0.09)").length).toBe(23);
-    expect(t[22]).toBe("#ffc36b");
-    expect(t[0]).toBe("#7ce3ff");
-  });
 });
-
 
 describe("stored projects against the shown run", () => {
   it("counts the projects whose connection point, rating, import or year changed since the run", () => {

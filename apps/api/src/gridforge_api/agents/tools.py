@@ -20,6 +20,7 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import contextmanager
+from functools import partial
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,33 +29,53 @@ from pydantic_ai import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
 from gridforge_optimizer import STUDIES
+from gridforge_optimizer.naming import name_payload
 
 from .. import ledger, repository
-from ..config import AGENT_RUN_BUDGET, SOLVER_GATE_MAX_WAIT_S, now
+from ..config import AGENT_RUN_BUDGET, now
 from ..schemas import NewCandidate, OutageCreate, ReinforcementCreate
 from .evidence import EvidenceLedger
 
 TOP_ITEMS = 25  # how many study items a tool returns to the model (the full study stays in the cache)
 
 
-class SolverGate:
-    """One power flow at a time in the process, operators first: wait while an operator's job is queued
-    or running (bounded), then take the lock every power flow runs under."""
+WAIT_NOTE_S = 5.0  # how often a waiting study tells the trace it is still waiting for the solver
 
-    def __init__(self, jobs, lock: threading.RLock, max_wait_s: float = SOLVER_GATE_MAX_WAIT_S):
+
+class SolverBusy(Exception):
+    """The solver stayed with an operator's work past what this agent run's own time allows."""
+
+
+class SolverGate:
+    """One power flow at a time in the process, operators first: wait while an operator's job is queued or running,
+    for as long as the agent run's own time allows (`deadline`, monotonic seconds; None = no limit), telling the trace
+    every few seconds (`waiting(seconds)`), then take the lock every power flow runs under. Waiting for the operator
+    is the agent's turn coming, not a failure: only a run out of time stops (`SolverBusy`)."""
+
+    def __init__(self, jobs, lock: threading.RLock):
         self._jobs = jobs
         self._lock = lock
-        self.max_wait_s = max_wait_s
 
     @contextmanager
-    def hold(self):
+    def hold(self, waiting: Callable[[float], None] | None = None, deadline: float | None = None):
         t0 = time.monotonic()
+        said = -WAIT_NOTE_S
         while self._jobs.busy():
-            if time.monotonic() - t0 > self.max_wait_s:
-                raise TimeoutError("an operator's job has had the solver for too long; try again later")
+            waited = time.monotonic() - t0
+            if deadline is not None and time.monotonic() > deadline:
+                raise SolverBusy(f"the operator's run kept the solver for the {waited:.0f} s this run could wait")
+            if waiting is not None and waited - said >= WAIT_NOTE_S:
+                waiting(waited)
+                said = waited
             time.sleep(0.5)
         with self._lock:
             yield
+
+
+def _gate(deps: "AgentDeps", report: Callable[[str, float], None] | None = None):
+    """The solver gate for this run: bounded by the run's deadline, and (with `report`) saying it waits."""
+    waiting = (lambda s: report(f"waiting for the solver: the operator's run comes first ({s:.0f} s)", 0.0)) if report else None
+    return partial(deps.h.solver_gate.hold, waiting=waiting, deadline=deps.deadline)
 
 
 @dataclass
@@ -90,6 +111,7 @@ class AgentDeps:
     solves: int = 0
     seq: int = 0
     context: dict = field(default_factory=dict)  # what a validator may need (e.g. the merge check)
+    deadline: float | None = None  # monotonic time after which the run stops waiting for the solver (None = no limit)
 
     def next_seq(self) -> int:
         self.seq += 1
@@ -117,11 +139,20 @@ def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[
         try:
             payload, key, solves = work(report) if reports else work()
             err = None
+        except SolverBusy as e:  # the operator's work came first for all this run could wait: an answer, not a failure
+            payload, key, solves, err = {"refused": f"Not run yet: {e}. Answer with what you have, say this study is waiting for "
+                                                    "the solver while the operator's run finishes, and offer to run it then."}, None, 0, str(e)
         except Exception as e:  # the step records the failure and the model hears it
             payload, key, solves, err = {"error": f"{type(e).__name__}: {e}"}, None, 0, str(e)
         deps.h.evidence.record_step(run_id=deps.run_id, step_id=step_id, seq=seq, tool=tool, args=args, cache_key=key,
                                     result=payload, solves=solves, started_at=t0, finished_at=now(), error=err)
-        return {"step_id": step_id, **payload, "solves": solves}
+        # the evidence keeps the engine's own words; the model reads every element by its name, the id in brackets
+        # for the proposals it may make ("Bicker Fen to Boston 132 kV, circuit 2 (line 1)"), never a bare index
+        out = {"step_id": step_id, **name_payload(payload, deps.h.projects.names(deps.project_id)), "solves": solves}
+        if "branch_id" in args:  # a tool about a branch says which one, the default it fell back to included
+            bid = out.get("branch_id") or args.get("branch_id") or deps.branch_id or deps.main_id
+            out["branch_id"], out["branch_name"] = bid, _branch_label(deps.h, bid)
+        return out
 
     out = deps.h.durable(f"tool:{tool}", step)
     deps.solves += int(out.get("solves", 0))
@@ -130,6 +161,29 @@ def _recorded(ctx: RunContext[AgentDeps], tool: str, args: dict, work: Callable[
 
 def _branch(ctx: RunContext[AgentDeps], branch_id: str | None) -> str:
     return branch_id or ctx.deps.branch_id or ctx.deps.main_id
+
+
+def _branch_label(h: Harness, branch_id: str) -> str:
+    """A branch as the operator knows it: its name, quoted, with its id ("qa-resize-fix" (br-d08cb74c))."""
+    with h.store.cursor() as con:
+        row = repository.branch_row(con, branch_id)
+    return f'"{row["name"]}" ({branch_id})' if row and row.get("name") and row["name"] != branch_id else branch_id
+
+
+def scope_instructions(ctx: RunContext[AgentDeps]) -> str:
+    """Where the run is working, told to the model every run (an agent that is not told guesses "main"): the
+    branch in view, what it was opened from, and that a tool reads it unless another branch_id is passed."""
+    d = ctx.deps
+    here = d.branch_id or d.main_id
+    with d.h.store.cursor() as con:
+        row = repository.branch_row(con, here)
+        parent = repository.base_of(con, row)["branch_id"] if row and here != d.main_id else None
+    this = _branch_label(d.h, here)
+    where = (f"branch {this}, opened from {_branch_label(d.h, parent)}" if parent
+             else f"{this}, the plan of record (what physically exists today)")
+    return (f"Where you are working: {where}. Every tool reads this branch unless you pass another branch_id, and "
+            f"every result says which branch it is about (branch_id, branch_name). Answer about this branch unless "
+            f"the operator names another; when a figure comes from another branch (main's, to compare), say which.")
 
 
 # --- read tools -------------------------------------------------------------------------------------------------
@@ -174,7 +228,7 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
 
         def work():
             h = ctx.deps.h
-            with h.solver_gate.hold():
+            with _gate(ctx.deps)():
                 res = h.plans.result_with_years(h.plans.inputs(bid))
             y = res.years.get(str(year))
             if y is None:
@@ -203,7 +257,7 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             with h.store.cursor() as con:
                 head = repository.require_branch(con, bid)
                 base = repository.base_of(con, head)
-            with h.solver_gate.hold():
+            with _gate(ctx.deps)():
                 verdict, evidence = h.plans.merge_check(bid, base["branch_id"])
             short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value,  # noqa: E731
                                "limit": f.limit, "fingerprint": f.finding_fingerprint, "message": f.message}
@@ -221,7 +275,7 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             h = ctx.deps.h
             with h.store.cursor() as con:
                 base = repository.base_of(con, repository.require_branch(con, bid))
-            with h.solver_gate.hold():
+            with _gate(ctx.deps)():
                 d = h.plans.diff(bid, base["branch_id"])
             years = {k: {"newly_overloaded_line_ids": y.newly_overloaded_line_ids, "newly_overloaded_trafo_ids": y.newly_overloaded_trafo_ids,
                          "cleared_line_ids": y.cleared_line_ids, "worst_line_delta": y.worst_line_delta, "gsp_export_head": y.gsp_export_head,
@@ -255,7 +309,7 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
 
         def work():
             h = ctx.deps.h
-            with h.solver_gate.hold():
+            with _gate(ctx.deps)():
                 sugs = h.plans.suggestions(bid, 5, request_id)
             out = [{"target": f"{s.target_type} {s.target_element_id}", "action": s.action, "connects_target": s.connects_target,
                     "freed_mw_2030": s.freed_mw_2030, "freed_mw_2035": s.freed_mw_2035, "newly_connected": s.newly_connected_project_ids,
@@ -296,7 +350,7 @@ def _study_tool(kind: str):
 
         def work(report):
             # the solver per chunk (operators get it between chunks); each chunk and the study's own stages stream to the trace
-            res = h.plans.study(bid, kind, p, progress=report, chunked=True, hold=h.solver_gate.hold)
+            res = h.plans.study(bid, kind, p, progress=report, chunked=True, hold=_gate(deps, report))
             return (_compact(res), h.plans.study_key(bid, kind, p), res.solves)
 
         return _recorded(ctx, f"study_{kind}", {"branch_id": bid, "params": p.model_dump()}, work, reports=True)
@@ -379,7 +433,7 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
     @ts.tool
     def propose_candidate_change(ctx: RunContext[AgentDeps], branch_id: str, request_id: str, bus_id: int | None = None, rating_mw: float | None = None,
                                  import_mw: float | None = None, commissioning_year: int | None = None) -> dict:
-        """Propose changing a project on a branch: its point of connection (bus_id, e.g. the higher-voltage busbar connection_options found), its export rating (a firm size), its import capacity or its requested year; omitted fields keep their value. Re-triaged; the next run measures it. The operator approves."""
+        """Propose changing a project on a branch: its point of connection (bus_id, e.g. the higher-voltage busbar connection_options found), its export rating (a firm size; a battery's import scales with it unless import_mw is given, as connection_options probed it), its import capacity or its requested year; omitted fields keep their value. Re-triaged; the next run measures it. The operator approves."""
         def work():
             h = ctx.deps.h
             changes = {k: v for k, v in {"bus_id": bus_id, "rating_mw": rating_mw, "import_mw": import_mw, "commissioning_year": commissioning_year}.items() if v is not None}
@@ -387,7 +441,8 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
                 branch = repository.require_open(con, branch_id, allow_main=False)
                 row = repository.update_candidate(con, branch_id, request_id, changes, h.projects.element_ids(branch["project_id"])["buses"])
             h.plans.invalidate("plan")
-            return ({**row, "summary": f"{request_id} on {branch_id}: " + ", ".join(f"{k} -> {v}" for k, v in changes.items())}, None, 0)
+            applied = {k: row.get(k) for k in ("bus_id", "rating_mw", "import_mw", "commissioning_year") if k in changes or (k == "import_mw" and "rating_mw" in changes and row.get(k) is not None)}
+            return ({**row, "summary": f"{request_id} on {branch_id}: " + ", ".join(f"{k} -> {v}" for k, v in applied.items())}, None, 0)
         return _recorded(ctx, "propose_candidate_change", {"branch_id": branch_id, "request_id": request_id, "bus_id": bus_id, "rating_mw": rating_mw,
                                                            "import_mw": import_mw, "commissioning_year": commissioning_year}, work)
 
@@ -398,7 +453,7 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             h = ctx.deps.h
             with h.store.cursor() as con:
                 row = repository.require_branch(con, branch_id)
-            with h.solver_gate.hold():
+            with _gate(ctx.deps)():
                 out = h.plans.optimize_payload(repository.branch_request(row), branch_id)
             queue = out.get("queue", [])
             by: dict[str, int] = {}

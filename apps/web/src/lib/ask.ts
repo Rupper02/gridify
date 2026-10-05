@@ -27,7 +27,8 @@ export function suggestedQuestions(c: AskContext): string[] {
   if (c.sel?.kind === "line" || c.sel?.kind === "trafo") {
     const noun = c.sel.kind === "line" ? "line" : "transformer";
     const place = c.ix ? (c.sel.kind === "line" ? lineName(c.ix, c.sel.id) : trafoName(c.ix, c.sel.id)) : "";
-    out.push(`When is the best window to take ${noun} ${c.sel.id}${place ? ` (${place})` : ""} out for 4 weeks?`);
+    // the name a person uses, the id in brackets for the agent's tools (the convention every agent answer follows)
+    out.push(`When is the best window to take ${place ? `${place} (${noun} ${c.sel.id})` : `${noun} ${c.sel.id}`} out for 4 weeks?`);
   }
   if (c.sel?.kind === "gen") out.push(`When is the best window to take generator ${c.sel.id} out for 8 weeks?`);
   if (c.outages.some((o) => o.year === c.year)) out.push(`What do the planned works in ${c.year} do to the network, and is anything at risk during them?`);

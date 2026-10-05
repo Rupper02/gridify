@@ -32,6 +32,14 @@ class Candidate(BaseModel):
     commissioning_year: int | None = None  # developer's requested energisation year (the timeline axis)
     import_mw: float | None = None  # charging capacity (batteries); None = same as the rating
 
+    def import_at(self, rating_mw: float) -> float | None:
+        """The import this project keeps at another export size: it scales with the rating (a battery
+        resized from 248 to 60 MW charges at 60 MW, not 248). None while it has no import of its own
+        (it then follows the rating) or no rating to scale from."""
+        if self.import_mw is None or not self.rating_mw:
+            return None
+        return float(self.import_mw) * rating_mw / float(self.rating_mw)
+
 
 class Reason(BaseModel):
     """Why a project was deferred or rejected, with the binding element where applicable."""
@@ -377,11 +385,13 @@ class ModelBus(BaseModel):
     vn_kv: float
     lon: float
     lat: float
+    place: str = ""  # where it is, by name (`naming`): its own name, or a neighbour's for a coded busbar; "" when nothing near is named
 
 
 class ModelLine(BaseModel):
     line_id: int
     line_name: str
+    display_name: str = ""  # what people call it (`naming`): the places it joins, parallel circuits numbered
     rating_a: float | None  # None: the file left it unrated (its loading is not checked)
     voltage_kv: float
     from_bus: int
@@ -396,6 +406,7 @@ class ModelLine(BaseModel):
 class ModelTransformer(BaseModel):
     trafo_id: int
     name: str
+    display_name: str = ""  # what people call it (`naming`): its substation and ratio
     sn_mva: float
     hv_bus: int
     lv_bus: int

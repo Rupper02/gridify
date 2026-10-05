@@ -8,6 +8,7 @@ below are the only text the model ever sees.
 from typing import Protocol
 
 from gridforge_optimizer import llm as opt_llm
+from gridforge_optimizer.naming import Names, name_text
 
 
 class Narrator(Protocol):
@@ -39,7 +40,17 @@ def safely(fn, summary: str) -> str:
 
 
 # --- summaries: plain text restating engine figures only -------------------------------------
-def summarize_queue(result) -> str:
+def _named(text: str, names: Names | None) -> str:
+    """The summary as the model should read it: every element by its name (`naming.name_text`), never a bare index."""
+    return name_text(text, names) if names is not None else text
+
+
+def _ids(kind: str, ids: list[int]) -> str:
+    """A list of element ids as words the namer reads ("lines 3, 4"), or "none"."""
+    return f"{kind}s {', '.join(str(i) for i in ids)}" if len(ids) > 1 else f"{kind} {ids[0]}" if ids else "none"
+
+
+def summarize_queue(result, names: Names | None = None) -> str:
     """Render the ordered queue as plain text for the narration prompt."""
     rows = []
     for q in result.queue:
@@ -48,15 +59,17 @@ def summarize_queue(result) -> str:
             f"#{q.rank or '-'} {q.request_id}: {q.status}; {q.technology} {q.rating_mw} MW at bus "
             f"{q.bus_id}; readiness={q.readiness_score}, grid_need={q.grid_need}{reason}"
         )
-    return "Connection queue (ordered):\n" + "\n".join(rows)
+    return _named("Connection queue (ordered):\n" + "\n".join(rows), names)
 
 
-def summarize_diff(d) -> str:
+def summarize_diff(d, names: Names | None = None) -> str:
     """Render a consequence diff as plain text for the narration prompt (restates figures only)."""
     h = d.headline
+    # the settings labels are the engine's shorthand ("ht · g30=1.08/g35=1.35 · w r/n/s=..."): words, and only when they differ
+    settings = (["Demand profile, growth and ranking weights: the same on both."] if d.base_label == d.head_label
+                else [f"Baseline settings: {d.base_label}", f"Proposed settings: {d.head_label}"])
     lines = [
-        f"Baseline: {d.base_label}",
-        f"Proposed: {d.head_label}",
+        *settings,
         f"MW connected by 2030: {h['mw_2030_base']} -> {h['mw_2030_head']} ({h['mw_2030_delta']:+})",
         f"MW connected by 2035: {h['mw_2035_base']} -> {h['mw_2035_head']} ({h['mw_2035_delta']:+})",
         f"Projects: {h['n_accelerated']} accelerated, {h['n_slipped']} slipped, "
@@ -70,27 +83,28 @@ def summarize_diff(d) -> str:
     for ph in d.phases:
         if ph.newly_overloaded_line_ids or ph.cleared_line_ids:
             lines.append(
-                f"Phase {ph.phase}: newly overloaded {ph.newly_overloaded_line_ids}, "
-                f"cleared {ph.cleared_line_ids}"
+                f"Phase {ph.phase}: newly overloaded {_ids('line', ph.newly_overloaded_line_ids)}, "
+                f"cleared {_ids('line', ph.cleared_line_ids)}"
             )
     for w in d.works:
-        if w.change in ("worse", "better"):
+        if w.change in ("worse", "better") or not w.on_base:
             lines.append(f"Planned work {w.outage_id} ({w.year}): {w.consequence}")
-    return "\n".join(lines)
+    return _named("\n".join(lines), names)
 
 
-def summarize_suggestion(s, base) -> str:
+def summarize_suggestion(s, base, names: Names | None = None) -> str:
     """Plain-text summary of a deterministic suggestion for the narration prompt (figures only)."""
     rating = {q.request_id: q.rating_mw for q in base.queue}
     connects = ", ".join(
         f"{rid} ({rating.get(rid, '?')} MW)" for rid in s.newly_connected_project_ids
     ) or "no additional projects"
-    return (
+    return _named(
         f"Deferred project(s): {', '.join(s.blocked_project_ids)}.\n"
         f"Binding constraint: {s.target_type} {s.target_element_id}.\n"
         f"Action: {s.action}.\n"
         f"Connects the blocked project: "
         f"{'yes' if s.connects_target else 'no — further reinforcement needed'}.\n"
         f"Frees ~{s.freed_mw_2030} MW by 2030 and ~{s.freed_mw_2035} MW by 2035.\n"
-        f"Projects that connect under it: {connects}."
+        f"Projects that connect under it: {connects}.",
+        names,
     )

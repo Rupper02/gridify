@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from gridforge_optimizer import Outage, Reinforcement
+from gridforge_optimizer import Candidate, Outage, Reinforcement
 from gridforge_optimizer.config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 from gridforge_optimizer.nged import commission_year
 
@@ -170,11 +170,19 @@ _CANDIDATE_EDITS = ("bus_id", "rating_mw", "import_mw", "commissioning_year")
 def update_candidate(con: Cursor, branch_id: str, request_id: str, changes: dict, valid_bus_ids: set[int]) -> dict:
     """Change a project's point of connection, export rating, import capacity or requested year on a
     branch (an agent's approved proposal or the operator's edit), re-triaged like a new entry; returns
-    the stored row (client fields). KeyError when the project is not on the branch."""
+    the stored row (client fields). A new export rating without an import of its own scales the import
+    along (`Candidate.import_at`), so a resized battery charges at its new size. KeyError when the project
+    is not on the branch."""
     current = next((r for r in candidate_rows(con, branch_id) if r["request_id"] == request_id), None)
     if current is None:
         raise KeyError(request_id)
-    row = {**current, **{k: v for k, v in changes.items() if k in _CANDIDATE_EDITS and v is not None}}
+    edits = {k: v for k, v in changes.items() if k in _CANDIDATE_EDITS and v is not None}
+    if "rating_mw" in edits and "import_mw" not in edits and current.get("import_mw") is not None:
+        scaled = Candidate(request_id=request_id, rating_mw=current.get("rating_mw"),
+                           import_mw=current["import_mw"]).import_at(float(edits["rating_mw"]))
+        if scaled is not None:
+            edits["import_mw"] = round(scaled, 3)
+    row = {**current, **edits}
     body = NewCandidate(
         applicant=row.get("applicant"), bus_id=row.get("bus_id"), technology=row.get("technology"), rating_mw=row.get("rating_mw"),
         readiness_score=float(row["readiness_score"]) if row.get("readiness_score") is not None else MANUAL_READINESS_DEFAULT,

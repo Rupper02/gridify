@@ -29,9 +29,8 @@ def test_previous_edition_keeps_removed_rows_and_drops_new_ones(tables):
     assert counts["t2a"].get("removed", 0) > 0 and counts["t2a"].get("new", 0) > 0  # the data has both
     cur = build_nged_net(tables, EDITION_CURRENT)
     prev = build_nged_net(tables, EDITION_PREVIOUS)
-    # a 6 MVA Great Hale transformer was Removed and a 7.5 MVA one is New: the previous edition has
-    # the smaller one, the current edition the bigger one
-    assert 6.0 in set(prev.trafo.sn_mva.round(1)) or len(prev.trafo) != len(cur.trafo)
+    # transformers NGED flagged Removed or New make the two editions' fleets differ
+    assert sorted(prev.trafo.sn_mva.round(1)) != sorted(cur.trafo.sn_mva.round(1))
     # the editions' own demand differs (both are scaled to the same NESO GSP peak for the power flow)
     assert float(prev.load.peak_mw.sum()) != pytest.approx(float(cur.load.peak_mw.sum()))
     # both editions are solvable networks with today's fleet

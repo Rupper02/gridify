@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from gridforge_optimizer import GridModel, ImportMeta, ModelAssumption
 from gridforge_optimizer.cim import cgmes_zip_bytes, export_cgmes
+from gridforge_optimizer.naming import Names, name_model
 from gridforge_optimizer.network import build_base_net, feasibility
 from gridforge_optimizer.nged import NGED_CGMES_META, gsp_boundary
 from gridforge_optimizer.sources import NgedSource, source_from_file, source_kind_for
@@ -77,6 +78,7 @@ class Projects:
         self.nged_id = nged_id
         self._sources: dict[str, Any] = {}
         self._models: dict[tuple[str, str], GridModel] = {}
+        self._names: dict[tuple[str, str], Names] = {}
         self._boundaries: dict[tuple[str, str], dict | None] = {}
         self._cgmes: dict[tuple[str, str, str], bytes] = {}
         # one computation per cache, however many requests ask at once: on a cold process the planner's boot and
@@ -88,6 +90,7 @@ class Projects:
         """Drop every in-process layer (the store was pointed elsewhere, or a project was deleted)."""
         self._sources.clear()
         self._models.clear()
+        self._names.clear()
         self._boundaries.clear()
         self._cgmes.clear()
 
@@ -143,8 +146,17 @@ class Projects:
         with self._locks["model"]:
             if key not in self._models:
                 self._models = {k: v for k, v in self._models.items() if k[0] != pid}  # one model per project
-                self._models[key] = self.source(pid).model()
+                self._names = {k: v for k, v in self._names.items() if k[0] != pid}
+                model = self.source(pid).model()
+                # named here too: a stored model (the warehouse's) may predate the names
+                self._names[key] = name_model(model)
+                self._models[key] = model
             return self._models[key]
+
+    def names(self, pid: str) -> Names:
+        """The project's elements by name (`naming`): what an agent's tool output is named with."""
+        self.model(pid)
+        return self._names[(pid, self.baseline(pid))]
 
     def model_dict(self, pid: str) -> dict:
         return self.model(pid).model_dump()

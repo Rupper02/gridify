@@ -49,7 +49,7 @@ export const GATE_KIND: Record<string, string> = {
   gsp_worse: "GSP export worse", gsp_near_limit: "GSP near its limit", n1_new_islanded: "New N-1: demand cut off",
   n1_new_limit: "New N-1 finding", n1_worse: "N-1 finding worse", alert_new_breach: "New customer breach",
   alert_new_warn: "New customer warning", alert_worse: "Customer alert worse", work_worse_severe: "Planned work infeasible",
-  work_worse: "Planned work harder", work_infeasible: "Planned work infeasible on both", against_recommendation: "Against the recommendation",
+  work_worse: "Planned work harder", work_infeasible: "Planned work infeasible on both", work_new: "New planned work with a cost", against_recommendation: "Against the recommendation",
   profile_differs: "Demand profile changes", proposals_removed: "Removes proposals", preexisting: "Already on main",
   deferred_on_grid: "Still deferred",
 };

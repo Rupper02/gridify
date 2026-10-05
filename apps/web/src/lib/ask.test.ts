@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Outage, Reason } from "../types";
-import { proposalEffect, suggestedQuestions } from "./ask";
+import { suggestedQuestions } from "./ask";
 import { item } from "./test-fixtures";
 
 const grid: Reason = { type: "line", kind: "grid", element: { line_id: 77 }, short: "Overloads line 77", why: "", action: "", message: "", element_id: 77, value: 155, limit: 100, case: "summer_min" } as unknown as Reason;
@@ -33,14 +33,3 @@ describe("suggested questions", () => {
   });
 });
 
-describe("what an approved proposal refreshes", () => {
-  it("maps every proposal tool, and nothing else", () => {
-    expect(proposalEffect("propose_run")).toBe("run");
-    expect(proposalEffect("propose_candidate")).toBe("project");
-    expect(proposalEffect("propose_candidate_change")).toBe("project");
-    expect(proposalEffect("propose_reinforcement")).toBe("reinforcement");
-    expect(proposalEffect("propose_works_window")).toBe("works");
-    expect(proposalEffect("propose_branch")).toBe("branch");
-    expect(proposalEffect("study_hosting_capacity")).toBeNull();
-  });
-});

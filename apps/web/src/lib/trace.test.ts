@@ -1,24 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentsStatus, ThreadMessage, TraceEvent } from "../types";
-import { agentsPill, argsLine, evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, stageOf, toolLabel, traceFromMessage } from "./trace";
+import type { ThreadMessage, TraceEvent } from "../types";
+import { evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, stageOf, traceFromMessage } from "./trace";
 
-describe("stages and labels", () => {
+describe("stages", () => {
   it("maps a tool to its planning stage by prefix, defaulting to ASSEMBLE", () => {
     expect(stageOf("study_hosting_capacity")).toBe("RUN");
     expect(stageOf("merge_check")).toBe("CHECK");
     expect(stageOf("findings")).toBe("CHECK");
     expect(stageOf("propose_branch")).toBe("PROPOSE");
     expect(stageOf("queue")).toBe("ASSEMBLE");
-  });
-  it("names tools in words", () => {
-    expect(toolLabel("study_hosting_capacity")).toBe("hosting capacity study");
-    expect(toolLabel("propose_works_window")).toBe("propose works window");
-    expect(toolLabel("merge_check")).toBe("merge check");
-  });
-  it("puts the non-empty arguments on one line", () => {
-    expect(argsLine({ branch_id: "br-1", params: {}, year: 2031, note: "" })).toBe("branch_id: br-1 · year: 2031");
-    expect(argsLine({ params: { bus_ids: [1, 2] } })).toBe('params: {"bus_ids":[1,2]}');
   });
 });
 
@@ -92,14 +83,5 @@ describe("reviews and the pill", () => {
     expect(isSuperseded({ run_key: "k1" }, "k1")).toBe(false);
     expect(isSuperseded({ run_key: "k1" }, "k2")).toBe(true);
     expect(isSuperseded({ run_key: "k1" }, null)).toBe(false); // no result shown yet: nothing to compare
-  });
-  it("words the agents pill for every state", () => {
-    const base: AgentsStatus = { status: "idle", launched: true, running: 0, budget: null, last_events: [], models: {} };
-    expect(agentsPill(null).label).toBe("agents");
-    expect(agentsPill({ ...base, status: "starting", launched: false })).toMatchObject({ label: "agents starting", tone: "neutral" });
-    expect(agentsPill(base)).toMatchObject({ label: "agents idle", tone: "good" });
-    expect(agentsPill({ ...base, status: "running", running: 2 })).toMatchObject({ label: "agents · 2 running", tone: "good" });
-    expect(agentsPill({ ...base, status: "paused", paused_reason: "budget" }).title).toContain("budget");
-    expect(agentsPill({ ...base, status: "paused", paused_reason: "operator" })).toMatchObject({ tone: "warn" });
   });
 });

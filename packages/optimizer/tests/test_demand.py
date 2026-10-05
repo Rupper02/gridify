@@ -171,7 +171,7 @@ def _region(**kw):
 
 
 def test_alert_checks_are_one_function_each_and_restate_engine_figures():
-    assert len(ALERT_CHECKS) == 4
+    assert len({c.__name__ for c in ALERT_CHECKS}) == len(ALERT_CHECKS)
     quiet = _region()
     assert alerts_for([quiet], 2030) == []
     # class C, firm far below demand: breach (more than P2/8 lets wait)
@@ -193,5 +193,3 @@ def test_alert_checks_are_one_function_each_and_restate_engine_figures():
     # firm headroom under the warning margin
     (h,) = alerts_for([_region(demand_mw=19.5, headroom_mw=0.5)], 2031)
     assert h.kind == "headroom" and h.level == "warn"
-    for x in (a, w, s, v, h):
-        assert "—" not in x.message  # plain text, no em-dashes

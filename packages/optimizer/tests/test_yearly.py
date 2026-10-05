@@ -2,7 +2,7 @@
 verdicts and repowering in test_maintenance.py)."""
 
 import pytest
-from _grid import base_net, stiff_bus
+from _grid import base_net, fleet_generator, stiff_bus
 
 from gridforge_optimizer import Candidate, OptimizeParams, Outage, evaluate_years, optimize, year_order
 from gridforge_optimizer.network import interpolate_growth_for_year
@@ -50,7 +50,7 @@ def test_a_project_is_in_service_only_from_its_year(stiff):
     assert after.gsp_export_mw - before.gsp_export_mw == pytest.approx(20.0, abs=3.0)
 
 
-def test_a_demand_connection_imports_at_winter_peak(stiff):
+def test_a_demand_connection_lowers_the_gsp_export(stiff):
     load = Candidate(request_id="DC", bus_id=stiff, technology="demand", rating_mw=0.0, import_mw=40.0)
     without = evaluate_year(2030, [], PARAMS, {}, n1=False)
     with_dc = evaluate_year(2030, [load], PARAMS, {"DC": 2030}, n1=False)
@@ -95,7 +95,7 @@ def test_derating_the_most_loaded_line_raises_its_loading():
 
 def test_an_existing_generator_outage_lowers_the_export():
     intact = _intact()
-    o = Outage(outage_id="g", element_kind="gen", element_id="EX-3000", season="Summer", year=2030)
+    o = Outage(outage_id="g", element_kind="gen", element_id=fleet_generator(base_net()), season="Summer", year=2030)
     study = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies[0]
     assert study.gsp_export_mw < intact.gsp_export_mw
 
@@ -133,7 +133,6 @@ def test_an_outage_that_strands_demand_is_a_violation():
     from gridforge_optimizer.network import N1_ISLAND_MIN_MW, _islanded_mw, _run_case, _study_cases
 
     net = base_net()
-    yr = evaluate_year(2030, [], PARAMS, {}, n1=False)
     case = next(c for c in _study_cases(net) if c.name == "winter_peak")
     for lid in net.line.index:  # find a radial circuit whose loss strands material demand
         net.line.at[lid, "in_service"] = False
@@ -146,7 +145,6 @@ def test_an_outage_that_strands_demand_is_a_violation():
     o = Outage(outage_id="isl", element_kind="line", element_id=str(int(lid)), season="Winter", year=2030)
     study = evaluate_year(2030, [], PARAMS, {}, outages=[o], n1=False).outage_studies[0]
     assert not study.ok and study.violations[0].type == "islanded"
-    assert yr.year == 2030
 
 
 def test_a_transformer_derate_keeps_its_impedance():

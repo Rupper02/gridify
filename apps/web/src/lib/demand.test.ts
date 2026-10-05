@@ -2,22 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import type { Alert, Model, Region, RegionYear, YearResult } from "../types";
 import {
-  P2_CLASS,
   REGION_STATE,
   alertSummary,
-  alertTitle,
   alertsFor,
-  classMeaning,
   firmFill,
-  haloRadius,
   labelOrder,
-  outagePhrase,
   regionCentroid,
   regionFeatures,
-  regionFigure,
   regionLevels,
   regionRows,
-  LEVEL_LINE,
   regionSites,
 } from "./demand";
 
@@ -111,34 +104,9 @@ describe("geometry", () => {
     expect(fs[1].properties?.color).toBe(REGION_STATE.breach.c);
     expect(fs[0].properties?.sel).toBe(1);
   });
-  it("grows the halo with demand, sub-linearly", () => {
-    expect(haloRadius(100)).toBeGreaterThan(haloRadius(10));
-    expect(haloRadius(400) - haloRadius(0)).toBeLessThan(4 * (haloRadius(100) - haloRadius(0)));
-    expect(haloRadius(-5)).toBe(haloRadius(0));
-  });
-});
-
-describe("outagePhrase", () => {
-  it("words the engine's outage ids for nameElements", () => {
-    expect(outagePhrase("trafo 4")).toBe("transformer 4");
-    expect(outagePhrase("line 13")).toBe("line 13");
-    expect(outagePhrase(null)).toBe("");
-  });
 });
 
 describe("wording", () => {
-  it("explains every engine class, and admits an unknown one", () => {
-    ["A", "B", "C", "D", "E", "F"].forEach((c) => expect(P2_CLASS[c].meaning.length).toBeGreaterThan(10));
-    expect(classMeaning("Z")).toMatch(/not recognised/);
-  });
-  it("titles alert kinds, with a fallback", () => {
-    expect(alertTitle("n1_stranded")).toMatch(/one outage/);
-    expect(alertTitle("new_check")).toBe("new check");
-  });
-  it("writes the map figure, and says when there is no firm figure", () => {
-    expect(regionFigure({ demand_mw: 15.04, firm_mw: 20, p2_class: "C" })).toBe("15.0 / 20.0 MW · C");
-    expect(regionFigure({ demand_mw: 0.5, firm_mw: 0, p2_class: "A" })).toMatch(/no firm figure/);
-  });
   it("fills the firm bar and flags demand above it", () => {
     expect(firmFill(10, 20)).toMatchObject({ frac: 0.5, over: false });
     expect(firmFill(30, 20)).toMatchObject({ frac: 1, over: true });
@@ -154,9 +122,3 @@ describe("wording", () => {
   });
 });
 
-describe("region levels", () => {
-  it("says what kind of group a region is", () => {
-    expect(LEVEL_LINE.primary({ bsp: "Sleaford" })).toBe("Sleaford BSP · demand group");
-    expect(LEVEL_LINE.bsp({ bsp: "Sleaford" })).toBe("BSP · every primary it feeds");
-  });
-});

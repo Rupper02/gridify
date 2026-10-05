@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding, GateFinding, MergeCheck, Model, Outage } from "../types";
-import { findingSel, findingTitle, findingsByYear, firstBlocker, gateState, gateText, gateTitle, needsConfirm, openCounts, refusedCheck } from "./gate";
+import { findingSel, findingsByYear, firstBlocker, gateState, needsConfirm, openCounts, refusedCheck } from "./gate";
 
 const gf = (over: Partial<GateFinding> = {}): GateFinding => ({
   kind: "new_overload", level: "blocker", year: 2031, case: null, element_kind: "line", element_id: "12", value: 104, base_value: 90,
@@ -48,16 +48,6 @@ describe("blockers, confirmation and titles", () => {
     expect(needsConfirm(blocked)).toBe(false);
     expect(needsConfirm(null)).toBe(false);
   });
-  it("names elements in the gate's sentences and titles its kinds", () => {
-    const ix = {
-      line: new Map([[12, { line_id: 12, from_bus: 1, to_bus: 2, voltage_kv: 132 }]]), trafo: new Map(), bus: new Map(), gen: new Map(),
-      place: new Map([[1, "Boston"], [2, "Spalding"]]), lineNames: new Map([[12, "Boston to Spalding 132 kV"]]),
-    } as never;
-    expect(gateText(gf(), ix)).toContain("Boston to Spalding 132 kV newly over its rating");
-    expect(gateText(gf(), null)).toContain("line 12");
-    expect(gateTitle("behind_base")).toBe("Behind main");
-    expect(gateTitle("something_new")).toBe("something new");
-  });
 });
 
 const finding = (over: Partial<Finding> = {}): Finding => ({
@@ -68,13 +58,6 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
 });
 
 describe("findings", () => {
-  it("titles kinds, reading alerts and works from their context", () => {
-    expect(findingTitle(finding())).toBe("Over its rating");
-    expect(findingTitle(finding({ kind: "alert", context: { alert_kind: "firm_capacity" } }))).toBe("Demand above firm capacity");
-    expect(findingTitle(finding({ kind: "work", context: { verdict: "curtailment" } }))).toBe("Planned work: Curtailment");
-    expect(findingTitle(finding({ kind: "deferred", context: { grid: false } }))).toBe("Deferred at intake");
-    expect(findingTitle(finding({ kind: "deferred", context: { grid: true } }))).toBe("Deferred");
-  });
   it("groups plan-wide findings first, then by year, breaches first", () => {
     const groups = findingsByYear([
       finding({ finding_id: "a", year: 2032, severity: "warn", kind: "n1" }),

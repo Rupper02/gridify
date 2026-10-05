@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import HTTPException
@@ -33,21 +33,27 @@ class JobRunner:
         self.solver_lock = solver_lock or threading.RLock()
 
     def submit(self, fn: Callable[[], None]) -> None:
-        """Run a fire-and-forget task on the worker (the warm-up). It does not take the solver lock: it is
-        background work that yields to jobs by itself (`plans.warm(idle=)`), and holding the lock for its
-        whole length would stall every agent study behind it."""
+        """Run a fire-and-forget task on the worker (the warm-up). It does not hold the solver lock for its whole
+        length (that would stall every agent study behind it): each result it misses takes the lock on its own
+        (`ResultCache.through`), and it yields to jobs by itself (`plans.warm_profiles(idle=)`)."""
         self._pool.submit(fn)
 
     def shutdown(self) -> None:
         self._pool.shutdown(wait=False, cancel_futures=True)
 
-    def start(self, kind: str, fn: Callable[[Callable[[str, float], None], Callable[[dict], None]], dict]) -> dict:
+    def start(self, kind: str, fn: Callable[[Callable[[str, float], None], Callable[[dict], None]], dict], key: str | None = None) -> dict:
         """Queue `fn(progress, publish)` and return the job record. `publish(partial)` stores a partial
-        result the planner can show while the job is still running (GET /jobs/{id}?partial=true)."""
+        result the planner can show while the job is still running (GET /jobs/{id}?partial=true).
+        `key` names what the job computes: a second start with the key of a queued or running job joins
+        it (the same record, its progress from the start) instead of queueing the same work behind it."""
         job_id = "job-" + uuid.uuid4().hex[:10]
-        rec = {"job_id": job_id, "kind": kind, "status": "queued", "stage": "queued", "fraction": 0.0,
+        rec = {"job_id": job_id, "kind": kind, "key": key, "status": "queued", "stage": "queued", "fraction": 0.0,
                "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None, "error": None, "cancel": False}
         with self._lock:
+            if key is not None:
+                same = next((r for r in self._jobs.values() if r["key"] == key and r["status"] in ("queued", "running") and not r["cancel"]), None)
+                if same is not None:
+                    return self._view(same)
             self._jobs[job_id] = rec
             if len(self._jobs) > MAX_JOB_RECORDS:
                 for old in sorted(self._jobs, key=lambda k: self._jobs[k]["created_at"])[:PRUNE_BATCH]:
@@ -72,7 +78,7 @@ class JobRunner:
                     return
                 rec["status"], rec["started_at"], rec["stage"] = "running", now(), "starting"
             try:
-                with self.solver_lock if self.solver_lock is not None else nullcontext():
+                with self._solver(rec):
                     out = fn(progress, publish)
                 with self._lock:
                     rec.update(status="done", stage="done", fraction=1.0, result=out, partial=None)
@@ -91,9 +97,24 @@ class JobRunner:
         self._pool.submit(run)
         return self._view(rec)
 
+    @contextmanager
+    def _solver(self, rec: dict):
+        """Hold the solver for the job. While another holder finishes (an agent's study chunk, a request's cache
+        miss) the job says so, rather than reading "starting" as if it were already building the network."""
+        if not self.solver_lock.acquire(blocking=False):
+            with self._lock:
+                rec["stage"] = "waiting for the solver"
+            self.solver_lock.acquire()
+            with self._lock:
+                rec["stage"] = "starting"
+        try:
+            yield
+        finally:
+            self.solver_lock.release()
+
     @staticmethod
     def _view(rec: dict, with_result: bool = False, with_partial: bool = False) -> dict:
-        out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel")}
+        out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel", "key")}
         out["has_partial"] = rec["partial"] is not None
         if with_result:
             out["result"] = rec["result"]

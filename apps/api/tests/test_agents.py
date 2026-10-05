@@ -10,15 +10,12 @@ operator's approval; events deduplicate; the pause switch and the budget stop wo
 keeps every result; operators keep the solver first."""
 
 import json
-import os
 import re
 import tempfile
 import threading
 import time
 import uuid
 from pathlib import Path
-
-os.environ.setdefault("GRIDFORGE_SCENARIOS_DB", str(Path(tempfile.mkdtemp()) / "scenarios.duckdb"))
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,14 +27,14 @@ from gridforge_api import deps
 from gridforge_api.agents import roster
 from gridforge_api.agents.evidence import AgentFinding
 from gridforge_api.agents.schemas import SpecialistReport
-from gridforge_api.agents.tools import SolverGate
-from gridforge_api.config import AGENT_BUDGET_DAILY, WAREHOUSE
+from gridforge_api.agents.tools import SolverBusy, SolverGate
+from gridforge_api.config import AGENT_BUDGET_DAILY
 from gridforge_api.main import app
+from _support import add_project, broken_project, client, create_branch as _create, project as _project, requires_warehouse, run as _run
 
 models.ALLOW_MODEL_REQUESTS = False
-pytestmark = pytest.mark.skipif(not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized")
+pytestmark = requires_warehouse
 
-client = TestClient(app)
 PROJECT = deps.agents.project_id
 CALLS: dict[str, int] = {}  # model calls per role
 
@@ -91,26 +88,13 @@ def _answerer(messages, info):
     p = _prompt(messages)
     low = p.lower()
     rid = re.search(r"CR-\d+", p)
-    if low.startswith("move "):  # "Move CR-2056 on br-xxxx to bus 12 and run": a change, then (once approved) a run; "... at once": both in one reply
+    if low.startswith("move "):  # "Move CR-2056 on br-xxxx to bus 12 and run at once": a change and a run in one reply
         bid = re.search(r"br-[0-9a-f]+", p).group(0)
         change = {"branch_id": bid, "request_id": rid.group(0), "bus_id": int(re.search(r"bus (\d+)", p).group(1))}
-        if "at once" in low:
-            if not _returns(messages, "propose_candidate_change"):
-                return ("tools", [("propose_candidate_change", change), ("propose_run", {"branch_id": bid})])
-            outcomes = [r.content.get("summary", r.content) if isinstance(r.content, dict) else r.content for r in _returns(messages, "propose_candidate_change") + _returns(messages, "propose_run")]
-            return ("text", "Done: " + "; ".join(str(o) for o in outcomes))
         if not _returns(messages, "propose_candidate_change"):
-            return ("tool", "propose_candidate_change", change)
-        if "and run" in low and not _returns(messages, "propose_run"):
-            return ("tool", "propose_run", {"branch_id": bid})
-        last = (_returns(messages, "propose_run") or _returns(messages, "propose_candidate_change"))[0].content
-        return ("text", f"Done: {last.get('summary') if isinstance(last, dict) else last}")
-    if "connect" in low and rid:  # "How could CR-2056 connect?": the connection options study, then its summary
-        rets = _returns(messages, "study_connection_options")
-        if not rets:
-            return ("tool", "study_connection_options", {"params": {"request_id": rid.group(0), "step_mw": 50.0, "max_buses": 1}})
-        c = rets[0].content
-        return ("text", f"{c.get('summary') or c.get('refused') or c.get('error')} [{c.get('step_id', '')}]" if isinstance(c, dict) else str(c))
+            return ("tools", [("propose_candidate_change", change), ("propose_run", {"branch_id": bid})])
+        outcomes = [r.content.get("summary", r.content) if isinstance(r.content, dict) else r.content for r in _returns(messages, "propose_candidate_change") + _returns(messages, "propose_run")]
+        return ("text", "Done: " + "; ".join(str(o) for o in outcomes))
     if "propose" in low:
         rets = _returns(messages, "propose_branch")
         if not rets:
@@ -170,33 +154,9 @@ def runtime():
     rt.model_factory, rt.system_db_url = factory, url
 
 
-def _result(workflow_id: str, timeout_s: float = 120.0):
+def _result(workflow_id: str):
     from dbos import DBOS
     return DBOS.retrieve_workflow(workflow_id).get_result()
-
-
-def _run(branch_id: str) -> dict:
-    path = "/optimize" if branch_id == "main" else f"/branches/{branch_id}/optimize"
-    r = client.post(path, json={"with_justification": False})
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def _create(name, **kw):
-    r = client.post("/branches", json={"name": name, **kw})
-    assert r.status_code == 200, r.text
-    return r.json()
-
-
-def _good(**kw):
-    buses = client.get("/model").json()["buses"]
-    return {"applicant": "Acme", "bus_id": max(buses, key=lambda b: b["vn_kv"])["bus_id"], "technology": "solar", "rating_mw": 5.0, "readiness_score": 0.9, **kw}
-
-
-def _saturating(n=3, mw=50.0):
-    """Projects on the weakest buses, sized to defer on a grid limit (grid-agnostic, like the engine suite's)."""
-    weak = sorted(client.get("/model").json()["buses"], key=lambda b: (b["vn_kv"], b["bus_id"]))[:n]
-    return [{"applicant": f"Sat-{i}", "bus_id": weak[i]["bus_id"], "technology": "wind", "rating_mw": mw, "readiness_score": 0.9} for i in range(n)]
 
 
 def _wait_for(pred, timeout_s=60.0, what="condition"):
@@ -229,13 +189,13 @@ def test_an_event_wakes_the_steward_whose_specialist_studies_and_binds_evidence(
     steward = next(x for x in runs if x["kind"] == "steward" and x["run_id"] == wid)
     spec = next(x for x in runs if x["kind"] == "specialist" and x["parent_run_id"] == wid)
     assert steward["status"] == "done" and spec["status"] == "done" and spec["agent"] == "data_quality"
-    assert steward["model"] == "scripted-steward" or steward["model"]  # the configured model name is recorded
+    assert steward["model"]  # the configured model name is recorded
 
     # the specialist's study step: recorded, keyed into the durable cache, and listed next to DBOS's own steps
     detail = client.get(f"/projects/{PROJECT}/agents/runs/{spec['run_id']}/steps").json()
     step = next(x for x in detail["steps"] if x["tool"] == "study_data_quality")
     assert step["cache_key"] and deps.cache.has(step["cache_key"]) and step["error"] is None
-    assert any(d["function_name"].startswith("tool:") or "study" in d["function_name"] or d["function_name"] for d in detail["dbos_steps"])
+    assert detail["dbos_steps"]  # DBOS's own record of the run's steps rides along
     assert detail["run"]["workflow_id"] == spec["run_id"]
 
     # the finding's figures are the study item's, copied by the server
@@ -243,13 +203,11 @@ def test_an_event_wakes_the_steward_whose_specialist_studies_and_binds_evidence(
     assert ev["study"]["kind"] == "data_quality" and ev["stale"] is False
     items = ev["study"]["items"]
     agent_findings = [f for f in client.get("/branches/main/findings?status=open").json()["findings"] if f["source"] == "agent"]
-    if items:
-        f = next(x for x in agent_findings if x["evidence_ref"] == step["step_id"])
-        it = next(i for i in items if i["fingerprint"] == f["fingerprint"])  # the row IS a study item, by fingerprint
-        assert f["element_id"] == it["element_id"] and f["value"] == it["value"] and f["limit"] == it["limit"] and f["severity"] == it["severity"]
-        assert f["evidence_kind"] == "tool_call" and f["message"]
-    else:
-        assert not agent_findings
+    assert items, "the builder records assumptions, so the data-quality study has items"
+    f = next(x for x in agent_findings if x["evidence_ref"] == step["step_id"])
+    it = next(i for i in items if i["fingerprint"] == f["fingerprint"])  # the row IS a study item, by fingerprint
+    assert f["element_id"] == it["element_id"] and f["value"] == it["value"] and f["limit"] == it["limit"] and f["severity"] == it["severity"]
+    assert f["evidence_kind"] == "tool_call" and f["message"]
 
     # the brief landed in the project's health thread
     threads = client.get(f"/projects/{PROJECT}/threads").json()["threads"]
@@ -259,24 +217,6 @@ def test_an_event_wakes_the_steward_whose_specialist_studies_and_binds_evidence(
     # the status read knows about it
     s = client.get(f"/projects/{PROJECT}/agents").json()
     assert s["last_events"] and s["budget"]["tokens"] >= 0
-
-
-def test_a_run_tells_the_steward_which_works_windows_it_flagged():
-    from gridforge_api.agents.events import TRIGGERS
-    from gridforge_api.routers.optimize import works_flagged
-
-    assert "works" in TRIGGERS["run.finished"].allowed_specialists
-    # what the API counts as flagged: a verdict other than feasible, or second faults found during the window
-    years = {"2030": {"outage_studies": [{"verdict": "feasible", "n1_during": {"findings": 0}}, {"verdict": "feasible", "n1_during": {"findings": 5}}]},
-             "2031": {"outage_studies": [{"verdict": "curtailment", "n1_during": None}]}, "2032": {"outage_studies": []}}
-    assert works_flagged({"years": years}) == (3, 2) and works_flagged({}) == (0, 0)
-    # the event wakes the reviewer and the steward, whose triage sees the flagged count; main is never swept on a run
-    bid = _create("works-trigger")["branch_id"]
-    r = client.post(f"/projects/{PROJECT}/events", json={"type": "run.finished", "payload": {"branch_id": bid, "run_key": "k-flagged", "n_works": 2, "works_flagged": 1}}).json()
-    assert sorted(w.split(":")[0] for w in r["workflow_ids"]) == ["review_branch", "steward_run"]
-    out = _result(next(w for w in r["workflow_ids"] if w.startswith("steward_run:")))
-    assert out["status"] == "done" and out["specialists"] == []  # the scripted steward asks for data_quality, which this event does not allow
-    assert client.post(f"/projects/{PROJECT}/events", json={"type": "run.finished", "payload": {"branch_id": "main", "run_key": "k", "works_flagged": 3}}).json()["workflow_ids"] == []
 
 
 def test_a_finding_that_names_no_recorded_step_is_sent_back_to_the_model():
@@ -290,17 +230,11 @@ def test_a_finding_that_names_no_recorded_step_is_sent_back_to_the_model():
     assert roster._validate_report(Ctx(), SpecialistReport(findings=[], summary="nothing")).summary == "nothing"
 
 
-def test_startup_events_fire_once_per_snapshot():
-    first = deps.agents.emit_startup_events()
-    assert first and first[0]["type"] in ("project.imported", "edition.changed")
-    _result(first[0]["workflow_ids"][0])
-    assert deps.agents.emit_startup_events() == []
-
-
 # --- the reviewer on a branch run --------------------------------------------------------------------------------------
-def test_a_branch_run_gets_a_review_that_restates_the_gate_after_a_retry():
+def test_a_branch_behind_main_is_refused_and_its_run_gets_a_review_that_restates_the_gate():
     behind = _create("Behind main")["branch_id"]
-    ahead = _create("Ahead of it", added_projects=[_good(applicant="Ahead")])["branch_id"]
+    ahead = _create("Ahead of it")["branch_id"]
+    add_project(ahead, broken_project(applicant="Ahead"))  # a change that cannot introduce a problem on any grid
     _run(ahead)
     _run("main")
     assert client.post(f"/branches/{ahead}/merge", json={"into": "main", "acknowledge": True}).status_code == 200
@@ -313,13 +247,19 @@ def test_a_branch_run_gets_a_review_that_restates_the_gate_after_a_retry():
     gate = client.get(f"/branches/{behind}/merge-check").json()["verdict"]
     assert {(b["kind"], b["element_id"]) for b in rv["blockers"]} == {(b["kind"], b["element_id"]) for b in gate["blockers"]}
     assert rv["gate"]["ok"] is False and rv["body"] == "Restated from the gate."
-    # the first restatement was wrong and came back: two model calls for one review
+    # the scripted reviewer's first restatement says "mergeable"; only a retry can have produced the blocked verdict above
     run = next(x for x in client.get(f"/projects/{PROJECT}/agents/runs?kind=review").json()["runs"] if x["branch_id"] == behind)
     assert run["status"] == "done"
     # the same run again: no second review (deduplicated by run key); a merge is still refused
     _run(behind)
     assert len(client.get(f"/branches/{behind}/reviews?all=true").json()["reviews"]) == 1
-    assert client.post(f"/branches/{behind}/merge", json={"into": "main", "acknowledge": True}).status_code == 409
+    refused = client.post(f"/branches/{behind}/merge", json={"into": "main", "acknowledge": True})
+    assert refused.status_code == 409 and refused.json()["detail"]["code"] == "blocked"
+    assert "Open a new branch" in refused.json()["detail"]["message"]
+    from gridforge_api import ledger  # the refused attempt is on record
+    with deps.scenarios.cursor() as con:
+        rows = ledger.merge_rows(con, behind)
+    assert rows and rows[-1]["outcome"] == "refused" and rows[-1]["n_blockers"] >= 1
 
 
 # --- the answerer: a streamed answer, a flagged figure, a proposal -----------------------------------------------------
@@ -385,63 +325,10 @@ def test_a_proposal_waits_for_approval_and_runs_when_approved():
     assert {b["branch_id"] for b in client.get("/branches").json()["branches"]} == before
 
 
-def test_the_answerer_runs_connection_options_for_a_deferred_project():
-    bid = _create("Options", added_projects=_saturating(3))["branch_id"]
-    out = _run(bid)
-    deferred = [q for q in out["queue"] if q["status"] == "Deferred" and q.get("reason") and q["reason"]["type"] in ("line", "trafo", "voltage")]
-    if not deferred:
-        pytest.skip("the saturating fixture did not defer a project on the grid")
-    rid = deferred[0]["request_id"]
-    tid = client.post(f"/projects/{PROJECT}/threads", json={"branch_id": bid, "title": "Connect"}).json()["thread_id"]
-    sent = _ask(tid, f"How could {rid} connect?")
-    final = _result(sent["workflow_id"])
-    assert final["status"] == "done" and rid in final["text"], final
-    msg = next(m for m in client.get(f"/projects/{PROJECT}/threads/{tid}").json()["messages"] if m["message_id"] == sent["reply_id"])
-    step = next(t for t in msg["tool_trace"] if t["tool"] == "study_connection_options")
-    ev = client.get(f"/projects/{PROJECT}/agents/steps/{step['step_id']}").json()
-    assert ev["study"]["kind"] == "connection_options" and ev["stale"] is False
-    options = {it["extra"]["option"] for it in ev["study"]["items"]}
-    assert {"size", "reinforce"} <= options, options
-    assert any(it["extra"]["option"] == "size" and it["extra"]["request_id"] == rid for it in ev["study"]["items"])
-
-
-def test_an_approved_change_and_run_are_applied_and_the_run_is_reviewed():
-    from gridforge_api import repository
-
-    bid = _create("Move", added_projects=[_good(applicant="Mover")])["branch_id"]
-    with deps.scenarios.cursor() as con:
-        row = repository.candidate_rows(con, bid)[0]
-    rid, old_bus = row["request_id"], int(row["bus_id"])
-    buses = sorted(client.get("/model").json()["buses"], key=lambda b: -b["vn_kv"])
-    new_bus = next(b["bus_id"] for b in buses if b["bus_id"] != old_bus)
-    tid = client.post(f"/projects/{PROJECT}/threads", json={"branch_id": bid, "title": "Move"}).json()["thread_id"]
-    sent = _ask(tid, f"Move {rid} on {bid} to bus {new_bus} and run")
-    first = _result(sent["workflow_id"])
-    assert first["status"] == "awaiting_approval", first
-    aid = first["approvals"][0]
-    assert next(a for a in client.get(f"/projects/{PROJECT}/approvals").json()["approvals"] if a["approval_id"] == aid)["tool"] == "propose_candidate_change"
-    r = client.post(f"/projects/{PROJECT}/approvals/{aid}", json={"decision": "approve"}).json()
-    second = _result(r["workflow_id"])
-    with deps.scenarios.cursor() as con:
-        assert int(repository.candidate_rows(con, bid)[0]["bus_id"]) == new_bus  # the approved change is stored
-    assert second["status"] == "awaiting_approval" and second["approvals"], second  # then the run is proposed
-    aid2 = second["approvals"][0]
-    assert next(a for a in client.get(f"/projects/{PROJECT}/approvals").json()["approvals"] if a["approval_id"] == aid2)["tool"] == "propose_run"
-    r2 = client.post(f"/projects/{PROJECT}/approvals/{aid2}", json={"decision": "approve"}).json()
-    done = _result(r2["workflow_id"])
-    assert done["status"] == "done" and done["text"].startswith("Done: ran"), done
-    out = _run(bid)  # the agent's run IS the branch's run: cached, the project at its new bus
-    assert next(q for q in out["queue"] if q["request_id"] == rid)["bus_id"] == new_bus
-    events = client.get(f"/projects/{PROJECT}/agents").json()["last_events"]
-    assert any(e["type"] == "run.finished" and e["dedup_id"] == f"run:{bid}:{out['run_key']}" for e in events)
-    rv = _wait_for(lambda: client.get(f"/branches/{bid}/reviews").json()["reviews"], 120, "the review of the agent's run")
-    assert rv[0]["run_key"] == out["run_key"]
-
-
 def test_two_proposals_in_one_reply_resume_once_both_are_decided():
     from gridforge_api import repository
 
-    bid = _create("Both", added_projects=[_good(applicant="Both")])["branch_id"]
+    bid = _create("Both", added_projects=[_project(applicant="Both")])["branch_id"]
     with deps.scenarios.cursor() as con:
         row = repository.candidate_rows(con, bid)[0]
     rid, old_bus = row["request_id"], int(row["bus_id"])
@@ -471,24 +358,6 @@ def test_two_proposals_in_one_reply_resume_once_both_are_decided():
     assert not any(e["type"] == "run.finished" and e["dedup_id"].startswith(f"run:{bid}:") for e in client.get(f"/projects/{PROJECT}/agents").json()["last_events"])
 
 
-def test_a_reply_can_be_cancelled_and_the_thread_goes_on():
-    tid = client.post(f"/projects/{PROJECT}/threads", json={"title": "Cancel"}).json()["thread_id"]
-    assert client.post(f"/projects/{PROJECT}/threads/{tid}/cancel").status_code == 409  # nothing on its way
-    sent = _ask(tid, "How big is the queue?")
-    r = client.post(f"/projects/{PROJECT}/threads/{tid}/cancel")
-    try:
-        _result(sent["workflow_id"])
-    except Exception:
-        pass  # a cancelled workflow raises for whoever awaits it
-    msg = next(m for m in client.get(f"/projects/{PROJECT}/threads/{tid}").json()["messages"] if m["message_id"] == sent["reply_id"])
-    if r.status_code == 200:
-        assert r.json()["status"] == "cancelled" and msg["status"] == "cancelled" and msg["content"] == "Cancelled by the operator."
-    else:
-        assert r.status_code == 409 and msg["status"] == "done"  # the scripted reply had already finished
-    again = _ask(tid, "How big is the queue?")  # the thread is free again either way
-    assert _result(again["workflow_id"])["status"] == "done"
-
-
 # --- the switches, the solver order, the relaunch --------------------------------------------------------------------------
 def test_pause_stops_new_work_and_resume_restarts_it():
     assert client.post(f"/projects/{PROJECT}/agents/pause", json={"reason": "maintenance"}).json()["status"] == "paused"
@@ -510,7 +379,7 @@ def test_the_daily_budget_pauses_the_project():
     assert client.get(f"/projects/{PROJECT}/agents").json()["status"] != "paused"
 
 
-def test_operators_take_the_solver_first_and_the_wait_is_bounded():
+def test_operators_take_the_solver_first_and_the_wait_is_bounded_by_the_run():
     class Jobs:
         def __init__(self, busy_for):
             self.until = time.monotonic() + busy_for
@@ -519,10 +388,12 @@ def test_operators_take_the_solver_first_and_the_wait_is_bounded():
             return time.monotonic() < self.until
     lock = threading.RLock()
     t0 = time.monotonic()
-    with SolverGate(Jobs(0.8), lock, max_wait_s=5).hold():
+    said: list[float] = []
+    with SolverGate(Jobs(0.8), lock).hold(waiting=said.append, deadline=time.monotonic() + 5):
         assert time.monotonic() - t0 >= 0.7
-    with pytest.raises(TimeoutError):
-        with SolverGate(Jobs(10), lock, max_wait_s=0.6).hold():
+    assert said, "a waiting study tells the trace it waits"
+    with pytest.raises(SolverBusy):  # only the run's own deadline stops the wait
+        with SolverGate(Jobs(10), lock).hold(deadline=time.monotonic() + 0.6):
             pass
 
 

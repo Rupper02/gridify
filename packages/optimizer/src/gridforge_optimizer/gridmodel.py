@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import math
 
+from .naming import name_model
 from .types import GridModel, ModelBus, ModelGenerator, ModelLine, ModelLoad, ModelTransformer
 
 UNRATED_I_KA = 1e3  # the rating given to a line a file left unrated so its loading reads near zero; reported, never hidden
@@ -74,4 +75,6 @@ def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict]
     if has_regions and net.load["region_id"].notna().any():
         from .demand import regions_of  # the demand groups (LTDS Table 3 rows), as the engine judges them
         regions = regions_of(net)
-    return GridModel(buses=buses, lines=lines, transformers=transformers, loads=loads, generators=generators, regions=regions, crs=crs)
+    model = GridModel(buses=buses, lines=lines, transformers=transformers, loads=loads, generators=generators, regions=regions, crs=crs)
+    name_model(model)  # every element by the name people use for it, so the map and every text an agent reads say the same thing
+    return model

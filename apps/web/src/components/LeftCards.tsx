@@ -10,11 +10,12 @@ import { alertSummary } from "../lib/demand";
 import { gspTicks, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
+import { runStatus } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "year",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "year",
   "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
 >;
@@ -62,13 +63,10 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
   const n = s.outages.length;
   const sub =
     gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
-    (!s.result
-      ? "No run yet"
-      : s.refreshing
-        ? "Updating the years your edit touches…"
-        : yearsSolved < yearsTotal
-          ? `Solving years · ${yearsSolved} of ${yearsTotal} in`
-          : `All years solved${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}`);
+    (() => {
+      const st = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsTotal });
+      return st.phase === "done" ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label;
+    })();
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -123,7 +121,8 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
 
 function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean }) {
   const { s, actions, derived } = planner;
-  const { yr, ix, exact } = derived;
+  const { yr, ix, exact, yearsSolved, yearsTotal } = derived;
+  const { note } = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsTotal });
   const worst = worstElement(yr, ix);
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
@@ -174,7 +173,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         </div>
       </div>
       {yr?.alerts && <CustomerAlerts planner={planner} />}
-      {s.solving && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>Solving the remaining years in the background.</span>}
+      {note && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
     </div>
   );
 }

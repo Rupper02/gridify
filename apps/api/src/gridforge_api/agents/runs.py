@@ -64,6 +64,21 @@ def running_count(con: Cursor, project_id: str) -> int:
     return int(con.execute("SELECT count(*) FROM agent_runs WHERE project_id = ? AND status IN ('queued', 'running')", [project_id]).fetchone()[0])
 
 
+def open_runs(con: Cursor, project_id: str | None = None) -> list[tuple[str, str | None]]:
+    """(run_id, workflow_id) of every run still marked queued or running, in one project or all of them."""
+    where, params = "status IN ('queued', 'running')", []
+    if project_id:
+        where += " AND project_id = ?"
+        params.append(project_id)
+    return [(r[0], r[1]) for r in con.execute(f"SELECT run_id, workflow_id FROM agent_runs WHERE {where}", params).fetchall()]
+
+
+def close_run(con: Cursor, run_id: str, *, status: str, error: str) -> None:
+    """End a run its workflow never finished (DBOS ended it first); what it already recorded is kept."""
+    con.execute("UPDATE agent_runs SET status = ?, finished_at = ?, error = ? WHERE run_id = ? AND status IN ('queued', 'running')",
+                [status, now(), error, run_id])
+
+
 # --- reviews -------------------------------------------------------------------------------------------
 def supersede_reviews(con: Cursor, branch_id: str, run_key: str) -> int:
     rows = con.execute("SELECT review_id FROM reviews WHERE branch_id = ? AND run_key <> ? AND status = 'prepared_for_review'",

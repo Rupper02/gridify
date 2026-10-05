@@ -309,6 +309,8 @@ def _works(ctx: GateContext) -> list[GateFinding]:
             kind = "work_worse_severe" if severe else "work_worse"
         elif severe:
             kind = "work_infeasible"
+        elif not w.on_base and (w.verdict_on_branch != "feasible" or (w.n1_findings_branch or 0) > 0):
+            kind = "work_new"  # a window the branch adds, with a cost main does not carry (curtailment, second faults)
         else:
             continue
         value = w.demand_at_risk_mw_branch if w.verdict_on_branch == "demand_at_risk" else w.curtailed_mw_branch

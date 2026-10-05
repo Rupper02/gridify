@@ -6,13 +6,14 @@ import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, elementInfo, lensFor, outageSel, roadmapYears, sumMw } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
+import { runStatus } from "../lib/runStages";
 import { C, PLAN_YEARS, ST, tint } from "../theme";
 import { TechIcon } from "./ui";
 
 export type RoadmapPlanner = PlannerSlice<
-  "outages" | "result" | "sel" | "solving" | "year",
+  "outages" | "refreshing" | "result" | "sel" | "solving" | "stage" | "year",
   "selectProject" | "setYear",
-  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "yr"
+  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "yearsSolved" | "yearsTotal" | "yr"
 >;
 
 export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: Layout }) {
@@ -36,7 +37,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
             {s.result ? `${sumMw(p1)} MW by 2030 · ${Math.round((sumMw(p1) + sumMw(p2)) * 10) / 10} MW by 2035 · ${df.length} deferred` : "no run yet"}
           </span>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 7, flex: "none" }}>
-            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{s.solving ? "solving years…" : s.result ? "all years solved" : ""}</span>}
+            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved: derived.yearsSolved, yearsTotal: derived.yearsTotal }).roadmap}</span>}
             <b className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{s.year}</b>
             <span style={{ fontSize: 11, fontWeight: 600, color: lens.c }}>{lens.label}</span>
           </span>

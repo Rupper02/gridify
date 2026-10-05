@@ -3,7 +3,7 @@
 import pytest
 
 from gridforge_optimizer.config import MAX_CONNECTION_MW
-from gridforge_optimizer.nged import GSP_PEAK_DEMAND_MW, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
+from gridforge_optimizer.nged import GSP_PEAK_DEMAND_MW, _ctx, _substation, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
 
 
 def _live(rows, col):
@@ -140,3 +140,20 @@ def test_new_beacon_road_is_above_its_firm_capacity_today():
     assert r.demand_mw == pytest.approx(14.38, abs=0.01) and r.firm_mw == pytest.approx(14.0)
     assert r.p2_class == "C" and r.headroom_mw < 0
     assert any(a.region_id == r.region_id and a.kind == "firm_capacity" for a in yr.alerts)
+
+
+def test_existing_fleet_is_sited_at_its_named_substation():
+    ctx = _ctx()
+    net = ctx["net"]
+    placed = 0
+    for g in ctx["existing"]:
+        where = g["placement"]
+        if "site not matched" in where:
+            continue
+        placed += 1
+        site_tok = _substation(where.split(" at ")[0].split(" (")[0]).lower()
+        bus_tok = _substation(net.bus.at[g["bus_id"], "name"]).lower()
+        assert site_tok.startswith(bus_tok) or bus_tok.startswith(site_tok), (g["request_id"], where, bus_tok)
+    assert placed >= len(ctx["existing"]) - 1  # at most one unmatched site
+    # the fleet's total rating is preserved even where a site is shared across busbars
+    assert float(net.sgen["p_mw"].sum()) == pytest.approx(sum(g["rating_mw"] for g in ctx["existing"]), rel=1e-6)

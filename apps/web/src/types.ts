@@ -11,10 +11,14 @@ export interface Bus {
   vn_kv: number;
   lon: number;
   lat: number;
+  /** Where it is, by name (the engine's `naming`, the same the agents use); absent on an older model. */
+  place?: string;
 }
 export interface Line {
   line_id: number;
   line_name: string;
+  /** What people call it (the engine's `naming`): the places it joins, parallel circuits numbered. */
+  display_name?: string;
   rating_a: number;
   voltage_kv: number;
   from_bus?: number;
@@ -29,6 +33,8 @@ export interface Line {
 export interface Transformer {
   trafo_id: number;
   name: string;
+  /** What people call it (the engine's `naming`): its substation and ratio, parallel units numbered. */
+  display_name?: string;
   sn_mva: number;
   hv_bus: number;
   lv_bus: number;
@@ -520,6 +526,8 @@ export interface WorkDelta {
   n1_new: N1Violation[];
   n1_cleared: N1Violation[];
   change: WorkChange;
+  /** main schedules this window too; false = the branch adds it (its cost is new, whatever `change` says). */
+  on_base: boolean;
   consequence: string;
   message: string;
 }

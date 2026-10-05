@@ -9,6 +9,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from typing import TypeVar
 
 from gridforge_optimizer import Candidate, OptimizeParams
@@ -41,9 +42,13 @@ def params_key(params: OptimizeParams) -> tuple:
 class ResultCache:
     """In-process dicts (engine results, enriched payloads, trial caches) plus the durable table."""
 
-    def __init__(self, store: ScenarioStore, engine: str):
+    def __init__(self, store: ScenarioStore, engine: str, solver_lock: AbstractContextManager | None = None):
         self._store = store
         self.engine = engine
+        # every engine computation in the process takes this lock (re-entrant: a job and an agent's gated study
+        # already hold it), so a request or an agent tool that misses the cache waits for the solver instead of
+        # solving alongside it, at half speed each, often the very result the job is computing
+        self._solver = solver_lock or nullcontext()
         self.compute: dict = {}  # key -> OptimizeResult / suggestions
         self.payload: dict = {}  # key -> the enriched /optimize payload
         # per (parameters, snapshot, engine): the engine's exact trial cache, so a branch that gains
@@ -88,21 +93,31 @@ class ResultCache:
                 dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None) -> T:
         """The one read-through path every engine result takes: the in-process dict, then the durable
         table (`parse`d from JSON), then `compute` (stored with `dump` and its compute time). `on_hit`
-        sees a value that did not come from `compute` (a cached plan still reaches a per-year callback)."""
-        if key in self.compute:
-            value, hit = self.compute[key], True
-        else:
-            cached = self.get(key)
-            if cached is not None:
-                value, hit = parse(cached), True
-            else:
-                t0 = time.perf_counter()
-                value, hit = compute(), False
-                self.put(key, kind, baseline, int((time.perf_counter() - t0) * 1000), dump(value))
-            self.compute[key] = value
+        sees a value that did not come from `compute` (a cached plan still reaches a per-year callback).
+        A miss computes under the solver lock, and looks again once it has it: whoever held the solver may
+        just have stored this very key. Never call it while holding a store cursor (the store has its own lock)."""
+        value, hit = self._lookup(key, parse)
+        if not hit:
+            with self._solver:
+                value, hit = self._lookup(key, parse)
+                if not hit:
+                    t0 = time.perf_counter()
+                    value = compute()
+                    self.put(key, kind, baseline, int((time.perf_counter() - t0) * 1000), dump(value))
+                    self.compute[key] = value
         if hit and on_hit is not None:
             on_hit(value)
         return value
+
+    def _lookup(self, key: str, parse: Callable[[str], T]) -> tuple[T | None, bool]:
+        """The in-process dict, then the durable table (kept in process once read)."""
+        if key in self.compute:
+            return self.compute[key], True
+        cached = self.get(key)
+        if cached is None:
+            return None, False
+        self.compute[key] = value = parse(cached)
+        return value, True
 
     def get(self, key: str) -> str | None:
         with self._store.cursor() as con:

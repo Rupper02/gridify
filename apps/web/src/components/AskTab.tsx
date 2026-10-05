@@ -6,11 +6,14 @@
 
 import { ArrowRight, ArrowUp, Check, Lightning, NotePencil, Pause, Play, Prohibit, Receipt, Sparkle, Stop, Warning, X } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { suggestedQuestions } from "../lib/ask";
 import { nameElements } from "../lib/derive";
 import type { Layout } from "../lib/layout";
+import { citeSteps, citedStep } from "../lib/markdown";
 import { type FoldedTrace, STAGE_LABEL, type TraceChip, agentsPill, argsLine, evidenceLine, flagLines, foldTrace, toolLabel, traceFromMessage } from "../lib/trace";
 import { C } from "../theme";
 import type { Approval, ThreadMessage } from "../types";
@@ -20,6 +23,15 @@ export type AskTabPlanner = PlannerSlice<
   "ask" | "askAbout" | "cancelReply" | "closeThread" | "decideApproval" | "loadThreads" | "openEvidence" | "openThread" | "setAgentsPaused" | "setInput" | "startAsk",
   "branch" | "hue" | "ix" | "onMain" | "pendingApprovals" | "q"
 >;
+
+/** Citations become small numbered chips; any other link opens in a new tab. */
+const MD_COMPONENTS: Components = {
+  a: ({ href, children }) => {
+    const step = citedStep(href);
+    if (step) return <sup className="cite" title={`Traced to tool step ${step}`}>{children}</sup>;
+    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+  },
+};
 
 export function AskTab({ planner, layout }: { planner: AskTabPlanner; layout: Layout }) {
   return planner.s.chat.open ? <AskChat planner={planner} layout={layout} /> : <Picker planner={planner} />;
@@ -246,8 +258,10 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
             {cited && chips.length > 0 && <span className="tchip" data-status="done"><span className="tstage">{STAGE_LABEL.CITE}</span>evidence attached</span>}
           </div>
         )}
-        <div className={`txt${planning ? " loading" : ""}${cancelled ? " mute" : ""}`} style={{ whiteSpace: "pre-wrap" }}>
-          {planning ? "Planning the study…" : nameElements(text, derived.ix)}
+        <div className={`txt md${planning ? " loading" : ""}${cancelled ? " mute" : ""}`}>
+          {planning ? "Planning the study…" : (
+            <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{citeSteps(nameElements(text, derived.ix))}</Markdown>
+          )}
         </div>
         {failed && <span style={{ fontSize: 11.5, color: C.redInk }}>{live?.error ?? "The answer failed."}</span>}
         {flags.map((f, i) => (
