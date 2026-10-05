@@ -50,7 +50,7 @@ def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
         existing = runs.event_by_dedup(con, project_id, dedup)
         if existing:
             return {**existing, "deduplicated": True, "paused": False}
-        paused = rt.budget.check(project_id).paused
+        paused = rt.spend.check(project_id).paused
         event_id = "ev-" + uuid.uuid4().hex[:8]
         runs.insert_event(con, event_id=event_id, project_id=project_id, type_=type_, dedup_id=dedup, payload={**payload, "type": type_})
     if paused:

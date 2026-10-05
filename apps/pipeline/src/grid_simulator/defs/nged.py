@@ -121,11 +121,13 @@ def ltds_edition_changes(context: dg.AssetExecutionContext, ltds_tables: dict) -
 
 
 # --- checks: the deterministic safety gate --------------------------------------------------
-@dg.asset_check(asset=nged_model_canonical, additional_ins={"ltds_tables": dg.AssetIn("ltds_tables")})
+@dg.asset_check(asset=nged_model_canonical, additional_ins={"ltds_tables": dg.AssetIn("ltds_tables")}, blocking=True)
 def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.AssetCheckResult:
     """Today's network solves in both planning study cases with every bus inside its statutory
     voltage band (±10 % at 132 kV, ±6 % below) and nothing overloaded: the engine's own
-    `feasibility` is the gate, so the pipeline and the optimizer agree on what 'healthy' means."""
+    `feasibility`, so the pipeline and the optimizer agree on what 'healthy' means. Only a network
+    that does not solve blocks the warehouse write (ERROR); a limit breach in today's grid is a real
+    finding to serve, so it fails at WARN."""
     net = build_nged_net(ltds_tables)
     ok, reason, m = feasibility(net)
     vmin, vmax = voltage_limits(net)
@@ -133,7 +135,8 @@ def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.As
     out_of_band = int(((vm < vmin) | (vm > vmax)).sum())
     return dg.AssetCheckResult(
         passed=bool(ok),
-        severity=dg.AssetCheckSeverity.ERROR,
+        severity=(dg.AssetCheckSeverity.ERROR if reason is not None and reason.type == "non_convergent"
+                  else dg.AssetCheckSeverity.WARN),
         metadata={"binding": reason.message if reason else "none", "buses_out_of_band": out_of_band,
                   "v_min_pu": round(float(m.get("min_vm", 0.0)), 4), "v_max_pu": round(float(m.get("max_vm", 0.0)), 4),
                   "buses_in_model": len(nged_model_canonical["buses"]),
@@ -146,6 +149,7 @@ def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.As
 @dg.asset_check(
     asset=nged_model_canonical,
     additional_ins={"nged_connection_queue": dg.AssetIn("nged_connection_queue")},
+    blocking=True,
 )
 def referential_integrity(nged_model_canonical: dict, nged_connection_queue: list) -> dg.AssetCheckResult:
     bus_ids = {b["bus_id"] for b in nged_model_canonical["buses"]}
@@ -255,21 +259,28 @@ def served_nged(
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = duckdb.connect(str(DB_PATH))
     try:
-        for name, df in [("buses", buses), ("lines", lines), ("transformers", trafos), ("loads", loads),
-                         ("generators", gens), ("regions", regions), ("candidate_projects", cdf),
-                         ("ltds_changes", changes), ("ltds_change_summary", summary)]:
-            conn.register("df_view", df)
-            conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM df_view")
-            conn.unregister("df_view")
-        _ensure_snapshots_table(conn)
-        latest = conn.execute("SELECT snapshot_id FROM snapshots ORDER BY created_at DESC LIMIT 1").fetchone()
-        is_new = latest is None or latest[0] != snapshot_id
-        if is_new:
-            conn.execute(
-                "INSERT INTO snapshots (snapshot_id, created_at, ltds_edition, buses, lines, transformers, loads, candidates) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [snapshot_id, _now(), edition, len(buses), len(lines), len(trafos), len(loads), len(cdf)],
-            )
+        # one transaction: a write that fails part-way leaves the previous warehouse whole, never a mix of tables
+        conn.execute("BEGIN")
+        try:
+            for name, df in [("buses", buses), ("lines", lines), ("transformers", trafos), ("loads", loads),
+                             ("generators", gens), ("regions", regions), ("candidate_projects", cdf),
+                             ("ltds_changes", changes), ("ltds_change_summary", summary)]:
+                conn.register("df_view", df)
+                conn.execute(f"CREATE OR REPLACE TABLE {name} AS SELECT * FROM df_view")
+                conn.unregister("df_view")
+            _ensure_snapshots_table(conn)
+            latest = conn.execute("SELECT snapshot_id FROM snapshots ORDER BY created_at DESC LIMIT 1").fetchone()
+            is_new = latest is None or latest[0] != snapshot_id
+            if is_new:
+                conn.execute(
+                    "INSERT INTO snapshots (snapshot_id, created_at, ltds_edition, buses, lines, transformers, loads, candidates) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [snapshot_id, _now(), edition, len(buses), len(lines), len(trafos), len(loads), len(cdf)],
+                )
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+        conn.execute("COMMIT")
         history = conn.execute("SELECT count(*) FROM snapshots").fetchone()[0]
     finally:
         conn.close()

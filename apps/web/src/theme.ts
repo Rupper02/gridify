@@ -2,6 +2,7 @@
 // side lives in styles.css under the same names. GridForge Glass: one interactive accent (arc
 // cyan), planning-state colours, and a hue per branch.
 
+import type { Lens } from "./lib/plan";
 import type { Change, Status, Tech } from "./types";
 
 export const C = {
@@ -23,8 +24,9 @@ export const C = {
   greenInk: "#8ef0c2",
   rejected: "#7d8da3",
   existing: "#2fbfa5",
-  line132: "#dce6f2",
-  line33: "#6f8ba8",
+  // the grid's line voltage tiers (lib/mapFeatures.lineTiers): its highest level, the next, and the rest
+  lineHigh: "#dce6f2",
+  lineMid: "#6f8ba8",
   lineLow: "#4f6680",
   dimmed: "#3d4f66",
 } as const;
@@ -34,17 +36,24 @@ export const tint = (hex: string, alpha: string): string => `${hex}${alpha}`;
 
 export interface StatusStyle {
   label: string;
-  long: string;
   c: string;
   ink: string;
 }
-/** Planning states. "Prelim" is a project added to the branch but not yet in a run. */
+/** Planning states (their full titles, with a phase's years, are `lib/plan.statusTitle`). "Prelim" is a
+ * project added to the branch but not yet in a run. */
 export const ST: Record<Status | "Prelim", StatusStyle> = {
-  Phase1: { label: "Phase 1", long: "Phase 1 · by 2030", c: C.phase1, ink: C.greenInk },
-  Phase2: { label: "Phase 2", long: "Phase 2 · 2031 to 2035", c: C.phase2, ink: "#b5ccff" },
-  Deferred: { label: "Deferred", long: "Deferred", c: C.amber, ink: C.amberInk },
-  Rejected: { label: "Rejected", long: "Rejected at intake", c: C.rejected, ink: C.mute },
-  Prelim: { label: "Preliminary", long: "Preliminary · unranked", c: C.accent, ink: C.accent },
+  Phase1: { label: "Phase 1", c: C.phase1, ink: C.greenInk },
+  Phase2: { label: "Phase 2", c: C.phase2, ink: "#b5ccff" },
+  Deferred: { label: "Deferred", c: C.amber, ink: C.amberInk },
+  Rejected: { label: "Rejected", c: C.rejected, ink: C.mute },
+  Prelim: { label: "Preliminary", c: C.accent, ink: C.accent },
+};
+
+/** Where a year sits in the plan (`lib/plan.lensOf`), as the roadmap names and colours it. */
+export const LENS: Record<Lens, { label: string; c: string }> = {
+  today: { label: "as-is today", c: C.mute },
+  Phase1: { label: "Phase 1 · Clean Power lens", c: C.phase1 },
+  Phase2: { label: "Phase 2 · Strategic lens", c: C.phase2 },
 };
 
 export const ORDER: Record<Status, number> = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
@@ -118,7 +127,6 @@ export const loadColor = (v: number | null | undefined): string =>
 export const voltColor = (v: number | null | undefined, lo: number, hi: number): string =>
   v == null ? C.mute2 : v < lo || v > hi ? C.red : v < lo + 0.02 ? C.phase2 : v > hi - 0.03 ? C.amber : C.ink2;
 
-export const PLAN_YEARS = Array.from({ length: 10 }, (_, i) => 2026 + i);
 export const ADDED_ID_BASE = 2056; // manual projects are numbered CR-2056, CR-2057, … (mirrors the API)
 
 /** A study case as the planner names it; a case it does not know passes through. */

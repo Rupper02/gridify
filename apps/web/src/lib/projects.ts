@@ -52,6 +52,7 @@ export function reportLines(r: ImportReport | null): ReportLine[] {
     { tone: r.ok ? "good" : "bad", text: `${c.buses ?? 0} buses · ${c.lines ?? 0} lines · ${c.transformers ?? 0} transformers · ${c.loads ?? 0} loads · ${c.generators ?? 0} generators` },
   ];
   if (r.converged) lines.push({ tone: r.feasible ? "good" : "warn", text: r.feasible ? "The base case solves within every limit." : `The base case solves but breaks a limit: ${r.reason ?? "see the warnings"}.` });
+  else if (r.ok) lines.push({ tone: "bad", text: `The base case does not converge: ${r.reason ?? "see the warnings"}.` });
   if (r.cases.length) lines.push({ tone: r.cases.includes("summer_min") ? "good" : "warn", text: r.cases.includes("summer_min") ? "Studied at winter peak and summer minimum." : "Studied at winter peak only: no seasonal ratings or minimum-demand factor." });
   if (r.islands > 1) lines.push({ tone: "warn", text: `${r.islands} separate parts; those without an infeed were dropped.` });
   lines.push(...r.errors.map((e) => ({ tone: "bad" as const, text: e })));

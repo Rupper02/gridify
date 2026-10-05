@@ -1,6 +1,7 @@
 """The GridSource seam: NGED behind it unchanged, and any grid through it. The NGED CGMES export
 re-imports as a project with the same elements and a converging base case; a pandapower JSON with no
-coordinates gets a synthetic layout; whatever a file lacks is stated as an assumption, never filled."""
+coordinates gets a synthetic layout and keeps its voltage-controlled generators; a file that lacks what a
+real simulation needs is refused with the list, never filled."""
 
 import math
 
@@ -98,14 +99,16 @@ def test_operator_entered_limits_enable_the_summer_case_and_the_boundary(nged_zi
 
 
 # --- a plain pandapower network with no coordinates -----------------------------------------------------------------------
-def test_a_pandapower_json_with_no_coordinates_gets_a_synthetic_layout_and_a_slack():
+def test_a_pandapower_json_with_no_coordinates_gets_a_synthetic_layout_and_keeps_its_generators():
     c9 = pn.case9()
     c9.bus["geo"] = None
+    c9.gen["type"] = "thermal"
     src = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9")
     report = src.validate()
     assert report.ok and report.converged and report.counts["slacks"] == 1 and report.counts["generators"] == 2, report
+    assert len(src.build_net().gen) == 2  # still voltage-controlled, never turned into fixed injections
     keys = _keys(src.assumptions())
-    assert "gen_to_sgen" in keys and "no_gsp_limit" in keys and "no_demand_groups" in keys
+    assert "merit_order_dispatch" in keys and "no_gsp_limit" in keys and "no_demand_groups" in keys
     m = src.model()
     assert m.crs == "synthetic" and len(m.buses) == 9 and m.regions == [] and src.capabilities()["crs"] == "synthetic"
     again = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9").model()
@@ -115,14 +118,14 @@ def test_a_pandapower_json_with_no_coordinates_gets_a_synthetic_layout_and_a_sla
     assert source_from_file("case9.json", pp.to_json(c9).encode(), id="imp-c9", name="case9").kind == "pandapower_json"
 
 
-def test_an_unrated_line_is_flagged_not_filled():
+def test_a_file_missing_what_a_real_simulation_needs_is_refused_with_the_list():
     c9 = pn.case9()
-    c9.line.at[0, "max_i_ka"] = float("nan")
-    src = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9u", name="case9 unrated")
-    flagged = next(a for a in src.assumptions() if a.key == "unrated_lines")
-    assert flagged.element_ids == [0] and flagged.source == "file" and flagged.count == 1
-    assert src.model().lines[0].rating_a is None and all(ln.rating_a for ln in src.model().lines[1:])
-    assert src.validate().ok  # the loading of that line is not checked, the rest of the study runs
+    c9.line.at[0, "max_i_ka"] = float("nan")  # an unrated line
+    c9.gen.at[0, "max_q_mvar"] = float("nan")  # a power station without its reactive limit
+    report = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9u", name="case9 gaps").validate()
+    errors = " | ".join(report.errors)
+    assert not report.ok and report.converged is False
+    assert "technology" in errors and "thermal rating" in errors and "reactive limits" in errors and "line 0" in errors
 
 
 def test_validation_reports_a_network_nobody_can_feed():
@@ -147,5 +150,7 @@ def test_matpower_case_imports_when_scipy_is_available():
     p = Path(tempfile.mkdtemp()) / "case9.mat"
     to_mpc(c9, str(p))
     src = matpower_source(p.read_bytes(), id="imp-mat", name="case9 mat")
-    assert src.validate().ok and len(src.build_net().bus) == 9 and src.kind == "matpower"
+    assert len(src.build_net().bus) == 9 and src.kind == "matpower"
     assert not math.isnan(src.model().buses[0].lon)
+    # a MATPOWER case carries no generator technology: refused until it says what each unit is
+    assert any("technology" in e for e in src.validate().errors)

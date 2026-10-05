@@ -1,5 +1,5 @@
 // The region card (Demand layer): one demand group in the viewed year. Its P2/8 class in plain
-// English, demand against firm capacity, the demand one 132 kV outage would cut off, its buses
+// English, demand against firm capacity, the demand one screened (N-1) outage would cut off, its buses
 // outside the voltage band, the ≈ room for new demand and its alerts. Every figure is the engine's
 // (demand.py); this is a simplified P2/8-style check and the card says so.
 
@@ -79,7 +79,7 @@ export function RegionCard({ planner, layout }: { planner: RegionCardPlanner; la
                 <span className="mono">{fmtMw(y.n1_at_risk_mw)} MW</span> if {nameElements(outagePhrase(y.n1_outage), ix)} is lost
               </>
             ) : (
-              "none from one 132 kV outage"
+              "none from one screened outage"
             )}
           </span>
           <span>Outside the voltage band</span>

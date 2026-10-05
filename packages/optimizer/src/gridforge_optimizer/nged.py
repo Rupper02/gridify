@@ -926,10 +926,12 @@ def _ecr_tech(row: dict) -> tuple[str | None, str]:
 
 
 def _ecr_id(row: dict) -> str:
-    """The ECR publishes no reference, so derive a stable id from the site's own fields."""
+    """The ECR publishes no reference, so derive the project's id from the fields NGED corrects least: where
+    it is, what it is, its voltage and when its offer was accepted. Not its name or its capacity, so a
+    re-rating or a renamed site keeps its id; a corrected location or acceptance date still gives a new one."""
     import hashlib
-    key = "|".join(str(row.get(k)) for k in ("customer_site", "lat", "lon", "energy_source_1",
-                                             "accepted_change_to_maximum_export_capacity(mw)", "date_accepted"))
+    key = "|".join(str(row.get(k)) for k in ("lat", "lon", "energy_source_1", "point_of_connection(poc)_voltage(kv)",
+                                             "date_accepted"))
     return "ECR-" + hashlib.sha1(key.encode()).hexdigest()[:5].upper()
 
 

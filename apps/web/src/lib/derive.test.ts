@@ -15,7 +15,7 @@ import {
   worstElement,
   yearResultFor,
 } from "./derive";
-import { item } from "./test-fixtures";
+import { item, plan } from "./test-fixtures";
 
 const year = (y: number, over: Partial<YearResult> = {}): YearResult => ({
   year: y, growth: 1, energised: [], accepted: [], worst_line_loading_pct: 50, worst_trafo_loading_pct: 40, min_vm_pu: 0.97,
@@ -87,8 +87,8 @@ describe("queue groups and preliminary", () => {
   it("groups Preliminary, Phase 1, Phase 2, Deferred in that order, skipping empty ones", () => {
     const q = [item({ request_id: "a" }), item({ request_id: "b", status: "Deferred" })];
     const pre = [{ request_id: "CR-2060", applicant: "", bus_id: 1, technology: "battery", rating_mw: 20, readiness_score: 0.5, status: "valid" as const }];
-    expect(queueGroups(q, pre).map((g) => g.g.key)).toEqual(["prelim", "Phase1", "Deferred"]);
-    expect(queueGroups(q, []).find((g) => g.g.key === "Phase1")?.g.meta).toBe("1 · 10 MW");
+    expect(queueGroups(q, pre, plan).map((g) => g.g.key)).toEqual(["prelim", "Phase1", "Deferred"]);
+    expect(queueGroups(q, [], plan).find((g) => g.g.key === "Phase1")?.g.meta).toBe("1 · 10 MW");
   });
   it("treats projects added since the run as preliminary until a run includes them", () => {
     const added = [{ request_id: "a" }, { request_id: "new" }] as never[];
@@ -104,7 +104,7 @@ describe("roadmapYears", () => {
     });
     const pre = [{ request_id: "pre", commissioning_year: 2029, technology: "solar" }] as never[];
     const outs: Outage[] = [{ outage_id: "o", element_kind: "line", element_id: "10", season: "Summer", year: 2029, weeks: 4, kind: "outage", work: "maintenance", repower: null, factor: null }];
-    const ys = roadmapYears(r, pre, outs, new Set(["p2"]), () => "BOS-BKF");
+    const ys = roadmapYears(plan, r, pre, outs, new Set(["p2"]), () => "BOS-BKF");
     const y = (n: number) => ys.find((x) => x.y === n)!;
     expect(y(2028).chips.map((c) => c.id)).toEqual(["p1"]);
     expect(y(2029).chips.map((c) => `${c.kind}:${c.id}`)).toEqual(["prelim:pre", "outage:BOS-BKF"]);

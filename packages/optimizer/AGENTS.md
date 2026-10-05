@@ -32,7 +32,10 @@ for any other source. Bundled open data lives in `src/gridforge_optimizer/data/n
 - Re-materialise the pipeline after changing `nged.py` or bundled data, and restart the API: it caches optimize results
   and the GSP boundary in memory.
 - pandapower gotchas:
-  - generation is injected as PQ `sgen` (not `gen`) so voltage problems show;
+  - embedded generation and new connections are PQ `sgen` (fixed power factor, as a DNO runs them), so voltage problems
+    show; an imported grid's voltage-controlled units stay `gen` (setpoint within their reactive limits, solved with
+    `enforce_q_lims`) and its power stations follow the merit order (`dispatch.py`). Code that touches the fleet goes
+    through `network.FLEET_TABLES` (both tables); a grid with no `gen` takes NGED's path unchanged;
   - use `pandapower.toolbox.drop_buses`;
   - avoid `deepcopy` of nets in hot loops (build once per phase, inject/roll back);
   - in pandapower 3 a transformer's taps are inert unless `tap_changer_type="Ratio"` is set;

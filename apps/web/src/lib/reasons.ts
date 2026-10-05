@@ -64,7 +64,7 @@ const line: Normaliser = ({ eid, pct, base }) => ({
   element: { line_id: eid ?? undefined },
   short: `Overloads line ${eid}${pct != null ? ` to ${pct}%` : ""}: a grid limit, not the project`,
   why: `Connecting this would overload line ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""}. The wires between here and the rest of the grid are the bottleneck. The project itself is fine.`,
-  action: `Reinforce line ${eid} (a parallel circuit), size the project to what its busbar takes or move it to a busbar that takes it, or hold it to 2035. Ask the agents how it could connect: they measure each option.`,
+  action: `Reinforce line ${eid} (a parallel circuit), size the project to what its busbar takes or move it to a busbar that takes it, or hold it to a later year. Ask the agents how it could connect: they measure each option.`,
 });
 
 const trafo: Normaliser = ({ eid, pct, base }) => ({
@@ -73,7 +73,7 @@ const trafo: Normaliser = ({ eid, pct, base }) => ({
   element: null,
   short: `Overloads transformer ${eid}${pct != null ? ` to ${pct}%` : ""}`,
   why: `Connecting this would overload transformer ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""} The substation can't pass this much power.`,
-  action: `Uprate or reinforce transformer ${eid}, size the project to what the substation takes or move it, or hold it to 2035. Ask the agents how it could connect.`,
+  action: `Uprate or reinforce transformer ${eid}, size the project to what the substation takes or move it, or hold it to a later year. Ask the agents how it could connect.`,
 });
 
 const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
@@ -96,7 +96,7 @@ const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
     element: { bus_id: eid ?? undefined },
     short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
     why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below its ${lim} pu statutory limit. The network is too weak here under this demand.`,
-    action: `Reinforce the feeder to bus ${eid}, or hold this project to 2035. Ask the agents how it could connect.`,
+    action: `Reinforce the feeder to bus ${eid}, or hold this project to a later year. Ask the agents how it could connect.`,
   };
 };
 
@@ -117,7 +117,7 @@ const phased: Normaliser = ({ msg, prior, base }) => ({
   element: prior,
   short: msg,
   why: msg,
-  action: "No action needed. It connects in 2035 as demand grows and headroom opens.",
+  action: "No action needed. It connects in Phase 2 as demand grows and headroom opens.",
 });
 
 /** rejected / intake / non_convergent: read the message to say what to fix. */

@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_VISIBLE, lineFeature, loadVisible, saveVisible } from "./mapFeatures";
+import { DEFAULT_VISIBLE, featureLabel, lineFeature, lineTiers, loadVisible, saveVisible } from "./mapFeatures";
 
 describe("map features", () => {
-  it("puts every circuit in a voltage band", () => {
-    expect([132, 400, 33, 66, 11, 0.4].map(lineFeature)).toEqual(["lines132", "lines132", "lines33", "lines33", "linesLow", "linesLow"]);
+  it("puts every circuit in a tier of the grid's own voltages, named by them", () => {
+    const t = lineTiers([132, 33, 11, 0.4, 132]);
+    expect([132, 33, 11, 0.4].map((kv) => lineFeature(kv, t))).toEqual(["linesHigh", "linesMid", "linesLow", "linesLow"]);
+    expect(["linesHigh", "linesMid", "linesLow"].map((k) => featureLabel(k as never, t))).toEqual(["132 kV lines", "33 kV lines", "Below 33 kV"]);
+    // a one-level grid has one line feature
+    expect(["linesHigh", "linesMid", "linesLow"].map((k) => featureLabel(k as never, lineTiers([345])))).toEqual(["345 kV lines", null, null]);
   });
 });
 

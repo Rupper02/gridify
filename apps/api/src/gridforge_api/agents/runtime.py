@@ -20,7 +20,7 @@ from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID, SetWorkflow
 
 from ..config import AGENT_ANSWER_RESERVE_S, AGENT_MODELS, AGENT_RUN_BUDGET, log
 from . import runs, workflows
-from .budget import BudgetMeter
+from .spend import SpendMeter
 from .evidence import EvidenceLedger
 from .roster import AGENTS, SPECIALIST_STUDIES, build
 from .tools import AgentDeps, Harness, SolverGate
@@ -52,13 +52,13 @@ def durable(name: str, fn: Callable[[], Any]) -> Any:
 
 
 class AgentRuntime:
-    def __init__(self, *, store, cache, plans, jobs, warehouse, projects, evidence: EvidenceLedger, budget: BudgetMeter,
+    def __init__(self, *, store, cache, plans, jobs, warehouse, projects, evidence: EvidenceLedger, spend: SpendMeter,
                  model_factory: Callable[[str], Any], system_db_url: str, app_version: str, project_id: str):
         self.model_factory = model_factory
         self.system_db_url = system_db_url
         self.app_version = app_version
         self.project_id = project_id
-        self.budget = budget
+        self.spend = spend
         self.evidence = evidence
         self.harness = Harness(plans=plans, store=store, warehouse=warehouse, projects=projects, evidence=evidence,
                                solver_gate=SolverGate(jobs, jobs.solver_lock), project_id=project_id, in_workflow=in_workflow, durable=durable)
@@ -159,9 +159,9 @@ class AgentRuntime:
 
     # --- status and startup events ----------------------------------------------------------------------------
     def status(self, project_id: str | None = None) -> dict:
-        """starting (the runtime has not launched yet), idle, running or paused, with today's budget and the last events."""
+        """starting (the runtime has not launched yet), idle, running or paused, with what the agents spent and the last events."""
         pid = project_id or self.project_id
-        state = self.budget.check(pid)
+        state = self.spend.check(pid)
         if self.launched:
             self.reconcile(pid)
         with self.harness.store.cursor() as con:
@@ -169,7 +169,7 @@ class AgentRuntime:
             last = runs.recent_events(con, pid) if self.launched else []
         status = "starting" if not self.launched else "paused" if state.paused else "running" if running else "idle"
         return {"status": status, "launched": self.launched, "paused_reason": state.paused_reason if state.paused else "",
-                "running": running, "budget": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
+                "running": running, "spend": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
 
     def reconcile(self, project_id: str | None = None) -> int:
         """Close the runs DBOS has already ended. A workflow cancelled at its timeout (or whose deadline passed

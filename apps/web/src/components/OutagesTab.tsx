@@ -45,7 +45,7 @@ export function OutagesTab({ planner }: { planner: OutagesTabPlanner }) {
             return (
               <div key={o.outage_id} className="wrow">
                 <span className="tech-tile" style={{ background: vc ? tint(vc, "22") : "rgba(255,255,255,0.08)" }}>
-                  <Wrench size={14} color={vc ?? C.line132} />
+                  <Wrench size={14} color={vc ?? C.lineHigh} />
                 </span>
                 <button
                   className="wrow-main"

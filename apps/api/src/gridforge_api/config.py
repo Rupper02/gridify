@@ -54,8 +54,6 @@ AGENT_MODELS = {
     "answerer": "anthropic/claude-sonnet-5.5",
     "specialist": "anthropic/claude-sonnet-5.5",
 }
-# per project and day: OpenRouter credits, tokens and power-flow solves before the agents pause themselves
-AGENT_BUDGET_DAILY = {"credits": 5.0, "tokens": 2_000_000, "solves": 3_000}
 # per agent run: tool calls, solves and wall time before it is cut short
 AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
 # an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer

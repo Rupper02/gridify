@@ -8,7 +8,7 @@ import type { MapLayer, Model, Sel, YearResult } from "../types";
 import { regionFeatures } from "./demand";
 import { voltageBand } from "./derive";
 import { type DiffMap, diffColor } from "./diff";
-import { type FeatureKey, lineFeature, shows } from "./mapFeatures";
+import { type FeatureKey, type LineTier, type LineTiers, lineFeature, shows, tierOf } from "./mapFeatures";
 
 export interface GeoInputs {
   model: Model;
@@ -24,6 +24,8 @@ export interface GeoInputs {
   diffDeltas: DiffMap | null;
   /** The kinds of element the map shows (lib/mapFeatures.ts); the rest are left out entirely. */
   visible: readonly FeatureKey[];
+  /** The grid's own line voltages in tiers: what is drawn heavy, medium and thin. */
+  tiers: LineTiers;
 }
 
 export interface Geo {
@@ -46,21 +48,30 @@ const pt = (lo: number, la: number, props: Record<string, unknown>): Feature<Poi
   properties: props,
 });
 
-/** Line width and colour by voltage: 132 kV heavy and light, 33 kV medium, lower thin. */
-export const lineStyle = (kv: number): { w: number; c: string } =>
-  kv >= 132 ? { w: 2.8, c: C.line132 } : kv >= 33 ? { w: 1.8, c: C.line33 } : { w: 1.2, c: C.lineLow };
+/** Line width and colour by the grid's voltage tier: its highest level heavy and light, the next medium, lower thin. */
+const LINE_STYLE: Record<LineTier, { w: number; c: string }> = {
+  high: { w: 2.8, c: C.lineHigh },
+  mid: { w: 1.8, c: C.lineMid },
+  low: { w: 1.2, c: C.lineLow },
+};
+/** A busbar's dot by its voltage tier (radius on the flow layer, on the voltage layer, colour). */
+const BUS_STYLE: Record<LineTier, { r: number; rVolt: number; c: string }> = {
+  high: { r: 3.6, rVolt: 5, c: C.lineHigh },
+  mid: { r: 2.8, rVolt: 5, c: "#9fb3c9" },
+  low: { r: 2, rVolt: 3.5, c: "#9fb3c9" },
+};
 
 export function buildGeo(g: GeoInputs): Geo {
-  const { model: m, yr, layer, sel, diffDeltas } = g;
+  const { model: m, yr, layer, sel, diffDeltas, tiers } = g;
   const on = (k: FeatureKey) => shows(g.visible, k);
-  const mLines = m.lines.filter((l) => on(lineFeature(l.voltage_kv)));
+  const mLines = m.lines.filter((l) => on(lineFeature(l.voltage_kv, tiers)));
   const ll = yr?.line_loading ?? {};
   const over = new Set(yr?.overloaded_line_ids ?? []);
   const vv = new Set(yr?.voltage_violation_bus_ids ?? []);
 
   const lines: Feature[] = mLines.map((l) => {
     const id = l.line_id;
-    const base = lineStyle(l.voltage_kv);
+    const base = LINE_STYLE[tierOf(l.voltage_kv, tiers)];
     const pct = ll[id] ?? null;
     const isOver = over.has(id);
     const isTie = l.in_service === false;
@@ -100,10 +111,11 @@ export function buildGeo(g: GeoInputs): Geo {
       const v = yr?.bus_vm?.[b.bus_id] ?? null;
       const [lo, hi] = voltageBand(b.vn_kv);
       const vMode = layer === "voltage";
+      const style = BUS_STYLE[tierOf(b.vn_kv, tiers)];
       return pt(b.lon, b.lat, {
         id: b.bus_id,
-        r: vMode ? (b.vn_kv >= 33 ? 5 : 3.5) : b.vn_kv >= 132 ? 3.6 : b.vn_kv >= 33 ? 2.8 : 2,
-        color: vMode ? voltColor(v, lo, hi) : b.vn_kv >= 132 ? C.line132 : "#9fb3c9",
+        r: vMode ? style.rVolt : style.r,
+        color: vMode ? voltColor(v, lo, hi) : style.c,
         ring: vMode && vv.has(b.bus_id) ? 1 : 0,
       });
     });

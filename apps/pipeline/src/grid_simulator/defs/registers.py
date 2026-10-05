@@ -11,8 +11,9 @@ into `gridforge_optimizer/data/nged/` (a reviewable, committable change).
   pin_ecr_edition / pin_osm_coords                             (manual: adopt an edition)
 
 Provenance kept per edition: fetched_at, the source's own last_modified (CKAN), resource id, row
-count and a content hash (the edition id). Customer names, addresses and MPANs are dropped at the
-fetch boundary; the warehouse never holds them.
+count and a content hash (the edition id). The register's customer-name, address, postcode and
+MPAN/MSID columns are dropped at the fetch boundary. `customer_site` is kept as NGED publishes it:
+for small sites it is often a property name or an address, sometimes with a postcode.
 """
 
 import csv
@@ -34,7 +35,8 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 CKAN = "https://connecteddata.nationalgrid.co.uk/api/3/action/"
 ECR_RESOURCE_ID = "82a4ae83-77a3-4e7b-9060-8072ed96de9d"
 ECR_GSP = "Bicker Fen 132Kv S Stn"
-# the columns the model needs; no customer names, street addresses or MPANs
+# the columns the model needs; not the customer-name, address, postcode or MPAN/MSID columns
+# (`customer_site` is kept as published and can name a property)
 ECR_KEEP = [
     "reference", "customer_site", "grid_supply_point", "bulk_supply_point", "primary",
     "point_of_connection(poc)_voltage(kv)", "energy_source_1", "Energy Conversion Technology 1",
@@ -133,8 +135,8 @@ def _edition_rows(conn, name: str, edition_id: str) -> list[dict]:
 @dg.asset(group_name="registers", kinds={"ckan"}, retry_policy=_FETCH_RETRY)
 def ecr_register_fetch(context: dg.AssetExecutionContext) -> dict:
     """Fetch NGED's Embedded Capacity Register rows for the Bicker Fen GSP from the Connected Data
-    Portal (CKAN). Keeps only the columns the model needs (no personal data) and records the
-    source's own last-modified stamp alongside the fetch time."""
+    Portal (CKAN). Keeps only the columns the model needs (`ECR_KEEP`; the metadata lists the
+    columns dropped) and records the source's own last-modified stamp alongside the fetch time."""
     meta = _ckan("resource_show", id=ECR_RESOURCE_ID)
     recs = _ckan("datastore_search", resource_id=ECR_RESOURCE_ID, limit=5000,
                  filters=json.dumps({"grid_supply_point": ECR_GSP}))["records"]
@@ -147,7 +149,7 @@ def ecr_register_fetch(context: dg.AssetExecutionContext) -> dict:
            "source_last_modified": meta.get("last_modified"), "content_hash": _content_hash(rows, ecr_site_key)}
     context.add_output_metadata({"rows": len(rows), "by_status": dg.MetadataValue.json(by_status),
                                  "source_last_modified": str(meta.get("last_modified")), "content_hash": out["content_hash"],
-                                 "columns_dropped": "customer names, addresses, MPANs/MSIDs"})
+                                 "columns_dropped": dg.MetadataValue.json(sorted({k for rec in recs for k in rec} - {"_id", *ECR_KEEP}))})
     return out
 
 

@@ -38,7 +38,7 @@ export function useSelection({ patch, ref, mapApi }: Core) {
   /** Select something (null clears). An element selection seeds the maintenance form's year. */
   const select = useCallback(
     (sel: Sel | null) => {
-      if (sel && sel.kind !== "project" && sel.kind !== "region") patch((st) => ({ sel, maintDraft: { ...st.maintDraft, year: Math.max(2026, st.year) } }));
+      if (sel && sel.kind !== "project" && sel.kind !== "region") patch((st) => ({ sel, maintDraft: { ...st.maintDraft, year: st.year } }));
       else patch({ sel });
     },
     [patch],

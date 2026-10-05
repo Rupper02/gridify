@@ -9,12 +9,12 @@ import type { EditedFn } from "./useAutoRefresh";
 
 export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn) {
   /**
-   * Set/override a project's energisation year (null = back to the optimizer's recommendation).
+   * Set/override a project's energisation year, a plan year (null = back to the optimizer's recommendation).
    * Persisted on the branch; applied optimistically, rolled back if the save fails. It doesn't change
    * accept/defer/rank: it's a planning decision on top of the verdict. main is read-only.
    */
   const setSchedule = useCallback(
-    async (rid: string, yr: number | null) => {
+    async (rid: string, year: number | null) => {
       const st = ref.current;
       const mainId = mainIdOf(st.projects, st.projectId);
       const bid = st.activeBranch || mainId;
@@ -22,7 +22,6 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
         toastMsg("main is read-only. Open a branch to change an energisation year.", "warn");
         return;
       }
-      const year = yr == null ? null : Math.max(2026, Math.min(2035, yr));
       const applyYear = (val: number | null) =>
         patch((st) =>
           st.result

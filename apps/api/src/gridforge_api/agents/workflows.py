@@ -44,20 +44,25 @@ def _limits() -> UsageLimits:
 
 
 def _usage(res) -> dict:
+    """A run's tokens, and what OpenRouter billed for its own responses (`provider_details["cost"]`, in credits = USD;
+    a resumed run's history is not re-counted). Pydantic AI's `usage.cost` is a local price-table estimate that does not
+    know every OpenRouter model, so it is not used. None when no response reported a cost."""
     u = res.usage  # a property in Pydantic AI 2.x
-    return {"input_tokens": int(u.input_tokens or 0), "output_tokens": int(u.output_tokens or 0), "cost_credits": float(u.cost) if getattr(u, "cost", None) is not None else None}
+    billed = [float(m.provider_details["cost"]) for m in res.new_messages()
+              if isinstance(m, ModelResponse) and (m.provider_details or {}).get("cost") is not None]
+    return {"input_tokens": int(u.input_tokens or 0), "output_tokens": int(u.output_tokens or 0), "cost_credits": sum(billed) if billed else None}
 
 
 def _begin(run_id: str, project_id: str, *, kind: str, agent: str, branch_id=None, thread_id=None, event_id=None, parent=None) -> dict:
-    """Record the run and check the day's budget; a paused or exhausted project skips the run."""
+    """Record the run; a project the operator paused skips it."""
     rt = _rt()
 
     def do():
-        state = rt.budget.check(project_id)
+        state = rt.spend.check(project_id)
         with rt.harness.store.cursor() as con:
             runs.start_run(con, run_id=run_id, project_id=project_id, kind=kind, agent=agent, workflow_id=DBOS.workflow_id, branch_id=branch_id,
                            thread_id=thread_id, event_id=event_id, parent_run_id=parent, model=rt.model_name(agent),
-                           status="skipped_budget" if state.paused else "running")
+                           status="skipped_paused" if state.paused else "running")
         return {"paused": state.paused, "reason": state.paused_reason}
     return _step(do)
 
@@ -71,7 +76,7 @@ def _finish(run_id: str, project_id: str, *, status: str, summary: str = "", err
             runs.finish_run(con, run_id, status=status, summary=summary[:2000], error=error, input_tokens=u.get("input_tokens", 0),
                             output_tokens=u.get("output_tokens", 0), cost_credits=u.get("cost_credits"), solves=solves)
         if usage:
-            rt.budget.charge(project_id, tokens=u.get("input_tokens", 0) + u.get("output_tokens", 0), cost_credits=u.get("cost_credits"), solves=solves)
+            rt.spend.charge(project_id, tokens=u.get("input_tokens", 0) + u.get("output_tokens", 0), cost_credits=u.get("cost_credits"), solves=solves)
         return True
     _step(do)
 
@@ -83,7 +88,7 @@ def steward_run(project_id: str, event: dict) -> dict:
     run_id = DBOS.workflow_id or f"steward:{event.get('dedup_id', 'local')}"
     begun = _begin(run_id, project_id, kind="steward", agent="steward", branch_id=event.get("branch_id"), event_id=event.get("event_id"))
     if begun["paused"]:
-        return {"run_id": run_id, "status": "skipped_budget", "reason": begun["reason"]}
+        return {"run_id": run_id, "status": "skipped_paused", "reason": begun["reason"]}
     allowed = [s for s in event.get("allowed_specialists", []) if s in SPECIALISTS]
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
@@ -129,7 +134,7 @@ def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) 
     branch_id = scope.get("branch_id") or "main"
     begun = _begin(run_id, project_id, kind="specialist", agent=kind, branch_id=branch_id, parent=parent_run_id)
     if begun["paused"]:
-        return {"kind": kind, "run_id": run_id, "status": "skipped_budget"}
+        return {"kind": kind, "run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for(kind))
         prompt = (f"Study branch '{branch_id}'. Why you were asked: {scope.get('why', '')} (event: {scope.get('event', '')}).\n"
@@ -175,7 +180,7 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
         return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, or superseded by a newer run"}
     begun = _begin(run_id, project_id, kind="review", agent="reviewer", branch_id=branch_id)
     if begun["paused"]:
-        return {"run_id": run_id, "status": "skipped_budget"}
+        return {"run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for("reviewer"))
         deps.context["merge_check"] = mc
@@ -235,9 +240,15 @@ def _failed(rt: AgentRuntime, run_id: str, project_id: str, message_id: str, e: 
     _close(run_id, {"t": "error", "message": str(e), "seq": 10_000})
 
 
+def _figure_flags(text: str, step_outputs: list) -> list[str]:
+    """The soft flags on what the model wrote: digit figures no tool output of the run contains (`check_numbers`)."""
+    return [f"figure {n:g} appears in no tool output of this run" for n in check_numbers(text, step_outputs)]
+
+
 def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str, run_id: str, res, deps) -> dict:
-    """Store the answerer's result: a text answer (flags for figures no step produced), or the
-    proposals that wait for the operator's approval. A reply the operator cancelled meanwhile is left as it is."""
+    """Store the answerer's result: a text answer, or the proposals that wait for the operator's approval
+    with what the model said alongside them; both carry flags for figures no step produced. A reply the
+    operator cancelled meanwhile is left as it is."""
     if _cancelled(rt, message_id):
         return {"status": "cancelled", "text": "", "approvals": [], "flags": []}
     out = res.output
@@ -255,11 +266,12 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
             said = "\n".join(p.content.strip() for p in last.parts if isinstance(p, TextPart) and p.content.strip()) if isinstance(last, ModelResponse) else ""
             proposed = "I propose: " + "; ".join(f"{a['tool']} {json.dumps(a['args'])}" for a in approvals) + ". Waiting for your approval."
             text = f"{said}\n\n{proposed}" if said else proposed
+            flags = _figure_flags(said, step_outputs)  # the model's own words, not the proposals' arguments
             threads.set_message(con, message_id, status="awaiting_approval", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),
-                                usage=_usage(res), cost_credits=_usage(res)["cost_credits"], evidence=evidence)
-        return {"status": "awaiting_approval", "approvals": [a["approval_id"] for a in approvals], "text": text}
+                                usage=_usage(res), cost_credits=_usage(res)["cost_credits"], flags=flags, evidence=evidence)
+        return {"status": "awaiting_approval", "approvals": [a["approval_id"] for a in approvals], "text": text, "flags": flags}
     text = str(out)
-    flags = [f"figure {n:g} appears in no tool output of this run" for n in check_numbers(text, step_outputs)]
+    flags = _figure_flags(text, step_outputs)
     with rt.harness.store.cursor() as con:
         threads.set_message(con, message_id, status="done", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),
                             usage=_usage(res), cost_credits=_usage(res)["cost_credits"], flags=flags, evidence=evidence)
@@ -285,7 +297,7 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
         with rt.harness.store.cursor() as con:
             threads.set_message(con, message_id, status="failed", content=f"The agents are paused ({begun['reason']}).")
         _close(run_id, {"t": "final", "status": "failed", "seq": 10_000})
-        return {"run_id": run_id, "status": "skipped_budget"}
+        return {"run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
         history = ModelMessagesTypeAdapter.validate_python(loaded["history"]) if loaded["history"] else None
@@ -319,7 +331,7 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
     begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id,
                    parent=approvals[0]["run_id"] if approvals else None)
     if begun["paused"]:
-        return {"run_id": run_id, "status": "skipped_budget"}
+        return {"run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
         decisions: dict[str, Any] = {

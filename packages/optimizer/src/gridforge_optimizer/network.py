@@ -34,6 +34,7 @@ from .config import (
     TRAFO_LOADING_MAX_PCT,
     VOLTAGE_BANDS,
 )
+from .dispatch import merit_order
 from .types import Outage, Reason, Reinforcement
 
 
@@ -150,11 +151,17 @@ def voltage_band(kv: float) -> tuple[float, float]:
 
 
 # --- generation + dispatch -----------------------------------------------------------------------
-def _ensure_sgen_columns(net) -> None:
-    if "import_mw" not in net.sgen.columns:
-        net.sgen["import_mw"] = pd.Series(dtype=float)
-    if "p_rated_mw" not in net.sgen.columns:
-        net.sgen["p_rated_mw"] = pd.Series(dtype=float)
+# the generator tables: `sgen` (fixed power factor: embedded generation, new connections) and `gen` (voltage-controlled
+# power stations of an imported grid, holding their setpoint within their reactive limits)
+FLEET_TABLES = ("sgen", "gen")
+
+
+def _ensure_fleet_columns(net) -> None:
+    for table in FLEET_TABLES:
+        t = net[table]
+        for col in ("import_mw", "p_rated_mw"):
+            if col not in t.columns:
+                t[col] = pd.Series(dtype=float)
 
 
 def inject_sgen(
@@ -171,7 +178,7 @@ def inject_sgen(
     if int(bus) not in net.bus.index:
         raise ValueError(f"cannot connect at bus {bus}: not in the network model")
     idx = int(pp.create_sgen(net, bus=int(bus), p_mw=float(p_mw), q_mvar=float(q_mvar), name=name, type=tech))
-    _ensure_sgen_columns(net)
+    _ensure_fleet_columns(net)
     net.sgen.at[idx, "p_rated_mw"] = float(p_mw)
     net.sgen.at[idx, "import_mw"] = float(import_mw) if import_mw is not None else float(p_mw)
     return idx
@@ -182,22 +189,24 @@ def drop_sgen(net, idx: int) -> None:
     net.sgen = net.sgen.drop(index=idx)
 
 
-def dispatch_for_case(net, case: str) -> pd.Series:
-    """The active power of every sgen in a study case.
+def dispatch_for_case(net, case: str, table: str = "sgen") -> pd.Series:
+    """The active power of every generator in a table (`sgen` or `gen`) in a study case.
 
     GENERATION_FACTORS says how much of its rating each technology produces per case: the summer
     minimum (generation) case runs everything at full export; the winter peak (demand) case runs PV
     and wind at nil and batteries CHARGING at their import capacity (a negative factor means import).
-    Unknown technologies are treated as firm (GENERATION_FACTOR_DEFAULT).
+    Unknown technologies are treated as firm (GENERATION_FACTOR_DEFAULT). On an imported grid the
+    dispatchable units are then set by merit order instead (`dispatch.merit_order`).
     """
-    _ensure_sgen_columns(net)
+    _ensure_fleet_columns(net)
+    t = net[table]
     factors = GENERATION_FACTORS.get(case, {})
     default = GENERATION_FACTOR_DEFAULT.get(case, 1.0)
-    rated = net.sgen["p_rated_mw"].where(net.sgen["p_rated_mw"].notna(), net.sgen["p_mw"]).astype(float)
-    imp = net.sgen["import_mw"].where(net.sgen["import_mw"].notna(), rated).astype(float)
-    out = pd.Series(0.0, index=net.sgen.index, dtype=float)
-    for idx in net.sgen.index:
-        tech = str(net.sgen.at[idx, "type"] or "").lower()
+    rated = t["p_rated_mw"].where(t["p_rated_mw"].notna(), t["p_mw"]).astype(float)
+    imp = t["import_mw"].where(t["import_mw"].notna(), rated).astype(float)
+    out = pd.Series(0.0, index=t.index, dtype=float)
+    for idx in t.index:
+        tech = str(t.at[idx, "type"] or "").lower()
         f = factors.get(tech, default)
         out[idx] = rated[idx] * f if f >= 0 else -imp[idx] * (-f)
     return out
@@ -248,12 +257,14 @@ def _runpp(net) -> None:
     """One Newton-Raphson solve, warm-started from the last solution when there is one (the net
     changes little between trials, so this roughly halves the iterations)."""
     warm = len(net.res_bus) == len(net.bus) and not net.res_bus["vm_pu"].isna().any()
+    # a voltage-controlled unit holds its setpoint only within its reactive limits: past them it stops regulating
+    q_lims = {"enforce_q_lims": True} if len(net.gen) else {}
     try:
-        pp.runpp(net, init="results" if warm else "auto")  # numba when installed
+        pp.runpp(net, init="results" if warm else "auto", **q_lims)  # numba when installed
     except Exception:
         if not warm:
             raise
-        pp.runpp(net, init="auto")  # a bad warm start is retried cold
+        pp.runpp(net, init="auto", **q_lims)  # a bad warm start is retried cold
 
 
 def _solve(net, regulate: bool = True) -> bool:
@@ -342,17 +353,20 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
     """Solve one study case in place and return its results, leaving the net's inputs as found.
     None when the power flow does not converge."""
     scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
-    p0 = net.sgen["p_mw"].copy()
+    p0, gen_p0, gen_on0 = net.sgen["p_mw"].copy(), net.gen["p_mw"].copy(), net.gen["in_service"].copy()
     try:
         if load_scale is not None:
             net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
         if rating_ratio is not None:
             net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
-        if len(net.sgen):
+        if net.get("dispatch") == "merit_order":  # an imported grid's power stations follow the market (dispatch.py)
+            merit_order(net, case)
+        elif len(net.sgen):
             net.sgen["p_mw"] = dispatch_for_case(net, case)
         ok = _solve(net, regulate=regulate)
     finally:
         net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"] = scaling0, imax0, p0
+        net.gen["p_mw"], net.gen["in_service"] = gen_p0, gen_on0
     if not ok:
         return None
     p_ext = float(net.res_ext_grid["p_mw"].sum()) if len(net.res_ext_grid) else 0.0
@@ -362,6 +376,25 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
         "trafo_pct": net.res_trafo["loading_percent"].copy(),
         "p_ext_mw": p_ext,
     }
+
+
+def case_dispatch(net, case: str, load_scale: pd.Series | None = None) -> dict[str, pd.Series]:
+    """Each generator table's output in a study case, as `_run_case` sets it (merit order on an imported grid),
+    without solving; the net is left as found."""
+    saved = {t: (net[t]["p_mw"].copy(), net[t]["in_service"].copy()) for t in FLEET_TABLES}
+    scaling0 = net.load["scaling"].copy()
+    try:
+        if load_scale is not None:
+            net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
+        if net.get("dispatch") == "merit_order":
+            merit_order(net, case)
+        elif len(net.sgen):
+            net.sgen["p_mw"] = dispatch_for_case(net, case)
+        return {t: net[t]["p_mw"].where(net[t]["in_service"].astype(bool), 0.0).astype(float) for t in FLEET_TABLES}
+    finally:
+        net.load["scaling"] = scaling0
+        for t, (p, on) in saved.items():
+            net[t]["p_mw"], net[t]["in_service"] = p, on
 
 
 def _voltage_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
@@ -679,16 +712,20 @@ def _element_outage(table_name: str, rating_column: str):
 
 
 def _generator_outage(net, o: Outage):
-    """An existing generator out of service (a derate halves its output). Returns an undo."""
-    if "fleet_id" not in net.sgen.columns:
-        return None
-    idx = net.sgen.index[net.sgen["fleet_id"] == o.element_id]
-    if not len(idx):
-        return None
-    col = "p_rated_mw" if o.kind == "derate" else "in_service"
-    before = net.sgen.loc[idx, col].copy()
-    net.sgen.loc[idx, col] = before * OUTAGE_DERATE_FACTOR if o.kind == "derate" else False
-    return lambda: net.sgen.loc.__setitem__((idx, col), before)
+    """An existing generator out of service (a derate halves its output), in whichever generator table holds it.
+    Returns an undo."""
+    for table in FLEET_TABLES:
+        t = net[table]
+        if "fleet_id" not in t.columns:
+            continue
+        idx = t.index[t["fleet_id"] == o.element_id]
+        if not len(idx):
+            continue
+        col = "p_rated_mw" if o.kind == "derate" else "in_service"
+        before = t.loc[idx, col].copy()
+        t.loc[idx, col] = before * OUTAGE_DERATE_FACTOR if o.kind == "derate" else False
+        return lambda: t.loc.__setitem__((idx, col), before)
+    return None
 
 
 # how each Outage.element_kind changes the net (a new kind of maintenance target is one entry here)

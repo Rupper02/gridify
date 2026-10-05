@@ -42,7 +42,7 @@ function addLayers(map: MLMap): void {
   L({ id: "line-sel", type: "line", source: "lines", filter: ["==", ["get", "sel"], 1], layout: { "line-cap": "round" }, paint: { "line-color": C.accent, "line-width": zw(8), "line-opacity": 0.28, "line-blur": 2 } });
   L({ id: "line-solid", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["solid", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": zw(), "line-opacity": ["get", "op"] } });
   L({ id: "line-bind", type: "line", source: "lines", filter: ["==", ["get", "kind"], "bind"], paint: { "line-color": C.amber, "line-width": zw(), "line-dasharray": [3, 2] } });
-  L({ id: "line-tie", type: "line", source: "lines", filter: ["==", ["get", "kind"], "tie"], paint: { "line-color": C.line33, "line-width": 1.2, "line-dasharray": [2, 2] } });
+  L({ id: "line-tie", type: "line", source: "lines", filter: ["==", ["get", "kind"], "tie"], paint: { "line-color": C.lineMid, "line-width": 1.2, "line-dasharray": [2, 2] } });
   L({ id: "line-flow", type: "line", source: "lines", filter: ["!", ["in", ["get", "kind"], ["literal", ["tie", "maint"]]]], paint: { "line-color": ["get", "flow"], "line-width": zw(1), "line-blur": 0.6, "line-dasharray": [0, 4, 3] } });
   L({ id: "line-maint", type: "line", source: "lines", filter: ["==", ["get", "kind"], "maint"], layout: { "line-cap": "round" }, paint: { "line-color": C.mute, "line-width": zw(), "line-opacity": 0.75, "line-dasharray": [0.6, 1.4] } });
   L({ id: "line-hit", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": "#000", "line-opacity": 0, "line-width": 14 } });

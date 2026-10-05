@@ -18,8 +18,8 @@ The **`apps/pipeline`** slice of GridForge: a [Dagster](https://dagster.io) asse
                    previous vs current edition
 
  asset checks on nged_model_canonical:
-   power_flow_converges      ERROR  both study cases solve via the engine's `feasibility`: every bus inside its statutory band, nothing overloaded
-   referential_integrity     ERROR  every line/trafo/load/generator endpoint and every valid registry bus exists
+   power_flow_converges      ERROR  both study cases solve (blocking); WARN if today's grid breaches a limit via the engine's `feasibility` (band, overload, GSP)
+   referential_integrity     ERROR  every line/trafo/load/generator endpoint and every valid registry bus exists (blocking)
    single_connected_network  WARN   one island, across lines AND transformers
 ```
 
@@ -48,7 +48,7 @@ The two external registers change on their own clock, so they are fetched on a s
 
 Nothing here changes the model the engine runs on. That stays pinned to the bundled snapshot until someone runs `pin_ecr_edition` or `pin_osm_coords`, which write the latest edition into `packages/optimizer/src/gridforge_optimizer/data/nged/` as a reviewable git diff. Then re-materialise `ltds_tables*` and commit.
 
-Privacy: customer names, addresses and MPANs/MSIDs are dropped at the fetch boundary. The warehouse never holds them.
+Privacy: the register's customer-name, address, postcode and MPAN/MSID columns are dropped at the fetch boundary (`ECR_KEEP`; each fetch records the dropped columns in its metadata). `customer_site` and the site's lat/lon are kept as NGED publishes them; for small sites the site name is often a property name or an address, sometimes with a postcode.
 
 Schedules are defined but start **stopped**; turn them on in the Dagster UI. The `ltds` group makes no network calls.
 
@@ -70,7 +70,7 @@ Keep the quotes around `'ltds_tables*'`: it selects the root asset and everythin
 
 ## Notes
 
-- **WARN vs ERROR is deliberate.** ERROR means the model is wrong (it won't solve, or it references things that don't exist). WARN flags a structural concern without blocking.
+- **WARN vs ERROR is deliberate.** ERROR means the model is wrong (it won't solve, or it references things that don't exist): both checks are `blocking`, so `served_nged` is skipped and the API keeps reading the previous warehouse. WARN flags a concern without blocking, including a limit breach in today's grid, which is a real finding to serve, not a broken model. A check blocks only when it runs in the same run, as `'ltds_tables*'` does.
 - **Telling the API's agents about a new edition.** The API's steward sweeps a project when its data changes; the pipeline is not wired to it yet. After `served_nged` writes a new snapshot, `POST /projects/nged-bickerfen/events` with `{"type": "edition.changed", "payload": {"ltds_edition": "<edition>"}}` (deduplicated by the edition) starts the sweep; the API also notices a new snapshot by itself the next time it starts.
 - **DuckDB today.** The warehouse path is one config value (`src/grid_simulator/config.py`). DuckDB allows one writer per file, so the writer assets carry a retry policy; the API only ever opens it read-only.
 - **Tests live with the logic.** The model and edition rules are tested in `packages/optimizer/tests/` (`test_nged.py`, `test_editions.py`); this package has no unit tests of its own. The asset checks are the pipeline's runtime gate.

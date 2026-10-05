@@ -33,6 +33,7 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_reg
 - After pinning: re-materialise `ltds_tables*`, review the git diff of the bundled file, commit.
 - Every builder entry point in `gridforge_optimizer.nged` takes `tables=` (and `edition=` current/previous); the pipeline
   passes its bronze tables through so lineage is real.
-- Keep the ECR fetch free of personal data (`ECR_KEEP`).
+- The ECR fetch drops the customer-name, address, postcode and MPAN/MSID columns (`ECR_KEEP`); `customer_site` is kept as
+  published and can name a property (root `AGENTS.md` Domain rule 5).
 - OSM data is ODbL: keep the "© OpenStreetMap contributors" credit wherever positions are shown or documented.
 - NGED's own substation-location datasets are access-restricted; don't add a dependency on them.

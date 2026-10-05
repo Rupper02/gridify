@@ -90,15 +90,18 @@ class ResultCache:
             return con.execute("SELECT 1 FROM result_cache WHERE cache_key = ?", [key]).fetchone() is not None
 
     def through(self, key: str, kind: str, *, baseline: str, parse: Callable[[str], T], compute: Callable[[], T],
-                dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None) -> T:
+                dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None, locked: bool = True) -> T:
         """The one read-through path every engine result takes: the in-process dict, then the durable
         table (`parse`d from JSON), then `compute` (stored with `dump` and its compute time). `on_hit`
         sees a value that did not come from `compute` (a cached plan still reaches a per-year callback).
         A miss computes under the solver lock, and looks again once it has it: whoever held the solver may
-        just have stored this very key. Never call it while holding a store cursor (the store has its own lock)."""
+        just have stored this very key. `locked=False` is for a compute that takes the solver itself, through a
+        gate that must wait for an operator's job before it holds the lock (an agent study, chunk by chunk):
+        holding the lock while that gate waits would deadlock the job. Two such computes of one key may both run.
+        Never call it while holding a store cursor (the store has its own lock)."""
         value, hit = self._lookup(key, parse)
         if not hit:
-            with self._solver:
+            with self._solver if locked else nullcontext():
                 value, hit = self._lookup(key, parse)
                 if not hit:
                     t0 = time.perf_counter()

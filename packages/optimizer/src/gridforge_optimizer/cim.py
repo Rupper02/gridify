@@ -302,37 +302,54 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
         ssh.attr(e, "EnergyConsumer.p", float(net.load.at[i, "p_mw"]) * scale)
         ssh.attr(e, "EnergyConsumer.q", float(net.load.at[i, "q_mvar"]) * scale)
 
-    # generation: synchronous machines (PQ, not regulating) with a generating unit per technology
-    for i in net.sgen.index:
-        b = int(net.sgen.at[i, "bus"])
-        mid = _id("machine", int(i))
-        name = str(net.sgen.at[i, "name"] or f"generator {i}")
-        tech = str(net.sgen.at[i, "type"] or "other").lower()
-        p_rated = float(net.sgen.at[i, "p_rated_mw"]) if "p_rated_mw" in net.sgen.columns and net.sgen.at[i, "p_rated_mw"] == net.sgen.at[i, "p_rated_mw"] else float(net.sgen.at[i, "p_mw"])
-        uid = _id("genunit", int(i))
-        e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
-        eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
-        eq.attr(e, "IdentifiedObject.description", f"gridforge.tech={tech}")  # so our own export round-trips battery / hybrid
-        eq.attr(e, "GeneratingUnit.initialP", float(net.sgen.at[i, "p_mw"]))
-        eq.attr(e, "GeneratingUnit.maxOperatingP", p_rated)
-        eq.attr(e, "GeneratingUnit.minOperatingP", 0.0)
-        eq.attr(e, "GeneratingUnit.nominalP", p_rated)
-        e = eq.obj("SynchronousMachine", mid, name=f"{name} ({i})")
-        eq.ref(e, "Equipment.EquipmentContainer", vl_of_bus[b])
-        eq.ref(e, "ConductingEquipment.BaseVoltage", base_voltage[round(float(net.bus.at[b, "vn_kv"]), 3)])
-        eq.ref(e, "RotatingMachine.GeneratingUnit", uid)
-        eq.attr(e, "RotatingMachine.ratedS", max(p_rated, 0.01))
-        eq.attr(e, "RotatingMachine.ratedU", float(net.bus.at[b, "vn_kv"]))
-        eq.attr(e, "SynchronousMachine.maxQ", p_rated * 0.33)
-        eq.attr(e, "SynchronousMachine.minQ", -p_rated * 0.33)
-        eq.enum(e, "SynchronousMachine.type", "SynchronousMachineKind.generator")
-        terminal(mid, b, 1, f"machine{i}")
-        e = ssh.obj("SynchronousMachine", mid, about=True)
-        ssh.attr(e, "RotatingMachine.p", -float(net.sgen.at[i, "p_mw"]))  # CIM load convention: generation is negative
-        ssh.attr(e, "RotatingMachine.q", -float(net.sgen.at[i, "q_mvar"]))
-        ssh.attr(e, "RegulatingCondEq.controlEnabled", False)
-        ssh.attr(e, "SynchronousMachine.referencePriority", 0)
-        ssh.enum(e, "SynchronousMachine.operatingMode", "SynchronousMachineOperatingMode.generator")
+    # generation: synchronous machines with a generating unit per technology. A fixed-power-factor unit (`sgen`) does
+    # not regulate; a voltage-controlled one (`gen`) holds its setpoint within its reactive limits (a RegulatingControl)
+    for table, prefix in (("sgen", ""), ("gen", "v")):
+        t = net[table]
+        regulating = table == "gen"
+        for i in t.index:
+            b = int(t.at[i, "bus"])
+            key = f"{prefix}{int(i)}"
+            mid = _id("machine", key)
+            name = str(t.at[i, "name"] or f"generator {key}")
+            tech = str(t.at[i, "type"] or "other").lower()
+            p_rated = float(t.at[i, "p_rated_mw"]) if "p_rated_mw" in t.columns and t.at[i, "p_rated_mw"] == t.at[i, "p_rated_mw"] else float(t.at[i, "p_mw"])
+            uid = _id("genunit", key)
+            e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
+            eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
+            eq.attr(e, "IdentifiedObject.description", f"gridforge.tech={tech}")  # so our own export round-trips battery / hybrid
+            eq.attr(e, "GeneratingUnit.initialP", float(t.at[i, "p_mw"]))
+            eq.attr(e, "GeneratingUnit.maxOperatingP", p_rated)
+            eq.attr(e, "GeneratingUnit.minOperatingP", float(t.at[i, "min_p_mw"]) if regulating else 0.0)
+            eq.attr(e, "GeneratingUnit.nominalP", p_rated)
+            e = eq.obj("SynchronousMachine", mid, name=f"{name} ({key})")
+            eq.ref(e, "Equipment.EquipmentContainer", vl_of_bus[b])
+            eq.ref(e, "ConductingEquipment.BaseVoltage", base_voltage[round(float(net.bus.at[b, "vn_kv"]), 3)])
+            eq.ref(e, "RotatingMachine.GeneratingUnit", uid)
+            eq.attr(e, "RotatingMachine.ratedS", max(p_rated, 0.01))
+            eq.attr(e, "RotatingMachine.ratedU", float(net.bus.at[b, "vn_kv"]))
+            eq.attr(e, "SynchronousMachine.maxQ", float(t.at[i, "max_q_mvar"]) if regulating else p_rated * 0.33)
+            eq.attr(e, "SynchronousMachine.minQ", float(t.at[i, "min_q_mvar"]) if regulating else -p_rated * 0.33)
+            eq.enum(e, "SynchronousMachine.type", "SynchronousMachineKind.generator")
+            term = terminal(mid, b, 1, f"machine{key}")
+            if regulating:
+                rc = _id("regcontrol", f"machine{key}")
+                eq.ref(e, "RegulatingCondEq.RegulatingControl", rc)
+                e = eq.obj("RegulatingControl", rc, name=f"{name} voltage control")
+                eq.ref(e, "RegulatingControl.Terminal", term)
+                eq.enum(e, "RegulatingControl.mode", "RegulatingControlModeKind.voltage")
+                e = ssh.obj("RegulatingControl", rc, about=True)
+                ssh.attr(e, "RegulatingControl.discrete", False)
+                ssh.attr(e, "RegulatingControl.enabled", True)
+                ssh.attr(e, "RegulatingControl.targetDeadband", 0.0)
+                ssh.attr(e, "RegulatingControl.targetValue", float(t.at[i, "vm_pu"]) * float(net.bus.at[b, "vn_kv"]))
+                ssh.enum(e, "RegulatingControl.targetValueUnitMultiplier", "UnitMultiplier.k")
+            e = ssh.obj("SynchronousMachine", mid, about=True)
+            ssh.attr(e, "RotatingMachine.p", -float(t.at[i, "p_mw"]))  # CIM load convention: generation is negative
+            ssh.attr(e, "RotatingMachine.q", -float(t.at[i, "q_mvar"]) if not regulating else 0.0)
+            ssh.attr(e, "RegulatingCondEq.controlEnabled", regulating)
+            ssh.attr(e, "SynchronousMachine.referencePriority", 0)
+            ssh.enum(e, "SynchronousMachine.operatingMode", "SynchronousMachineOperatingMode.generator")
 
     # the transmission infeed (slack) as an external network injection with a voltage target
     for i in net.ext_grid.index:

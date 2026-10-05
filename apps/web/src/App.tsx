@@ -77,9 +77,10 @@ export function App() {
             outLines: derived.outLines,
             diffDeltas: derived.diffDeltas,
             visible: s.visible,
+            tiers: derived.tiers,
           })
         : null,
-    [s.model, derived.yr, s.layer, s.sel, derived.bindLines, derived.outLines, derived.diffDeltas, s.visible],
+    [s.model, derived.yr, s.layer, s.sel, derived.bindLines, derived.outLines, derived.diffDeltas, s.visible, derived.tiers],
   );
 
   const showFrame = !derived.onMain;

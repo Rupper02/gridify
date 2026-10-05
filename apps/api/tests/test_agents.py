@@ -6,7 +6,7 @@ the step is recorded with a cache key the durable cache holds, and the agent's f
 study item's figures (copied by the server, never typed by the model); a branch run gets a review
 that restates the merge gate's blockers by fingerprint (a wrong restatement is retried); a question
 streams tool calls and tokens, flags a figure no tool produced, and a proposal waits for the
-operator's approval; events deduplicate; the pause switch and the budget stop work; a relaunch
+operator's approval; events deduplicate; the pause switch stops work; a relaunch
 keeps every result; operators keep the solver first."""
 
 import json
@@ -28,7 +28,6 @@ from gridforge_api.agents import roster
 from gridforge_api.agents.evidence import AgentFinding
 from gridforge_api.agents.schemas import SpecialistReport
 from gridforge_api.agents.tools import SolverBusy, SolverGate
-from gridforge_api.config import AGENT_BUDGET_DAILY
 from gridforge_api.main import app
 from _support import add_project, broken_project, client, create_branch as _create, project as _project, requires_warehouse, run as _run
 
@@ -216,7 +215,7 @@ def test_an_event_wakes_the_steward_whose_specialist_studies_and_binds_evidence(
     assert any(m["role"] == "assistant" and m["content"].startswith("Scripted brief") for m in msgs)
     # the status read knows about it
     s = client.get(f"/projects/{PROJECT}/agents").json()
-    assert s["last_events"] and s["budget"]["tokens"] >= 0
+    assert s["last_events"] and s["spend"]["tokens"] >= 0
 
 
 def test_a_finding_that_names_no_recorded_step_is_sent_back_to_the_model():
@@ -366,17 +365,6 @@ def test_pause_stops_new_work_and_resume_restarts_it():
     tid = client.post(f"/projects/{PROJECT}/threads", json={"title": "Paused"}).json()["thread_id"]
     assert client.post(f"/projects/{PROJECT}/threads/{tid}/messages", json={"content": "hi"}).status_code == 409
     assert client.post(f"/projects/{PROJECT}/agents/resume").json()["status"] in ("idle", "running")
-
-
-def test_the_daily_budget_pauses_the_project():
-    deps.budget.charge(PROJECT, tokens=int(AGENT_BUDGET_DAILY["tokens"]))
-    s = client.get(f"/projects/{PROJECT}/agents").json()
-    assert s["status"] == "paused" and s["paused_reason"] == "budget" and s["budget"]["exhausted"]
-    r = client.post(f"/projects/{PROJECT}/events", json={"type": "project.imported", "payload": {"snapshot_id": "budget-snap"}}).json()
-    assert r["paused"] is True and r["workflow_ids"] == []
-    with deps.scenarios.cursor() as con:  # a new day, for the tests that follow
-        con.execute("UPDATE agent_budgets SET tokens = 0 WHERE project_id = ?", [PROJECT])
-    assert client.get(f"/projects/{PROJECT}/agents").json()["status"] != "paused"
 
 
 def test_operators_take_the_solver_first_and_the_wait_is_bounded_by_the_run():

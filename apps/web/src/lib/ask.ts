@@ -11,6 +11,10 @@ export interface AskContext {
   outages: Outage[];
   year: number;
   ix: ModelIndex | null;
+  /** The grid's voltage a new connection is asked about: its second line level, or its only one. */
+  connectKv: number | null;
+  /** The grid models a transmission boundary (a GSP export limit) to ask about. */
+  boundary: boolean;
 }
 
 const MAX_QUESTIONS = 5;
@@ -32,7 +36,8 @@ export function suggestedQuestions(c: AskContext): string[] {
   }
   if (c.sel?.kind === "gen") out.push(`When is the best window to take generator ${c.sel.id} out for 8 weeks?`);
   if (c.outages.some((o) => o.year === c.year)) out.push(`What do the planned works in ${c.year} do to the network, and is anything at risk during them?`);
-  out.push("What limits the GSP export by 2035?", "Where can 50 MW of export connect at 33 kV today?");
+  if (c.boundary) out.push("What limits the GSP export by the end of the plan?");
+  out.push(`Where can 50 MW of export connect${c.connectKv != null ? ` at ${+c.connectKv} kV` : ""} today?`);
   return [...new Set(out)].slice(0, MAX_QUESTIONS);
 }
 

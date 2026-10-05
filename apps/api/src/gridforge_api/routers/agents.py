@@ -32,7 +32,7 @@ def _on() -> None:
 # --- status, pause, events ----------------------------------------------------------------------------------
 @router.get("/projects/{pid}/agents")
 def agents_status(pid: str) -> dict:
-    """Starting, idle, running or paused, with today's budget and the last events."""
+    """Starting, idle, running or paused, with what the agents spent and the last events."""
     _project(pid)
     return agents.status(pid)
 
@@ -41,7 +41,7 @@ def agents_status(pid: str) -> dict:
 def pause_agents(pid: str, body: dict | None = None) -> dict:
     _project(pid)
     _on()
-    agents.budget.set_paused(pid, True, (body or {}).get("reason") or "operator")
+    agents.spend.set_paused(pid, True, (body or {}).get("reason") or "operator")
     return agents.status(pid)
 
 
@@ -49,7 +49,7 @@ def pause_agents(pid: str, body: dict | None = None) -> dict:
 def resume_agents(pid: str) -> dict:
     _project(pid)
     _on()
-    agents.budget.set_paused(pid, False)
+    agents.spend.set_paused(pid, False)
     return agents.status(pid)
 
 
@@ -103,7 +103,7 @@ def post_message(pid: str, tid: str, body: MessageIn) -> dict:
     the ids to stream the reply with. 409 while a reply is already streaming in this thread."""
     _project(pid)
     _on()
-    if agents.budget.check(pid).paused:
+    if agents.spend.check(pid).paused:
         raise HTTPException(status_code=409, detail={"code": "paused", "message": "the agents are paused for this project"})
     with scenarios.cursor() as con:
         if threads.thread_row(con, tid) is None:

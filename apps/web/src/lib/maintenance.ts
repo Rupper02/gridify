@@ -3,9 +3,10 @@
 // N-1 during the window, what the work leaves behind). Pure: every figure restates the engine's study.
 // A new kind of work is one entry in WORK_UI; a new verdict is one entry in VERDICTS.
 
-import { C, PLAN_YEARS, caseLabel, fmtMw, techLabel } from "../theme";
+import { C, caseLabel, fmtMw, techLabel } from "../theme";
 import type { Curtailment, ElementKind, ElementSel, N1During, N1Violation, OptimizeResult, Outage, OutageStudy, QueueItem, Repower, Season, Verdict, Work } from "../types";
 import { busLabel, elementInfo, lineName, nameElements, outageSel, outageStudyOf, trafoName, type ModelIndex } from "./derive";
+import { type Plan, lastYear } from "./plan";
 
 // ---- the schedule form -------------------------------------------------------------------------
 export interface MaintDraft {
@@ -20,7 +21,8 @@ export interface MaintDraft {
   factor: number;
 }
 
-export const INITIAL_DRAFT: MaintDraft = { season: "Summer", year: 2029, weeks: 4, work: "maintenance", kind: "outage", repower: "uprate", factor: 1.5 };
+/** The form's defaults; its year is the viewed year, seeded when an element is selected (useSelection). */
+export const INITIAL_DRAFT: MaintDraft = { season: "Summer", year: 0, weeks: 4, work: "maintenance", kind: "outage", repower: "uprate", factor: 1.5 };
 
 /** The uprate factors offered: 1.25x to 4x in quarter steps (the API accepts 1 < factor <= 4). */
 export const FACTOR_MIN = 1.25;
@@ -63,8 +65,8 @@ interface WorkUi {
   chip: (o: Pick<Outage, "kind">) => string;
   /** The window in a row ("full outage", "repowering, uprate to 1.5x"). */
   describe: (o: Pick<Outage, "kind" | "element_kind" | "repower" | "factor">) => string;
-  /** What the form says is studied, and what happens after the window. */
-  hint: (d: MaintDraft, kind: ElementKind) => string;
+  /** What the form says is studied, and what happens after the window (`lastYear`: the plan's last year). */
+  hint: (d: MaintDraft, kind: ElementKind, lastYear: number) => string;
 }
 
 export const WORK_UI: Record<Work, WorkUi> = {
@@ -80,8 +82,8 @@ export const WORK_UI: Record<Work, WorkUi> = {
     tag: () => "REPOWER",
     chip: () => "RPW",
     describe: (o) => (o.repower === "add_parallel" ? `repowering, ${PARALLEL_LABEL[o.element_kind].toLowerCase()}` : `repowering, uprate to ${fx(o.factor)}`),
-    hint: (d, kind) =>
-      d.year + 1 > PLAN_YEARS[PLAN_YEARS.length - 1]
+    hint: (d, kind, lastYear) =>
+      d.year + 1 > lastYear
         ? `Studied out of service during the window. It comes ${repowerChange({ element_kind: kind, repower: d.repower, factor: d.factor })} from ${d.year + 1}, after the last plan year, so no solved year shows it.`
         : `Studied out of service during the window. From ${d.year + 1} the later years are solved with it ${repowerChange({ element_kind: kind, repower: d.repower, factor: d.factor })}. The connection queue is not re-run for it.`,
   },
@@ -112,7 +114,7 @@ export const seasonHint = (season: Season): string =>
       : "Studied in both cases, with the intermediate seasonal ratings.";
 
 /** The form's full hint: the season's case(s), then what the work does. */
-export const draftHint = (d: MaintDraft, kind: ElementKind): string => `${seasonHint(d.season)} ${WORK_UI[d.work].hint(d, kind)}`;
+export const draftHint = (d: MaintDraft, kind: ElementKind, plan: Plan): string => `${seasonHint(d.season)} ${WORK_UI[d.work].hint(d, kind, lastYear(plan))}`;
 
 // ---- verdicts ----------------------------------------------------------------------------------
 interface VerdictUi {

@@ -15,7 +15,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   every read is project-scoped (`getModel(pid)`, `listBranches(pid)`, the agents' calls take `pid`); `importProject` posts
   the multipart form; `streamReply` wraps `EventSource`.
 - `src/lib/` holds the pure derivations: `derive`, `ask` (suggested questions from the state in view; `PROPOSAL_EFFECT`,
-  what an approved proposal refreshes), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
+  what an approved proposal refreshes), `plan` (the plan's years and phases, from `GET /forecasts`: never write a plan
+  year in the planner), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
   buttons, finding titles, grouping and map targets), `trace` (a reply's events folded into text and stage chips,
   `STAGE_BY_TOOL_PREFIX`, the evidence line, the agents pill), `projects` (`mainIdOf`: the project's plan-of-record
   branch, `DEFAULT_PROJECT_ID`, capability chips, the import report's lines, the known-limit fields), `reasons.ts` (the

@@ -13,6 +13,7 @@ import {
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { gateState, openCounts } from "../../lib/gate";
+import { lineTiers } from "../../lib/mapFeatures";
 import { ALL_CAPABILITIES, mainIdOf, projectOf } from "../../lib/projects";
 import { isSuperseded } from "../../lib/trace";
 import { profileOf } from "../../theme";
@@ -21,6 +22,8 @@ import type { PlannerState } from "./core";
 
 export function useDerived(s: PlannerState) {
   const ix = useMemo(() => (s.model ? indexModel(s.model) : null), [s.model]);
+  // the grid's own line voltages in three tiers: how lines are drawn, labelled and toggled on any grid
+  const tiers = useMemo(() => lineTiers((s.model?.lines ?? []).map((l) => l.voltage_kv)), [s.model]);
 
   const view = useMemo(() => {
     const project = projectOf(s.projects, s.projectId);
@@ -38,6 +41,8 @@ export function useDerived(s: PlannerState) {
     const prelim = preliminaryOf(knownProjects(s.candidates, s.added[s.activeBranch] ?? []), s.result);
     const stale = staleness(s.result, branch, s.outages, s.reinforcements, prelim.length, changedProjects(s.candidates, q));
     const yearsSolved = s.result ? Object.keys(s.result.years ?? {}).length : 0;
+    // years the engine ran but whose power flow did not converge: they have no figures to show
+    const yearsFailed = s.result ? Object.values(s.result.years ?? {}).filter((y) => y.converged === false).length : 0;
     const yearsTotal = s.result?.years_total ?? 10;
     // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
     const branchOnly = new Set<string>(prelim.map((p) => p.request_id));
@@ -52,7 +57,7 @@ export function useDerived(s: PlannerState) {
     const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
     const reviewStale = reviewCurrent ? s.solving || isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
-    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
+    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
   }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
 
   const year = useMemo(() => {
@@ -66,5 +71,5 @@ export function useDerived(s: PlannerState) {
     return { yr, exact, outLines, yearDelta, diffDeltas };
   }, [s.diff, s.diffMode, s.outages, s.result, s.year]);
 
-  return { ix, ...view, ...year };
+  return { ix, tiers, ...view, ...year };
 }

@@ -21,7 +21,7 @@ import type { Approval, ThreadMessage } from "../types";
 export type AskTabPlanner = PlannerSlice<
   "activeBranch" | "agents" | "chat" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
   "ask" | "askAbout" | "cancelReply" | "closeThread" | "decideApproval" | "loadThreads" | "openEvidence" | "openThread" | "setAgentsPaused" | "setInput" | "startAsk",
-  "branch" | "hue" | "ix" | "onMain" | "pendingApprovals" | "q"
+  "branch" | "caps" | "hue" | "ix" | "onMain" | "pendingApprovals" | "q" | "tiers"
 >;
 
 /** Citations become small numbered chips; any other link opens in a new tab. */
@@ -48,7 +48,10 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
   const target = derived.onMain ? "main" : derived.branch?.name;
   const starting = isStarting(planner);
   const pill = agentsPill(s.agents);
-  const questions = suggestedQuestions({ q: derived.q, sel: s.sel, outages: s.outages, year: s.year, ix: derived.ix });
+  const questions = suggestedQuestions({
+    q: derived.q, sel: s.sel, outages: s.outages, year: s.year, ix: derived.ix,
+    connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary,
+  });
   const bid = derived.onMain ? null : s.activeBranch;
   const threads = s.threads.filter((t) => t.kind === "ask" && (t.branch_id ?? null) === bid).slice(0, 4);
   const health = s.threads.find((t) => t.kind === "health");
@@ -129,8 +132,8 @@ function AgentsLine({ planner }: { planner: AskTabPlanner }) {
         <Sparkle size={11} weight="fill" />
         {pill.label}
       </span>
-      <span className="mono ellipsis" style={{ color: C.mute, flex: 1, minWidth: 0 }}>
-        {a.budget ? `today ${a.budget.credits.toFixed(2)} cr · ${a.budget.solves} solves` : ""}
+      <span className="mono ellipsis" style={{ color: C.mute, flex: 1, minWidth: 0 }} title="What the agents spent on this project: OpenRouter's billed cost, today and in all">
+        {a.spend ? `$${a.spend.credits.toFixed(2)} today · $${a.spend.total_credits.toFixed(2)} total` : ""}
       </span>
       <button className="btn" style={{ height: 26, fontSize: 11, padding: "0 9px" }} onClick={() => void actions.setAgentsPaused(!paused)} title={paused ? pill.title : "Pause the agents for this project"}>
         {paused ? <Play size={11} weight="bold" /> : <Pause size={11} weight="bold" />}

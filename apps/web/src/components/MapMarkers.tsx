@@ -16,7 +16,7 @@ import { TechIcon } from "./ui";
 export type MapMarkersPlanner = PlannerSlice<
   "diff" | "diffMode" | "layer" | "model" | "outages" | "result" | "sel" | "showDeferred" | "visible" | "year",
   "select",
-  "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "yr"
+  "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "tiers" | "yr"
 >;
 
 type Project = (lon: number, lat: number) => [number, number] | null;
@@ -45,7 +45,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   const on = (k: FeatureKey) => shows(s.visible, k);
   const lineOn = (id: number) => {
     const l = ix.line.get(id);
-    return !!l && on(lineFeature(l.voltage_kv));
+    return !!l && on(lineFeature(l.voltage_kv, derived.tiers));
   };
 
   // ---- projects --------------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 // Pure view helpers: everything here is a function of API data + UI state, with no side effects,
 // so it is unit-testable without a browser or a map.
 
-import { BRANCH_HUES, C, MAIN_HUE, ORDER, PLAN_YEARS, ST, fmtMw, profileOf, techLabel } from "../theme";
+import { BRANCH_HUES, C, LENS, MAIN_HUE, ORDER, ST, fmtMw, profileOf, techLabel } from "../theme";
+import { type Plan, lensOf, statusTitle } from "./plan";
 import type {
   Branch,
   BranchReinforcement,
@@ -52,13 +53,6 @@ export function yearResultFor(r: OptimizeResult | null, year: number): { yr: Yea
   const near = solved.reduce((a, b) => (Math.abs(b - year) < Math.abs(a - year) ? b : a));
   return { yr: r.years[String(near)], exact: false };
 }
-
-export const lensFor = (year: number): { label: string; c: string } =>
-  year <= 2026
-    ? { label: "as-is today", c: C.mute }
-    : year <= 2030
-      ? { label: "Phase 1 · Clean Power lens", c: C.phase1 }
-      : { label: "Phase 2 · Strategic lens", c: C.phase2 };
 
 // ---- branches ----------------------------------------------------------------------------------
 /** A branch's identity hue: main is silver; open branches take the hues in creation order. */
@@ -117,7 +111,7 @@ export interface QueueGroup {
   c: string;
   dashed: boolean;
 }
-export function queueGroups(q: QueueItem[], prelim: RegistryItem[]) {
+export function queueGroups(q: QueueItem[], prelim: RegistryItem[], plan: Plan) {
   const groups: { g: QueueGroup; rows: (QueueItem | RegistryItem)[] }[] = [];
   const add = (g: QueueGroup, rows: (QueueItem | RegistryItem)[]) => rows.length && groups.push({ g, rows });
   add({ key: "prelim", title: "Preliminary", meta: "not simulated yet", c: ST.Prelim.c, dashed: true }, prelim);
@@ -126,10 +120,10 @@ export function queueGroups(q: QueueItem[], prelim: RegistryItem[]) {
   const df = byStatus(q, "Deferred");
   const rj = byStatus(q, "Rejected");
   const meta = (xs: QueueItem[]) => `${xs.length} · ${sumMw(xs)} MW`;
-  add({ key: "Phase1", title: "Phase 1 · by 2030", meta: meta(p1), c: ST.Phase1.c, dashed: false }, p1);
-  add({ key: "Phase2", title: "Phase 2 · 2031 to 2035", meta: meta(p2), c: ST.Phase2.c, dashed: false }, p2);
-  add({ key: "Deferred", title: "Deferred", meta: meta(df), c: ST.Deferred.c, dashed: true }, df);
-  add({ key: "Rejected", title: "Rejected at intake", meta: `${rj.length}`, c: ST.Rejected.c, dashed: true }, rj);
+  add({ key: "Phase1", title: statusTitle(plan, "Phase1"), meta: meta(p1), c: ST.Phase1.c, dashed: false }, p1);
+  add({ key: "Phase2", title: statusTitle(plan, "Phase2"), meta: meta(p2), c: ST.Phase2.c, dashed: false }, p2);
+  add({ key: "Deferred", title: statusTitle(plan, "Deferred"), meta: meta(df), c: ST.Deferred.c, dashed: true }, df);
+  add({ key: "Rejected", title: statusTitle(plan, "Rejected"), meta: `${rj.length}`, c: ST.Rejected.c, dashed: true }, rj);
   return groups;
 }
 
@@ -174,8 +168,11 @@ export interface RoadmapYear {
   mw: number;
   band: string;
   solved: boolean;
+  /** Run, but its power flow did not converge: no figures. */
+  failed: boolean;
 }
 export function roadmapYears(
+  plan: Plan,
   r: OptimizeResult | null,
   prelim: RegistryItem[],
   outages: Outage[],
@@ -183,7 +180,7 @@ export function roadmapYears(
   shortName: (o: Outage) => string,
 ): RoadmapYear[] {
   const q = r?.queue ?? [];
-  return PLAN_YEARS.map((y) => {
+  return plan.years.map((y) => {
     const chips: RoadmapChip[] = q
       .filter((x) => effYearOf(x) === y)
       .sort((a, b) => ORDER[a.status] - ORDER[b.status])
@@ -203,7 +200,8 @@ export function roadmapYears(
       const e = effYearOf(x);
       return e != null && e <= y;
     }).reduce((a, x) => a + (x.rating_mw ?? 0), 0);
-    return { y, chips, mw: Math.round(mw), band: y <= 2026 ? C.mute : y <= 2030 ? C.phase1 : C.phase2, solved: !!r?.years?.[String(y)] };
+    const failed = r?.years?.[String(y)]?.converged === false; // run, but the power flow did not converge
+    return { y, chips, mw: Math.round(mw), band: failed ? C.red : LENS[lensOf(plan, y)].c, solved: !!r?.years?.[String(y)], failed };
   });
 }
 

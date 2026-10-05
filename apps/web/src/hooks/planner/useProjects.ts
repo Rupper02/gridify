@@ -151,7 +151,7 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
       try {
         const [projects, fc] = await retrying(() => Promise.all([api.listProjects(), api.getForecasts()]), { shouldRetry: (e) => !isCancelled() && retryable(e) });
         if (isCancelled()) return;
-        patch({ projects, forecasts: fc.forecasts, maxMw: fc.maxMw });
+        patch({ projects, forecasts: fc.forecasts, plan: fc.plan, year: fc.plan.phase1, maxMw: fc.maxMw });
         await loadProject(ref.current.projectId, projects);
       } catch (e) {
         if (!isCancelled()) patch({ modelLoading: false, modelError: failureText(e) });

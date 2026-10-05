@@ -15,6 +15,7 @@ import type {
   FindingCounts,
   FindingStatus,
   Forecast,
+  Horizon,
   Job,
   MergeCheck,
   Model,
@@ -30,6 +31,7 @@ import type {
   ThreadView,
   TraceEvent,
 } from "./types";
+import { planOf } from "./lib/plan";
 import { getMaxMw, normReason, setMaxMw } from "./lib/reasons";
 
 export const BASE: string =
@@ -153,11 +155,15 @@ export const api = {
   /** Store a branch's demand profile (scenario + growth). The next run uses it. */
   updateScenario: (branchId: string, scenario: string, growth_2030: number, growth_2035: number) =>
     postJson<Branch>(`/branches/${branchId}/scenario`, { scenario, growth_2030, growth_2035 }),
-  /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway) and the intake cap. */
+  /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway), the plan's years and phases, and the intake cap. */
   getForecasts: async () => {
-    const r = await getJson<{ forecasts?: Forecast[]; max_connection_mw?: number }>("/forecasts");
+    const r = await getJson<{ forecasts?: Forecast[]; plan_years: number[]; horizons: Horizon[]; max_connection_mw?: number }>("/forecasts");
     if (r.max_connection_mw) setMaxMw(r.max_connection_mw);
-    return { forecasts: Array.isArray(r.forecasts) ? r.forecasts : [], maxMw: r.max_connection_mw ?? getMaxMw() };
+    return {
+      forecasts: Array.isArray(r.forecasts) ? r.forecasts : [],
+      plan: planOf(r.plan_years, r.horizons),
+      maxMw: r.max_connection_mw ?? getMaxMw(),
+    };
   },
   /** The project's transmission boundary (export limit, export today, the projects behind it), or null when it models none (404). */
   getBoundary: async (pid: string): Promise<Boundary | null> => {

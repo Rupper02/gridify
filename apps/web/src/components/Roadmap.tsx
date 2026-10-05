@@ -1,32 +1,35 @@
-// The roadmap dock: ten year columns (project and maintenance chips, the phase band, cumulative MW),
+// The roadmap dock: a column per plan year (project and maintenance chips, the phase band, cumulative MW),
 // a year slider under them, and the Unscheduled column of deferred projects. Moving the slider only
 // switches between the stored years of the last run; it never starts a run.
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { byStatus, elementInfo, lensFor, outageSel, roadmapYears, sumMw } from "../lib/derive";
+import { byStatus, elementInfo, outageSel, roadmapYears, sumMw } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
+import { firstYear, lastYear, lensOf } from "../lib/plan";
 import { runStatus } from "../lib/runStages";
-import { C, PLAN_YEARS, ST, tint } from "../theme";
+import { C, LENS, ST, tint } from "../theme";
 import { TechIcon } from "./ui";
 
 export type RoadmapPlanner = PlannerSlice<
-  "outages" | "refreshing" | "result" | "sel" | "solving" | "stage" | "year",
+  "outages" | "plan" | "refreshing" | "result" | "sel" | "solving" | "stage" | "year",
   "selectProject" | "setYear",
-  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "yearsSolved" | "yearsTotal" | "yr"
+  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "yearsFailed" | "yearsSolved" | "yearsTotal" | "yr"
 >;
 
 export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
+  const { plan } = s;
+  if (!plan) return null;
   const { q, prelim, branchOnly, hue, ix, yr } = derived;
   const shortName = (o: (typeof s.outages)[number]) =>
     `${outageChipTag(o)} ${ix ? (elementInfo(outageSel(o), ix, null, o.year)?.short ?? o.element_id) : o.element_id}`;
-  const years = roadmapYears(s.result, prelim, s.outages, branchOnly, shortName);
+  const years = roadmapYears(plan, s.result, prelim, s.outages, branchOnly, shortName);
   const p1 = byStatus(q, "Phase1");
   const p2 = byStatus(q, "Phase2");
   const df = byStatus(q, "Deferred");
-  const lens = lensFor(s.year);
-  const pos = (s.year - PLAN_YEARS[0]) / (PLAN_YEARS.length - 1);
+  const lens = LENS[lensOf(plan, s.year)];
+  const pos = (s.year - firstYear(plan)) / (plan.years.length - 1);
 
   return (
     <div className="dock glass" style={{ right: layout.sideW + 20, height: layout.dockPx }}>
@@ -34,10 +37,10 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
         <div className="dock-head">
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Connection roadmap</span>
           <span className="ellipsis" style={{ fontSize: 11.5, color: C.mute, minWidth: 0 }}>
-            {s.result ? `${sumMw(p1)} MW by 2030 · ${Math.round((sumMw(p1) + sumMw(p2)) * 10) / 10} MW by 2035 · ${df.length} deferred` : "no run yet"}
+            {s.result ? `${sumMw(p1)} MW by ${plan.phase1} · ${Math.round((sumMw(p1) + sumMw(p2)) * 10) / 10} MW by ${plan.phase2} · ${df.length} deferred` : "no run yet"}
           </span>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 7, flex: "none" }}>
-            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved: derived.yearsSolved, yearsTotal: derived.yearsTotal }).roadmap}</span>}
+            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved: derived.yearsSolved, yearsFailed: derived.yearsFailed, yearsTotal: derived.yearsTotal }).roadmap}</span>}
             <b className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{s.year}</b>
             <span style={{ fontSize: 11, fontWeight: 600, color: lens.c }}>{lens.label}</span>
           </span>
@@ -50,7 +53,8 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
                 key={y.y}
                 className={`ycol${on ? " on" : ""}${s.result && !y.solved ? " unsolved" : ""}`}
                 onClick={() => actions.setYear(y.y)}
-                aria-label={`Show ${y.y}`}
+                aria-label={`Show ${y.y}${y.failed ? ": the power flow does not converge" : ""}`}
+                title={y.failed ? `The power flow does not converge in ${y.y}: no figures` : undefined}
                 aria-pressed={on}
               >
                 {s.result && !y.solved && s.solving && <span className="solving">solving</span>}
@@ -105,12 +109,12 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
         </div>
         <div className="slider">
           <div className="track" />
-          <div className="fill" style={{ width: `calc((100% - (100% - 27px) / 10) * ${pos})` }} />
+          <div className="fill" style={{ width: `calc((100% - (100% - 27px) / ${plan.years.length}) * ${pos})` }} />
           <input
             className="gf-range"
             type="range"
-            min={PLAN_YEARS[0]}
-            max={PLAN_YEARS[PLAN_YEARS.length - 1]}
+            min={firstYear(plan)}
+            max={lastYear(plan)}
             step={1}
             value={s.year}
             onChange={(e) => actions.setYear(+e.target.value)}

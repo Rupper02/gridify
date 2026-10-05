@@ -394,8 +394,10 @@ class PlanService:
             with hold():
                 return run_study(kind, context(), p)
 
+        # a gated study takes the solver through its gate, per solve: the cache must not hold it while the gate waits
         return self.cache.through(self.study_key(branch_id, kind, p), f"study:{kind}", baseline=b.baseline,
-                                  parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json())
+                                  parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json(),
+                                  locked=hold is nullcontext)
 
     # --- the payload the planner renders -------------------------------------------------------------------
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:

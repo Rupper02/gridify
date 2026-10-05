@@ -8,6 +8,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
+import { clampYear } from "../lib/plan";
 import type { ElementSel, Tab } from "../types";
 import { useCore } from "./planner/core";
 import { useAgents } from "./planner/useAgents";
@@ -71,7 +72,7 @@ export function usePlanner() {
       ...ask,
       ...projects,
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
-      setYear: (year: number) => patch({ year: Math.max(2026, Math.min(2035, year)) }),
+      setYear: (year: number) => patch((st) => (st.plan ? { year: clampYear(st.plan, year) } : {})),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
       toggleMenu: () => patch((st) => ({ menuOpen: !st.menuOpen })),
       toggleDeferred: () => patch((st) => ({ showDeferred: !st.showDeferred })),

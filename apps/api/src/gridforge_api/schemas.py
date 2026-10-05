@@ -122,7 +122,7 @@ class ScheduleSet(BaseModel):
     optimizer's recommendation)."""
 
     request_id: str
-    year: int | None = None
+    year: int | None = Field(default=None, ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
 
 
 Season = Literal["Winter", "Spring", "Summer", "Autumn"]

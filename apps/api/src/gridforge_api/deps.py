@@ -9,7 +9,7 @@ import threading
 from gridforge_optimizer import engine_fingerprint
 
 from . import config
-from .agents.budget import BudgetMeter
+from .agents.spend import SpendMeter
 from .agents.evidence import EvidenceLedger
 from .agents.models import openrouter_model_factory
 from .agents.runtime import AgentRuntime
@@ -35,7 +35,7 @@ jobs = JobRunner(solver_lock)
 narrator = OpenRouterNarrator()
 plans = PlanService(projects, scenarios, cache, narrator)
 evidence = EvidenceLedger(scenarios, cache)
-budget = BudgetMeter(scenarios)
-agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, projects=projects, evidence=evidence, budget=budget,
+spend = SpendMeter(scenarios)
+agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, projects=projects, evidence=evidence, spend=spend,
                       model_factory=openrouter_model_factory(openrouter_key), system_db_url=config.DBOS_URL, app_version=config.AGENTS_APP_VERSION,
                       project_id=config.NGED_PROJECT_ID)

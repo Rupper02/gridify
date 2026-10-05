@@ -303,6 +303,14 @@ export interface Forecast {
   cited: boolean;
 }
 
+/** A policy horizon the engine's phases end at (config.HORIZONS: Clean Power 2030, the 2035 strategic window). */
+export interface Horizon {
+  year: number;
+  key: string;
+  label: string;
+  note: string;
+}
+
 export type BranchStatus = "open" | "merged" | "discarded";
 export interface Branch {
   branch_id: string;
@@ -691,22 +699,22 @@ export interface FindingCounts {
 // ---- the agents (API agents/, routes /projects/{pid}/agents, threads, approvals, reviews, steps) ----
 /** starting: the API's runtime is not launched yet (the key is required, so there is no "off"). */
 export type AgentsState = "starting" | "idle" | "running" | "paused";
-export interface AgentsBudget {
+/** What the agents spent on a project: OpenRouter's billed credits (US dollars) today and in all. Shown, never a cap. */
+export interface AgentsSpend {
   day: string;
   credits: number;
   tokens: number;
   solves: number;
-  limits: Record<string, number>;
+  total_credits: number;
   paused: boolean;
   paused_reason: string;
-  exhausted: boolean;
 }
 export interface AgentsStatus {
   status: AgentsState;
   launched: boolean;
   paused_reason?: string;
   running: number;
-  budget: AgentsBudget | null;
+  spend: AgentsSpend | null;
   last_events: { event_id: string; type: string; dedup_id: string; created_at: string; workflow_ids: string[] }[];
   models: Record<string, string>;
 }

@@ -71,8 +71,6 @@ def set_schedule(branch_id: str, body: ScheduleSet) -> dict:
     """Persist the operator's energisation year for one project on a branch. It's a planning
     decision layered on the optimizer's verdict (it doesn't change accept/defer/rank), so the next
     run just reports it alongside the recommendation and flags any conflict."""
-    if body.year is not None and not (2026 <= body.year <= 2035):
-        raise HTTPException(status_code=422, detail="year must be between 2026 and 2035")
     with scenarios.cursor() as con:
         repository.require_open(con, branch_id, allow_main=False)
         if not repository.project_on_branch(con, branch_id, body.request_id):

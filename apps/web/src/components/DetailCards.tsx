@@ -10,13 +10,14 @@ import type { PlannerSlice } from "../hooks/planner/slice";
 import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
 import { cardSlot, type Layout } from "../lib/layout";
 import { PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
+import { type Plan, clampYear, statusTitle } from "../lib/plan";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { ElementSel, QueueItem, RegistryItem, Season } from "../types";
 import { Stepper, TechIcon } from "./ui";
 import { VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
-  "diffMode" | "maintDraft" | "outages" | "result" | "sel" | "sideOpen" | "year",
+  "diffMode" | "maintDraft" | "outages" | "plan" | "result" | "sel" | "sideOpen" | "year",
   "askAbout" | "removeOutage" | "scheduleOutage" | "select" | "setDraft" | "setSchedule",
   "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q" | "qById" | "yr"
 >;
@@ -24,11 +25,17 @@ export type DetailCardsPlanner = PlannerSlice<
 const cardPos = (planner: DetailCardsPlanner, layout: Layout): CSSProperties => cardSlot(layout, planner.s.sideOpen, planner.s.diffMode);
 
 export function DetailCards({ planner, layout }: { planner: DetailCardsPlanner; layout: Layout }) {
-  const sel = planner.s.sel;
-  if (!sel) return null;
-  if (sel.kind === "project") return <ProjectCard planner={planner} layout={layout} id={sel.id} />;
+  const { sel, plan } = planner.s;
+  if (!sel || !plan) return null;
+  if (sel.kind === "project") return <ProjectCard planner={planner} layout={layout} plan={plan} id={sel.id} />;
   if (sel.kind === "region") return null; // RegionCard (App.tsx)
-  return <ElementCard planner={planner} layout={layout} sel={sel} />;
+  return <ElementCard planner={planner} layout={layout} plan={plan} sel={sel} />;
+}
+
+interface CardProps {
+  planner: DetailCardsPlanner;
+  layout: Layout;
+  plan: Plan;
 }
 
 const CardHead = ({ icon, iconBg, title, sub, mono, onClose }: { icon: ReactNode; iconBg: string; title: string; sub: string; mono?: boolean; onClose: () => void }) => (
@@ -44,13 +51,14 @@ const CardHead = ({ icon, iconBg, title, sub, mono, onClose }: { icon: ReactNode
   </div>
 );
 
-function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; layout: Layout; id: string }) {
+function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) {
   const { actions, derived } = planner;
   const x: QueueItem | undefined = derived.qById[id];
   const pre: RegistryItem | undefined = derived.prelim.find((p) => p.request_id === id);
   if (!x && !pre) return null;
   const item = (x ?? pre)!;
-  const st = ST[x ? x.status : "Prelim"];
+  const status = x ? x.status : "Prelim";
+  const st = ST[status];
   const onlyHere = derived.branchOnly.has(id) && !derived.onMain;
   const importOnly = isTech(item.technology) && TECH[item.technology].importOnly;
   const rec = x?.recommended_year ?? null;
@@ -69,7 +77,7 @@ function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; lay
         onClose={() => actions.select(null)}
       />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        <span className="chip" style={{ background: tint(st.c, "22"), color: st.c }}>{st.long}</span>
+        <span className="chip" style={{ background: tint(st.c, "22"), color: st.c }}>{statusTitle(plan, status)}</span>
         {onlyHere && <span className="chip" style={{ border: `1px solid ${derived.hue}`, color: derived.hue }}>only on {derived.branch?.name}</span>}
         {x?.against_recommendation && <span className="chip" style={{ background: "rgba(255,195,107,0.16)", color: C.amberInk }}>against the recommendation</span>}
       </div>
@@ -86,7 +94,7 @@ function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; lay
         <div className="box dark">
           <span style={{ fontSize: 11.5, color: C.mute }}>Energisation year</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Stepper value={eff} label="energisation year" onDec={() => void actions.setSchedule(id, eff - 1)} onInc={() => void actions.setSchedule(id, eff + 1)} />
+            <Stepper value={eff} label="energisation year" onDec={() => void actions.setSchedule(id, clampYear(plan, eff - 1))} onInc={() => void actions.setSchedule(id, clampYear(plan, eff + 1))} />
             <span style={{ marginLeft: "auto", fontSize: 11, textAlign: "right", lineHeight: 1.35, color: recColor }}>{recText}</span>
           </div>
           {x.scheduled_year != null && !derived.onMain && (
@@ -123,7 +131,7 @@ function ProjectCard({ planner, layout, id }: { planner: DetailCardsPlanner; lay
 const SEASONS: Season[] = ["Spring", "Summer", "Autumn", "Winter"];
 const WEEKS = [2, 4, 6, 8];
 
-function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; layout: Layout; sel: ElementSel }) {
+function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementSel }) {
   const { s, actions, derived } = planner;
   const { ix } = derived;
   if (!ix) return null;
@@ -137,7 +145,7 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
   return (
     <div className="detail glass" style={{ ...cardPos(planner, layout), width: 308, borderColor: "rgba(255,255,255,0.16)" }}>
       <CardHead
-        icon={sel.kind === "gen" ? <TechIcon tech={ix.gen.get(sel.id)?.technology} size={18} color={C.line132} /> : <Icon size={18} color={C.line132} />}
+        icon={sel.kind === "gen" ? <TechIcon tech={ix.gen.get(sel.id)?.technology} size={18} color={C.lineHigh} /> : <Icon size={18} color={C.lineHigh} />}
         iconBg="rgba(255,255,255,0.08)"
         title={info.name}
         sub={info.kindLabel}
@@ -157,7 +165,7 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
             const view = windowView(o, ctx);
             return (
               <div key={o.outage_id} className="mrow">
-                <Wrench size={13} color={verdictColor(view.verdict) ?? C.line132} />
+                <Wrench size={13} color={verdictColor(view.verdict) ?? C.lineHigh} />
                 <span className="ellipsis" style={{ fontSize: 12 }}>{outageLine(o)}</span>
                 {!derived.onMain ? (
                   <button className="icon-btn sm" onClick={() => void actions.removeOutage(o.outage_id)} title="Remove" aria-label="Remove window">
@@ -193,7 +201,7 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 11, color: C.mute, flex: 1 }}>Year</span>
-          <Stepper small value={d.year} label="year" onDec={() => actions.setDraft({ year: Math.max(2026, d.year - 1) })} onInc={() => actions.setDraft({ year: Math.min(2035, d.year + 1) })} />
+          <Stepper small value={d.year} label="year" onDec={() => actions.setDraft({ year: clampYear(plan, d.year - 1) })} onInc={() => actions.setDraft({ year: clampYear(plan, d.year + 1) })} />
         </div>
         <div className="form-row">
           <span className="lbl">Duration</span>
@@ -237,7 +245,7 @@ function ElementCard({ planner, layout, sel }: { planner: DetailCardsPlanner; la
           </div>
         )}
         {d.work === "replacement" && <span className="work-note">Back like-for-like after the window.</span>}
-        <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind)}</span>
+        <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind, plan)}</span>
         <button className="btn primary sm" style={{ justifyContent: "center", height: 34 }} onClick={() => void actions.scheduleOutage(sel)}>
           <Wrench size={13} weight="bold" />
           {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}

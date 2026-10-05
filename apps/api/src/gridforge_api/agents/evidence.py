@@ -5,7 +5,9 @@ An agent never types a number into a finding. It names a step and an item index;
 loads the study the step produced (from the durable result cache, by key) and copies the item's
 value, limit, element, case and year into the ledger, so a finding is replayable: the step says which
 study, with which parameters, on which snapshot and engine, gave the figure. `check_numbers` is the
-soft guard on free text: numbers in an answer that appear in no step output are flagged.
+soft guard on free text: digit figures in an answer that appear in no step output are flagged, matched
+by value. It does not check plan years, counts up to 12 or numbers written as words (a "3" would match
+any 3 in the outputs), and a flag never stops the text being shown.
 """
 
 from __future__ import annotations

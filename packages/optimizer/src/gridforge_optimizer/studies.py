@@ -413,8 +413,13 @@ def _islanded_by(net, g: nx.Graph, slack: set[int]) -> tuple[float, float, list[
         return 0.0, 0.0, []
     on = net.load["bus"].isin(lost)
     demand = float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum())
-    sg = net.sgen[net.sgen["bus"].isin(lost)] if len(net.sgen) else None
-    gen = float(sg["p_rated_mw"].fillna(sg["p_mw"]).sum()) if sg is not None and len(sg) else 0.0
+    gen = 0.0
+    for t in (net.sgen, net.gen):  # fixed-power-factor and voltage-controlled generation alike
+        if len(t):
+            on = t[t["bus"].isin(lost)]
+            if len(on):
+                rated = on["p_rated_mw"] if "p_rated_mw" in on.columns else on["p_mw"]
+                gen += float(rated.fillna(on["p_mw"]).sum())
     return demand, gen, sorted(lost)
 
 

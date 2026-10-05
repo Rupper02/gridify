@@ -1,5 +1,5 @@
 """The harness's stores and plumbing, without a runtime: the study endpoint and cache, the evidence
-ledger that binds an agent's finding to a recorded step, the number guard, the budget meter, and the
+ledger that binds an agent's finding to a recorded step, the number guard, the spend meter, and the
 job runner's solver lock."""
 
 import threading
@@ -8,7 +8,7 @@ import time
 import pytest
 
 from gridforge_api import deps
-from gridforge_api.agents.budget import BudgetMeter
+from gridforge_api.agents.spend import SpendMeter
 from gridforge_api.agents.evidence import AgentFinding, check_numbers, numbers_in
 from gridforge_api.config import NGED_PROJECT_ID, now
 from gridforge_optimizer.years import PLAN_YEARS
@@ -87,20 +87,17 @@ def test_the_number_guard_flags_figures_no_step_produced():
     assert check_numbers("In 2030 two of the three circuits were fine.", outputs) == []  # years and small counts are not figures
 
 
-def test_the_budget_meter_charges_pauses_and_resumes():
-    meter = BudgetMeter(deps.scenarios, daily={"credits": 1.0, "tokens": 1000, "solves": 10})
-    st = meter.check("proj-budget")
-    assert st.credits == 0 and not st.paused and not st.exhausted
-    st = meter.charge("proj-budget", tokens=600, cost_credits=0.4, solves=3)
-    assert (st.tokens, st.solves) == (600, 3) and st.credits == pytest.approx(0.4) and not st.exhausted
-    st = meter.charge("proj-budget", tokens=500)
-    assert st.exhausted and st.paused and st.paused_reason == "budget"
-    st = meter.set_paused("proj-budget", True, "operator")
+def test_the_spend_meter_adds_up_never_pauses_and_the_operator_pauses_and_resumes():
+    meter = SpendMeter(deps.scenarios)
+    st = meter.check("proj-spend")
+    assert st.credits == 0 and not st.paused
+    meter.charge("proj-spend", tokens=600, cost_credits=0.4, solves=3)
+    st = meter.charge("proj-spend", tokens=5_000_000, cost_credits=50.0)  # no cap: spend is shown, never a stop
+    assert (st.tokens, st.solves) == (5_000_600, 3) and st.credits == pytest.approx(50.4) and st.total_credits == pytest.approx(50.4)
+    assert not st.paused
+    st = meter.set_paused("proj-spend", True, "operator")
     assert st.paused and st.paused_reason == "operator"
-    st = meter.set_paused("proj-budget", False)
-    assert st.paused and st.paused_reason == "budget"  # resuming cannot override an exhausted budget
-    fresh = meter.set_paused("proj-other", True, "operator")
-    assert fresh.paused and not fresh.exhausted and meter.set_paused("proj-other", False).paused is False
+    assert meter.set_paused("proj-spend", False).paused is False
 
 
 def test_the_job_runner_takes_the_solver_lock_and_reports_busy():

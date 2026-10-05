@@ -8,6 +8,7 @@ import type { MutableRefObject } from "react";
 
 import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
+import type { Plan } from "../../lib/plan";
 import { DEFAULT_PROJECT_ID } from "../../lib/projects";
 import type {
   AgentsStatus,
@@ -64,6 +65,7 @@ export interface PlannerState {
   modelLoading: boolean; // the active project's grid (model + branches) is on its way
   modelError: string | null; // why it could not load (the stamp says so, with a Retry)
   forecasts: Forecast[];
+  plan: Plan | null; // the plan's years and phases (GET /forecasts); null until the boot has read them
   maxMw: number;
   boundary: Boundary | null;
   registry: RegistryItem[];
@@ -114,7 +116,7 @@ export interface PlannerState {
   showDeferred: boolean;
   legendOpen: boolean;
   showBoundary: boolean;
-  year: number;
+  year: number; // the viewed plan year; the boot opens on the end of Phase 1
   sel: Sel | null;
   maintDraft: MaintDraft;
   chat: ChatState;
@@ -125,14 +127,14 @@ export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
 export const INITIAL: PlannerState = {
   projects: [], projectId: DEFAULT_PROJECT_ID, projectsOpen: false, assumptions: null, showAssumptions: false,
-  model: null, modelLoading: true, modelError: null, forecasts: [], maxMw: 300, boundary: null, registry: [], registryLoaded: false,
+  model: null, modelLoading: true, modelError: null, forecasts: [], plan: null, maxMw: 300, boundary: null, registry: [], registryLoaded: false,
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
   diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null,
   agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
   tab: "ask", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
-  year: 2030, sel: null,
+  year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,
   toast: null,

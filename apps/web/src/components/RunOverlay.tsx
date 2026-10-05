@@ -6,15 +6,18 @@ import { Check } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import type { Layout } from "../lib/layout";
+import { firstYear, lastYear } from "../lib/plan";
 import { runStages, stageIndex, stageReadout } from "../lib/runStages";
 import { C } from "../theme";
 
-export type RunOverlayPlanner = PlannerSlice<"fraction" | "outages" | "stage", never, "branch" | "hue" | "onMain" | "prelim" | "profile" | "q">;
+export type RunOverlayPlanner = PlannerSlice<"fraction" | "outages" | "plan" | "stage", never, "branch" | "hue" | "onMain" | "prelim" | "profile" | "q">;
 
 export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; layout: Layout }) {
   const { s, derived } = planner;
-  const stages = runStages(derived.profile.label, s.outages.length);
-  const cur = stageIndex(s.stage);
+  const { plan } = s;
+  if (!plan) return null;
+  const stages = runStages(plan, derived.profile.label, s.outages.length);
+  const cur = stageIndex(s.stage, plan);
   const n = derived.q.length + derived.prelim.length;
   return (
     <div className="run-overlay" style={{ right: layout.sideW + 10 }} role="status" aria-live="polite">
@@ -23,7 +26,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <span style={{ fontSize: 15, fontWeight: 600 }}>Solving AC power flow</span>
             <span style={{ fontSize: 12, color: C.mute }}>
-              {derived.profile.label} demand · every year 2026 to 2035 · {n} project{n === 1 ? "" : "s"}
+              {derived.profile.label} demand · every year {firstYear(plan)} to {lastYear(plan)} · {n} project{n === 1 ? "" : "s"}
             </span>
           </div>
           <span className="mono" style={{ display: "flex", alignItems: "center", height: 26, padding: "0 10px", borderRadius: 999, border: `1px solid ${derived.onMain ? "rgba(255,255,255,0.16)" : derived.hue + "80"}`, fontSize: 11, color: derived.hue, whiteSpace: "nowrap" }}>
@@ -50,7 +53,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
             );
           })}
         </div>
-        <div className="readout">{stageReadout(s.stage)}</div>
+        <div className="readout">{stageReadout(s.stage, plan)}</div>
       </div>
     </div>
   );

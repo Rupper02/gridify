@@ -7,7 +7,7 @@ import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, Hourgla
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { LAYERS_W, type Layout } from "../lib/layout";
 import { REGION_STATE } from "../lib/demand";
-import { DEFAULT_VISIBLE, FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, shows } from "../lib/mapFeatures";
+import { DEFAULT_VISIBLE, FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, featureLabel, shows } from "../lib/mapFeatures";
 import { C, tint } from "../theme";
 import type { MapLayer, Tech } from "../types";
 import { Switch, TechIcon } from "./ui";
@@ -15,7 +15,7 @@ import { Switch, TechIcon } from "./ui";
 export type LayerTogglePlanner = PlannerSlice<
   "layer" | "showDeferred" | "showMenuOpen" | "sideOpen" | "visible",
   "setLayer" | "showAll" | "showOnly" | "toggleDeferred" | "toggleFeatureShown" | "toggleShowMenu",
-  "caps"
+  "caps" | "tiers"
 >;
 
 const LAYERS: [MapLayer, string, typeof WaveSine][] = [
@@ -50,17 +50,20 @@ export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; 
   );
 }
 
-/** Which kinds of element the map draws: a switch each, "only" to focus on one, and Show all. */
+/** Which kinds of element the map draws: a switch each, "only" to focus on one, and Show all. Line features are named
+ * by the grid's own voltages, and a kind the grid does not have is left out. */
 function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
-  const { s, actions } = planner;
-  const n = s.visible.length;
-  const isDefault = n === DEFAULT_VISIBLE.length && DEFAULT_VISIBLE.every((k) => s.visible.includes(k));
+  const { s, actions, derived } = planner;
+  const keys = FEATURE_KEYS.filter((k) => featureLabel(k, derived.tiers) != null);
+  const n = keys.filter((k) => shows(s.visible, k)).length;
+  const defaults = DEFAULT_VISIBLE.filter((k) => keys.includes(k));
+  const isDefault = n === defaults.length && defaults.every((k) => s.visible.includes(k));
   return (
     <>
       <button className={`def${s.showMenuOpen ? " on-plain" : ""}`} onClick={actions.toggleShowMenu} aria-expanded={s.showMenuOpen} title="Choose what the map shows">
         <Eye size={14} />
         Show
-        <span className="mono show-count">{n}/{FEATURE_KEYS.length}</span>
+        <span className="mono show-count">{n}/{keys.length}</span>
         {s.showMenuOpen ? <CaretUp size={12} /> : <CaretDown size={12} />}
       </button>
       {s.showMenuOpen && (
@@ -68,20 +71,21 @@ function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
           {FEATURE_GROUPS.map((g) => (
             <div key={g} className="show-group">
               <span className="show-head">{g}</span>
-              {FEATURE_KEYS.filter((k) => MAP_FEATURES[k].group === g).map((k) => {
+              {keys.filter((k) => MAP_FEATURES[k].group === g).map((k) => {
+                const label = featureLabel(k, derived.tiers)!;
                 const on = shows(s.visible, k);
                 const alone = n === 1 && on;
                 return (
                   <div key={k} className="show-row">
                     <button className="show-label" role="switch" aria-checked={on} onClick={() => actions.toggleFeatureShown(k)}>
-                      <span className="ellipsis" style={{ color: on ? C.ink : C.mute2 }}>{MAP_FEATURES[k].label}</span>
+                      <span className="ellipsis" style={{ color: on ? C.ink : C.mute2 }}>{label}</span>
                       <Switch on={on} />
                     </button>
                     <button
                       className={`show-only${alone ? " on" : ""}`}
                       onClick={() => actions.showOnly(k)}
-                      title={alone ? "Show the usual elements again" : `Show only ${MAP_FEATURES[k].label.toLowerCase()}`}
-                      aria-label={alone ? "Show the usual elements again" : `Only ${MAP_FEATURES[k].label}`}
+                      title={alone ? "Show the usual elements again" : `Show only ${label.toLowerCase()}`}
+                      aria-label={alone ? "Show the usual elements again" : `Only ${label}`}
                     >
                       <Crosshair size={12} />
                     </button>
@@ -99,7 +103,7 @@ function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
   );
 }
 
-export type MapCornerPlanner = PlannerSlice<"legendOpen", "toggleLegend" | "zoomFit" | "zoomIn" | "zoomOut", "hue">;
+export type MapCornerPlanner = PlannerSlice<"legendOpen", "toggleLegend" | "zoomFit" | "zoomIn" | "zoomOut", "hue" | "tiers">;
 
 const LEGEND_TECH: [Tech, string][] = [
   ["solar", "Solar PV"], ["wind", "Wind"], ["battery", "Battery"], ["hybrid", "Solar + battery"],
@@ -129,12 +133,18 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
             ))}
             <span><span style={{ width: 0, height: 0, margin: "0 2px", borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid #8b98a9" }} />Load (sized by MW)</span>
             <span><span style={{ position: "relative", width: 12, height: 14 }}><span style={{ position: "absolute", left: 1, top: 0, width: 10, height: 10, borderRadius: "50%", border: `1.5px solid ${C.ink}` }} /><span style={{ position: "absolute", left: 1, top: 4, width: 10, height: 10, borderRadius: "50%", border: `1.5px solid ${C.ink}` }} /></span>Transformer</span>
-            <span><span style={{ width: 14, height: 3, borderRadius: 2, background: C.line132 }} />132 kV · <span style={{ width: 14, height: 2, borderRadius: 2, background: C.line33 }} />33 kV</span>
+            {derived.tiers.high != null && (
+              <span>
+                <span style={{ width: 14, height: 3, borderRadius: 2, background: C.lineHigh }} />
+                {+derived.tiers.high} kV
+                {derived.tiers.mid != null && <> · <span style={{ width: 14, height: 2, borderRadius: 2, background: C.lineMid }} />{+derived.tiers.mid} kV</>}
+              </span>
+            )}
             <span><span style={{ width: 10, height: 10, borderRadius: "50%", background: C.existing, border: `1.5px solid ${C.ink}` }} />Existing generation</span>
             <span><span style={{ width: 14, height: 3, borderRadius: 2, background: C.red }} />Overloaded line</span>
             <span><span style={{ width: 8, height: 8, border: `1.5px solid ${C.mute}`, background: C.substation }} />Open point</span>
             <span><span style={{ width: 14, height: 3, background: `repeating-linear-gradient(90deg,${C.amber} 0 4px,transparent 4px 7px)` }} />Binding constraint</span>
-            <span><Wrench size={12} color={C.line132} />Planned works</span>
+            <span><Wrench size={12} color={C.lineHigh} />Planned works</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${C.red}`, background: "rgba(255,107,107,0.15)" }} />Voltage breach</span>
             <span><span style={{ width: 12, height: 12, borderRadius: "50%", border: `1.5px solid ${derived.hue}` }} />Only on this branch</span>
             <span className="legend-demand">

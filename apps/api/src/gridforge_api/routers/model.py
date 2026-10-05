@@ -7,7 +7,9 @@ import json
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
+from gridforge_optimizer import PLAN_YEARS
 from gridforge_optimizer.config import DEFAULT_SCENARIO, FORECASTS, HORIZONS, MAX_CONNECTION_MW
+from gridforge_optimizer.editions import ECR_DIFF_CAVEATS
 
 from ..config import NGED_PROJECT_ID
 from ..deps import cache, projects, scenarios, warehouse
@@ -87,7 +89,7 @@ def registry_changes() -> dict:
     """What changed in NGED's Embedded Capacity Register between the last two fetched editions
     (sites added / withdrawn / connected / re-rated). Empty until the `ecr_refresh` job has run."""
     if not warehouse.table_exists("ecr_editions"):
-        return {"editions": [], "changes": []}
+        return {"editions": [], "changes": [], "caveats": ECR_DIFF_CAVEATS}
     editions = warehouse.query(
         "SELECT edition_id, fetched_at, source, source_last_modified, row_count, note FROM ecr_editions ORDER BY fetched_at DESC"
     )
@@ -96,13 +98,14 @@ def registry_changes() -> dict:
         "target_energisation_date, detail FROM ecr_changes ORDER BY computed_at DESC, change, site"
     ) if warehouse.table_exists("ecr_changes") else []
     latest = editions[0]["edition_id"] if editions else None
-    return {"editions": editions, "changes": [c for c in changes if c["edition_id"] == latest]}
+    return {"editions": editions, "changes": [c for c in changes if c["edition_id"] == latest], "caveats": ECR_DIFF_CAVEATS}
 
 
 @router.get("/forecasts")
 def get_forecasts() -> dict:
-    """The FES 2025 demand pathways + policy horizons (single source of truth for the UI)."""
+    """The FES 2025 demand pathways, the plan's years and the policy horizons its two phases end at
+    (single source of truth for the UI)."""
     # Only expose selectable forecasts to the UI picker
     forecasts = [{"id": fid, **f} for fid, f in FORECASTS.items() if f.get("selectable", True)]
-    return {"default": DEFAULT_SCENARIO, "forecasts": forecasts, "horizons": HORIZONS,
+    return {"default": DEFAULT_SCENARIO, "forecasts": forecasts, "plan_years": list(PLAN_YEARS), "horizons": HORIZONS,
             "max_connection_mw": MAX_CONNECTION_MW}

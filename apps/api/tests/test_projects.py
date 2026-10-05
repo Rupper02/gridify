@@ -38,6 +38,10 @@ def test_bad_files_are_refused_with_the_reason():
 def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     c9 = pn.case9()
     c9.bus["geo"] = None
+    # a file that does not say what its generators are is refused with the list, never assumed
+    r = client.post("/projects", files={"file": ("case9.json", pp.to_json(c9).encode(), "application/json")}, data={"name": "IEEE 9-bus as is"})
+    assert r.status_code == 422 and any("technology" in e for e in r.json()["detail"]["report"]["errors"])
+    c9.gen["type"] = "thermal"  # completed, as an operator would
     p = _import("case9.json", pp.to_json(c9).encode(), name="IEEE 9-bus")
     pid, main = p["project_id"], p["main_id"]
     assert p["source_kind"] == "pandapower_json" and main == f"{pid}-main" and not p["builtin"]
@@ -48,7 +52,7 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     assert client.get(f"/projects/{pid}/boundary").status_code == 404
     assert client.get(f"/projects/{pid}/registry").json() == []
     keys = {a["key"] for a in client.get(f"/projects/{pid}/assumptions").json()["assumptions"]}
-    assert {"gen_to_sgen", "no_gsp_limit", "gb_voltage_bands"} <= keys
+    assert {"merit_order_dispatch", "no_gsp_limit", "gb_voltage_bands"} <= keys
     # its main runs (an empty queue), on the same engine
     r = client.post(f"/projects/{pid}/optimize", json={"with_justification": False}).json()
     assert r["queue"] == [] and r["project_id"] == pid and r["snapshot_id"] == p["snapshot_id"] and len(r["years"]) == 10

@@ -67,8 +67,9 @@ to the API and the agent harness. The API table is in the root `README.md`.
   `routers/branches.py` after a merge, the lifespan at startup).
 - `streaming.py`, Pydantic AI events → the planner's trace (`STAGE_BY_TOOL_PREFIX`); `models.py`, the only OpenRouter
   import; `prompts.py`; `schemas.py`, the agents' typed outputs; `runs.py`, runs / reviews / approvals / events SQL;
-  `evidence.py`, the step ledger every agent figure is bound to; `budget.py`, per-project daily caps and the pause
-  switch; `threads.py`, operator conversations.
+  `evidence.py`, the step ledger every agent figure is bound to; `spend.py`, what the agents spent per project and day
+  (OpenRouter's billed cost from each response's `provider_details["cost"]`) and the pause switch; `threads.py`, operator
+  conversations.
 - `routers/agents.py`: status, pause, events, threads with an SSE stream, approvals, reviews, the audit trail.
 
 ### Agent contracts
@@ -88,8 +89,9 @@ change them by proposal, not by working around them.
   must not apply it differently.
 - `agent_runs` is not the final word on a run's status: `AgentRuntime.reconcile` (at startup and on every status poll)
   closes the runs DBOS has already ended.
-- The daily caps (`budget.py`, `AGENT_BUDGET_DAILY`) can pause the agents mid-day; one day of QA hit the token cap
-  (`docs/reports/findings.md` #17). Check the agents pill before reading a missing answer as a bug.
+- No daily cap: whoever runs GridForge pays with their own OpenRouter key, so spend is recorded and shown ("spent $X today
+  · $Y in all"), never a stop. Only the operator's Pause stops the agents; check the agents pill before reading a missing
+  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, wall time).
 
 ## Conventions
 
@@ -155,7 +157,9 @@ way, propose a better one rather than working around it.
 
 - Anything that can solve goes through `ResultCache.through`: on a cache miss it takes the process solver lock and looks
   again once it has it. A route or an agent tool that calls the engine directly solves alongside a job, so both run at
-  half speed and often compute the same result twice.
+  half speed and often compute the same result twice. The one exception is an agent study behind `SolverGate`
+  (`through(locked=False)`): its gate takes the lock per chunk, and must never wait for an operator while the lock is
+  already held (that deadlocked a queued job until the agent's deadline: findings #21).
 - Never call `through` (or anything that can solve) while holding a store cursor: the store and the solver each have one
   process lock, and a thread waiting for the solver with the store held deadlocks against a job that holds the solver and
   reads the store.

@@ -103,7 +103,7 @@ export function agentsPill(st: AgentsStatus | null): { label: string; tone: "neu
   if (!st) return { label: "agents", tone: "neutral", title: "Checking the agents…" };
   if (st.status === "starting") return { label: "agents starting", tone: "neutral", title: "The agents are starting with the API; they answer, review and propose as soon as they are up." };
   if (st.status === "paused") {
-    const why = st.paused_reason === "budget" ? "today's budget is spent" : `by the operator${st.paused_reason && st.paused_reason !== "operator" ? `: ${st.paused_reason}` : ""}`;
+    const why = `by the operator${st.paused_reason && st.paused_reason !== "operator" ? `: ${st.paused_reason}` : ""}`;
     return { label: "agents paused", tone: "warn", title: `Paused ${why}. Resume from the Ask tab.` };
   }
   if (st.status === "running") return { label: `agents · ${st.running} running`, tone: "good", title: `${st.running} agent ${st.running === 1 ? "run" : "runs"} in progress.` };

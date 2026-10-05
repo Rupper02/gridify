@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runStatus } from "./runStages";
 
-const base = { hasResult: true, solving: false, refreshing: false, stage: "", yearsSolved: 10, yearsTotal: 10 };
+const base = { hasResult: true, solving: false, refreshing: false, stage: "", yearsSolved: 10, yearsFailed: 0, yearsTotal: 10 };
 
 describe("runStatus", () => {
   it("says the same thing everywhere while years are still solving", () => {

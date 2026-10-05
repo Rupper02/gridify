@@ -1,37 +1,44 @@
 // The run overlay's stages, bound to the job's real stage strings (apps/api jobs + the engine's
 // progress reports): ranking, the greedy trials per phase, every year of the plan, the briefing.
 
+import { type Plan, firstYear, lastYear } from "./plan";
+
 export interface RunStage {
   label: string;
   note: string;
 }
 
-export function runStages(profileLabel: string, nOutages: number): RunStage[] {
+export function runStages(plan: Plan, profileLabel: string, nOutages: number): RunStage[] {
   return [
     { label: "Ranking the queue", note: "readiness · grid need · fit" },
-    { label: "Phase 1 trials at 2030 demand", note: `${profileLabel} demand, both study cases` },
-    { label: "Phase 2 trials at 2035 demand", note: "winter peak and summer minimum" },
-    { label: "Every year, 2026 to 2035", note: `N-1 screen${nOutages ? ` · ${nOutages} planned outage${nOutages > 1 ? "s" : ""}` : ""}` },
+    { label: `Phase 1 trials at ${plan.phase1} demand`, note: `${profileLabel} demand, both study cases` },
+    { label: `Phase 2 trials at ${plan.phase2} demand`, note: "winter peak and summer minimum" },
+    { label: `Every year, ${firstYear(plan)} to ${lastYear(plan)}`, note: `N-1 screen${nOutages ? ` · ${nOutages} planned outage${nOutages > 1 ? "s" : ""}` : ""}` },
     { label: "Drafting the briefing", note: "plain-English summary" },
   ];
 }
 
-/** Which stage a job stage string belongs to (queued and starting count as ranking). */
-export function stageIndex(stage: string): number {
+// the job's stages after the queue is decided: the plan years, then the briefing
+const isBriefing = (s: string) => s.startsWith("narration") || s === "done";
+const isYears = (s: string) => s.startsWith("year") || s === "queue decided";
+
+/** Which stage a job stage string belongs to (queued and starting count as ranking; the engine names a
+ * phase by its horizon: "phase 2030: trial 3/12"). */
+export function stageIndex(stage: string, plan: Plan): number {
   const s = stage.toLowerCase();
-  if (s.startsWith("narration") || s === "done") return 4;
-  if (s.startsWith("year") || s === "queue decided") return 3;
-  if (s.startsWith("phase 2035")) return 2;
-  if (s.startsWith("phase 2030")) return 1;
+  if (isBriefing(s)) return 4;
+  if (isYears(s)) return 3;
+  if (s.startsWith(`phase ${plan.phase2}`)) return 2;
+  if (s.startsWith(`phase ${plan.phase1}`)) return 1;
   return 0;
 }
 
 /** The overlay's readout: the engine's own words for what it is doing. */
-export function stageReadout(stage: string): string {
+export function stageReadout(stage: string, plan: Plan): string {
   if (!stage || stage === "queued") return "queued on the engine";
   if (stage === "starting") return "building the network";
   if (stage === "waiting for the solver") return "waiting for the solver: an agent's study step is finishing, then this run starts";
-  if (stage === "ranking") return "one power flow at 2035 demand to read grid need";
+  if (stage === "ranking") return `one power flow at ${plan.phase2} demand to read grid need`;
   if (stage === "narration") return "phrasing results, physics already fixed";
   if (stage === "queue decided") return "queue decided, solving each year";
   return stage;
@@ -49,18 +56,18 @@ export interface RunStatus {
   note: string; // the readings card's note under the figures ("" for none)
 }
 
-export function runStatus(o: { hasResult: boolean; solving: boolean; refreshing: boolean; stage: string; yearsSolved: number; yearsTotal: number }): RunStatus {
+export function runStatus(o: { hasResult: boolean; solving: boolean; refreshing: boolean; stage: string; yearsSolved: number; yearsFailed: number; yearsTotal: number }): RunStatus {
   if (!o.hasResult) return { phase: "none", label: "No run yet", roadmap: o.solving ? "solving years…" : "", note: "" };
   if (o.refreshing && o.solving) return { phase: "refreshing", label: "Updating the years your edit touches…", roadmap: "updating years…", note: "" };
   const counted = `${o.yearsSolved} of ${o.yearsTotal}`;
   const allIn = o.yearsSolved >= o.yearsTotal;
-  const at = stageIndex(o.stage); // the shown result may still be the previous run's, all years in: the stage says where this run is
-  if (o.solving && at < 3)
+  const stage = o.stage.toLowerCase(); // the shown result may still be the previous run's, all years in: the stage says where this run is
+  if (o.solving && !isYears(stage) && !isBriefing(stage))
     return { phase: "queue", label: "Deciding the queue · then every year", roadmap: "deciding the queue…", note: "A new run is deciding the queue; these figures are the previous run's." };
-  if (o.solving && at === 3 && !allIn)
+  if (o.solving && isYears(stage) && !allIn)
     return { phase: "years", label: `Solving years · ${counted} in`, roadmap: "solving years…", note: "Solving the remaining years in the background." };
   if (o.solving) {
-    const briefing = o.stage.toLowerCase().startsWith("narration");
+    const briefing = stage.startsWith("narration");
     return {
       phase: "finishing",
       label: briefing ? "All years solved · writing the briefing…" : "All years solved · finishing the run…",
@@ -70,5 +77,9 @@ export function runStatus(o: { hasResult: boolean; solving: boolean; refreshing:
   }
   if (!allIn)
     return { phase: "stopped", label: `${counted} years solved · the run stopped`, roadmap: `${counted} years solved`, note: "The run stopped before every year was solved: run it again to finish." };
+  if (o.yearsFailed) {
+    const failed = `${o.yearsFailed} of ${o.yearsTotal}`;
+    return { phase: "done", label: `All years run · ${failed} do not converge`, roadmap: `${failed} years do not converge`, note: "" };
+  }
   return { phase: "done", label: "All years solved", roadmap: "all years solved", note: "" };
 }

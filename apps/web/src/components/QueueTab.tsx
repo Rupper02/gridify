@@ -12,7 +12,7 @@ import type { QueueItem, RegistryItem } from "../types";
 import { TechTile } from "./ui";
 
 export type QueueTabPlanner = PlannerSlice<
-  "registry" | "registryLoaded" | "sel",
+  "plan" | "registry" | "registryLoaded" | "sel",
   "addRegistryProject" | "loadRegistry" | "selectProject",
   "branchOnly" | "caps" | "hue" | "ix" | "onMain" | "prelim" | "q"
 >;
@@ -21,7 +21,7 @@ const isQ = (x: QueueItem | RegistryItem): x is QueueItem => "rank" in x;
 
 export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
   const { s, actions, derived } = planner;
-  const groups = queueGroups(derived.q, derived.prelim);
+  const groups = s.plan ? queueGroups(derived.q, derived.prelim, s.plan) : [];
   const [showReg, setShowReg] = useState(false);
   const [query, setQuery] = useState("");
   const inPlan = new Set([...derived.q.map((x) => x.request_id), ...derived.prelim.map((x) => x.request_id)]);

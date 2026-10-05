@@ -1,4 +1,5 @@
-// Review: the branch against main as a consequence diff (the four 2030/2035 tiles, the network effect
+// Review: the branch against main as a consequence diff (the four tiles: MW by each phase's horizon, connected,
+// deferred; the network effect
 // in the viewed year with a year picker tied to the planner's year, the planned works on main vs the
 // branch, what changed), the reinforcements proposed on it, the merge gate, the reviewer agent's comment
 // (the gate restated, prepared for engineer review), then Merge into main or Discard. main has nothing to review.
@@ -23,12 +24,13 @@ import {
   worksInOrder,
   yearEffect,
 } from "../lib/diff";
-import { C, PLAN_YEARS, ST, fmtMw, profileOf, signed, tint } from "../theme";
+import type { Plan } from "../lib/plan";
+import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
 import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "reinforcements" | "reviews" | "solving" | "year",
+  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
   "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
   "branch" | "gate" | "hue" | "ix" | "mainId" | "onMain" | "reviewStale" | "yearDelta"
 >;
@@ -56,7 +58,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
 
   const main = s.branches.find((b) => b.branch_id === derived.mainId);
   const mismatch = main && branch && main.scenario !== branch.scenario;
-  const d = s.diff;
+  const { diff: d, plan } = s;
   const open = branch?.status === "open";
   const canMerge = gate.state === "ready" || gate.state === "warnings";
   const onMerge = () => {
@@ -84,15 +86,15 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           the projects you added.
         </div>
       )}
-      {!d ? (
+      {!d || !plan ? (
         <span className="mute" style={{ fontSize: 12 }}>
           {s.solving ? "The comparison with main appears once every year of this run is solved." : "Comparing with main…"}
         </span>
       ) : (
         <>
           {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
-          <Tiles d={d} />
-          <YearPick year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
+          <Tiles d={d} plan={plan} />
+          <YearPick years={plan.years} year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
           <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} name={(t) => nameElements(t, ix)} onPick={actions.setYear} />
           <Changed d={d} name={(t) => nameElements(t, ix)} />
@@ -252,7 +254,8 @@ function MergeChanges({ m, hue, title }: { m: OnMerge | undefined; hue: string; 
   );
 }
 
-function Tiles({ d }: { d: Diff }) {
+/** The engine's diff names its two phase figures by their horizons (`mw_2030`, `mw_2035`): Phase 1's and Phase 2's. */
+function Tiles({ d, plan }: { d: Diff; plan: Plan }) {
   const h = d.headline;
   const tile = (label: string, base: number, head: number, moreIsGood: boolean) => {
     const delta = head - base;
@@ -261,8 +264,8 @@ function Tiles({ d }: { d: Diff }) {
   };
   return (
     <div className="tiles">
-      {tile("MW by 2030", h.mw_2030_base ?? 0, h.mw_2030_head ?? 0, true)}
-      {tile("MW by 2035", h.mw_2035_base ?? 0, h.mw_2035_head ?? 0, true)}
+      {tile(`MW by ${plan.phase1}`, h.mw_2030_base ?? 0, h.mw_2030_head ?? 0, true)}
+      {tile(`MW by ${plan.phase2}`, h.mw_2035_base ?? 0, h.mw_2035_head ?? 0, true)}
       {tile("Connected", h.n_connected_base ?? 0, h.n_connected_head ?? 0, true)}
       {tile("Deferred", h.n_deferred_base ?? 0, h.n_deferred_head ?? 0, false)}
     </div>
@@ -277,10 +280,10 @@ function ToneIcon({ tone }: { tone: Tone }) {
 }
 
 /** One chip per plan year, tied to the planner's year (the map and the timeline follow it). */
-function YearPick({ year, flagged, solved, onPick }: { year: number; flagged: Set<number>; solved: (y: number) => boolean; onPick: (y: number) => void }) {
+function YearPick({ years, year, flagged, solved, onPick }: { years: number[]; year: number; flagged: Set<number>; solved: (y: number) => boolean; onPick: (y: number) => void }) {
   return (
     <div className="year-pick" role="group" aria-label="Year to compare">
-      {PLAN_YEARS.map((y) => (
+      {years.map((y) => (
         <button key={y} className={y === year ? "on" : ""} onClick={() => onPick(y)} disabled={!solved(y)} aria-pressed={y === year}
           title={flagged.has(y) ? `${y}: something gets worse on this branch` : String(y)}>
           {y}

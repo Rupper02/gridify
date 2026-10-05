@@ -15,16 +15,16 @@ import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "year",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "year",
   "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
-  "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
+  "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsFailed" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
 >;
 
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
   const { yr, stale, resultProfile, profile } = derived;
   const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
-  const gsp = yr?.gsp_export_mw ?? null;
+  const gsp = yr?.converged === false ? null : (yr?.gsp_export_mw ?? null); // a year that did not solve has no figures
   const gspHot = gsp != null && limit ? gsp / limit > 0.9 : false;
   const runLabel = `${stale.stale ? "Re-run" : "Run"} on ${profile.label}`;
   const showStale = stale.stale && !s.refreshing; // an automatic refresh is already on its way
@@ -59,19 +59,19 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
 
 function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabel: string }) {
   const { s, actions, derived } = planner;
-  const { stale, resultProfile, yearsSolved, yearsTotal, caps, synthetic } = derived;
+  const { stale, resultProfile, yearsSolved, yearsFailed, yearsTotal, caps, synthetic } = derived;
   const n = s.outages.length;
   const sub =
     gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
     (() => {
-      const st = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsTotal });
+      const st = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
       return st.phase === "done" ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label;
     })();
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ fontSize: 12.5, fontWeight: 600 }}>Simulation result</span>
-        <span className="mono" style={{ fontSize: 10.5, color: C.mute }}>{s.resultAt ? `run ${s.resultAt} · ${s.year}` : String(s.year)}</span>
+        <span className="mono" style={{ fontSize: 10.5, color: C.mute }}>{!s.plan ? "" : s.resultAt ? `run ${s.resultAt} · ${s.year}` : String(s.year)}</span>
       </div>
       <div className="stamp">
         <ProfileGlyph bars={resultProfile.bars} big />
@@ -121,8 +121,8 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
 
 function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean }) {
   const { s, actions, derived } = planner;
-  const { yr, ix, exact, yearsSolved, yearsTotal } = derived;
-  const { note } = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsTotal });
+  const { yr, ix, exact, yearsSolved, yearsFailed, yearsTotal } = derived;
+  const { note } = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
   const worst = worstElement(yr, ix);
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
@@ -141,6 +141,12 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
         </span>
       </button>
+      {yr?.converged === false ? (
+        <div className="notice red" role="status">
+          <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
+          or N-1 results to read. Check the model (the Findings tab lists each year that fails) before trusting a plan on it.
+        </div>
+      ) : (
       <div className="readings">
         <button
           className="reading reading-btn"
@@ -169,9 +175,10 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
             {yr ? `${yr.n1_violations.length} / ${yr.n1_screened}` : "–"}
           </span>
-          <span className="n">132 kV outages screened{yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only</span>
+          <span className="n">single outages screened{yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only</span>
         </div>
       </div>
+      )}
       {yr?.alerts && <CustomerAlerts planner={planner} />}
       {note && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
     </div>

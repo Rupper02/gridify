@@ -49,13 +49,14 @@ from .network import (
     OUTAGE_APPLIERS,
     REINFORCERS,
     _case_reason,
+    FLEET_TABLES,
     _column,
-    _ensure_sgen_columns,
+    _ensure_fleet_columns,
     _gsp_reason,
     _islanded_mw,
     _run_case,
     _study_cases,
-    dispatch_for_case,
+    case_dispatch,
     set_tap_positions,
     tap_positions,
     voltage_limits,
@@ -91,15 +92,17 @@ def _repower_element(kind: str):
 def _repower_generator(net, o: Outage) -> None:
     """An existing generator comes back with a new export rating (its import scales with it); a
     parallel unit is a second identical one (x2)."""
-    if "fleet_id" not in net.sgen.columns:
-        return
     k = 2.0 if o.repower == "add_parallel" else o.factor
     if k is None:
         raise ValueError(f"repowering {o.outage_id} by uprate needs a factor")
-    _ensure_sgen_columns(net)
-    idx = net.sgen.index[net.sgen["fleet_id"] == o.element_id]
-    for col in ("p_mw", "p_rated_mw", "import_mw"):
-        net.sgen.loc[idx, col] = net.sgen.loc[idx, col].astype(float) * float(k)
+    _ensure_fleet_columns(net)
+    for table in FLEET_TABLES:
+        t = net[table]
+        if "fleet_id" not in t.columns:
+            continue
+        idx = t.index[t["fleet_id"] == o.element_id]
+        for col in ("p_mw", "p_rated_mw", "import_mw"):
+            t.loc[idx, col] = t.loc[idx, col].astype(float) * float(k)
 
 
 # how a repowered element comes back, per Outage.element_kind
@@ -146,17 +149,22 @@ def apply_works_after(net, outages, year: int) -> None:
 
 
 # --- curtailment ---------------------------------------------------------------------------------
-def _gen_rows(net) -> dict[str, list[int]]:
-    """sgen rows per generator id: the existing fleet's model id (one generator may sit on several
-    buses), else the row's name (a project's request id)."""
-    fleet = net.sgen["fleet_id"] if "fleet_id" in net.sgen.columns else pd.Series(None, index=net.sgen.index)
-    out: dict[str, list[int]] = {}
-    for i in net.sgen.index:
-        if not bool(net.sgen.at[i, "in_service"]):
-            continue
-        f = fleet.get(i)
-        gid = str(f) if isinstance(f, str) and f else str(net.sgen.at[i, "name"] or f"sgen {i}")
-        out.setdefault(gid, []).append(int(i))
+Row = tuple[str, int]  # (generator table, row)
+
+
+def _gen_rows(net) -> dict[str, list[Row]]:
+    """Generator rows per generator id, across both generator tables: the existing fleet's model id (one
+    generator may sit on several buses), else the row's name (a project's request id)."""
+    out: dict[str, list[Row]] = {}
+    for table in FLEET_TABLES:
+        t = net[table]
+        fleet = t["fleet_id"] if "fleet_id" in t.columns else pd.Series(None, index=t.index)
+        for i in t.index:
+            if not bool(t.at[i, "in_service"]):
+                continue
+            f = fleet.get(i)
+            gid = str(f) if isinstance(f, str) and f else str(t.at[i, "name"] or f"{table} {i}")
+            out.setdefault(gid, []).append((table, int(i)))
     return out
 
 
@@ -198,19 +206,20 @@ class _Curtailer:
 
     def __init__(self, net, case: str, load_scale, ratio):
         self.net, self.case, self.load_scale, self.ratio = net, case, load_scale, ratio
-        _ensure_sgen_columns(net)
-        self.rated0 = net.sgen["p_rated_mw"].copy()
-        self.base = self.rated0.where(self.rated0.notna(), net.sgen["p_mw"]).astype(float)
-        disp = dispatch_for_case(net, case)
-        self.rows = {g: rows for g, rows in _gen_rows(net).items() if float(disp[rows].clip(lower=0).sum()) > 1e-6}
-        self.mw0 = {g: float(disp[rows].clip(lower=0).sum()) for g, rows in self.rows.items()}
+        _ensure_fleet_columns(net)
+        self.rated0 = {t: net[t]["p_rated_mw"].copy() for t in FLEET_TABLES}
+        self.base = {t: self.rated0[t].where(self.rated0[t].notna(), net[t]["p_mw"]).astype(float) for t in FLEET_TABLES}
+        disp = case_dispatch(net, case, load_scale)
+        out = lambda rows: sum(max(float(disp[t][i]), 0.0) for t, i in rows)  # noqa: E731 (its output in this case)
+        self.rows = {g: rows for g, rows in _gen_rows(net).items() if out(rows) > 1e-6}
+        self.mw0 = {g: out(rows) for g, rows in self.rows.items()}
         self.frac: dict[str, float] = {}
         self.graph = top.create_nxgraph(net)  # the window's topology (out-of-service branches dropped)
         self.solves = 0
 
     def _set(self, gid: str, frac: float) -> None:
-        rows = self.rows[gid]
-        self.net.sgen.loc[rows, "p_rated_mw"] = self.base[rows] * (1.0 - frac)
+        for t, i in self.rows[gid]:
+            self.net[t].at[i, "p_rated_mw"] = self.base[t][i] * (1.0 - frac)
         self.frac[gid] = frac
 
     def _solve(self) -> Reason | None:
@@ -229,8 +238,8 @@ class _Curtailer:
         if not targets:
             return []
         dist = nx.multi_source_dijkstra_path_length(self.graph, set(targets), weight=lambda u, v, d: 1)  # hops
-        hops = {g: min((dist[int(self.net.sgen.at[i, "bus"])] for i in self.rows[g]
-                        if int(self.net.sgen.at[i, "bus"]) in dist), default=None) for g in live}
+        hops = {g: min((dist[int(self.net[t].at[i, "bus"])] for t, i in self.rows[g]
+                        if int(self.net[t].at[i, "bus"]) in dist), default=None) for g in live}
         return sorted((g for g in live if hops[g] is not None), key=lambda g: (hops[g], -self.mw0[g], g))
 
     def run(self, reason: Reason) -> list[Curtailment] | None:
@@ -239,7 +248,8 @@ class _Curtailer:
         try:
             return self._search(reason)
         finally:
-            self.net.sgen["p_rated_mw"] = self.rated0
+            for t in FLEET_TABLES:
+                self.net[t]["p_rated_mw"] = self.rated0[t]
 
     def _search(self, r: Reason) -> list[Curtailment] | None:
         tried: set[str] = set()
@@ -280,7 +290,8 @@ class _Curtailer:
         for g, f in self.frac.items():
             mw = math.ceil(self.mw0[g] * f * 10 - 1e-9) / 10  # rounded UP, so the reported figure is enough
             if mw > 0:
-                tech = str(self.net.sgen.at[self.rows[g][0], "type"] or "generator")
+                t, i = self.rows[g][0]
+                tech = str(self.net[t].at[i, "type"] or "generator")
                 out.append(Curtailment(id=g, name=tech, mw=mw, case=self.case))
         return out
 

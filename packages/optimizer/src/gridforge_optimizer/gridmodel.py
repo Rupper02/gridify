@@ -8,29 +8,29 @@ import math
 from .naming import name_model
 from .types import GridModel, ModelBus, ModelGenerator, ModelLine, ModelLoad, ModelTransformer
 
-UNRATED_I_KA = 1e3  # the rating given to a line a file left unrated so its loading reads near zero; reported, never hidden
-
 
 def _name(v, fallback: str) -> str:
     return fallback if v is None or (isinstance(v, float) and math.isnan(v)) or str(v).strip() in ("", "nan", "None") else str(v)
 
 
 def fleet_of(net) -> list[dict]:
-    """The existing generators of a net (sgens with a `fleet_id`), one entry per fleet id (a site split
-    across busbars sums its shares), shaped as the model's `generators`."""
-    if not len(net.sgen) or "fleet_id" not in net.sgen.columns:
-        return []
+    """The existing generators of a net (rows with a `fleet_id`, fixed-power-factor `sgen` and voltage-controlled
+    `gen` alike), one entry per fleet id (a site split across busbars sums its shares), shaped as the model's
+    `generators`."""
     out: dict[str, dict] = {}
-    for i in net.sgen.index:
-        fid = net.sgen.at[i, "fleet_id"]
-        if fid is None or (isinstance(fid, float) and math.isnan(fid)):
+    for t in (net.sgen, net.gen):
+        if not len(t) or "fleet_id" not in t.columns:
             continue
-        rating = net.sgen.at[i, "p_rated_mw"] if "p_rated_mw" in net.sgen.columns else net.sgen.at[i, "p_mw"]
-        rating = float(rating) if rating == rating else float(net.sgen.at[i, "p_mw"])
-        g = out.setdefault(str(fid), {"request_id": str(fid), "bus_id": int(net.sgen.at[i, "bus"]), "rating_mw": 0.0,
-                                      "technology": _name(net.sgen.at[i, "type"], "other") if "type" in net.sgen.columns else "other",
-                                      "applicant": _name(net.sgen.at[i, "name"], str(fid))})
-        g["rating_mw"] = round(g["rating_mw"] + rating, 3)
+        for i in t.index:
+            fid = t.at[i, "fleet_id"]
+            if fid is None or (isinstance(fid, float) and math.isnan(fid)):
+                continue
+            rating = t.at[i, "p_rated_mw"] if "p_rated_mw" in t.columns else t.at[i, "p_mw"]
+            rating = float(rating) if rating == rating else float(t.at[i, "p_mw"])
+            g = out.setdefault(str(fid), {"request_id": str(fid), "bus_id": int(t.at[i, "bus"]), "rating_mw": 0.0,
+                                          "technology": _name(t.at[i, "type"], "other") if "type" in t.columns else "other",
+                                          "applicant": _name(t.at[i, "name"], str(fid))})
+            g["rating_mw"] = round(g["rating_mw"] + rating, 3)
     return list(out.values())
 
 
@@ -38,15 +38,14 @@ def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict]
     """Buses, lines, transformers, loads and the existing fleet with their positions, plus the demand
     groups when the net carries them (`demand.regions_of`). `existing` is the fleet as the source
     describes it (NGED's builder keeps its own list; `fleet_of` derives one from any net)."""
-    unrated = set(net["assumptions"].get("unrated_lines", {}).get("element_ids", [])) if "assumptions" in net and isinstance(net["assumptions"], dict) else set()
-    buses = [ModelBus(bus_id=int(i), name=_name(net.bus.at[i, "name"], f"bus {i}"), vn_kv=float(net.bus.at[i, "vn_kv"]),
+    buses =[ModelBus(bus_id=int(i), name=_name(net.bus.at[i, "name"], f"bus {i}"), vn_kv=float(net.bus.at[i, "vn_kv"]),
                       lon=xy[int(i)][0], lat=xy[int(i)][1]) for i in net.bus.index]
     lines = []
     for i in net.line.index:
         f, t = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
         imax = float(net.line.at[i, "max_i_ka"])
         lines.append(ModelLine(line_id=int(i), line_name=_name(net.line.at[i, "name"], f"L{i}"),
-                               rating_a=None if int(i) in unrated or imax != imax else round(imax * 1000, 0),
+                               rating_a=None if imax != imax else round(imax * 1000, 0),
                                voltage_kv=float(net.bus.at[f, "vn_kv"]), from_bus=f, to_bus=t,
                                length_km=round(float(net.line.at[i, "length_km"]), 3),
                                from_lon=xy[f][0], from_lat=xy[f][1], to_lon=xy[t][0], to_lat=xy[t][1]))

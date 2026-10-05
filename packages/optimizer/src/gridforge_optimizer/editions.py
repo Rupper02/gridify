@@ -172,6 +172,13 @@ def edition_changeset(tables: LtdsTables) -> dict:
 # ---- ECR editions --------------------------------------------------------------------------------
 
 ECR_SITE_KEY = ("customer_site", "lat", "lon", "energy_source_1", "point_of_connection(poc)_voltage(kv)")
+# what the site-level diff cannot tell, because NGED publishes no stable reference for a site
+ECR_DIFF_CAVEATS = [
+    "The ECR publishes no stable site reference, so a site is matched on its name, location, energy source and voltage: "
+    "a corrected name or location shows as one site withdrawn and another added.",
+    "Redacted sites that publish no location share one identity per energy source and voltage, so changes among them "
+    "are not told apart.",
+]
 _ECR_MW = "accepted_change_to_maximum_export_capacity(mw)"
 _ECR_CONNECTED_MW = "connected_maximum_export_capacity(mw)"
 
