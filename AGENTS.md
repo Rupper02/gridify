@@ -12,7 +12,7 @@ GridForge is an **AI-first grid planning platform**. The loop is three steps:
 
 **The value proposition is understanding, not just a verdict.** The platform should find a grid's vulnerabilities, say how the grid works (what binds, where, in which season and year), and reason the way a planning engineer does: thermal loading, voltage, firm capacity and P2/8, N-1 and what a fault strands, planned outages, headroom, and the next lever to try. Every analysis answers three questions: is it **feasible**, **what limits it**, and **what would it take**. Prefer work that sharpens those answers, makes the grid easier to understand, or lets a new grid be imported and analysed, over polish elsewhere.
 
-The built-in **NGED Bicker Fen 132 kV GSP** (Lincolnshire, open data only) is the reference grid and the demo, not the product's identity. Anything NGED-specific (LTDS, the ECR registry, GSP limits, the pinned snapshot) should live behind the `GridSource` seam; code outside it must work for any imported grid (a few NGED-specific heuristics still leak into the UI and are listed in `docs/reports/findings.md`). Not-yet-built projects sit in an optional registry (built-in grid only); you branch, pull projects onto the branch, and the engine decides which connect, in what order and year, and why the rest are deferred.
+The built-in **NGED Bicker Fen 132 kV GSP** (Lincolnshire, open data only) is the reference grid and the demo, not the product's identity. Anything NGED-specific (LTDS, the ECR registry, GSP limits, the pinned snapshot) should live behind the `GridSource` seam; code outside it must work for any imported grid (a few NGED-specific heuristics still leak into the UI: move them behind the seam when you touch them). Not-yet-built projects sit in an optional registry (built-in grid only); you branch, pull projects onto the branch, and the engine decides which connect, in what order and year, and why the rest are deferred.
 
 **We are building the MVP: stay lean.** Ship the smallest thing that makes the value proposition real. Don't add tests, abstractions, options or documentation beyond what the current change needs (see *Testing stance* below).
 
@@ -114,7 +114,7 @@ Pragmatism: SOLID serves the code, not the other way round. Don't add an interfa
 ## Security considerations
 
 - Never commit `.env` (it holds `OPENROUTER_API_KEY`).
-- The ECR fetch drops customer names, addresses, postcodes and MPANs as columns (`ECR_KEEP`), but `customer_site` is kept as published and can name a property: see Domain rule 5. Read the High items in `docs/reports/findings.md` before touching the ECR fetch, the bundled `ecr.json` or the pipeline's asset checks.
+- The ECR fetch drops customer names, addresses, postcodes and MPANs as columns (`ECR_KEEP`), but `customer_site` is kept as published and can name a property: see Domain rule 5. When you touch the ECR fetch, the bundled `ecr.json` or the pipeline's asset checks, never add a personal column back.
 - Agents never merge, discard or edit `main`; everything they change is a proposal the operator approves (Domain rule 2).
 - The API's CORS is permissive for local development (`main.py`); lock it down before deploying anywhere.
 
