@@ -17,7 +17,7 @@ export function useProjectEdits(core: Core, edited: EditedFn) {
    */
   const setSchedule = useCallback(
     async (rid: string, year: number | null) => {
-      const bid = editableBranch(core, "change an energisation year");
+      const bid = editableBranch({ ref, toastMsg }, "change an energisation year");
       if (!bid) return;
       const applyYear = (val: number | null) =>
         patch((st) =>
@@ -35,7 +35,7 @@ export function useProjectEdits(core: Core, edited: EditedFn) {
         toastMsg(`Couldn't save the year for ${rid}: ${failureText(e)}`, "warn");
       }
     },
-    [core, edited, patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   /**
@@ -44,7 +44,7 @@ export function useProjectEdits(core: Core, edited: EditedFn) {
    */
   const setControl = useCallback(
     async (rid: string, control: Control): Promise<boolean> => {
-      const bid = editableBranch(core, "state a project's control mode");
+      const bid = editableBranch({ ref, toastMsg }, "state a project's control mode");
       if (!bid) return false;
       try {
         const row = await api.changeCandidate(bid, rid, { control });
@@ -56,7 +56,7 @@ export function useProjectEdits(core: Core, edited: EditedFn) {
         return false;
       }
     },
-    [core, edited, patch, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   return { setSchedule, setControl };

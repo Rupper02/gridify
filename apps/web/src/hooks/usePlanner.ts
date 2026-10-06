@@ -83,7 +83,7 @@ export function usePlanner() {
     }),
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, run, select, selectProject, setSchedule, setControl, view,
+    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, run, select, selectProject, setSchedule, setControl, ...Object.values(view),
       ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 

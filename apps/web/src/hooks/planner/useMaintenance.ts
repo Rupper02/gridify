@@ -31,7 +31,7 @@ export function useMaintenance(core: Core, edited: EditedFn) {
   /** Schedule a maintenance window on an element, on a branch (main is read-only). */
   const addOutage = useCallback(
     async (sel: ElementSel, bid: string) => {
-      if (!editableBranch(core, "schedule maintenance", bid)) return;
+      if (!editableBranch({ ref, toastMsg }, "schedule maintenance", bid)) return;
       const d = ref.current.maintDraft;
       try {
         const o = await api.addOutage(bid, draftBody(sel, d));
@@ -42,12 +42,12 @@ export function useMaintenance(core: Core, edited: EditedFn) {
         toastMsg(`Could not schedule it: ${failureText(e)}`, "warn");
       }
     },
-    [core, edited, patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   const removeOutage = useCallback(
     async (outageId: string) => {
-      const bid = editableBranch(core, "remove planned works");
+      const bid = editableBranch({ ref, toastMsg }, "remove planned works");
       if (!bid) return;
       const before = ref.current.outages;
       patch({ outages: before.filter((o) => o.outage_id !== outageId) });
@@ -59,12 +59,12 @@ export function useMaintenance(core: Core, edited: EditedFn) {
         toastMsg(`Could not remove it: ${failureText(e)}`, "warn");
       }
     },
-    [core, edited, patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   const removeReinforcement = useCallback(
     async (rid: string) => {
-      const bid = editableBranch(core, "remove a reinforcement");
+      const bid = editableBranch({ ref, toastMsg }, "remove a reinforcement");
       if (!bid) return;
       const before = ref.current.reinforcements;
       patch({ reinforcements: before.filter((r) => r.reinforcement_id !== rid) });
@@ -76,7 +76,7 @@ export function useMaintenance(core: Core, edited: EditedFn) {
         toastMsg(`Could not remove the reinforcement: ${failureText(e)}`, "warn");
       }
     },
-    [core, edited, patch, ref, toastMsg],
+    [edited, patch, ref, toastMsg],
   );
 
   return { loadExtras, setDraft, addOutage, removeOutage, removeReinforcement };
