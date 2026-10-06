@@ -24,6 +24,14 @@ class Conflict(DomainError):
     """Not in this state: a main is read-only, a branch is not open, the built-in project stays."""
 
 
+class NotSolved(Conflict):
+    """Not computed yet, and this read does not compute it: the branch has to run first (`retry: false`), or the
+    engine is busy with a run and the read is worth asking again when it finishes (`retry: true`)."""
+
+    def __init__(self, message: str, *, retry: bool):
+        super().__init__({"code": "not_solved", "message": message, "retry": retry})
+
+
 class Invalid(DomainError):
     """The request is understood but cannot be planned on (an unreadable or incomplete grid, an unknown pathway)."""
 

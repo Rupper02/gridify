@@ -9,12 +9,13 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import TypeVar
 
 from gridforge_optimizer import Candidate, OptimizeParams
 
-from .config import now
+from .config import log, now
+from .errors import NotSolved
 from .store import ScenarioStore
 
 T = TypeVar("T")
@@ -104,7 +105,8 @@ class ResultCache:
             return con.execute("SELECT 1 FROM result_cache WHERE cache_key = ?", [key]).fetchone() is not None
 
     def through(self, key: str, kind: str, *, baseline: str, parse: Callable[[str], T], compute: Callable[[], T],
-                dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None, locked: bool = True) -> T:
+                dump: Callable[[T], str], on_hit: Callable[[T], None] | None = None, locked: bool = True,
+                solve: bool = True, wait: bool = True) -> T:
         """The one read-through path every engine result takes: the in-process dict, then the durable
         table (`parse`d from JSON), then `compute` (stored with `dump` and its compute time). `on_hit`
         sees a value that did not come from `compute` (a cached plan still reaches a per-year callback).
@@ -112,18 +114,55 @@ class ResultCache:
         just have stored this very key. `locked=False` is for a compute that takes the solver itself, through a
         gate that must wait for an operator's job before it holds the lock (an agent study, chunk by chunk):
         holding the lock while that gate waits would deadlock the job. Two such computes of one key may both run.
-        Never call it while holding a store cursor (the store has its own lock)."""
+        A read that must not solve passes `solve=False` (a miss is `NotSolved`, 409 at the API: run the branch);
+        one that may solve but not queue behind a run passes `wait=False` (`NotSolved` with `retry` while another
+        holder has the solver). Never call it while holding a store cursor (the store has its own lock)."""
         value, hit = self._lookup(key, parse)
         if not hit:
-            with self._solver if locked else nullcontext():
+            if not solve:
+                raise NotSolved(f"{kind} is not computed yet for these inputs", retry=False)
+            with self._hold(locked, wait):
                 value, hit = self._lookup(key, parse)
                 if not hit:
                     t0 = time.perf_counter()
                     value = compute()
-                    self.put(key, kind, baseline, int((time.perf_counter() - t0) * 1000), dump(value))
+                    ms = int((time.perf_counter() - t0) * 1000)
+                    self.put(key, kind, baseline, ms, dump(value))
                     remember(self.compute, key, value, MAX_RESULT_ENTRIES)
+                    log.info("computed %s in %.1f s (%s)", kind, ms / 1000, key[:12])
         if hit and on_hit is not None:
             on_hit(value)
+        return value
+
+    @contextmanager
+    def _hold(self, locked: bool, wait: bool):
+        """The solver lock for a compute (none for a gated study, which takes it itself, or without a lock in tests).
+        `wait=False` refuses at once when another holder has it, rather than parking a request behind a run."""
+        acquire = getattr(self._solver, "acquire", None) if locked else None
+        if acquire is None:
+            yield
+            return
+        t0 = time.perf_counter()
+        if not acquire(blocking=wait):
+            raise NotSolved("the engine is busy with a run: ask again when it finishes", retry=True)
+        try:
+            waited = time.perf_counter() - t0
+            if waited > 1.0:
+                log.info("waited %.1f s for the solver", waited)
+            yield
+        finally:
+            self._solver.release()
+
+    def text(self, key: str, kind: str, *, baseline: str, compute: Callable[[], str]) -> str:
+        """A cached text (a narration): read like every result, stored only when `compute` gave one, and never under
+        the solver lock (phrasing is not solving)."""
+        value, hit = self._lookup(key, json.loads)
+        if hit:
+            return value
+        value = compute()
+        if value:
+            self.put(key, kind, baseline, 0, json.dumps(value))
+            remember(self.compute, key, value, MAX_RESULT_ENTRIES)
         return value
 
     def _lookup(self, key: str, parse: Callable[[str], T]) -> tuple[T | None, bool]:

@@ -40,8 +40,9 @@ class SpecialistReport(BaseModel):
 
 
 class Restated(BaseModel):
-    """One gate finding, restated: identified by its kind and element as the gate gave them, with the
-    ledger fingerprint when the gate carries one (the UI's evidence link)."""
+    """One gate item, restated: identified by its kind and element as the gate gave them (an item stands for one
+    problem on one element across the plan years it applies to), with the ledger fingerprint the gate carries
+    (the UI's evidence link)."""
 
     kind: str = Field(description="the gate finding's kind, copied exactly")
     element_id: str | None = Field(default=None, description="the gate finding's element_id, copied exactly (null when it has none)")

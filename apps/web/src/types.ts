@@ -623,6 +623,8 @@ export interface Job<R = OptimizeResult> {
   finished_at: string | null;
   elapsed_ms: number;
   has_partial?: boolean;
+  /** Counts up with every partial the job published; a poll passes the one it saw (`?since=`) and gets no copy of it. */
+  partial_version?: number;
   partial?: OptimizeResult | null;
   result?: R | null;
   error?: string | null;

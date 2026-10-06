@@ -47,13 +47,41 @@ class SolverBusy(Exception):
     """The solver stayed with an operator's work past what this agent run's own time allows."""
 
 
+GATE_EXAMPLES = 3  # the worst messages an agent reads per group of gate findings
+
+
+def _badness(f) -> float:
+    """Larger is worse, within one kind: a loading or MW figure as it is; a pu voltage by its distance from 1."""
+    v = f.value if isinstance(f.value, (int, float)) else 0.0
+    return v if v > 2 else abs(1.0 - v)
+
+
+def _grouped(findings) -> list[dict]:
+    """The gate's findings as the agents read them: one item per kind and element across the plan years, carrying
+    the worst member's fingerprint (what a review restates and the UI links), the year span, the count, the worst
+    figure and the worst few messages. Several hundred single-year N-1 rows are a dozen items (a reviewer handed
+    them one by one restated 750 rows over three attempts, $4 of tokens, and its review was superseded meanwhile)."""
+    groups: dict[tuple, list] = {}
+    for f in findings:
+        groups.setdefault((f.kind, f.element_kind, None if f.element_id is None else str(f.element_id)), []).append(f)
+    out = []
+    for (kind, element_kind, element_id), fs in groups.items():
+        worst = sorted(fs, key=lambda f: (-_badness(f), f.finding_fingerprint or ""))
+        years = sorted({f.year for f in fs if f.year is not None})
+        out.append({"kind": kind, "element_kind": element_kind, "element_id": element_id, "fingerprint": worst[0].finding_fingerprint,
+                    "years": (f"{years[0]}-{years[-1]}" if len(years) > 1 else str(years[0])) if years else None, "count": len(fs),
+                    "case": worst[0].case, "value": worst[0].value, "limit": worst[0].limit, "message": worst[0].message,
+                    "messages": [f.message for f in worst[:GATE_EXAMPLES]]})
+    return sorted(out, key=lambda g: (-g["count"], g["kind"], g["element_id"] or ""))
+
+
 def merge_summary(into: str, verdict, evidence: dict) -> dict:
     """The merge gate's verdict as the agents read it (the `merge_check` tool, the reviewer's prompt and its validator):
-    each blocker and warning with its kind, element, figures and fingerprint."""
-    short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value,  # noqa: E731
-                       "limit": f.limit, "fingerprint": f.finding_fingerprint, "message": f.message}
+    fresh or stale, ok or not, how many blockers and warnings there are, and both grouped by kind and element
+    (`_grouped`); the UI reads the gate itself (`GET /branches/{id}/merge-check`), row by row."""
     return {"into": into, "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"], "ok": verdict.ok,
-            "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings],
+            "n_blockers": len(verdict.blockers), "n_warnings": len(verdict.warnings),
+            "blockers": _grouped(verdict.blockers), "warnings": _grouped(verdict.warnings),
             "n_context": len(verdict.context), "summary": verdict.summary}
 
 
@@ -524,7 +552,8 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             for q in queue:
                 by[q["status"]] = by.get(q["status"], 0) + 1
             deferred = [{"request_id": q["request_id"], "reason": (q.get("reason") or {}).get("message")} for q in queue if q["status"] == "Deferred"]
-            event = events.run_finished(branch_id, out, is_main=repository.is_main(row))  # what the workflow announces
+            event = events.run_finished(branch_id, out, is_main=repository.is_main(row),  # what the workflow announces
+                                        parent_run_key=events.parent_run_key(h.plans, h.store, branch_id))
             return ({"branch_id": branch_id, "run_key": out.get("run_key"), "statuses": by, "deferred": deferred, "event": event,
                      "summary": f"ran {branch_id}: " + (", ".join(f"{n} {s}" for s, n in sorted(by.items())) or "an empty queue")}, out.get("run_key"), 0)
         return _recorded(ctx, "propose_run", {"branch_id": branch_id}, work)

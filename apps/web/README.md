@@ -33,7 +33,7 @@ pnpm --filter web test       # vitest, logic and invariants only (never wording,
 pnpm --filter web build      # tsc --noEmit + vite build -> dist/
 ```
 
-The API origin defaults to `http://localhost:8000`; set `VITE_API_BASE` to point elsewhere.
+The API origin defaults to `http://127.0.0.1:8000` (not `localhost`: uvicorn listens on IPv4 only, and the IPv6-first lookup cost every new connection ~200 ms); set `VITE_API_BASE` to point elsewhere.
 
 Basemap: CARTO dark matter (no labels), © CARTO, © OpenStreetMap contributors. Substation positions come from the API's model.
 

@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable
 from typing import NamedTuple
 
-from .errors import Invalid
+from .errors import Invalid, NotSolved
 from gridforge_optimizer import (
     PLAN_YEARS,
     STUDIES,
@@ -191,19 +191,20 @@ class PlanService:
         return self.cache.key("years", params, b.ckey, b.baseline, extra=years_key(b))
 
     # --- runs -------------------------------------------------------------------------------------
-    def compute(self, b: BranchInputs, progress=None) -> OptimizeResult:
+    def compute(self, b: BranchInputs, progress=None, *, solve: bool = True, wait: bool = True) -> OptimizeResult:
         """Run the deterministic optimizer for a branch's inputs (its request, candidate set and simulated
         reinforcements, on its project's network), through the cache: the in-process dict, the durable
         `result_cache` table (survives restarts, shared by every endpoint that needs the same run), then
         the engine. Keys include the project's baseline, the parameters, the candidate set, the
-        reinforcements and the engine fingerprint."""
+        reinforcements and the engine fingerprint. `solve` / `wait` as `ResultCache.through` takes them (a read
+        that must not solve, or must not queue behind a run)."""
         params = self.params(b.req, b.project_id)
         return self.cache.through(
             self._optimize_key(b, params), "optimize", baseline=b.baseline,
             parse=OptimizeResult.model_validate_json,
             compute=lambda: optimize(b.cands, params, list(b.reinforcements), trial_cache=self.cache.trial_cache(params, b.baseline),
                                      net_factory=b.base_factory, progress=progress),
-            dump=lambda r: r.model_dump_json(),
+            dump=lambda r: r.model_dump_json(), solve=solve, wait=wait,
         )
 
     def branch_result(self, branch_id: str) -> OptimizeResult:
@@ -211,7 +212,7 @@ class PlanService:
         return self.compute(self.inputs(branch_id))
 
     def plan_years(self, b: BranchInputs, result: OptimizeResult, view_year: int | None = None,
-                   progress=None, on_year=None) -> dict[str, YearResult]:
+                   progress=None, on_year=None, *, solve: bool = True, wait: bool = True) -> dict[str, YearResult]:
         """Every year of the plan (years.evaluate_years), cached like a run: the key adds the outages,
         the schedule and the reinforcements, which change the years but not the queue. A cached plan
         still reaches `on_year` year by year, the same way a fresh one does."""
@@ -223,15 +224,15 @@ class PlanService:
                                            reinforcements=b.reinforcements, view_year=view_year, net_factory=b.base_factory,
                                            progress=progress, on_year=on_year, cache=self.cache.year_cache(b.baseline)),
             dump=lambda years: json.dumps({k: v.model_dump() for k, v in years.items()}),
-            on_hit=(lambda years: [on_year(y) for y in years.values()]) if on_year else None,
+            on_hit=(lambda years: [on_year(y) for y in years.values()]) if on_year else None, solve=solve, wait=wait,
         )
 
-    def result_with_years(self, b: BranchInputs) -> OptimizeResult:
+    def result_with_years(self, b: BranchInputs, *, solve: bool = True, wait: bool = True) -> OptimizeResult:
         """A branch's engine result with every plan year attached (both through the caches)."""
-        result = self.compute(b)
-        return result.model_copy(update={"years": self.plan_years(b, result)})
+        result = self.compute(b, solve=solve, wait=wait)
+        return result.model_copy(update={"years": self.plan_years(b, result, solve=solve, wait=wait)})
 
-    def works_on_plan(self, plan: BranchInputs, result: OptimizeResult, outages: list[Outage]) -> list[OutageStudy]:
+    def works_on_plan(self, plan: BranchInputs, result: OptimizeResult, outages: list[Outage], *, wait: bool = True) -> list[OutageStudy]:
         """Another branch's planned windows studied on this plan's energised network (its projects,
         schedule, parameters and reinforcements; the windows' own repowers apply after them), so the
         diff can tell what the branch's projects do to each window. Only the years with a window are
@@ -257,21 +258,40 @@ class PlanService:
             self.cache.key("works", params, on.ckey, plan.baseline, extra=years_key(on)), "works", baseline=plan.baseline,
             parse=lambda s: [OutageStudy.model_validate(x) for x in json.loads(s)],
             compute=study,
-            dump=lambda studies: json.dumps([s.model_dump() for s in studies]),
+            dump=lambda studies: json.dumps([s.model_dump() for s in studies]), wait=wait,
         )
 
-    def _solved_pair(self, head_in: BranchInputs, base_in: BranchInputs) -> tuple[OptimizeResult, OptimizeResult, ConsequenceDiff]:
+    def _solved_pair(self, head_in: BranchInputs, base_in: BranchInputs, *, wait: bool = True) -> tuple[OptimizeResult, OptimizeResult, ConsequenceDiff]:
         """Both plans with their years, and the consequence diff between them (the branch's windows
-        studied on the base's plan too)."""
-        head = self.result_with_years(head_in)
-        base = self.result_with_years(base_in)
-        works_on_base = self.works_on_plan(base_in, base, head_in.outages)
+        studied on the base's plan too). `wait=False` never queues behind a run (`NotSolved` instead)."""
+        head = self.result_with_years(head_in, wait=wait)
+        base = self.result_with_years(base_in, wait=wait)
+        works_on_base = self.works_on_plan(base_in, base, head_in.outages, wait=wait)
         return head, base, diff_results(base, head, works_on_base=works_on_base)
 
-    def diff(self, head_id: str, base_id: str) -> ConsequenceDiff:
+    def _require_run(self, head_id: str) -> None:
+        """A read that must not solve the branch's own plan: `NotSolved` (run it first) unless its result is current."""
+        fresh = self.freshness(head_id)
+        if not fresh.fresh:
+            raise NotSolved("this branch has not been run for what it holds now: " + "; ".join(fresh.reasons) + ". Run it, then compare.", retry=False)
+
+    def diff(self, head_id: str, base_id: str, *, blocking: bool = True) -> ConsequenceDiff:
         """The consequence diff of a branch against its base: the queue and phases, every plan year,
-        and each of the branch's planned windows against the same window on the base's plan."""
-        return self._solved_pair(self.inputs(head_id), self.inputs(base_id))[2]
+        and each of the branch's planned windows against the same window on the base's plan. Not `blocking`
+        (the planner's reads): the branch's own plan must be solved already, and the base's side and the
+        windows on it are computed only while the engine is free, else `NotSolved` (409) at once."""
+        if not blocking:
+            self._require_run(head_id)
+        return self._solved_pair(self.inputs(head_id), self.inputs(base_id), wait=blocking)[2]
+
+    def diff_narration(self, head_id: str, base_id: str, d: ConsequenceDiff) -> str:
+        """The diff's plain-English summary, cached by the two plans it compares: the planner asks for it every
+        time Review opens, and the figures it restates do not change until one side's plan does."""
+        b = self.inputs(head_id)
+        key = self.cache.key("narration:diff", self.params(b.req, b.project_id), b.ckey, b.baseline,
+                             extra=f"{self.freshness(head_id).years_key}|{self.freshness(base_id).years_key}")
+        return self.cache.text(key, "narration:diff", baseline=b.baseline,
+                               compute=lambda: narration.safely(self.narrator.narrate_diff, narration.summarize_diff(d, self.projects.names(b.project_id))))
 
     # --- the merge gate -------------------------------------------------------------------------------
     def freshness(self, branch_id: str) -> Freshness:
@@ -307,11 +327,12 @@ class PlanService:
         return {"parent_moved": [c.move() for c in plan.behind] if known else None,
                 "fork_unknown": plan is not None and not known, "removed_works": works, "removed_reinforcements": reinf}
 
-    def merge_check(self, head_id: str, base_id: str) -> tuple[MergeVerdict, dict]:
+    def merge_check(self, head_id: str, base_id: str, *, blocking: bool = True) -> tuple[MergeVerdict, dict]:
         """May this branch merge into its base? A stale branch is refused without a solve; otherwise
         both plans (the base solved if need be, as the diff does) go through `gate.merge_verdict`. A branch
         behind its parent is refused either way. Returns the verdict and the evidence it was judged on
-        (cache keys, snapshot, engine)."""
+        (cache keys, snapshot, engine). Not `blocking`: the base's side is computed only while the engine is
+        free, else `NotSolved` (409) at once instead of a request parked behind a run."""
         undoes = self._what_merging_undoes(head_id, base_id)
         fresh = self.freshness(head_id)
         head_in = self.inputs(head_id)
@@ -322,7 +343,7 @@ class PlanService:
             return merge_verdict(None, None, fresh=False, stale_reasons=fresh.reasons, base_label=base_id,
                                  parent_moved=undoes["parent_moved"], fork_unknown=undoes["fork_unknown"]), evidence
         base_in = self.inputs(base_id)
-        head, base, d = self._solved_pair(head_in, base_in)
+        head, base, d = self._solved_pair(head_in, base_in, wait=blocking)
         evidence["base_years_key"] = self._years_key(base_in, self.params(base_in.req, base_in.project_id))
         verdict = merge_verdict(head, base, d, scheduled=head_in.schedule, base_label=base_id, **undoes)
         return verdict, evidence
@@ -337,7 +358,7 @@ class PlanService:
                     "years_key": self._years_key(b, params), "snapshot_id": b.baseline,
                     "engine": self.cache.engine}
         at = now()
-        with self.store.cursor() as con:
+        with self.store.cursor() as con, con.transaction():  # one commit for a thousand rows, under the store's lock once
             ledger.upsert_findings(con, branch_id, found, evidence, at)
             ledger.resolve_missing(con, branch_id, {f.fingerprint for f in found}, at)
 
@@ -485,9 +506,11 @@ class PlanService:
         """Run a branch and enrich the result for the map, then solve every year of the plan.
 
         The greedy run decides the queue (progress 0..0.5); the years follow (0.5..0.95), the viewed
-        year first. `publish(payload)` receives the partial payload as soon as the queue is known and
-        again as each year lands, so the planner shows results while the rest are still solving. A
-        run on the branch's own demand profile (not a warm-up what-if) also writes the findings ledger.
+        year first; then the findings ledger (0.96) and the briefing (0.98). `publish(payload)` receives
+        the partial payload as soon as the queue is known and again as each year lands, so the planner
+        shows results while the rest are still solving. A run on the branch's own demand profile (not a
+        warm-up what-if) also writes the findings ledger. The briefing is cached by the queue it narrates,
+        so a re-run or a branch with the same queue does not pay for it again.
         """
         report = progress or (lambda _s, _f: None)
         stored = self.inputs(branch_id)
@@ -512,9 +535,12 @@ class PlanService:
                                 on_year=on_year)
         out["years"] = {k: v.model_dump() for k, v in years.items()}
         if params == self.params(stored.req, stored.project_id):
+            report("writing findings", 0.96)
             self.record_findings(branch_id, b, result, years)
         if body.with_justification and result.queue:  # nothing queued (main today): nothing to narrate
-            report("narration", 0.95)
-            out["justification"] = narration.safely(self.narrator.justify, narration.summarize_queue(result, self.projects.names(b.project_id)))
+            report("narration", 0.98)
+            out["justification"] = self.cache.text(
+                self.cache.key("narration", params, b.ckey, b.baseline, extra=reinf_key(b.reinforcements)), "narration", baseline=b.baseline,
+                compute=lambda: narration.safely(self.narrator.justify, narration.summarize_queue(result, self.projects.names(b.project_id))))
 
         return remember(self.cache.payload, key, out, MAX_PAYLOAD_ENTRIES)

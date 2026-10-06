@@ -35,8 +35,9 @@ import type {
 import { planOf } from "./lib/plan";
 import { normReason } from "./lib/reasons";
 
+// 127.0.0.1, not localhost: uvicorn listens on IPv4 only, and the browser tried ::1 first on every new connection
 export const BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://127.0.0.1:8000";
 
 /** A failed call: the status and the API's `detail` (a string, or a structured body such as a refused merge's verdict). */
 export class ApiError extends Error {
@@ -101,9 +102,10 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   return parse<T>(await fetch(`${BASE}${path}`, { method: "POST", body: form }));
 }
 
-/** How often a job is polled: while it waits for the solver, and while it solves. */
+/** How often a job is polled: while it waits for the solver, and while it solves (a year takes seconds; the
+ * poll is cheap once it carries `since`, but the solver shares one process with the API). */
 const POLL_QUEUED_MS = 400;
-const POLL_RUNNING_MS = 600;
+const POLL_RUNNING_MS = 1000;
 
 // ---- reasons: see lib/reasons.ts ---------------------------------------------------------------
 export { normReason } from "./lib/reasons";
@@ -209,18 +211,17 @@ export const api = {
   runBranchJob: async (id: string, opts: { with_justification?: boolean; view_year?: number | null }, p: RunProgress): Promise<OptimizeResult> => {
     let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
     p.onStart?.(job.job_id);
-    let seenYears = -1;
+    // the partial result (the queue plus every year solved so far) is large and re-serialised per poll: the poll
+    // names the version it has (`since`) and the API sends a partial only when it has a newer one
+    let seen: number | null = null;
     while (job.status === "queued" || job.status === "running") {
       p.onProgress(job.stage, job.fraction);
       if (job.partial && p.onPartial) {
-        const n = Object.keys(job.partial.years ?? {}).length;
-        if (n !== seenYears) {
-          seenYears = n;
-          p.onPartial(applyReasons(job.partial));
-        }
+        seen = job.partial_version ?? null;
+        p.onPartial(applyReasons(job.partial));
       }
       await new Promise((r) => setTimeout(r, job.status === "queued" ? POLL_QUEUED_MS : POLL_RUNNING_MS));
-      job = await getJson<Job>(`/jobs/${job.job_id}?partial=${p.onPartial ? "true" : "false"}`);
+      job = await getJson<Job>(`/jobs/${job.job_id}?partial=${p.onPartial ? "true" : "false"}${seen != null ? `&since=${seen}` : ""}`);
     }
     if (job.status === "cancelled") throw new RunCancelled();
     if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the run failed");

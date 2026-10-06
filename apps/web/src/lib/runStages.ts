@@ -18,8 +18,8 @@ export function runStages(plan: Plan, profileLabel: string, nOutages: number): R
   ];
 }
 
-// the job's stages after the queue is decided: the plan years, then the briefing
-const isBriefing = (s: string) => s.startsWith("narration") || s === "done";
+// the job's stages after the queue is decided: the plan years, then the findings ledger and the briefing
+const isBriefing = (s: string) => s.startsWith("narration") || s.startsWith("writing") || s === "done";
 const isYears = (s: string) => s.startsWith("year") || s === "queue decided";
 
 /** Which stage a job stage string belongs to (queued and starting count as ranking; the engine names a
@@ -39,6 +39,7 @@ export function stageReadout(stage: string, plan: Plan): string {
   if (stage === "starting") return "building the network";
   if (stage === "waiting for the solver") return "waiting for the solver: an agent's study step is finishing, then this run starts";
   if (stage === "ranking") return `one power flow at ${plan.phase2} demand to read grid need`;
+  if (stage === "writing findings") return "recording the findings in the ledger";
   if (stage === "narration") return "phrasing results, physics already fixed";
   if (stage === "queue decided") return "queue decided, solving each year";
   return stage;

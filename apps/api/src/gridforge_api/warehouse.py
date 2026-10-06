@@ -88,6 +88,7 @@ class Warehouse:
         self._last: dict[str, tuple[str, Any]] = {}  # read -> (snapshot id it was read at, value): the last consistent read
         self._guard = threading.Lock()
         self._locked_until = 0.0  # monotonic time until which the writer is assumed to still hold the file
+        self._baseline: tuple[int | None, str] | None = None  # (the file's mtime, its snapshot id): read once per version
 
     def exists(self) -> bool:
         return self.path.exists()
@@ -147,8 +148,20 @@ class Warehouse:
         return self.read(f"query:{sql}:{params}", lambda con: rows(con, sql, params))
 
     def baseline_id(self) -> str:
-        """The latest model snapshot's content-hash id (used to key the result caches)."""
-        return self.read("baseline_id", _snapshot_id)
+        """The latest model snapshot's content-hash id (used to key the result caches). Nearly every request asks for
+        it (every cache key carries it), and each read opens the file: it is read once per version of the file."""
+        try:
+            mtime = self.path.stat().st_mtime_ns
+        except OSError:
+            mtime = None
+        with self._guard:
+            hit = self._baseline
+        if hit is not None and hit[0] == mtime:
+            return hit[1]
+        sid = self.read("baseline_id", _snapshot_id)
+        with self._guard:
+            self._baseline = (mtime, sid)
+        return sid
 
     def baseline_model(self) -> dict:
         """The geolocated grid (buses, lines, transformers, loads, generators, regions) for the map, read as one

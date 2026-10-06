@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, NamedTuple
 
+from .. import repository
 from . import runs
 
 if TYPE_CHECKING:
@@ -25,8 +26,10 @@ class Trigger(NamedTuple):
 TRIGGERS: dict[str, Trigger] = {
     # a run finished on a branch: the reviewer comments like a PR bot, and the steward may send the connections
     # specialist after the projects the run deferred on a grid limit, or the works specialist when the run flags a
-    # works window (`works_flagged` in the payload: not simply feasible, or second faults found during it)
-    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}", applies=lambda p: not p.get("is_main")),
+    # works window (`works_flagged` in the payload: not simply feasible, or second faults found during it). A run whose
+    # physics is its parent's (a branch just opened, nothing changed: `run_key == parent_run_key`) wakes nobody
+    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}",
+                            applies=lambda p: not p.get("is_main") and p.get("run_key") != p.get("parent_run_key")),
     # the plan of record changed: the steward sweeps what a merge can move
     "branch.merged": Trigger(("steward_run",), ("thermal", "voltage", "boundary", "demand_security", "works"), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
     # a new model: everything, data quality first
@@ -46,12 +49,34 @@ def works_flagged(out: dict) -> tuple[int, int]:
     return len(studies), flagged
 
 
-def run_finished(branch_id: str, out: dict, *, is_main: bool) -> dict:
-    """The `run.finished` payload of a run, wherever it ran (the router, an agent's approved run): its identity, how many
-    works windows it studied and flagged, and whether it was a main's (a main is not reviewed: it merges nowhere)."""
+GRID_REASONS = ("line", "trafo", "voltage", "gsp")  # a deferral on a grid limit (`Reason.type`): what the connections specialist studies
+
+
+def run_finished(branch_id: str, out: dict, *, is_main: bool, parent_run_key: str | None = None) -> dict:
+    """The `run.finished` payload of a run, wherever it ran (the router, an agent's approved run): its identity, its
+    parent's (`parent_run_key`: equal when the run changed no physics), how many projects it deferred on a grid limit,
+    how many works windows it studied and flagged, and whether it was a main's (a main is not reviewed: it merges nowhere)."""
     n_works, flagged = works_flagged(out)
-    return {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""),
-            "n_works": n_works, "works_flagged": flagged, "is_main": is_main}
+    deferred = sum(1 for q in out.get("queue") or [] if q.get("status") == "Deferred" and (q.get("reason") or {}).get("type") in GRID_REASONS)
+    return {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""), "parent_run_key": parent_run_key,
+            "n_deferred_on_grid": deferred, "n_works": n_works, "works_flagged": flagged, "is_main": is_main}
+
+
+def parent_run_key(plans, store, branch_id: str) -> str | None:
+    """The plan-years key of the branch's parent as it stands (no solve: `PlanService.freshness`); None for a main."""
+    with store.cursor() as con:
+        base = repository.base_of(con, repository.require_branch(con, branch_id))
+    return plans.freshness(base["branch_id"]).years_key if base else None
+
+
+def nothing_to_triage(event: dict) -> str | None:
+    """Why the steward need not read a `run.finished` event: nothing it could send a specialist after (no project
+    deferred on a grid limit, no works window flagged). None when there is something, or for any other event."""
+    if event.get("type") != "run.finished":
+        return None
+    if event.get("n_deferred_on_grid", 1) or event.get("works_flagged", 1):
+        return None
+    return "nothing to triage after this run: no project deferred on a grid limit and no works window flagged"
 
 
 def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:

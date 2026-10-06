@@ -30,7 +30,8 @@ def test_branch_diff_is_year_aware_and_compares_planned_works_with_main():
     bid = create_branch("Year diff", added_projects=projects(4))["branch_id"]
     oid = client.post(f"/branches/{bid}/outages", json={"element_kind": "line", "element_id": first_line(),
                                                        "season": "Summer", "year": PLAN_END_YEAR}).json()["outage_id"]
-    d = client.get(f"/branches/{bid}/diff").json()
+    assert client.get(f"/branches/{bid}/diff").status_code == 409  # a read never solves a branch that has not run: `?solve=1` does
+    d = client.get(f"/branches/{bid}/diff?solve=1").json()
     assert d["base_branch"] == "main" and d["head_branch"] == bid
     assert [p for p in d["projects"] if p["change"] == "added"]  # the new projects show up as additions
     assert sorted(d["years"]) == [str(y) for y in PLAN_YEARS]
@@ -70,7 +71,7 @@ def test_the_diff_previews_what_a_merge_adds_to_and_removes_from_the_parent():
                                                           "season": "Spring", "year": PLAN_START_YEAR + 3}).json()["outage_id"]
     rid = client.post(f"/branches/{child}/reinforcements", json={"kind": "line", "element_id": int(line), "action": "uprate", "factor": 2.0, "label": "Uprate"}).json()["reinforcement_id"]
 
-    m = client.get(f"/branches/{child}/diff").json()["on_merge"]
+    m = client.get(f"/branches/{child}/diff?solve=1").json()["on_merge"]  # never run: a plain read answers 409 not_solved
     assert [w["outage_id"] for w in m["works_added"]] == [new]
     assert [w["outage_id"] for w in m["works_removed"]] == [gone]
     assert [r["reinforcement_id"] for r in m["reinforcements_added"]] == [rid] and not m["reinforcements_removed"]

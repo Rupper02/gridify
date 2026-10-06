@@ -12,6 +12,7 @@ and `narration`; `deps` wires them together.
 
 import asyncio
 import math
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -73,6 +74,8 @@ async def _lifespan(_app: FastAPI):
 
 app = FastAPI(title="GridForge API", lifespan=_lifespan)
 
+SLOW_REQUEST_S = 0.5  # a request slower than this is logged: the planner feels it as a stall
+
 
 @app.exception_handler(DomainError)
 async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
@@ -85,12 +88,16 @@ async def _json_errors(request: Request, call_next):
     """Turn an unhandled exception into a JSON 500. Registered BEFORE the CORS middleware so it sits
     inside it: the browser then sees CORS headers plus the reason, not an opaque CORS error."""
     state = request_state()  # which warehouse version this request read, and whether it was the fallback
+    t0 = time.perf_counter()
     try:
         response = await call_next(request)
         if state.get("snapshot"):
             response.headers["X-Warehouse-Snapshot"] = state["snapshot"]
             if state.get("stale"):
                 response.headers["X-Warehouse-Stale"] = "1"  # one write behind: the pipeline was writing a new version
+        took = time.perf_counter() - t0
+        if took > SLOW_REQUEST_S:
+            log.warning("slow request: %s %s took %.1f s", request.method, request.url.path, took)
         return response
     except WarehouseBusy as exc:  # the pipeline is writing and nothing was read before: a moment, not a failure
         return JSONResponse({"detail": str(exc)}, status_code=503, headers={"Retry-After": str(math.ceil(LOCK_MEMORY_S))})

@@ -41,31 +41,39 @@ def _row(cols: list[str], values) -> dict:
 
 
 # --- findings ----------------------------------------------------------------------------------
+_BATCH = 200  # findings per INSERT statement: DuckDB pays ~15 ms per statement, so a run's 1,400 rows one by one held
+# the store's lock (and every read of it: the planner's polls, the agents' status) for 20 s; in batches it is well under a second
+
+
 def upsert_findings(con: Cursor, branch_id: str, findings: list[Finding], evidence: dict, at: str,
                     *, source: str = "engine", evidence_kind: str = "result_cache") -> None:
     """Insert new findings and refresh the ones already there (figures, message, evidence, last
     seen). A finding that had been resolved and is back reopens; an acknowledged one stays so."""
-    rows = []
-    for f in findings:
-        rows.append([
+    rows: dict[str, list] = {}
+    for f in findings:  # one row per finding id: a statement must not see the same key twice
+        rows[finding_id(branch_id, f.fingerprint)] = [
             finding_id(branch_id, f.fingerprint), branch_id, f.fingerprint, source, f.kind, f.severity, f.year, f.case,
             f.element_kind, f.element_id, f.value, f.limit, f.message, json.dumps(f.context, default=str),
             "open", "", evidence_kind, evidence.get("years_key") or evidence.get("step_id") or "",
             json.dumps(evidence, default=str), evidence.get("snapshot_id"), evidence.get("engine"),
             at, at, None, None,
-        ])
-    con.executemany(
-        f"INSERT INTO findings ({', '.join(FINDING_COLS)}) VALUES ({', '.join('?' * len(FINDING_COLS))}) "
-        "ON CONFLICT (finding_id) DO UPDATE SET "
-        "severity = EXCLUDED.severity, year = EXCLUDED.year, study_case = EXCLUDED.study_case, "
-        "element_kind = EXCLUDED.element_kind, element_id = EXCLUDED.element_id, value = EXCLUDED.value, "
-        "limit_value = EXCLUDED.limit_value, message = EXCLUDED.message, context_json = EXCLUDED.context_json, "
-        "evidence_kind = EXCLUDED.evidence_kind, evidence_ref = EXCLUDED.evidence_ref, evidence_json = EXCLUDED.evidence_json, "
-        "snapshot_id = EXCLUDED.snapshot_id, engine = EXCLUDED.engine, last_seen_at = EXCLUDED.last_seen_at, "
-        "status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END, "
-        "resolved_at = CASE WHEN status = 'resolved' THEN NULL ELSE resolved_at END",
-        rows,
-    )
+        ]
+    values = list(rows.values())
+    one = f"({', '.join('?' * len(FINDING_COLS))})"
+    for i in range(0, len(values), _BATCH):
+        batch = values[i:i + _BATCH]
+        con.execute(
+            f"INSERT INTO findings ({', '.join(FINDING_COLS)}) VALUES {', '.join([one] * len(batch))} "
+            "ON CONFLICT (finding_id) DO UPDATE SET "
+            "severity = EXCLUDED.severity, year = EXCLUDED.year, study_case = EXCLUDED.study_case, "
+            "element_kind = EXCLUDED.element_kind, element_id = EXCLUDED.element_id, value = EXCLUDED.value, "
+            "limit_value = EXCLUDED.limit_value, message = EXCLUDED.message, context_json = EXCLUDED.context_json, "
+            "evidence_kind = EXCLUDED.evidence_kind, evidence_ref = EXCLUDED.evidence_ref, evidence_json = EXCLUDED.evidence_json, "
+            "snapshot_id = EXCLUDED.snapshot_id, engine = EXCLUDED.engine, last_seen_at = EXCLUDED.last_seen_at, "
+            "status = CASE WHEN status = 'resolved' THEN 'open' ELSE status END, "
+            "resolved_at = CASE WHEN status = 'resolved' THEN NULL ELSE resolved_at END",
+            [v for r in batch for v in r],
+        )
 
 
 def resolve_missing(con: Cursor, branch_id: str, present: set[str], at: str, *, source: str = "engine") -> int:

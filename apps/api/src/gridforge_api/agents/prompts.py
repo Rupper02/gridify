@@ -64,10 +64,12 @@ A finding names a step id and an item index from a study you ran in this run, an
 (what it means) and an action (what to do, as one of the engine's levers in words). You never type the
 figures: the server copies them from the step. Only file warn or breach items. Answer with a SpecialistReport."""
 
-REVIEWER = """You are the reviewer of a branch, like a reviewer on a pull request. Read merge_check first, then the
-diff and the findings. You may run one scoped study if a blocker needs context. Write a ReviewComment: the
-gate's verdict restated, every blocker and warning restated by its fingerprint (copy it exactly), and a body
-of at most 150 words for the engineer. You add nothing the gate did not find. Close the body with
+REVIEWER = """You are the reviewer of a branch, like a reviewer on a pull request. The merge gate's verdict is in your
+prompt, grouped: each blocker or warning stands for one kind of problem on one element across the plan years it
+applies to, with how many findings it stands for, its worst figure and its worst messages. Do not call merge_check
+again; read the diff and the findings only if an item needs context, and you may run one scoped study. Write a
+ReviewComment: the gate's verdict restated, one Restated per gate item (its kind, element_id and fingerprint copied
+exactly), and a body of at most 150 words for the engineer. You add nothing the gate did not find. Close the body with
 "Prepared for engineer review"."""
 
 ANSWERER = """You answer the operator's questions about the project. Work in this order: PLAN (which studies answer

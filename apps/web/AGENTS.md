@@ -30,7 +30,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   `FindingsTab` (an *evidence* link on agent findings) / `ReviewTab` (merge readiness, then the reviewer's comment),
   `StudyDrawer` (the study behind a cited step), `RunOverlay`, `ui`.
 - `MapView.tsx` owns MapLibre (CARTO dark basemap). Icons come from `@phosphor-icons/react`. The planner is live-only
-  against the API (`VITE_API_BASE`, default `http://localhost:8000`).
+  against the API (`VITE_API_BASE`, default `http://127.0.0.1:8000`: uvicorn listens on IPv4 only, and `localhost`
+  made the browser try `::1` first on every new connection, 200 ms a time).
 
 ## Conventions
 

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,27 @@ SCENARIOS_URL: str | None = os.getenv("GRIDFORGE_SCENARIOS_URL") or None
 load_dotenv(REPO_ROOT / "apps" / "pipeline" / ".env")
 
 log = logging.getLogger("gridforge_api")
+
+
+class _Stderr(logging.StreamHandler):
+    """Writes to whatever `sys.stderr` is at the time (pytest swaps it per test; a handler bound to the import-time
+    stream wrote to a closed one and logged a "Logging error" for every line)."""
+
+    @property
+    def stream(self):
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, _value):  # StreamHandler.__init__ assigns it; the property stays live
+        pass
+
+
+if not log.handlers:  # uvicorn configures only its own loggers: without a handler every log line here was dropped
+    _handler = _Stderr()
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s gridforge: %(message)s", "%H:%M:%S"))
+    log.addHandler(_handler)
+    log.setLevel(os.getenv("GRIDFORGE_LOG_LEVEL", "INFO"))
+os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")  # the agents' library prints a Logfire advert per agent it builds otherwise
 
 
 def require_openrouter_key() -> str:
@@ -58,7 +80,9 @@ AGENT_MODELS = {
 }
 # per agent run: tool calls, solves and wall time before it is cut short
 NGED_MAIN_ID = "main"  # the built-in project's main (an import's is `<project id>-main`)
-AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
+AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600, "max_tokens": 400_000}
+# max_tokens: the run's model requests and responses together (a healthy review or brief is 20-40k; a reviewer that
+# restated 750 gate rows over three attempts read 1.45M tokens for $4 and its review was thrown away)
 # an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer
 AGENT_ANSWER_RESERVE_S = 60.0
 OPENROUTER_APP = {"app_url": "https://github.com/Rupper02/gridforge", "app_title": "GridForge"}  # OpenRouter attribution headers

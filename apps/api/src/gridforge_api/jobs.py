@@ -48,7 +48,8 @@ class JobRunner:
         it (the same record, its progress from the start) instead of queueing the same work behind it."""
         job_id = "job-" + uuid.uuid4().hex[:10]
         rec = {"job_id": job_id, "kind": kind, "key": key, "status": "queued", "stage": "queued", "fraction": 0.0,
-               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None, "error": None, "cancel": False}
+               "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None,
+               "partial_version": 0, "error": None, "cancel": False}
         with self._lock:
             if key is not None:
                 same = next((r for r in self._jobs.values() if r["key"] == key and r["status"] in ("queued", "running") and not r["cancel"]), None)
@@ -69,6 +70,7 @@ class JobRunner:
         def publish(partial: dict) -> None:
             with self._lock:
                 rec["partial"] = partial
+                rec["partial_version"] += 1  # a poll that saw this version is not sent the same partial again
 
         def run() -> None:
             t0 = time.perf_counter()
@@ -77,6 +79,7 @@ class JobRunner:
                     rec.update(status="cancelled", stage="cancelled", finished_at=now())
                     return
                 rec["status"], rec["started_at"], rec["stage"] = "running", now(), "starting"
+            log.info("job %s (%s%s) started", job_id, kind, f" {key[:12]}" if key else "")
             try:
                 with self._solver(rec):
                     out = fn(progress, publish)
@@ -93,6 +96,7 @@ class JobRunner:
                 with self._lock:
                     rec["finished_at"] = now()
                     rec["elapsed_ms"] = int((time.perf_counter() - t0) * 1000)
+                log.info("job %s (%s) %s in %.1f s", job_id, kind, rec["status"], rec["elapsed_ms"] / 1000)
 
         self._pool.submit(run)
         return self._view(rec)
@@ -104,7 +108,9 @@ class JobRunner:
         if not self.solver_lock.acquire(blocking=False):
             with self._lock:
                 rec["stage"] = "waiting for the solver"
+            t0 = time.perf_counter()
             self.solver_lock.acquire()
+            log.info("job %s waited %.1f s for the solver", rec["job_id"], time.perf_counter() - t0)
             with self._lock:
                 rec["stage"] = "starting"
         try:
@@ -113,12 +119,14 @@ class JobRunner:
             self.solver_lock.release()
 
     @staticmethod
-    def _view(rec: dict, with_result: bool = False, with_partial: bool = False) -> dict:
+    def _view(rec: dict, with_result: bool = False, with_partial: bool = False, since: int | None = None) -> dict:
+        """The job as the planner reads it. The partial result (the queue plus every year solved so far, re-serialised
+        on every poll) travels only when asked for and newer than the version the poll last saw (`since`)."""
         out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel", "key")}
         out["has_partial"] = rec["partial"] is not None
         if with_result:
             out["result"] = rec["result"]
-        if with_partial:
+        if with_partial and (since is None or since != rec["partial_version"]):
             out["partial"] = rec["partial"]
         return out
 
@@ -143,11 +151,11 @@ class JobRunner:
                 rec["cancel"] = True
             return self._view(rec)
 
-    def get(self, job_id: str, with_result: bool = True, with_partial: bool = False) -> dict:
-        """A job's status, stage, its partial result while running (if asked) and its result when
-        done; 404 if unknown."""
+    def get(self, job_id: str, with_result: bool = True, with_partial: bool = False, since: int | None = None) -> dict:
+        """A job's status, stage, its partial result while running (if asked, and newer than `since`, the
+        `partial_version` the caller last saw) and its result when done; 404 if unknown."""
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:
                 raise NotFound(f"job '{job_id}' not found")
-            return self._view(rec, with_result=with_result, with_partial=with_partial)
+            return self._view(rec, with_result=with_result, with_partial=with_partial, since=since)

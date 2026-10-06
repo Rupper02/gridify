@@ -18,8 +18,10 @@ def run_optimize(body: OptimizeRequest) -> dict:
 
 
 def ran(branch_id: str, out: dict, *, is_main: bool) -> dict:
-    """A run finished: the agents hear about it (`events.run_finished`; deduplicated by the result's identity)."""
-    events.emit(agents, "run.finished", events.run_finished(branch_id, out, is_main=is_main))
+    """A run finished: the agents hear about it (`events.run_finished`; deduplicated by the result's identity, and
+    a run whose physics is its parent's wakes nobody)."""
+    events.emit(agents, "run.finished", events.run_finished(branch_id, out, is_main=is_main,
+                                                             parent_run_key=events.parent_run_key(plans, scenarios, branch_id)))
     return out
 
 
@@ -60,10 +62,11 @@ def cancel_job(job_id: str) -> dict:
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str, with_result: bool = True, partial: bool = False) -> dict:
+def get_job(job_id: str, with_result: bool = True, partial: bool = False, since: int | None = None) -> dict:
     """A background job's status, stage, its partial result while running (`partial=true`: the
-    queue plus the years solved so far) and its result when done."""
-    return jobs.get(job_id, with_result=with_result, with_partial=partial)
+    queue plus the years solved so far, sent only when its `partial_version` differs from `since`) and
+    its result when done."""
+    return jobs.get(job_id, with_result=with_result, with_partial=partial, since=since)
 
 
 @router.get("/cache")

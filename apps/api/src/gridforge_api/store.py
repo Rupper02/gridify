@@ -81,6 +81,18 @@ class Cursor:
             self._c.executemany(self._sql(sql), seq)
         return self
 
+    @contextmanager
+    def transaction(self):
+        """Several writes as one commit: a ledger write of a thousand rows is one fsync, not a thousand (each
+        holding the store's lock), and readers see all of it or none of it."""
+        self._c.execute("BEGIN TRANSACTION")
+        try:
+            yield self
+            self._c.execute("COMMIT")
+        except BaseException:
+            self._c.execute("ROLLBACK")
+            raise
+
     def fetchone(self):
         return self._c.fetchone()
 

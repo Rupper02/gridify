@@ -19,8 +19,8 @@ from pydantic_ai import DeferredToolRequests, DeferredToolResults, ModelMessages
 from pydantic_ai.messages import ModelResponse, TextPart
 
 from .. import repository
-from ..config import AGENT_RUN_BUDGET, now
-from . import runs, threads
+from ..config import AGENT_RUN_BUDGET, log, now
+from . import events, runs, threads
 from .evidence import check_numbers
 from .roster import SPECIALISTS
 from .schemas import HealthBrief, ReviewComment, SpecialistReport, StewardPlan
@@ -44,10 +44,11 @@ def _step(fn):
 
 
 def _limits() -> UsageLimits:
-    """The run's hard stop is its number of model requests. The tool-call budget is enforced by `tools._recorded`, which
-    answers past it with a refusal the model writes up from: a Pydantic AI `tool_calls_limit` would raise before that
-    refusal ever ran, and end the answer as failed."""
-    return UsageLimits(request_limit=AGENT_RUN_BUDGET["max_tool_calls"] + 4, tool_calls_limit=None)
+    """The run's hard stops: its number of model requests, and the tokens its requests and responses add up to
+    (`AGENT_RUN_BUDGET["max_tokens"]`: a run that keeps re-reading a huge payload ends as failed, not as a bill). The
+    tool-call budget is enforced by `tools._recorded`, which answers past it with a refusal the model writes up from:
+    a Pydantic AI `tool_calls_limit` would raise before that refusal ever ran, and end the answer as failed."""
+    return UsageLimits(request_limit=AGENT_RUN_BUDGET["max_tool_calls"] + 4, tool_calls_limit=None, total_tokens_limit=AGENT_RUN_BUDGET["max_tokens"])
 
 
 def _usage(res) -> dict:
@@ -91,6 +92,8 @@ def _finish(run_id: str, project_id: str, *, status: str, summary: str = "", err
                             output_tokens=u.get("output_tokens", 0), cost_credits=u.get("cost_credits"), solves=solves)
         if usage:
             rt.spend.charge(project_id, tokens=u.get("input_tokens", 0) + u.get("output_tokens", 0), cost_credits=u.get("cost_credits"), solves=solves)
+        log.info("agent run %s %s: $%s, %d+%d tokens, %d solves%s", run_id, status, u.get("cost_credits") if u.get("cost_credits") is not None else "-",
+                 u.get("input_tokens", 0), u.get("output_tokens", 0), solves, f" ({error[:120]})" if error else "")
         return True
     _step(do)
 
@@ -103,6 +106,10 @@ def steward_run(project_id: str, event: dict) -> dict:
     begun = _begin(run_id, project_id, kind="steward", agent="steward", branch_id=event.get("branch_id"), event_id=event.get("event_id"))
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_paused", "reason": begun["reason"]}
+    skip = events.nothing_to_triage(event)
+    if skip:  # a clean run: no specialist to send, so no triage call, no brief (the reviewer still comments)
+        _finish(run_id, project_id, status="skipped", summary=skip)
+        return {"run_id": run_id, "status": "skipped", "reason": skip}
     allowed = [s for s in event.get("allowed_specialists", []) if s in SPECIALISTS]
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
@@ -181,8 +188,16 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
             if runs.review_exists(con, branch_id, run_key) or superseded():
                 return None
             runs.supersede_reviews(con, branch_id, run_key)
+            older = [(rid, wid) for rid, wid in runs.open_runs_of(con, branch_id, "review") if rid != run_id]
             head = repository.require_branch(con, branch_id)
             base = repository.base_of(con, head)
+        for rid, wid in older:  # a review of an earlier run still being written: `store` would throw it away, so stop paying for it
+            if wid:
+                DBOS.cancel_workflow(wid)
+        if older:
+            with rt.harness.store.cursor() as con:
+                for rid, _wid in older:
+                    runs.close_run(con, rid, status="cancelled", error="superseded by a newer run")
         if base is None:  # a project's main merges nowhere: nothing to review
             return None
         with rt.harness.solver_gate.hold():
@@ -394,8 +409,9 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
             return {"ran": ran}
         settled = _step(settle)
         if settled["ran"]:  # an approved run is a run like any other: the reviewer (and the steward) hear about it, alike
-            from .events import emit
-            _step(lambda: emit(rt, "run.finished", {**settled["ran"]["event"], "project_id": project_id}))
+            # workflow code, not a step: `emit` enqueues workflows, which DBOS refuses from inside a step (the event
+            # row it writes is idempotent by its dedup id, so a replay of this line wakes nobody twice)
+            events.emit(rt, "run.finished", {**settled["ran"]["event"], "project_id": project_id})
         _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
         _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": FINAL_SEQ})
         return {"run_id": run_id, "reply_id": loaded["reply_id"], **done}

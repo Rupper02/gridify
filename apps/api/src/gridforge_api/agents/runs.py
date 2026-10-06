@@ -73,6 +73,12 @@ def open_runs(con: Cursor, project_id: str | None = None) -> list[tuple[str, str
     return [(r[0], r[1]) for r in con.execute(f"SELECT run_id, workflow_id FROM agent_runs WHERE {where}", params).fetchall()]
 
 
+def open_runs_of(con: Cursor, branch_id: str, kind: str) -> list[tuple[str, str | None]]:
+    """(run_id, workflow_id) of the runs of one kind still queued or running on a branch."""
+    cur = con.execute("SELECT run_id, workflow_id FROM agent_runs WHERE branch_id = ? AND kind = ? AND status IN ('queued', 'running')", [branch_id, kind])
+    return [(r[0], r[1]) for r in cur.fetchall()]
+
+
 def close_run(con: Cursor, run_id: str, *, status: str, error: str) -> None:
     """End a run its workflow never finished (DBOS ended it first); what it already recorded is kept."""
     con.execute("UPDATE agent_runs SET status = ?, finished_at = ?, error = ? WHERE run_id = ? AND status IN ('queued', 'running')",

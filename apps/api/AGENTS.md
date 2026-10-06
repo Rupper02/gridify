@@ -97,7 +97,16 @@ change them by proposal, not by working around them.
   closes the runs DBOS has already ended.
 - No daily cap: whoever runs GridForge pays with their own OpenRouter key, so spend is recorded and shown ("spent $X today
   · $Y in all"), never a stop. Only the operator's Pause stops the agents; check the agents pill before reading a missing
-  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, wall time).
+  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, tokens, wall time).
+- The reviewer reads the gate grouped (`tools.merge_summary`: one item per kind and element across the plan years it
+  applies to, the worst member's fingerprint, the count and the worst messages) and restates those items; it never
+  calls `merge_check` itself. A review of a run the branch has moved past is cancelled by the next review's gate step
+  (`runs.open_runs_of`), not finished for nothing.
+- A run wakes nobody when its physics is its parent's (`run_key == parent_run_key`: a branch just opened), and the
+  steward skips a `run.finished` with no project deferred on a grid limit and no works window flagged
+  (`events.nothing_to_triage`); the reviewer still comments. The brief agent has no tools: it restates the reports.
+- `events.emit` enqueues workflows: call it from workflow code, never inside a step (DBOS refuses a child workflow
+  from a step; the event row it writes is idempotent by its dedup id).
 
 ## Conventions
 
@@ -145,8 +154,12 @@ change them by proposal, not by working around them.
     optimize job publishes the queue, then each year as `evaluate_years(on_year=...)` lands, the body's `view_year` first.
   - Keep the sync endpoints too (tests and scripts use them).
   - The engine reports progress through `optimize(progress=...)` and `evaluate_years(progress=...)` (the API maps them to
-    0..0.5 and 0.5..0.95, narration at 0.95); new long stages should call it (it is also where cancellation lands:
-    `POST /jobs/{id}/cancel` makes the next progress report raise `JobCancelled`).
+    0..0.5 and 0.5..0.95, then "writing findings" at 0.96 and "narration" at 0.98); new long stages should call it (it
+    is also where cancellation lands: `POST /jobs/{id}/cancel` makes the next progress report raise `JobCancelled`).
+    The ledger write is one transaction (`Cursor.transaction`) of multi-row INSERTs (`ledger._BATCH`: DuckDB pays
+    ~15 ms a statement, and 1,400 single-row upserts held the store's lock, and every read of it, for 20 s), the
+    narration is cached by the queue it narrates (`ResultCache.text`), and a poll that names the partial it has
+    (`?since=`) is not sent it again. Never loop `execute`/`executemany` over hundreds of rows under the store's lock.
   - Plan years are cached by `years.year_signature` (`ResultCache.year_cache`), so an edit re-solves only the years it
     touches; a new input to a year's result must go into that signature.
 - The agent runtime runs DBOS on `apps/api/data/dbos.sqlite` (`GRIDFORGE_DBOS_URL`; Postgres when the scenarios store is
@@ -169,6 +182,10 @@ way, propose a better one rather than working around it.
 - Never call `through` (or anything that can solve) while holding a store cursor: the store and the solver each have one
   process lock, and a thread waiting for the solver with the store held deadlocks against a job that holds the solver and
   reads the store.
+- A GET the planner issues around every run (`/diff`, `/merge-check`) never solves the branch's own plan and never queues
+  behind a run: `through(solve=False)` / `through(wait=False)` raise `errors.NotSolved` (409 `{code: "not_solved", retry}`;
+  `retry: true` when the engine was merely busy) and the planner asks again when its run has finished. `?solve=1` is the
+  blocking read for scripts. The agents' tools and the reviewer's gate keep solving, behind the `SolverGate`.
 - Agents wait rather than fail: `SolverGate.hold` waits while an operator's job runs, for as long as the agent run's own
   time allows (`AgentDeps.deadline` = `AGENT_RUN_BUDGET.timeout_s` less `AGENT_ANSWER_RESERVE_S`), says so in the trace,
   and past the deadline the tool answers with a refusal the model reads (`SolverBusy`), never a raised timeout.
@@ -178,6 +195,9 @@ way, propose a better one rather than working around it.
 
 ## Debugging
 
+- The API log (`config.log`, the `gridforge_api` logger: INFO by default, `GRIDFORGE_LOG_LEVEL` to change) says when a job
+  starts and ends and how long it took, what the cache computed and in how long, who waited for the solver, what every
+  agent run cost (status, $, tokens, solves), and any request over `main.SLOW_REQUEST_S` (0.5 s). Read it before py-spy.
 - `uvicorn --reload` sometimes misses an edit: if the log shows no "Reloading" after you save, restart the API.
 - A stuck or slow solve: `uv tool run py-spy dump --pid <worker pid>`, where the worker is the child of the process
   listening on :8000. Two dumps a few seconds apart show who holds the solver and whether it is moving.

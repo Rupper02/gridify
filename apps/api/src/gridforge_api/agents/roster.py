@@ -41,7 +41,9 @@ class AgentSpec(NamedTuple):
 
 AGENTS: dict[str, AgentSpec] = {
     "steward": AgentSpec("steward", prompts.STEWARD_TRIAGE, ("read",), StewardPlan),
-    "steward_brief": AgentSpec("steward", prompts.STEWARD_BRIEF, ("read",), HealthBrief),
+    # the brief restates the specialists' reports it is handed: with read tools it re-ran the merge check (solving the
+    # parent's years for minutes under the gate) to say nothing more
+    "steward_brief": AgentSpec("steward", prompts.STEWARD_BRIEF, (), HealthBrief),
     **{kind: AgentSpec("specialist", prompts.specialist_prompt(kind), ("read", "studies"), SpecialistReport, SPECIALIST_STUDIES[kind])
        for kind in SPECIALIST_STUDIES},
     "reviewer": AgentSpec("reviewer", prompts.REVIEWER, ("read", "studies"), ReviewComment, ("contingency_ranking",)),
@@ -73,17 +75,18 @@ def _identity(f: dict) -> tuple:
 
 def _validate_review(ctx: RunContext[AgentDeps], review: ReviewComment) -> ReviewComment:
     """The reviewer restates the gate, nothing more and nothing less: every blocker it lists must be one
-    the merge check produced (same kind, element and fingerprint) and every gate blocker must be there."""
+    the merge check produced (same kind, element and fingerprint: the gate's grouped items, `tools.merge_summary`)
+    and every gate blocker must be there. The retry names only what is off, never the whole gate again."""
     gate = ctx.deps.context.get("merge_check") or {}
     want = {_identity(f) for f in gate.get("blockers", [])}
     got = {_identity(b.model_dump()) for b in review.blockers}
     unknown = got - want
     missing = want - got
     if unknown or missing:
-        raise ModelRetry("Restate exactly the gate's blockers, each with its kind, element_id and fingerprint copied from the gate. "
+        raise ModelRetry("Restate exactly the gate's blockers, one Restated per item, each with its kind, element_id and fingerprint "
+                         "copied from the gate in your prompt (kind, element_id, fingerprint). "
                          + (f"Not from the gate: {sorted(map(str, unknown))}. " if unknown else "")
-                         + (f"Missing: {sorted(map(str, missing))}. " if missing else "")
-                         + f"The gate's blockers are: {gate.get('blockers', [])}")
+                         + (f"Missing: {sorted(map(str, missing))}." if missing else ""))
     expected = "blocked" if gate.get("blockers") else ("mergeable_with_warnings" if gate.get("warnings") else "mergeable")
     if review.verdict_restated != expected:
         raise ModelRetry(f"The gate's verdict is '{expected}', not '{review.verdict_restated}'. Restate it.")

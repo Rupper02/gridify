@@ -7,11 +7,11 @@ from fastapi import APIRouter, HTTPException
 
 from gridforge_optimizer import MergeVerdict
 
-from .. import ledger, narration, proposals, rebase, repository
+from .. import ledger, proposals, rebase, repository
 from ..agents import events
 from ..config import now
 from ..store import PROFILE_COLS
-from ..deps import agents, narrator, plans, projects, scenarios
+from ..deps import agents, plans, projects, scenarios
 from ..schemas import (
     BranchCreate,
     MergeRequest,
@@ -112,37 +112,39 @@ def _changes_on_merge(con, base_id: str, head_id: str) -> dict:
                               repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, head_id))
 
 
-def _gate(branch_id: str, base_id: str) -> tuple[MergeVerdict, dict]:
-    return plans.merge_check(branch_id, base_id)
+def _gate(branch_id: str, base_id: str, *, blocking: bool = True) -> tuple[MergeVerdict, dict]:
+    return plans.merge_check(branch_id, base_id, blocking=blocking)
 
 
 @router.get("/branches/{branch_id}/diff")
-def diff_branch(branch_id: str, with_narration: bool = False) -> dict:
+def diff_branch(branch_id: str, with_narration: bool = False, solve: bool = False) -> dict:
     """Consequence diff of a branch (head) vs its parent (base, default main): the queue, the
     2030/2035 phases, every plan year, the branch's planned works on the parent's plan vs its own,
-    and the planned works and reinforcements a merge would add to or remove from the parent."""
+    and the planned works and reinforcements a merge would add to or remove from the parent. A read:
+    the branch's own plan must have run for what it holds now (else 409 `not_solved`, run it first), and
+    the parent's side and the branch's windows on the parent's plan are computed only while the engine is
+    free (else 409 `not_solved` with `retry: true`). `?solve=1` waits and solves whatever is missing."""
     with scenarios.cursor() as con:
         head, base = _pair(con, branch_id, None)
         merge = _changes_on_merge(con, base["branch_id"], branch_id)
-    d = plans.diff(branch_id, base["branch_id"])
+    d = plans.diff(branch_id, base["branch_id"], blocking=solve)
     out = d.model_dump()
     out["on_merge"] = merge
     out["base_branch"] = base["branch_id"]
     out["head_branch"] = branch_id
-    out["narration"] = ""
-    if with_narration:
-        out["narration"] = narration.safely(narrator.narrate_diff, narration.summarize_diff(d, projects.names(_project_of(branch_id))))
+    out["narration"] = plans.diff_narration(branch_id, base["branch_id"], d) if with_narration else ""
     return out
 
 
 @router.get("/branches/{branch_id}/merge-check")
-def merge_check(branch_id: str, into: str | None = None) -> dict:
+def merge_check(branch_id: str, into: str | None = None, solve: bool = False) -> dict:
     """May this branch merge? The gate's verdict (gate.merge_verdict) against `into` (default its
     parent): fresh or stale, the blockers, the warnings that need acknowledging, and what the
-    parent already carries. Read-only; it solves the parent's plan if it is not cached yet."""
+    parent already carries. A stale branch is judged without a solve; the parent's plan is computed only
+    while the engine is free (else 409 `not_solved` with `retry: true`); `?solve=1` waits for it."""
     with scenarios.cursor() as con:
         head, base = _pair(con, branch_id, into)
-    verdict, evidence = _gate(branch_id, base["branch_id"])
+    verdict, evidence = _gate(branch_id, base["branch_id"], blocking=solve)
     return {
         "branch_id": branch_id, "into": base["branch_id"], "branch_status": head["status"],
         "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"],
