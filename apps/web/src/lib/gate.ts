@@ -93,6 +93,18 @@ export function findingsByYear(fs: Finding[]): { year: number | null; rows: Find
   }));
 }
 
+/** Findings by criticality (breaches, then warnings, then notes), each split by plan year as `findingsByYear` does;
+ * a criticality with nothing in it is left out. */
+export function findingsBySeverity(fs: Finding[]): { severity: FindingSeverity; count: number; years: ReturnType<typeof findingsByYear> }[] {
+  return (Object.keys(SEVERITY) as FindingSeverity[])
+    .sort((a, b) => SEV_ORDER[a] - SEV_ORDER[b])
+    .map((severity) => {
+      const rows = fs.filter((f) => (f.severity in SEVERITY ? f.severity : "info") === severity);
+      return { severity, count: rows.length, years: findingsByYear(rows) };
+    })
+    .filter((g) => g.count > 0);
+}
+
 /** Where a finding points on the map: the element, the project, the region, or the region a bus sits in. */
 export function findingSel(f: Finding, model: Model | null, outages: Outage[]): Sel | null {
   const id = f.element_id;

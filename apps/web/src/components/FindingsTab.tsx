@@ -1,5 +1,5 @@
 // Findings: everything the branch's last run found, and what the agents found (with the evidence behind it),
-// grouped by plan year with the breaches first. A row jumps to the element, project or demand group
+// grouped by criticality (breaches, warnings, notes), each by plan year, every group collapsible. A row jumps to the element, project or demand group
 // on the map; the operator can acknowledge a finding so it leaves the open list.
 
 import { ArrowCounterClockwise, Check, Receipt, Warning } from "@phosphor-icons/react";
@@ -7,9 +7,9 @@ import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { ZOOM_ELEMENT, ZOOM_REGION, nameElements } from "../lib/derive";
-import { SEVERITY, findingSel, findingTitle, findingsByYear } from "../lib/gate";
+import { SEVERITY, findingSel, findingTitle, findingsBySeverity } from "../lib/gate";
 import { C } from "../theme";
-import type { Finding, FindingStatus } from "../types";
+import type { Finding, FindingSeverity, FindingStatus } from "../types";
 
 export type FindingsTabPlanner = PlannerSlice<
   "findings" | "model" | "outages" | "running",
@@ -28,7 +28,7 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
   const [filter, setFilter] = useState<FindingStatus>("open");
   const counts = derived.openFindings;
   const shown = s.findings.filter((f) => f.status === filter);
-  const groups = findingsByYear(shown);
+  const groups = findingsBySeverity(shown);
   const where = derived.onMain ? "main" : derived.branch?.name;
 
   const open = (f: Finding) => {
@@ -73,23 +73,50 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
           <span>{s.findings.length ? "Switch the filter to see the rest." : "Run the plan to fill the ledger."}</span>
         </div>
       )}
-      {groups.map((g) => (
-        <div key={g.year ?? "plan"} className="ygroup">
-          <span className="ygroup-head mono">{g.year ?? "Plan-wide"}</span>
-          {g.rows.map((f) => (
-            <FindingRow
-              key={f.finding_id}
-              f={f}
-              ix={derived.ix}
-              onOpen={() => open(f)}
-              onStatus={(st) => void actions.setFindingStatus(f.finding_id, st)}
-              onEvidence={f.evidence_kind === "tool_call" ? () => void actions.openEvidence(f.evidence_ref) : undefined}
-            />
-          ))}
-        </div>
-      ))}
+      {groups.map((g) => {
+        const sev = SEVERITY[g.severity];
+        return (
+          // keyed by the filter too, so each filter opens with its own defaults
+          <details key={`${filter}:${g.severity}`} className="fsev" open={g.severity !== "info"}>
+            <summary>
+              <span className="sev-dot" style={{ background: sev.c }} />
+              <b>{SEVERITY_TITLE[g.severity]}</b>
+              <span className="mono fcount">{g.count}</span>
+              <span className="mono fyears">{yearSpan(g.years.map((y) => y.year))}</span>
+            </summary>
+            {g.years.map((y) => (
+              <details key={y.year ?? "plan"} className="ygroup" open>
+                <summary className="ygroup-head mono">
+                  {y.year ?? "Plan-wide"} <span className="fcount">{y.rows.length}</span>
+                </summary>
+                {y.rows.map((f) => (
+                  <FindingRow
+                    key={f.finding_id}
+                    f={f}
+                    ix={derived.ix}
+                    onOpen={() => open(f)}
+                    onStatus={(st) => void actions.setFindingStatus(f.finding_id, st)}
+                    onEvidence={f.evidence_kind === "tool_call" ? () => void actions.openEvidence(f.evidence_ref) : undefined}
+                  />
+                ))}
+              </details>
+            ))}
+          </details>
+        );
+      })}
     </div>
   );
+}
+
+const SEVERITY_TITLE: Record<FindingSeverity, string> = { breach: "Breaches", warn: "Warnings", info: "Notes" };
+
+/** The years a criticality spans, for its header: "2026–2035", "2030", or "plan-wide". */
+function yearSpan(years: (number | null)[]): string {
+  const ys = years.filter((y): y is number => y != null);
+  if (!ys.length) return "plan-wide";
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  return lo === hi ? String(lo) : `${lo}–${hi}`;
 }
 
 function FindingRow({ f, ix, onOpen, onStatus, onEvidence }: { f: Finding; ix: FindingsTabPlanner["derived"]["ix"]; onOpen: () => void; onStatus: (st: FindingStatus) => void; onEvidence?: () => void }) {
