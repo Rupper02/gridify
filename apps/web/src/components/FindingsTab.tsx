@@ -76,8 +76,8 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
       {groups.map((g) => {
         const sev = SEVERITY[g.severity];
         return (
-          // keyed by the filter too, so each filter opens with its own defaults
-          <details key={`${filter}:${g.severity}`} className="fsev" open={g.severity !== "info"}>
+          // closed by default: the headings (counts, years) are the overview; keyed by the filter so a switch starts closed
+          <details key={`${filter}:${g.severity}`} className="fsev">
             <summary>
               <span className="sev-dot" style={{ background: sev.c }} />
               <b>{SEVERITY_TITLE[g.severity]}</b>
@@ -85,7 +85,7 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
               <span className="mono fyears">{yearSpan(g.years.map((y) => y.year))}</span>
             </summary>
             {g.years.map((y) => (
-              <details key={y.year ?? "plan"} className="ygroup" open>
+              <details key={y.year ?? "plan"} className="ygroup">
                 <summary className="ygroup-head mono">
                   {y.year ?? "Plan-wide"} <span className="fcount">{y.rows.length}</span>
                 </summary>
