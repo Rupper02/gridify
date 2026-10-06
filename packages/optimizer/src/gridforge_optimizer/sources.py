@@ -126,6 +126,17 @@ def _tagged(row, key: str) -> str | None:
     return desc.split(marker, 1)[1].split()[0].strip(" ;,") if marker in desc else None
 
 
+def _tagged_cost(net, table: str, i: int) -> bool:
+    """A merit-order cost our own CGMES export wrote into the element's description (`gridforge.cost=<cp1>,<cp2>`), put
+    back into `poly_cost` where the engine reads it; False when the description carries none."""
+    tag = _tagged(net[table].loc[i], "cost")
+    if tag is None:
+        return False
+    cp1, _, cp2 = tag.partition(",")
+    pp.create_poly_cost(net, int(i), table, cp1_eur_per_mw=float(cp1), cp2_eur_per_mw2=float(cp2 or 0.0))
+    return True
+
+
 def _tech_of(row) -> tuple[str, bool]:
     """(technology, known): from our own CGMES tag, else the type the file gives, else 'other'."""
     tagged = _tagged(row, "tech")
@@ -236,10 +247,12 @@ def _normalise_fleet(net, rec: _Records, gaps: _Gaps) -> None:
         label = _label(net.gen, i, "voltage-controlled generator")
         if _value(net.gen, i, "min_p_mw") is None:
             gaps.add("power stations without their minimum output (min_p_mw)", label)
-        if _cost(net, "gen", i) is None:
+        if _cost(net, "gen", i) is None and not _tagged_cost(net, "gen", i):
             gaps.add("power stations without a cost for the merit order (poly_cost)", label)
     if len(stations):
         for i in net.ext_grid.index:
+            if _cost(net, "ext_grid", i) is None:
+                _tagged_cost(net, "ext_grid", i)
             if _cost(net, "ext_grid", i) is None or _value(net.ext_grid, i, "max_p_mw") is None:
                 gaps.add("an external grid without the price and limit of its supply (poly_cost, max_p_mw), which the merit order "
                          "needs alongside the power stations", _label(net.ext_grid, i, "external grid"))

@@ -11,6 +11,7 @@ import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { Plan } from "../../lib/plan";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import type {
+  AgentRun,
   AgentsStatus,
   Assumption,
   Boundary,
@@ -99,8 +100,11 @@ export interface PlannerState {
   findings: Finding[]; // the active branch's findings ledger
   // the agents
   agents: AgentsStatus | null; // the project's agents: starting, idle, running or paused; polled
+  agentRuns: AgentRun[]; // the project's agent runs, newest first (read while the runs popover or the Review tab shows)
+  runsOpen: boolean; // the agents pill's popover
   threads: Thread[]; // the project's conversations (Ask the model, the health thread)
   thread: ThreadView | null; // the open conversation
+  healthChecks: string[]; // the steward's latest "next checks", once its brief has been read: the picker suggests them
   trace: TraceEvent[]; // the reply being streamed, as events
   reviews: Review[]; // the reviewer's comments on the active branch
   study: StepEvidence | null; // the evidence drawer: a recorded step and the study behind it
@@ -137,7 +141,7 @@ export const INITIAL: PlannerState = {
   outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", running: false, solving: false, refreshing: false, stage: "", fraction: 0,
   diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [],
-  agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
+  agents: null, agentRuns: [], runsOpen: false, threads: [], thread: null, healthChecks: [], trace: [], reviews: [], study: null,
   tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,

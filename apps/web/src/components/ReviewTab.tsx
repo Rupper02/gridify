@@ -7,9 +7,10 @@
 // offered a rebase first (RebaseCard). main has nothing to review.
 
 import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Sparkle, Trash, Warning, Wrench } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
+import { useNow } from "../hooks/useNow";
 import { type ModelIndex, lineName, nameElements, trafoName } from "../lib/derive";
 import { type GateState, type GateView, gateText, gateTitle } from "../lib/gate";
 import {
@@ -28,14 +29,15 @@ import {
 } from "../lib/diff";
 import { VERDICTS } from "../lib/maintenance";
 import type { Plan } from "../lib/plan";
+import { type ReviewerState, reviewerState, runElapsed } from "../lib/trace";
 import { C, ST, fmtMw, profileLabel, signed, tint } from "../theme";
-import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
+import type { AgentRun, AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
 import { RebaseCard } from "./RebaseCard";
-import { DiffTile } from "./ui";
+import { AgentText, DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "agents" | "branches" | "diff" | "diffError" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
-  "createBranch" | "discardBranch" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "refreshDiff" | "refreshMergeCheck" | "removeReinforcement" | "setYear",
+  "activeBranch" | "agentRuns" | "agents" | "branches" | "diff" | "diffError" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
+  "createBranch" | "discardBranch" | "loadAgentRuns" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "refreshDiff" | "refreshMergeCheck" | "removeReinforcement" | "setYear",
   "branch" | "gate" | "hue" | "ix" | "onMain" | "parent" | "reviewStale" | "yearDelta"
 >;
 
@@ -45,6 +47,10 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const { s, actions, derived } = planner;
   const { branch, hue, ix, gate, parent } = derived;
   const [confirm, setConfirm] = useState(false); // the warnings step before "Merge anyway"
+  // the reviewer's state comes from the runs list: read when the tab shows a branch (the status poll refreshes it while it does)
+  useEffect(() => {
+    if (!derived.onMain) void actions.loadAgentRuns();
+  }, [actions, derived.onMain, s.activeBranch]);
   if (derived.onMain)
     return (
       <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
@@ -127,7 +133,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         </div>
       )}
       <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} parent={parent} onRetry={() => branch && void actions.refreshMergeCheck(branch.branch_id)} />
-      <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} ix={ix} />
+      <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} runs={s.agentRuns} branchId={s.activeBranch} ix={ix} />
       {confirm && s.mergeCheck && (
         <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merge with these warnings?</span>
@@ -211,10 +217,20 @@ const REVIEW_TONE: Record<ReviewVerdict, { background: string; color: string }> 
   mergeable: { background: "rgba(94,230,168,0.16)", color: C.greenInk },
 };
 
+/** Where the reviewer stands on this branch, from its newest review run: reading the gate (live), failed, superseded, or not yet. */
+function reviewerLine(rs: ReviewerState, now: number, paused: boolean): string {
+  if (rs.kind === "running") return `The reviewer is reading the gate… (${runElapsed(rs.run, now) ?? "just started"})`;
+  if (rs.kind === "failed") return `The reviewer could not comment: ${rs.run.error || "its run failed"}`;
+  if (rs.kind === "superseded") return "The reviewer's comment was superseded by a newer run.";
+  return paused ? "The agents are paused; no review comes until they resume." : "Waiting for the reviewer: it comments a few seconds after every run.";
+}
+
 /** The reviewer agent's comment on the branch's current run, like a PR bot: the gate restated, prepared for engineer review. */
-function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boolean; agents: AgentsStatus | null; ix: ModelIndex | null }) {
+function Reviews({ reviews, stale, agents, runs, branchId, ix }: { reviews: Review[]; stale: boolean; agents: AgentsStatus | null; runs: AgentRun[]; branchId: string; ix: ModelIndex | null }) {
   const rv = reviews.find((r) => r.status === "prepared_for_review") ?? null;
   const starting = !agents || agents.status === "starting";
+  const rs = reviewerState(runs, branchId);
+  const now = useNow(rs.kind === "running");
   const restate = (b: Review["blockers"][number], cls: string, i: number) => (
     <GateRow key={`${cls}${i}`} cls={cls} title={gateTitle(b.kind)} text={nameElements(b.restated, ix)} />
   );
@@ -224,8 +240,8 @@ function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boo
       {starting ? (
         <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>The agents are starting with the API; the reviewer comments a few seconds after every run once they are up. The gate above decides either way.</span>
       ) : !rv ? (
-        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>
-          {agents.status === "paused" ? "The agents are paused; no review comes until they resume." : "Waiting for the reviewer: it comments a few seconds after every run."}
+        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }} data-live={rs.kind === "running" || undefined}>
+          {reviewerLine(rs, now, agents.status === "paused")}
         </span>
       ) : (
         <div className="review-card">
@@ -234,8 +250,10 @@ function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boo
             <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>Prepared for engineer review</span>
             <span className="chip" style={REVIEW_TONE[rv.verdict]}>{REVIEW_LABEL[rv.verdict]}</span>
           </div>
-          {stale && <div className="notice amber">Of an earlier run: the reviewer comments again once the current run has finished.</div>}
-          <span className="body">{nameElements(rv.body, ix)}</span>
+          {stale && <div className="notice amber">Of an earlier run: {rs.kind === "running" ? reviewerLine(rs, now, false) : "the reviewer comments again once the current run has finished."}</div>}
+          <div className="body md">
+            <AgentText text={rv.body} ix={ix} />
+          </div>
           {rv.blockers.map((b, i) => restate(b, "blocker", i))}
           {rv.warnings.map((w, i) => restate(w, "warning", i))}
           {rv.not_studied.length > 0 && <span className="mute" style={{ fontSize: 11, lineHeight: 1.4 }}>Not studied: {rv.not_studied.join("; ")}</span>}

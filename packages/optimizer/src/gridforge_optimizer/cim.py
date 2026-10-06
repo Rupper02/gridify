@@ -122,6 +122,24 @@ def _fmt(v) -> str:
     return str(v)
 
 
+def _value(table, i, col):
+    """A cell as a float, or None when the net leaves it out."""
+    v = table.at[i, col] if col in table.columns else None
+    return None if v is None or v != v else float(v)
+
+
+def _cost_tag(net, et: str, i: int) -> str:
+    """` gridforge.cost=<cp1>,<cp2>` from the net's `poly_cost` for one element, or nothing: CIM carries no merit-order
+    cost, so our own export writes it into the description and `sources._normalise_fleet` reads it back."""
+    pc = net.get("poly_cost")
+    if pc is None or not len(pc):
+        return ""
+    row = pc[(pc["et"] == et) & (pc["element"].astype(int) == int(i))]
+    if not len(row):
+        return ""
+    return f" gridforge.cost={float(row.iloc[0]['cp1_eur_per_mw']):g},{float(row.iloc[0]['cp2_eur_per_mw2']):g}"
+
+
 def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta = CgmesMeta()) -> dict[str, bytes]:
     """Serialise `net` (a pandapower network) to CGMES. `model` (the geolocated model, a `GridModel` or
     its dict) supplies the positions for the GL profile; without it GL has no points. `meta` names
@@ -320,6 +338,7 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
             uid = _id("genunit", key)
             imp = t.at[i, "import_mw"] if "import_mw" in t.columns else None
             tag = f"gridforge.tech={tech}" + (f" gridforge.import_mw={float(imp):g}" if imp == imp and imp is not None else "")  # what CIM has no field for
+            tag += _cost_tag(net, table, int(i))  # a power station's merit-order cost: no CIM field either
             e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
             eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
             eq.attr(e, "IdentifiedObject.description", tag)  # so our own export round-trips battery / hybrid and a charging capacity
@@ -365,8 +384,13 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
         e = eq.obj("ExternalNetworkInjection", xid, name=name)
         eq.ref(e, "Equipment.EquipmentContainer", vl_of_bus[b])
         eq.ref(e, "ConductingEquipment.BaseVoltage", base_voltage[round(float(net.bus.at[b, "vn_kv"]), 3)])
-        eq.attr(e, "ExternalNetworkInjection.maxP", 1e4)
-        eq.attr(e, "ExternalNetworkInjection.minP", -1e4)
+        tag = _cost_tag(net, "ext_grid", int(i)).strip()  # the price of its supply, when the file states one (the merit order needs it)
+        if tag:
+            eq.attr(e, "IdentifiedObject.description", tag)
+        max_p = _value(net.ext_grid, i, "max_p_mw")  # the limit of its supply, as stated; unbounded when the file says nothing
+        min_p = _value(net.ext_grid, i, "min_p_mw")
+        eq.attr(e, "ExternalNetworkInjection.maxP", max_p if max_p is not None else 1e4)
+        eq.attr(e, "ExternalNetworkInjection.minP", min_p if min_p is not None else -1e4)
         eq.attr(e, "ExternalNetworkInjection.maxQ", 1e4)
         eq.attr(e, "ExternalNetworkInjection.minQ", -1e4)
         term = terminal(xid, b, 1, f"extgrid{i}")

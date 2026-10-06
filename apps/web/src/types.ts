@@ -757,6 +757,9 @@ export interface MessageEvidence {
   branch_id: string | null;
   snapshot_id: string;
   engine: string;
+  /** The steward's health brief: what no study it ran covers, and what an engineer should look at next (short questions). */
+  not_studied?: string[];
+  next_checks?: string[];
 }
 export interface ThreadMessage {
   message_id: string;
@@ -804,6 +807,30 @@ export type TraceEvent =
   | { t: "cite"; stage: "CITE"; seq?: number }
   | { t: "final"; status: MessageStatus; text?: string; approvals?: string[]; flags?: string[]; seq?: number }
   | { t: "error"; message: string; seq?: number };
+/** One agent run (GET /projects/{pid}/agents/runs, newest first): who ran, on what, for how long and at what cost. */
+export type AgentRunKind = "steward" | "specialist" | "review" | "answer" | string;
+export type AgentRunStatus = "queued" | "running" | "done" | "failed" | "skipped" | "skipped_paused" | "cancelled" | string;
+export interface AgentRun {
+  run_id: string;
+  project_id: string;
+  kind: AgentRunKind;
+  agent: string;
+  workflow_id: string | null;
+  branch_id: string | null;
+  thread_id: string | null;
+  event_id: string | null;
+  parent_run_id: string | null;
+  status: AgentRunStatus;
+  started_at: string | null;
+  finished_at: string | null; // null while it runs
+  model: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_credits: number | null;
+  solves: number | null;
+  summary: string | null;
+  error: string | null;
+}
 /** A gate finding as the reviewer restates it: identified as the gate gave it, in the reviewer's words. */
 export interface ReviewRestated {
   kind: string;

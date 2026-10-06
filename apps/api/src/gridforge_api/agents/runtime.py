@@ -28,6 +28,7 @@ from .tools import AgentDeps, Harness, SolverGate
 
 
 # a DBOS workflow that ended -> the status its run gets when the workflow never recorded its own finish
+_LIVE = ("PENDING", "ENQUEUED", "DELAYED")  # what an executor of the same version would still pick up
 _ENDED = {
     "SUCCESS": ("done", "the workflow finished but did not record its result"),
     "ERROR": ("failed", "the workflow failed before it recorded its result"),
@@ -163,9 +164,11 @@ class AgentRuntime:
                 "running": running, "spend": state.as_dict(), "last_events": last, "models": AGENT_MODELS, "project_id": pid}
 
     def reconcile(self, project_id: str | None = None) -> int:
-        """Close the runs DBOS has already ended. A workflow cancelled at its timeout (or whose deadline passed
-        while the API was down, so recovery cancels it without running it) never reaches its own `_finish`,
-        and its run would count as running for ever. Returns how many runs it closed."""
+        """Close the runs DBOS has already ended, and the ones it never will: a workflow cancelled at its timeout (or
+        whose deadline passed while the API was down, so recovery cancels it without running it) never reaches its own
+        `_finish`; a workflow left pending under another application version (the API restarted on new code) is
+        recovered by no executor, so it is cancelled here and its run closed. Either would count as running for ever.
+        Returns how many runs it closed."""
         with self.harness.store.cursor() as con:
             open_ = runs.open_runs(con, project_id)
         ended = []
@@ -173,6 +176,9 @@ class AgentRuntime:
             st = DBOS.get_workflow_status(wid) if wid else None
             if st is not None and st.status in _ENDED:
                 ended.append((run_id, *_ENDED[st.status]))
+            elif st is not None and st.status in _LIVE and st.app_version and st.app_version != self.app_version:
+                DBOS.cancel_workflow(wid)
+                ended.append((run_id, "cancelled", f"interrupted by a restart on new code (version {st.app_version} -> {self.app_version}); not resumed"))
         if ended:
             with self.harness.store.cursor() as con:
                 for run_id, status, error in ended:

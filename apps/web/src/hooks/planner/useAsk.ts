@@ -7,15 +7,18 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { api, failureText } from "../../api";
-import { type ProposalEffect, proposalEffect } from "../../lib/ask";
+import { type ProposalEffect, latestNextChecks, proposalEffect } from "../../lib/ask";
 import { mainIdOf } from "../../lib/projects";
-import type { Approval } from "../../types";
-import type { Core } from "./core";
+import type { Approval, ThreadView } from "../../types";
+import type { Core, PlannerState } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
 
 const SETTLE_POLL_MS = 1000;
 const SETTLE_MAX_POLLS = 90;
+
+/** A thread as read: the health thread also hands the picker the steward's latest "next checks". */
+const threadRead = (t: ThreadView): Partial<PlannerState> => (t.kind === "health" ? { thread: t, healthChecks: latestNextChecks(t) } : { thread: t });
 
 export function useAsk(
   { patch, ref, toastMsg }: Core,
@@ -66,7 +69,7 @@ export function useAsk(
   const reload = useCallback(
     async (tid: string) => {
       const t = await api.getThread(ref.current.projectId, tid);
-      if (ref.current.thread?.thread_id === tid) patch({ thread: t });
+      if (ref.current.thread?.thread_id === tid) patch(threadRead(t));
       return t;
     },
     [patch, ref],
@@ -109,7 +112,7 @@ export function useAsk(
       stop.current?.();
       try {
         const t = await api.getThread(ref.current.projectId, tid);
-        patch((st) => ({ thread: t, trace: [], chat: { ...st.chat, open: true, input: "", busy: false }, tab: "ask", sideOpen: true }));
+        patch((st) => ({ ...threadRead(t), trace: [], chat: { ...st.chat, open: true, input: "", busy: false }, tab: "ask", sideOpen: true }));
         const live = t.messages.find((m) => m.role === "assistant" && (m.status === "queued" || m.status === "streaming"));
         if (live) follow(tid, live.message_id);
       } catch (e) {

@@ -60,8 +60,10 @@ def map_event(ev: AgentStreamEvent, deps: AgentDeps) -> dict | None:
 async def on_event(ctx: RunContext[AgentDeps], stream: AsyncIterable[AgentStreamEvent]) -> None:
     """The agents' event stream handler (runs inside a durable step): map and emit."""
     deps = ctx.deps
+    listened = deps.thread_id is not None  # only an answer has a reader (the SSE route); a sweep's tokens would be writes nobody reads
     async for ev in stream:
         out = map_event(ev, deps)
-        if out is not None:
-            out["seq"] = deps.next_seq()
-            await deps.emit_async(out)
+        if out is None or (out["t"] == "token" and not listened):
+            continue
+        out["seq"] = deps.next_seq()
+        await deps.emit_async(out)

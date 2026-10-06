@@ -114,6 +114,18 @@ def review_exists(con: Cursor, branch_id: str, run_key: str) -> bool:
     return bool(con.execute("SELECT 1 FROM reviews WHERE branch_id = ? AND run_key = ?", [branch_id, run_key]).fetchone())
 
 
+def review_for_run(con: Cursor, project_id: str, run_key: str, base_years_key: str) -> dict | None:
+    """The current review, on another branch of the project, of this same plan (`run_key`) judged against the same
+    parent plan (`base_years_key`, in the stored gate): the same physics pair, reviewed already."""
+    cur = con.execute(f"SELECT {', '.join(REVIEW_COLS)} FROM reviews WHERE project_id = ? AND run_key = ? AND status = 'prepared_for_review' "
+                      "ORDER BY created_at DESC", [project_id, run_key])
+    for r in cur.fetchall():
+        row = _row(REVIEW_COLS, r)
+        if (row.get("gate") or {}).get("base_years_key") == base_years_key:
+            return row
+    return None
+
+
 # --- approvals -----------------------------------------------------------------------------------------
 def add_approval(con: Cursor, *, project_id: str, thread_id: str, message_id: str, run_id: str, tool_call_id: str, tool: str, args: dict) -> dict:
     aid = "ap-" + uuid.uuid4().hex[:8]

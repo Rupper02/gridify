@@ -80,7 +80,9 @@ AGENT_MODELS = {
 }
 # per agent run: tool calls, solves and wall time before it is cut short
 NGED_MAIN_ID = "main"  # the built-in project's main (an import's is `<project id>-main`)
-AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600, "max_tokens": 400_000}
+AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600, "max_tokens": 400_000,
+                    "max_output_tokens": 8_000}  # per model response: a typed report or a markdown answer is well under it; a model that
+                                                 # loops (a specialist once streamed 17 000 tokens of "(.)") ends there, not at its context
 # max_tokens: the run's model requests and responses together (a healthy review or brief is 20-40k; a reviewer that
 # restated 750 gate rows over three attempts read 1.45M tokens for $4 and its review was thrown away)
 # an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer

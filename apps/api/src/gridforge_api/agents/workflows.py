@@ -21,11 +21,12 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from .. import repository
 from ..config import AGENT_RUN_BUDGET, log, now
 from . import events, runs, threads
+from .citations import normalize_citations, strip_citations
 from .evidence import check_numbers
 from .roster import SPECIALISTS
 from .schemas import HealthBrief, ReviewComment, SpecialistReport, StewardPlan
 from .streaming import stage_of
-from .tools import merge_summary
+from .tools import merge_summary, proposal_text
 
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
@@ -133,16 +134,21 @@ def steward_run(project_id: str, event: dict) -> dict:
         brief_deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
         res = rt.agents["steward_brief"].run_sync(brief_prompt, deps=brief_deps, usage_limits=_limits())
         brief: HealthBrief = res.output
-        text = f"{brief.headline}\n\n{brief.body}" + (f"\n\nNot studied: {'; '.join(brief.not_studied)}" if brief.not_studied else "") \
-            + (f"\n\nNext checks: {'; '.join(brief.next_checks)}" if brief.next_checks else "")
 
         def store():
+            # the brief cites its specialists' steps: every bracket becomes a chip the planner renders, or goes
+            cited = [s["step_id"] for s in rt.evidence.steps(run_id)] + [sid for r in reports for sid in (r.get("steps") or [])]
+            text = normalize_citations(f"{brief.headline}\n\n{brief.body}", cited)
+            # what was not studied and what to check next travel as data (the planner collapses one and offers the other
+            # as questions), never as a wall of prose at the end of the brief
+            gaps = list(brief.not_studied) + sorted({x for r in reports for x in (r.get("not_studied") or []) if x not in brief.not_studied})
             with rt.harness.store.cursor() as con:
                 health = next((t for t in threads.list_threads(con, project_id, kind="health")), None) or threads.create_thread(con, project_id, None, "Project health", kind="health")
-                threads.add_message(con, health["thread_id"], "assistant", text, run_id=run_id, evidence={"event": event.get("type"), "reports": reports})
+                threads.add_message(con, health["thread_id"], "assistant", text, run_id=run_id,
+                                    evidence={"event": event.get("type"), "reports": reports, "not_studied": gaps, "next_checks": list(brief.next_checks)})
             return True
         _step(store)
-        _finish(run_id, project_id, status="done", summary=brief.headline, usage=_sum_usage(_usage(triage), _usage(res)),
+        _finish(run_id, project_id, status="done", summary=strip_citations(brief.headline), usage=_sum_usage(_usage(triage), _usage(res)),
                 solves=deps.solves + brief_deps.solves)
         return {"run_id": run_id, "status": "done", "headline": brief.headline, "specialists": [r.get("kind") for r in reports]}
     except Exception as e:
@@ -164,11 +170,22 @@ def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) 
                   f"Your studies: {', '.join(rt.studies_for(kind))}. Keep the scope small enough for the run budget.")
         res = rt.agents[kind].run_sync(prompt, deps=deps, usage_limits=_limits())
         report: SpecialistReport = res.output
+        # what the report still lists is bound here; what the specialist filed as it went (`file_finding`) is already in the ledger
         fps = _step(lambda: rt.evidence.bind_findings(run_id, branch_id, report.findings, snapshot_id=rt.harness.warehouse.baseline_id(), at=now()))
-        _finish(run_id, project_id, status="done", summary=report.summary, usage=_usage(res), solves=deps.solves)
-        steps = _step(lambda: [s["step_id"] for s in rt.evidence.steps(run_id)])
-        return {"kind": kind, "run_id": run_id, "status": "done", "summary": report.summary, "n_findings": len(fps), "not_studied": report.not_studied,
-                "steps": steps}
+        fps = list(dict.fromkeys([*deps.context.get("filed", []), *fps]))
+        _finish(run_id, project_id, status="done", summary=strip_citations(report.summary), usage=_usage(res), solves=deps.solves)
+
+        def recorded():
+            """The run's steps, and what was not studied as the harness computes it: the model's few items plus the
+            studies in this specialist's remit it did not run (or that were refused)."""
+            steps = rt.evidence.steps(run_id)
+            ran = {s["tool"].removeprefix("study_") for s in steps
+                   if s["tool"].startswith("study_") and not (isinstance(s.get("result"), dict) and s["result"].get("refused"))}
+            not_run = [f"{k} was not run" for k in rt.studies_for(kind) if k not in ran]
+            return {"steps": [s["step_id"] for s in steps], "not_studied": list(report.not_studied) + not_run}
+        rec = _step(recorded)
+        return {"kind": kind, "run_id": run_id, "status": "done", "summary": report.summary, "n_findings": len(fps), "not_studied": rec["not_studied"],
+                "steps": rec["steps"]}
     except Exception as e:
         _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
         raise
@@ -202,13 +219,34 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
             return None
         with rt.harness.solver_gate.hold():
             verdict, evidence = rt.harness.plans.merge_check(branch_id, base["branch_id"])
-        return merge_summary(base["branch_id"], verdict, evidence)
-    mc = _step(gate)
-    if mc is None:
+        mc = merge_summary(base["branch_id"], verdict, evidence)
+        # the same plan (run key) judged against the same parent plan (base key) on another branch of the project has
+        # a current review already: its words hold here too, so it is copied, not bought again
+        prior = None
+        if mc.get("base_years_key"):
+            with rt.harness.store.cursor() as con:
+                prior = runs.review_for_run(con, project_id, run_key, mc["base_years_key"])
+        return {"mc": mc, "inherit": prior if prior and prior["branch_id"] != branch_id else None}
+    gated = _step(gate)
+    if gated is None:
         return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, superseded by a newer run, or a main (it merges nowhere)"}
+    mc, prior = gated["mc"], gated["inherit"]
     begun = _begin(run_id, project_id, kind="review", agent="reviewer", branch_id=branch_id)
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_paused"}
+    if prior is not None:
+        def copy():
+            if superseded():
+                return None
+            with rt.harness.store.cursor() as con:
+                return runs.insert_review(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, verdict=prior["verdict"],
+                                          verdict_json=mc, body=prior["body"] + f"\n\nThe same plan against the same parent was reviewed on branch "
+                                          f"{prior['branch_id']} (review {prior['review_id']}); this is that comment, inherited.",
+                                          blockers=prior.get("blockers") or [], warnings=prior.get("warnings") or [], not_studied=prior.get("not_studied") or [])
+        row = _step(copy)
+        _finish(run_id, project_id, status="done" if row else "skipped",
+                summary=f"inherited the review of the same plan from {prior['branch_id']}" if row else "superseded by a newer run before it was stored")
+        return {"run_id": run_id, "status": "done" if row else "skipped", "inherited_from": prior["review_id"]}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for("reviewer"))
         deps.context["merge_check"] = mc
@@ -220,15 +258,16 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
         def store():
             if superseded():  # a newer run finished while this review was written: it is not the current one
                 return None
+            body = normalize_citations(review.body, [s["step_id"] for s in rt.evidence.steps(run_id)])
             with rt.harness.store.cursor() as con:
                 return runs.insert_review(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, verdict=review.verdict_restated,
-                                          verdict_json=mc, body=review.body, blockers=[b.model_dump() for b in review.blockers],
+                                          verdict_json=mc, body=body, blockers=[b.model_dump() for b in review.blockers],
                                           warnings=[w.model_dump() for w in review.warnings], not_studied=review.not_studied)
         row = _step(store)
         if row is None:
             _finish(run_id, project_id, status="skipped", summary="superseded by a newer run before it was stored", usage=_usage(res), solves=deps.solves)
             return {"run_id": run_id, "status": "skipped", "reason": "superseded by a newer run"}
-        _finish(run_id, project_id, status="done", summary=review.body[:200], usage=_usage(res), solves=deps.solves)
+        _finish(run_id, project_id, status="done", summary=strip_citations(review.body)[:200], usage=_usage(res), solves=deps.solves)
         return {"run_id": run_id, "status": "done", "review_id": row["review_id"], "verdict": review.verdict_restated}
     except Exception as e:
         _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
@@ -294,23 +333,26 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
     names = rt.harness.projects.names(project_id)
     step_outputs = [name_payload(s["result"], names) for s in read if s.get("result") is not None]
     trace = [{"step_id": s["step_id"], "tool": s["tool"], "stage": stage_of(s["tool"]), "args": s["args"], "solves": s.get("solves", 0)} for s in own]
-    evidence = {"steps": [s["step_id"] for s in read], "branch_id": deps.branch_id, "snapshot_id": rt.harness.warehouse.baseline_id(), "engine": rt.evidence.engine}
+    cited = [s["step_id"] for s in read]
+    evidence = {"steps": cited, "branch_id": deps.branch_id, "snapshot_id": rt.harness.warehouse.baseline_id(), "engine": rt.evidence.engine}
     if isinstance(out, DeferredToolRequests):
         approvals = []
         with rt.harness.store.cursor() as con:
             for call in out.approvals:
                 approvals.append(runs.add_approval(con, project_id=project_id, thread_id=thread_id, message_id=message_id, run_id=run_id,
                                                    tool_call_id=call.tool_call_id, tool=call.tool_name, args=call.args_as_dict()))
-            # what the model said alongside its proposals (the figures it read, the option it favours), then the proposals themselves
+            # what the model said alongside its proposals (the figures it read, the option it favours), then the proposals
+            # themselves, in words (never a tool call as JSON: that is what the Approve card is for)
             last = res.all_messages()[-1]
             said = "\n".join(p.content.strip() for p in last.parts if isinstance(p, TextPart) and p.content.strip()) if isinstance(last, ModelResponse) else ""
-            proposed = "I propose: " + "; ".join(f"{a['tool']} {json.dumps(a['args'])}" for a in approvals) + ". Waiting for your approval."
+            said = normalize_citations(said, cited)
+            proposed = "I propose to " + "; ".join(proposal_text(a["tool"], a["args"], names) for a in approvals) + ". Waiting for your approval."
             text = f"{said}\n\n{proposed}" if said else proposed
             flags = _figure_flags(said, step_outputs)  # the model's own words, not the proposals' arguments
             threads.set_message(con, message_id, status="awaiting_approval", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),
                                 usage=_usage(res), cost_credits=_usage(res)["cost_credits"], flags=flags, evidence=evidence)
         return {"status": "awaiting_approval", "approvals": [a["approval_id"] for a in approvals], "text": text, "flags": flags}
-    text = str(out)
+    text = normalize_citations(str(out), cited)
     flags = _figure_flags(text, step_outputs)
     with rt.harness.store.cursor() as con:
         threads.set_message(con, message_id, status="done", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),

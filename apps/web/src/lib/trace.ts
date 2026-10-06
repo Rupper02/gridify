@@ -1,8 +1,9 @@
 // The agents as the planner shows them. Pure: the API runs the agents and records every step; this
 // folds a reply's event stream into text and stage chips, names tools and stages, reads a message's
-// evidence line, tells a superseded review, and words the header pill.
+// evidence line, tells a superseded review, words the header pill, and reads the runs list (elapsed,
+// cost, the reviewer's state on a branch).
 
-import type { AgentsStatus, Review, ThreadMessage, TraceEvent, TraceStage } from "../types";
+import type { AgentRun, AgentsStatus, Review, ThreadMessage, TraceEvent, TraceStage } from "../types";
 
 export const STAGE_LABEL: Record<TraceStage, string> = { PLAN: "Plan", ASSEMBLE: "Assemble", RUN: "Run", CHECK: "Check", PROPOSE: "Propose", CITE: "Cite" };
 
@@ -87,6 +88,55 @@ export const flagLines = (flags: string[] | null | undefined): string[] => (flag
 
 /** A review is of an earlier run when the shown result's key differs from the one it was written for. */
 export const isSuperseded = (review: Pick<Review, "run_key">, runKey: string | null | undefined): boolean => !!runKey && review.run_key !== runKey;
+
+// ---- the runs list ------------------------------------------------------------------------------
+
+/** A run still going: queued for the runtime, or running. */
+export const isLiveRun = (r: Pick<AgentRun, "status">): boolean => r.status === "queued" || r.status === "running";
+
+const RUN_STATUS: Record<string, string> = { queued: "queued", running: "running", done: "done", failed: "failed", skipped: "skipped", skipped_paused: "skipped · paused", cancelled: "cancelled" };
+export const runStatusLabel = (status: string): string => RUN_STATUS[status] ?? status.replace(/_/g, " ");
+
+/** An API timestamp as epoch ms (a naive one is read as UTC, which is what the API writes); NaN when unreadable. */
+const epoch = (iso: string): number => Date.parse(/(Z|[+-]\d\d:?\d\d)$/i.test(iso) ? iso : `${iso}Z`);
+
+/** "48s", "1m 20s", "1h 05m". */
+export function fmtElapsed(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/** How long a run took, or has been going (to `now`); null before it started. */
+export function runElapsed(r: Pick<AgentRun, "started_at" | "finished_at">, now: number): string | null {
+  if (!r.started_at) return null;
+  const a = epoch(r.started_at);
+  const b = r.finished_at ? epoch(r.finished_at) : now;
+  return Number.isFinite(a) && Number.isFinite(b) ? fmtElapsed(b - a) : null;
+}
+
+/** OpenRouter's billed cost in dollars, two decimals; "–" when the run has none recorded. */
+export const fmtCost = (credits: number | null | undefined): string => (credits == null ? "–" : `$${credits.toFixed(2)}`);
+
+/** The first sentence of a summary (up to the first full stop that ends a clause), trimmed. */
+export function firstSentence(text: string | null | undefined): string {
+  const t = (text ?? "").trim();
+  const m = /^(.+?[.!?])(?:\s|$)/.exec(t);
+  return m ? m[1] : t;
+}
+
+/** What the Review tab says about the reviewer, from the newest review run on the branch. */
+export type ReviewerState = { kind: "running"; run: AgentRun } | { kind: "failed"; run: AgentRun } | { kind: "superseded"; run: AgentRun } | { kind: "none" };
+export function reviewerState(runs: AgentRun[], branchId: string): ReviewerState {
+  const run = runs.find((r) => r.kind === "review" && r.branch_id === branchId);
+  if (!run) return { kind: "none" };
+  if (isLiveRun(run)) return { kind: "running", run };
+  if (run.status === "failed") return { kind: "failed", run };
+  if (run.status === "skipped" && /supersed/i.test(run.summary ?? "")) return { kind: "superseded", run };
+  return { kind: "none" };
+}
 
 /** The header pill: starting (the API's runtime is not up yet), idle, running or paused. */
 export function agentsPill(st: AgentsStatus | null): { label: string; tone: "neutral" | "good" | "warn" | "bad"; title: string } {

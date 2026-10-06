@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from .config import (
+    FORECASTS,
     GATE_GSP_WORSEN_MW,
     GATE_NOISE,
     GATE_VM_WORSEN_PU,
@@ -438,8 +439,9 @@ def _profile(ctx: GateContext) -> list[GateFinding]:
     base_profile = ctx.base_profile or ctx.base.params.scenario
     if ctx.head.params.scenario == base_profile:
         return []
+    label = lambda p: FORECASTS.get(p, {}).get("short", p)  # noqa: E731  # the profile by its name (Standard, High), never its id
     return [_finding("profile_differs", f"Merging changes {ctx.base_label}'s demand profile from "
-                                        f"{base_profile} to {ctx.head.params.scenario}.")]
+                                        f"{label(base_profile)} to {label(ctx.head.params.scenario)}.")]
 
 
 def _proposals(ctx: GateContext) -> list[GateFinding]:

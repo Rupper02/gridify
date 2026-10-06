@@ -2,6 +2,7 @@
 // are normalised into the single shape the UI renders everywhere (see normReason).
 
 import type {
+  AgentRun,
   AgentsStatus,
   Approval,
   Assumption,
@@ -258,6 +259,8 @@ export const api = {
   agentsStatus: (pid: string) => getJson<AgentsStatus>(`/projects/${pid}/agents`),
   pauseAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/pause`, { reason: "operator" }),
   resumeAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/resume`),
+  /** The project's agent runs, newest first (the API caps them at 50). */
+  listAgentRuns: async (pid: string) => (await getJson<{ runs?: AgentRun[] }>(`/projects/${pid}/agents/runs`)).runs ?? [],
   listThreads: async (pid: string) => (await getJson<{ threads: Thread[] }>(`/projects/${pid}/threads`)).threads ?? [],
   createThread: (pid: string, branchId: string | null, title: string) => postJson<Thread>(`/projects/${pid}/threads`, { branch_id: branchId, title }),
   getThread: (pid: string, tid: string) => getJson<ThreadView>(`/projects/${pid}/threads/${tid}`),

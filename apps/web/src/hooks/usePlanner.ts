@@ -44,7 +44,7 @@ export function usePlanner() {
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const findings = useFindings(core);
-  const agents = useAgents(core, s.projectId);
+  const agents = useAgents(core, s.projectId, findings.loadFindings);
   const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited, flows.afterRebase);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();

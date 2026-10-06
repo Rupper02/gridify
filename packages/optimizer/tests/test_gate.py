@@ -199,7 +199,7 @@ def test_schedule_profile_and_removed_proposals_warn():
     kinds = sorted(_kinds(v.warnings))
     assert kinds == ["against_recommendation", "against_recommendation", "profile_differs", "proposals_removed", "proposals_removed"]
     texts = " ".join(w.message for w in v.warnings)
-    assert "earlier than the 2030" in texts and "no year it can host it" in texts and "ht to ee" in texts and "r-1, r-2" in texts
+    assert "earlier than the 2030" in texts and "no year it can host it" in texts and "Standard to High" in texts and "r-1, r-2" in texts  # profiles by name, never id
     assert v.summary.startswith("Ready to merge with 5 warnings")
 
 

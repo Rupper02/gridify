@@ -35,7 +35,7 @@ from .. import ledger, repository
 from . import events
 from ..config import AGENT_RUN_BUDGET, now
 from ..schemas import NewCandidate, OutageCreate, ReinforcementCreate
-from .evidence import EvidenceLedger
+from .evidence import AgentFinding, EvidenceLedger
 
 TOP_ITEMS = 25  # how many study items a tool returns to the model (the full study stays in the cache)
 
@@ -82,7 +82,8 @@ def merge_summary(into: str, verdict, evidence: dict) -> dict:
     return {"into": into, "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"], "ok": verdict.ok,
             "n_blockers": len(verdict.blockers), "n_warnings": len(verdict.warnings),
             "blockers": _grouped(verdict.blockers), "warnings": _grouped(verdict.warnings),
-            "n_context": len(verdict.context), "summary": verdict.summary}
+            "n_context": len(verdict.context), "summary": verdict.summary,
+            "base_years_key": evidence.get("base_years_key")}  # with the run key, the identity of the pair a review judged
 
 
 class SolverGate:
@@ -335,20 +336,21 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
         return _recorded(ctx, "diff", {"branch_id": bid}, work)
 
     @ts.tool
-    def findings(ctx: RunContext[AgentDeps], branch_id: str | None = None, status: str = "open", kind: str | None = None, limit: int = 40) -> dict:
-        """The findings ledger of a branch: what its last run (and earlier agents) found, breaches first. Filter by status (open | acknowledged | resolved) and kind."""
+    def findings(ctx: RunContext[AgentDeps], branch_id: str | None = None, status: str = "open", kind: str | None = None,
+                 severity: str | None = None, source: str | None = None, limit: int = 40) -> dict:
+        """The findings ledger of a branch: what its last run (and earlier agents) found, breaches first. Narrow it by status (open | acknowledged | resolved), kind (overload | voltage | n1 | alert | work | deferred | gsp_near_limit | …), severity (breach | warn | info) and source (engine | agent | operator); a ledger has hundreds of warnings, so read the breaches first."""
         bid = _branch(ctx, branch_id)
 
         def work():
             with ctx.deps.h.store.cursor() as con:
                 rows = ledger.list_findings(con, bid, status=status if status in ledger.STATUSES else None)
                 counts = ledger.counts(con, bid)
-            if kind:
-                rows = [r for r in rows if r["kind"] == kind]
+            rows = [r for r in rows if (not kind or r["kind"] == kind) and (not severity or r["severity"] == severity) and (not source or r["source"] == source)]
             out = [{k: r[k] for k in ("finding_id", "fingerprint", "kind", "severity", "year", "element_kind", "element_id", "value", "limit", "message", "source")}
                    for r in rows[:int(limit)]]
-            return ({"branch_id": bid, "counts": counts, "findings": out, "summary": f"{counts['open']} open ({counts['breach_open']} breaches, {counts['warn_open']} warnings); {len(out)} returned"}, None, 0)
-        return _recorded(ctx, "findings", {"branch_id": bid, "status": status, "kind": kind, "limit": limit}, work)
+            return ({"branch_id": bid, "counts": counts, "findings": out, "shown": f"{len(out)} of {len(rows)} matching, breaches first",
+                     "summary": f"{counts['open']} open ({counts['breach_open']} breaches, {counts['warn_open']} warnings); {len(out)} of {len(rows)} returned"}, None, 0)
+        return _recorded(ctx, "findings", {"branch_id": bid, "status": status, "kind": kind, "severity": severity, "source": source, "limit": limit}, work)
 
     @ts.tool
     def suggestions(ctx: RunContext[AgentDeps], branch_id: str | None = None, request_id: str | None = None) -> dict:
@@ -374,7 +376,10 @@ def _compact(result) -> dict:
               "year": it.year, "value": it.value, "limit": it.limit, "unit": it.unit, "severity": it.severity, "message": it.message}
              for it in result.items]
     worst_first = sorted(items, key=lambda x: ({"breach": 0, "warn": 1, "info": 2}.get(x["severity"], 3), x["index"]))
-    return {"kind": result.kind, "summary": result.summary, "not_studied": result.not_studied, "n_items": len(items), "items": worst_first[:TOP_ITEMS]}
+    shown = min(len(items), TOP_ITEMS)
+    return {"kind": result.kind, "summary": result.summary, "not_studied": result.not_studied, "n_items": len(items),
+            "shown": f"{shown} of {len(items)}, worst first; the full study is cached under this step (a display cap, not a gap)",
+            "items": worst_first[:TOP_ITEMS]}
 
 
 def _study_tool(kind: str):
@@ -423,6 +428,39 @@ def build_study_tools() -> FunctionToolset[AgentDeps]:
     ts: FunctionToolset[AgentDeps] = FunctionToolset(id="studies")
     for kind in STUDIES:
         ts.add_function(_study_tool(kind), takes_ctx=True, name=f"study_{kind}")
+    return ts
+
+
+# --- filing: a specialist's findings, bound to a study item as they are found -------------------------------------------
+def build_filing_tools() -> FunctionToolset[AgentDeps]:
+    """`file_finding`: a specialist files a finding the moment a study returns the item, as a tool call (what a model does
+    reliably mid-run) rather than as a list in its final typed answer (where the specialists kept writing prose that
+    claimed to have filed). The server binds the figures from the recorded step; the model adds the words."""
+    ts: FunctionToolset[AgentDeps] = FunctionToolset(id="filing")
+
+    @ts.tool
+    def file_finding(ctx: RunContext[AgentDeps], step_id: str, item_index: int, message: str, action: str) -> dict:
+        """File one finding in the branch's ledger from an item a study of this run returned: step_id as the study returned it (or just its tool-call id, the part after the last colon), item_index the item's index, message what it means for the engineer, action what to do (one of the engine's levers, in words). The figures are copied from the study; file every warn or breach item worth attention, and what your job says to file even when it is info."""
+        deps = ctx.deps
+        bid = deps.branch_id or deps.main_id
+
+        def work():
+            h = deps.h
+            steps = h.evidence.study_steps(deps.run_id)
+            full = h.evidence.resolve_step(step_id, steps)
+            if full is None:
+                return ({"refused": f"{step_id} is not a study step of this run; your study steps: "
+                                    + "; ".join(f"{s['step_id']} (items 0..{len(s['result'].get('items') or []) - 1})" for s in steps)}, None, 0)
+            n = len(next(s for s in steps if s["step_id"] == full)["result"].get("items") or [])
+            if not (0 <= int(item_index) < n):
+                return ({"refused": f"{full} has no item {item_index} (it has {n})"}, None, 0)
+            fps = h.evidence.bind_findings(deps.run_id, bid, [AgentFinding(step_id=full, item_index=int(item_index), message=message, action=action)],
+                                           snapshot_id=h.warehouse.baseline_id(), at=now())
+            deps.context.setdefault("filed", []).extend(fps)
+            return ({"filed": fps[0], "step_id": full, "item_index": int(item_index), "branch_id": bid,
+                     "summary": f"filed finding {fps[0]} on {bid} from item {item_index} of {full.rsplit(':', 1)[-1]}"}, None, 0)
+        return _recorded(ctx, "file_finding", {"branch_id": bid, "step_id": step_id, "item_index": item_index, "message": message, "action": action}, work)
+
     return ts
 
 
@@ -564,5 +602,62 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
 TOOL_GROUPS: dict[str, Callable[[], FunctionToolset[AgentDeps]]] = {
     "read": build_read_tools,
     "studies": build_study_tools,
+    "filing": build_filing_tools,
     "proposals": build_proposal_tools,
 }
+
+
+# --- proposals in words: what the operator reads next to the Approve button --------------------------------------------
+def _element(names, kind: str, eid) -> str:
+    """An element as the operator knows it, the id in brackets ("Sleaford 132 kV, circuit 1 (line 16)")."""
+    k = "transformer" if kind == "trafo" else kind
+    try:
+        i = int(eid)
+    except (TypeError, ValueError):
+        return f"{k} {eid}"
+    name = names.of(k, i) if names is not None else ""
+    return f"{name} ({k} {i})" if name else f"{k} {i}"
+
+
+def _mw(x) -> str:
+    return f"{float(x):g} MW"
+
+
+def _change_text(a: dict, names) -> str:
+    rid = a.get("request_id", "the project")
+    parts = []
+    if a.get("rating_mw") is not None:
+        parts.append(f"resize {rid} to {_mw(a['rating_mw'])}" + ("" if a.get("import_mw") is not None else " (its import follows)"))
+    if a.get("import_mw") is not None:
+        parts.append(f"set {rid}'s import to {_mw(a['import_mw'])}")
+    if a.get("bus_id") is not None:
+        parts.append(f"move {rid} to {_element(names, 'bus', a['bus_id'])}")
+    if a.get("commissioning_year") is not None:
+        parts.append(f"ask {a['commissioning_year']} for {rid}")
+    if a.get("control") is not None:
+        parts.append(f"set {rid}'s control mode as stated")
+    return ", ".join(parts) or f"change {rid}"
+
+
+PROPOSAL_TEXT: dict[str, Callable[[dict, Any], str]] = {
+    "propose_candidate_change": _change_text,
+    "propose_candidate": lambda a, n: f"add {a.get('applicant') or 'a project'} ({a.get('technology')}, {_mw(a.get('rating_mw') or 0)}) at "
+                                      f"{_element(n, 'bus', a.get('bus_id'))}" + (f", asking for {a['commissioning_year']}" if a.get("commissioning_year") else ""),
+    "propose_run": lambda a, n: "run the branch now",
+    "propose_branch": lambda a, n: f"open a branch '{a.get('name')}' off main" + (f": {a['note']}" if a.get("note") else ""),
+    "propose_reinforcement": lambda a, n: (f"add a parallel circuit on {_element(n, a.get('kind', 'line'), a.get('element_id'))}" if a.get("action") == "add_parallel"
+                                           else f"uprate {_element(n, a.get('kind', 'line'), a.get('element_id'))} ×{float(a.get('factor') or 2):g}"),
+    "propose_works_window": lambda a, n: f"schedule {a.get('weeks', 4)} weeks of {a.get('work', 'maintenance')} on "
+                                         f"{_element(n, a.get('element_kind', 'line'), a.get('element_id'))} in {str(a.get('season', '')).lower()} {a.get('year')}",
+    "propose_rebase": lambda a, n: "rebase the branch onto its parent as it is now",
+}
+
+
+def proposal_text(tool: str, args: dict, names) -> str:
+    """A proposal in words ("resize ECR-83EF2 to 55 MW (its import follows)"), never its tool call as JSON; an unknown
+    tool falls back to its name and arguments."""
+    fn = PROPOSAL_TEXT.get(tool)
+    try:
+        return fn(args or {}, names) if fn else f"{tool} {args}"
+    except Exception:  # a phrasing must never fail a reply
+        return f"{tool} {args}"

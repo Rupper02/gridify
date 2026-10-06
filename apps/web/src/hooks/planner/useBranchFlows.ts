@@ -13,6 +13,11 @@ import type { Core, PlannerState } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
 
+/** A read the API refused because the engine was busy (409 `{code: "not_solved"}`): worth asking again in a moment. */
+const notSolved = (e: unknown): boolean => e instanceof ApiError && e.status === 409 && (e.detail as { code?: unknown } | null)?.code === "not_solved";
+const NOT_SOLVED_RETRY_MS = 4000;
+const NOT_SOLVED_RETRIES = 8; // about half a minute: an agent's works study or the run's own closing steps
+
 export function useBranchFlows(
   { patch, ref, toastMsg }: Core,
   run: RunFn,
@@ -94,10 +99,11 @@ export function useBranchFlows(
   );
 
   /** The consequence diff of the active branch vs its parent (with the optional narration). Only the latest load
-   * applies: a diff asked while a run was still solving must not land on top of the one for its result. A failure
-   * is shown in Review with a Retry. */
+   * applies: a diff asked while a run was still solving must not land on top of the one for its result. A read the
+   * API refused because the engine was busy (`not_solved`: an agent's study or a job holding the solver as the run
+   * ended) is asked again a few times before it is shown in Review with a Retry; any other failure shows at once. */
   const refreshDiff = useCallback(
-    async (bid: string) => {
+    async (bid: string, attempt = 0) => {
       if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
       const isLatest = begin("diff");
       patch({ diffError: null });
@@ -105,16 +111,18 @@ export function useBranchFlows(
         const diff = await api.diffBranch(bid, { with_narration: true });
         if (isLatest() && ref.current.activeBranch === bid) patch({ diff });
       } catch (e) {
-        if (isLatest() && ref.current.activeBranch === bid) patch({ diffError: failureText(e) });
+        if (!isLatest() || ref.current.activeBranch !== bid) return;
+        if (notSolved(e) && attempt < NOT_SOLVED_RETRIES) setTimeout(() => void refreshDiff(bid, attempt + 1), NOT_SOLVED_RETRY_MS);
+        else patch({ diffError: failureText(e) });
       }
     },
     [begin, patch, ref],
   );
 
   /** The merge gate's verdict for a branch (after its diff, so the parent's years are already cached). A failure is
-   * shown in Review with a Retry, never as a "checking" that never ends. */
+   * shown in Review with a Retry, never as a "checking" that never ends; a `not_solved` refusal is retried as the diff's. */
   const refreshMergeCheck = useCallback(
-    async (bid: string) => {
+    async (bid: string, attempt = 0) => {
       if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
       const isLatest = begin("mergeCheck");
       patch({ gateError: null });
@@ -122,7 +130,9 @@ export function useBranchFlows(
         const mergeCheck = await api.mergeCheck(bid);
         if (isLatest() && ref.current.activeBranch === bid) patch({ mergeCheck });
       } catch (e) {
-        if (isLatest() && ref.current.activeBranch === bid) patch({ gateError: failureText(e) });
+        if (!isLatest() || ref.current.activeBranch !== bid) return;
+        if (notSolved(e) && attempt < NOT_SOLVED_RETRIES) setTimeout(() => void refreshMergeCheck(bid, attempt + 1), NOT_SOLVED_RETRY_MS);
+        else patch({ gateError: failureText(e) });
       }
     },
     [begin, patch, ref],

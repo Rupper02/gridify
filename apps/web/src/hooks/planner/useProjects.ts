@@ -22,7 +22,7 @@ import type { RunFn } from "./useRun";
 /** What a project switch resets: everything that belonged to the previous project's grid, branches and result. */
 const FRESH: Partial<PlannerState> = {
   ...BRANCH_FRESH, model: null, boundary: null, modelLoading: true, modelError: null, branches: [], activeBranch: "",
-  result: null, resultAt: "", added: {}, agents: null, registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
+  result: null, resultAt: "", added: {}, agents: null, agentRuns: [], runsOpen: false, healthChecks: [], registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
 };
 
 export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) {

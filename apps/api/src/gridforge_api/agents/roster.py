@@ -44,7 +44,7 @@ AGENTS: dict[str, AgentSpec] = {
     # the brief restates the specialists' reports it is handed: with read tools it re-ran the merge check (solving the
     # parent's years for minutes under the gate) to say nothing more
     "steward_brief": AgentSpec("steward", prompts.STEWARD_BRIEF, (), HealthBrief),
-    **{kind: AgentSpec("specialist", prompts.specialist_prompt(kind), ("read", "studies"), SpecialistReport, SPECIALIST_STUDIES[kind])
+    **{kind: AgentSpec("specialist", prompts.specialist_prompt(kind), ("read", "studies", "filing"), SpecialistReport, SPECIALIST_STUDIES[kind])
        for kind in SPECIALIST_STUDIES},
     "reviewer": AgentSpec("reviewer", prompts.REVIEWER, ("read", "studies"), ReviewComment, ("contingency_ranking",)),
     "answerer": AgentSpec("answerer", prompts.ANSWERER, ("read", "studies", "proposals"), [str, DeferredToolRequests],
@@ -55,17 +55,44 @@ SPECIALISTS: tuple[str, ...] = tuple(SPECIALIST_STUDIES)
 
 
 # --- the validators that keep figures honest ---------------------------------------------------------------
+def _steps_text(steps: list[dict]) -> str:
+    return "\n".join(f"- {s['step_id']} ({s['tool']}): items 0..{len(s['result'].get('items') or []) - 1}" for s in steps) or "- none"
+
+
 def _validate_report(ctx: RunContext[AgentDeps], report: SpecialistReport) -> SpecialistReport:
-    """Every finding must name a study step of THIS run and an item it has (the server copies the figures)."""
+    """Every finding in the report must name a study step of THIS run and an item it has (the server copies the
+    figures); a step named by its tool-call id alone is completed to the full id, anything else is sent back with the
+    run's steps listed. A specialist that filed nothing (neither through `file_finding` nor here) while its studies
+    returned items is sent back once with them."""
+    ev = ctx.deps.h.evidence
+    steps = ev.study_steps(ctx.deps.run_id)
     bad = []
     for f in report.findings:
-        step = ctx.deps.h.evidence.load_step(f.step_id)
-        if step is None or step.run_id != ctx.deps.run_id or step.study is None:
+        full = ev.resolve_step(f.step_id, steps)
+        if full is None:
             bad.append(f"{f.step_id} is not a study step of this run")
-        elif not (0 <= f.item_index < len(step.study.items)):
-            bad.append(f"{f.step_id} has no item {f.item_index} (it has {len(step.study.items)})")
+            continue
+        f.step_id = full
+        n = len(next(s for s in steps if s["step_id"] == full)["result"].get("items") or [])
+        if not (0 <= f.item_index < n):
+            bad.append(f"{full} has no item {f.item_index} (it has {n})")
     if bad:
-        raise ModelRetry("Some findings do not point at a recorded study item: " + "; ".join(bad) + ". Use the step_id and item index a study tool returned in this run.")
+        raise ModelRetry("Some findings do not point at a recorded study item: " + "; ".join(bad)
+                         + ". Answer with the SpecialistReport tool again; a finding's step_id is one of this run's study steps "
+                         "(the full id, or just its tool-call id after the last colon) and item_index one of its items:\n" + _steps_text(steps))
+    if not report.findings and not ctx.deps.context.get("filed") and not ctx.deps.context.get("asked_to_file"):
+        # the studies measured things and the model filed nothing: once, send it back with the items (a filed finding is
+        # bound to its step and shows in the ledger with an evidence link; prose is not)
+        rank = {"breach": 0, "warn": 1, "info": 2}
+        items = sorted(((rank.get(it.get("severity"), 3), s["step_id"], it) for s in steps for it in (s["result"].get("items") or [])),
+                       key=lambda x: (x[0], x[1]))
+        if items:
+            ctx.deps.context["asked_to_file"] = True
+            listed = "\n".join(f"- step {sid} item {it.get('index')} [{it.get('severity')}]: {str(it.get('message'))[:160]}" for _, sid, it in items[:8])
+            raise ModelRetry("Your studies returned items and you filed no finding. Call file_finding for the ones worth an engineer's "
+                             "attention (every warn or breach item; what your job says to file even when it is info), each with its step_id, "
+                             "item_index, your message and action, then answer with the SpecialistReport tool again, or say in `summary` why "
+                             "none is worth filing:\n" + listed)
     return report
 
 
@@ -112,7 +139,7 @@ def build(model_factory: Callable[[str], Model]) -> dict[str, Agent]:
             deps_type=AgentDeps,
             output_type=spec.output_type,
             toolsets=[toolsets[g] for g in spec.tools],
-            retries=2,
+            retries=3,  # a typed output takes a model two tries at times (an id to copy, a text reply instead of the tool call)
             capabilities=[DBOSDurability(event_stream_handler=on_event, parallel_execution_mode="sequential")],
         )
         agent.instructions(scope_instructions)  # every run is told which branch it works on

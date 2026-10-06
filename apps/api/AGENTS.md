@@ -97,11 +97,38 @@ change them by proposal, not by working around them.
   closes the runs DBOS has already ended.
 - No daily cap: whoever runs GridForge pays with their own OpenRouter key, so spend is recorded and shown ("spent $X today
   · $Y in all"), never a stop. Only the operator's Pause stops the agents; check the agents pill before reading a missing
-  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, tokens, wall time).
+  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, tokens, wall time), and each model response is
+  capped at `max_output_tokens`. Token events are streamed only for a run someone reads (an answer, through the SSE route):
+  a sweep's tokens were one DBOS stream row each, nobody's to read (`streaming.on_event`).
 - The reviewer reads the gate grouped (`tools.merge_summary`: one item per kind and element across the plan years it
   applies to, the worst member's fingerprint, the count and the worst messages) and restates those items; it never
   calls `merge_check` itself. A review of a run the branch has moved past is cancelled by the next review's gate step
-  (`runs.open_runs_of`), not finished for nothing.
+  (`runs.open_runs_of`), not finished for nothing. The same plan judged against the same parent plan on another branch
+  of the project (`run_key` and the gate's `base_years_key`, `runs.review_for_run`) is reviewed once: the later branch
+  inherits the comment, marked as inherited, and no model is paid again for the same physics pair.
+- Citations are one shape: `[step <full step_id>]` inline after the figure, or `[same step]`. Every stored text (a
+  brief, a review body, an answer, what the model said alongside its proposals) goes through
+  `citations.normalize_citations` with the run's step ids: an abbreviated id (models shorten to the `toolu_` suffix) is
+  completed, a bracket that cites nothing recorded is dropped. The planner renders the chips (`lib/markdown.ts`), so
+  never store a raw bracket of another shape.
+- A specialist files what it measured, as it goes: `file_finding` (the `filing` tool group, specialists only) binds one
+  study item to the ledger the moment the model calls it (`EvidenceLedger.bind_findings`; the step may be named by its
+  tool-call id alone, `EvidenceLedger.resolve_step` completes it), and `deps.context["filed"]` counts them. The report's
+  own `findings` list still works, but the specialists (Haiku) kept writing prose that *claimed* to have filed while the
+  list stayed empty, and a tool call mid-run is what a model does reliably. When nothing was filed either way and the
+  studies returned items, `roster._validate_report` sends the report back once with the items listed; a report that
+  names a step or item wrongly is sent back with the run's study steps listed. A filed finding lands in the ledger with
+  an evidence link; prose does not.
+- What was not studied is data, capped and computed: a typed output's `not_studied` keeps at most three items
+  (`schemas.MAX_NOT_STUDIED`; the harness appends the studies in the specialist's remit it did not run or that were
+  refused, `specialist_run`), a study payload's `shown: N of M` is a display cap the prompt says is not a gap, and the
+  brief's `not_studied` and `next_checks` (questions, at most five) travel in the health message's `evidence`, never as
+  lines at the end of the body. Only the free-text answerer writes a `**Not studied**` section.
+- A proposal is read in words: `tools.PROPOSAL_TEXT` (a registry by tool) phrases each pending approval for the message
+  ("I propose to resize ECR-83EF2 to 55 MW (its import follows); run the branch now"); a new proposal tool needs its
+  entry, or the message falls back to the tool's name and arguments.
+- The `findings` tool narrows by status, kind, severity and source and says how many matched; the steward reads the
+  open breaches first, never a 40-row page of warnings.
 - A run wakes nobody when its physics is its parent's (`run_key == parent_run_key`: a branch just opened), and the
   steward skips a `run.finished` with no project deferred on a grid limit and no works window flagged
   (`events.nothing_to_triage`); the reviewer still comments. The brief agent has no tools: it restates the reports.
@@ -164,7 +191,8 @@ change them by proposal, not by working around them.
     touches; a new input to a year's result must go into that signature.
 - The agent runtime runs DBOS on `apps/api/data/dbos.sqlite` (`GRIDFORGE_DBOS_URL`; Postgres when the scenarios store is
   Postgres). Recovery after a restart is pinned to `GRIDFORGE_DBOS_APP_VERSION` (default: the engine fingerprint), so set
-  it in dev to keep in-flight runs across `--reload` restarts.
+  it in dev to keep in-flight runs across `--reload` restarts. A run whose workflow was left pending under another version
+  is cancelled and closed at launch (`AgentRuntime.reconcile`): nothing shows as running for ever after a restart on new code.
 - The tests set a placeholder key and swap the narrator for a scripted one (`tests/conftest.py`), and
   `tests/test_agents.py` runs scripted models (`FunctionModel`) on a temp DBOS database: nothing ever reaches OpenRouter
   from a test.
@@ -184,7 +212,8 @@ way, propose a better one rather than working around it.
   reads the store.
 - A GET the planner issues around every run (`/diff`, `/merge-check`) never solves the branch's own plan and never queues
   behind a run: `through(solve=False)` / `through(wait=False)` raise `errors.NotSolved` (409 `{code: "not_solved", retry}`;
-  `retry: true` when the engine was merely busy) and the planner asks again when its run has finished. `?solve=1` is the
+  `retry: true` when the engine was merely busy) and the planner asks again when its run has finished, retrying a refusal a few
+  times (about half a minute: an agent's study holding the solver as the run ends) before it shows Retry. `?solve=1` is the
   blocking read for scripts. The agents' tools and the reviewer's gate keep solving, behind the `SolverGate`.
 - Agents wait rather than fail: `SolverGate.hold` waits while an operator's job runs, for as long as the agent run's own
   time allows (`AgentDeps.deadline` = `AGENT_RUN_BUDGET.timeout_s` less `AGENT_ANSWER_RESERVE_S`), says so in the trace,

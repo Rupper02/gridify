@@ -8,11 +8,24 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .evidence import AgentFinding
 
 __all__ = ["AgentFinding", "HealthBrief", "Restated", "ReviewComment", "SpecialistReport", "SpecialistRequest", "StewardPlan"]
+
+MAX_NOT_STUDIED = 3  # what a model may list as not studied; the harness adds the studies in remit it did not run
+MAX_NEXT_CHECKS = 5
+
+_NOT_STUDIED = Field(default=[], description="at most three things the question or the event raised that no study you ran "
+                                              "answers (the harness adds the studies in your remit you did not run)")
+
+
+def _capped(n: int):
+    """A list field the model writes, kept to its first `n` items rather than sent back (a long list is noise, not an error)."""
+    def cap(cls, v):  # noqa: ANN001
+        return list(v or [])[:n]
+    return cap
 
 
 class SpecialistRequest(BaseModel):
@@ -35,8 +48,10 @@ class SpecialistReport(BaseModel):
     and adds only words; the server copies the figures from the step."""
 
     findings: list[AgentFinding] = []
-    not_studied: list[str] = Field(default=[], description="what the studies run did not cover (merge the tools' not_studied lists)")
+    not_studied: list[str] = _NOT_STUDIED
     summary: str = Field(description="two or three plain sentences; every figure quoted as a tool gave it")
+
+    _cap_not_studied = field_validator("not_studied")(classmethod(_capped(MAX_NOT_STUDIED)))
 
 
 class Restated(BaseModel):
@@ -57,13 +72,19 @@ class ReviewComment(BaseModel):
     blockers: list[Restated] = []
     warnings: list[Restated] = []
     body: str = Field(description="at most 150 words for the engineer: what the branch does, what blocks or warns, what to check next")
-    not_studied: list[str] = []
+    not_studied: list[str] = _NOT_STUDIED
+
+    _cap_not_studied = field_validator("not_studied")(classmethod(_capped(MAX_NOT_STUDIED)))
 
 
 class HealthBrief(BaseModel):
     """The steward's brief after its specialists report: the state of the project in words."""
 
     headline: str = Field(description="one sentence")
-    body: str = Field(description="at most 200 words; every figure as a specialist or tool gave it, with its [step id]")
-    not_studied: list[str] = []
-    next_checks: list[str] = Field(default=[], description="what an engineer should look at next, as short imperatives")
+    body: str = Field(description="at most 200 words; every figure as a specialist or tool gave it, cited as [step <id>]")
+    not_studied: list[str] = _NOT_STUDIED
+    next_checks: list[str] = Field(default=[], description="at most five things an engineer should look at next, each a short question "
+                                                            "the agents could be asked (the planner offers them as questions)")
+
+    _cap_not_studied = field_validator("not_studied")(classmethod(_capped(MAX_NOT_STUDIED)))
+    _cap_next_checks = field_validator("next_checks")(classmethod(_capped(MAX_NEXT_CHECKS)))

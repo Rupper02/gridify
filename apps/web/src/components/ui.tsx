@@ -18,7 +18,11 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import type { CSSProperties, ReactNode } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
+import { type ModelIndex, nameElements } from "../lib/derive";
+import { citeSteps, citedStep } from "../lib/markdown";
 import { C, isTech, tint } from "../theme";
 import type { Tech } from "../types";
 
@@ -155,4 +159,23 @@ export function hueVars(hue: string, onMain: boolean): CSSProperties {
     "--hue-chip": onMain ? "rgba(255,255,255,0.1)" : tint(hue, "2e"),
     "--hue-glow": tint(hue, "1c"),
   } as CSSProperties;
+}
+
+/** Citations become small numbered chips; any other link opens in a new tab. */
+const MD_COMPONENTS: Components = {
+  a: ({ href, children }) => {
+    const step = citedStep(href);
+    if (step) return <sup className="cite" title={`Traced to tool step ${step}`}>{children}</sup>;
+    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
+  },
+};
+
+/** An agent's text (an answer, a brief, the reviewer's comment) as markdown: elements named where they are, every
+ * `[step …]` citation a numbered chip. The caller's container carries the `md` class. */
+export function AgentText({ text, ix }: { text: string; ix: ModelIndex | null }) {
+  return (
+    <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+      {citeSteps(nameElements(text, ix))}
+    </Markdown>
+  );
 }

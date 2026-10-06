@@ -6,32 +6,24 @@
 
 import { ArrowRight, ArrowUp, Check, Lightning, NotePencil, Pause, Play, Prohibit, Receipt, Sparkle, Stop, Warning, X } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { suggestedQuestions } from "../lib/ask";
+import { proposalText, suggestedQuestions } from "../lib/ask";
 import { nameElements } from "../lib/derive";
 import type { Layout } from "../lib/layout";
-import { citeSteps, citedStep } from "../lib/markdown";
 import { type FoldedTrace, STAGE_LABEL, type TraceChip, agentsPill, argsLine, evidenceLine, flagLines, foldTrace, toolLabel, traceFromMessage } from "../lib/trace";
 import { C } from "../theme";
 import type { Approval, ThreadMessage } from "../types";
+import { AgentText } from "./ui";
 
 export type AskTabPlanner = PlannerSlice<
-  "activeBranch" | "agents" | "chat" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
+  "activeBranch" | "agents" | "branches" | "chat" | "healthChecks" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
   "ask" | "askAbout" | "cancelReply" | "closeThread" | "decideApproval" | "loadThreads" | "openEvidence" | "openThread" | "setAgentsPaused" | "setInput" | "startAsk",
   "branch" | "caps" | "hue" | "ix" | "onMain" | "q" | "tiers"
 >;
 
-/** Citations become small numbered chips; any other link opens in a new tab. */
-const MD_COMPONENTS: Components = {
-  a: ({ href, children }) => {
-    const step = citedStep(href);
-    if (step) return <sup className="cite" title={`Traced to tool step ${step}`}>{children}</sup>;
-    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-  },
-};
+/** How many of a brief's "next checks" show as buttons (the steward names at most five). */
+const MAX_NEXT_CHECKS = 5;
 
 export function AskTab({ planner, layout }: { planner: AskTabPlanner; layout: Layout }) {
   return planner.s.chat.open ? <AskChat planner={planner} layout={layout} /> : <Picker planner={planner} />;
@@ -50,7 +42,7 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
   const pill = agentsPill(s.agents);
   const questions = suggestedQuestions({
     q: derived.q, sel: s.sel, outages: s.outages, year: s.year, ix: derived.ix,
-    connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary,
+    connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary, nextChecks: s.healthChecks,
   });
   const bid = derived.onMain ? null : s.activeBranch;
   const threads = s.threads.filter((t) => t.kind === "ask" && (t.branch_id ?? null) === bid).slice(0, 4);
@@ -225,7 +217,8 @@ function AskChat({ planner, layout }: { planner: AskTabPlanner; layout: Layout }
   );
 }
 
-/** One reply: its stage chips (live or stored), the text, the flags, the evidence line, the proposals waiting. */
+/** One reply: its stage chips (live or stored), the text, the flags, what a brief did not study and what to check next, the
+ * evidence line, the proposals waiting. */
 function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: FoldedTrace | null; approvals: Approval[]; planner: AskTabPlanner }) {
   const { actions, derived } = planner;
   const chips: TraceChip[] = live ? live.chips : traceFromMessage(m);
@@ -236,6 +229,8 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   const cited = live ? !!live.final : m.status === "done"; // the evidence is attached when the reply has ended, not when its first text starts
   const flags = flagLines(m.flags);
   const evidence = evidenceLine(m);
+  const notStudied = m.evidence?.not_studied ?? [];
+  const nextChecks = (m.evidence?.next_checks ?? []).slice(0, MAX_NEXT_CHECKS);
   return (
     <div className="bubble-bot">
       <span className="av"><Lightning size={12} weight="fill" /></span>
@@ -262,9 +257,7 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
           </div>
         )}
         <div className={`txt md${planning ? " loading" : ""}${cancelled ? " mute" : ""}`}>
-          {planning ? "Planning the study…" : (
-            <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{citeSteps(nameElements(text, derived.ix))}</Markdown>
-          )}
+          {planning ? "Planning the study…" : <AgentText text={text} ix={derived.ix} />}
         </div>
         {failed && <span style={{ fontSize: 11.5, color: C.redInk }}>{live?.error ?? "The answer failed."}</span>}
         {flags.map((f, i) => (
@@ -273,6 +266,24 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
             {f}
           </span>
         ))}
+        {notStudied.length > 0 && (
+          <details className="not-studied">
+            <summary>Not studied · {notStudied.length}</summary>
+            <ul>
+              {notStudied.map((x, i) => <li key={i}>{nameElements(x, derived.ix)}</li>)}
+            </ul>
+          </details>
+        )}
+        {nextChecks.length > 0 && (
+          <div className="next-checks" aria-label="Next checks">
+            <span className="mute" style={{ fontSize: 11, fontWeight: 600 }}>Next checks</span>
+            {nextChecks.map((q) => (
+              <button key={q} className="ask-q" onClick={() => void actions.askAbout(q)} disabled={isStarting(planner)} title="Ask the agents this, in a new conversation">
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
         {approvals.map((a) => <ApprovalCard key={a.approval_id} a={a} planner={planner} />)}
         {evidence && (
           <span className="evidence-line">
@@ -285,12 +296,19 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   );
 }
 
+/** A proposal waiting for the operator: in words when the tool is known (its arguments as given on hover), else as given. */
 function ApprovalCard({ a, planner }: { a: Approval; planner: AskTabPlanner }) {
-  const { actions, s } = planner;
+  const { actions, s, derived } = planner;
+  const words = proposalText(a.tool, a.args, derived.ix, s.branches);
+  const raw = argsLine(a.args) || "no arguments";
   return (
     <div className="approval">
       <span style={{ fontSize: 12.5, fontWeight: 600 }}>Proposal · {toolLabel(a.tool)}</span>
-      <span className="mono" style={{ fontSize: 11, color: C.ink2, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{argsLine(a.args) || "no arguments"}</span>
+      {words ? (
+        <span style={{ fontSize: 12, color: C.ink2, lineHeight: 1.45, textWrap: "pretty" }} title={raw}>{words}</span>
+      ) : (
+        <span className="mono" style={{ fontSize: 11, color: C.ink2, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{raw}</span>
+      )}
       <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>Nothing happens until you decide. Once every proposal of this reply is decided, the approved ones are applied on the branch and the answer continues; main is never edited.</span>
       <div style={{ display: "flex", gap: 6 }}>
         <button className="btn primary sm" onClick={() => void actions.decideApproval(a.approval_id, "approve")} disabled={s.chat.busy}>

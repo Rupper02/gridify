@@ -82,6 +82,21 @@ class EvidenceLedger:
             r["result"] = json.loads(r.pop("result_json") or "null")
         return rows
 
+    def study_steps(self, run_id: str) -> list[dict]:
+        """This run's study steps (the ones a finding may point at), oldest first, each with its compacted items."""
+        return [s for s in self.steps(run_id) if isinstance(s.get("result"), dict) and "items" in s["result"]]
+
+    @staticmethod
+    def resolve_step(sid: str, steps: list[dict]) -> str | None:
+        """The full step id for what a model wrote: the id itself, or its tool-call id (the part after the last colon,
+        which is what a model copies when the id is 100 characters), or any unique tail of it; None when nothing matches."""
+        ids = [s["step_id"] for s in steps]
+        if sid in ids:
+            return sid
+        tail = sid.rsplit(":", 1)[-1].strip()
+        hits = [i for i in ids if i.rsplit(":", 1)[-1] == tail] or [i for i in ids if tail and i.endswith(tail)]
+        return hits[0] if len(hits) == 1 else None
+
     def load_step(self, step_id: str) -> StepRecord | None:
         """A step with its output: inline, and the study re-fetched from the durable cache by its key when that key holds
         a study (a run step's key holds the plan years: not a study)."""
