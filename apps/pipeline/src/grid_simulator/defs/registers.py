@@ -31,7 +31,8 @@ from grid_simulator.config import DB_PATH
 from gridforge_optimizer.editions import diff_ecr_editions, ecr_site_key
 from gridforge_optimizer.nged import BUNDLED_DATA_DIR, load_bundled_coords, load_bundled_tables, substation_names
 
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
+# who is asking, honestly: NGED's portal refuses Python's default agent (403) but serves a named one
+UA = "gridforge/0.2 (grid planning research)"
 CKAN = "https://connecteddata.nationalgrid.co.uk/api/3/action/"
 ECR_RESOURCE_ID = "82a4ae83-77a3-4e7b-9060-8072ed96de9d"
 ECR_GSP = "Bicker Fen 132Kv S Stn"
@@ -243,7 +244,7 @@ def osm_substations_fetch(context: dg.AssetExecutionContext) -> dict:
     for ep in OVERPASS:
         try:
             req = urllib.request.Request(ep, data=urllib.parse.urlencode({"data": query}).encode(),
-                                         headers={"User-Agent": "gridforge/0.2 (grid planning research)"})
+                                         headers={"User-Agent": UA})
             with urllib.request.urlopen(req, timeout=150) as r:
                 elements = json.load(r)["elements"]
             break

@@ -44,7 +44,7 @@ export function usePlanner() {
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const findings = useFindings(core);
-  const agents = useAgents(core);
+  const agents = useAgents(core, s.projectId);
   const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
@@ -57,13 +57,13 @@ export function usePlanner() {
   };
   const { loadRegistry, addRegistryProject } = useRegistry(core, flows.ensureEditableBranch, refreshBranches);
   const { select, selectProject, focusSel } = useSelection(core);
-  const { setSchedule } = useProjectEdits(core, edited);
+  const { setSchedule, setControl } = useProjectEdits(core, edited);
   const mapView = useMapFeatures(core, s.visible);
   const derived = useDerived(s);
 
   const actions = useMemo(
     () => ({
-      run, toastMsg: core.toastMsg, select, selectProject, focusSel, setSchedule, loadRegistry, addRegistryProject,
+      run, toastMsg: core.toastMsg, select, selectProject, focusSel, setSchedule, setControl, loadRegistry, addRegistryProject,
       ...flows,
       ...maint,
       ...mapView,
@@ -99,7 +99,7 @@ export function usePlanner() {
     }),
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule,
+    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule, setControl,
       ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 

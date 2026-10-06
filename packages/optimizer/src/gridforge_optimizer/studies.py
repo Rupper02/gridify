@@ -54,7 +54,8 @@ from .network import (
     _oltc_trafos,
     _run_case,
     _study_cases,
-    drop_sgen,
+    drop_project,
+    inject_project,
     inject_sgen,
     n1_elements,
     emergency_ratio,
@@ -216,14 +217,14 @@ def _probe_buses(net, p: HostingParams) -> list[int]:
 
 
 def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
-    """Inject something (`inject` adds an sgen and returns its index), solve the case with the taps
+    """Inject something (`inject` connects it and returns its (table, index)), solve the case with the taps
     regulated, then leave the net exactly as found. Returns (within limits, the binding reason, solves)."""
     taps = tap_positions(net)
-    idx = inject()
+    ref = inject()
     try:
         res = _run_case(net, case.name, case.load_scale, case.rating_ratio, regulate=True)
     finally:
-        drop_sgen(net, idx)
+        drop_project(net, ref)
         set_tap_positions(net, taps)
     if res is None:
         return False, Reason(type="non_convergent", case=case.name, message=f"power flow does not converge at {_CASE_LABEL[case.name]}"), 1
@@ -233,8 +234,8 @@ def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
 
 def _hosting_probe(net, case, bus: int, mw: float, direction: str) -> tuple[bool, Any, int]:
     """Probe `mw` of new firm export (or a demand connection importing it) at `bus`."""
-    return _probe(net, case, lambda: (inject_sgen(net, bus, mw, "hosting-probe", "other") if direction == "export"
-                                      else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw)))
+    return _probe(net, case, lambda: ("sgen", inject_sgen(net, bus, mw, "hosting-probe", "other") if direction == "export"
+                                              else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw)))
 
 
 def _bisect_mw(probe: Callable[[float], tuple[bool, Any, int]], cap: float, step: float,
@@ -566,12 +567,12 @@ def _asks(c: Candidate) -> tuple[str, float]:
 
 
 def _project_probe(net, case, bus: int, c: Candidate, mw: float, direction: str) -> tuple[bool, Any, int]:
-    """Probe `mw` of THIS project at `bus`: its own technology, so the case dispatch applies (PV at nil
-    at winter peak, a battery charging), with its import scaled along."""
+    """Probe `mw` of THIS project at `bus`: its own technology and control, so the case dispatch applies (PV at nil
+    at winter peak, a battery charging, its reactive power as its offer runs it), with its import scaled along."""
+    probe = c.model_copy(update={"bus_id": bus, "request_id": "connection-probe"})
     if direction == "import":
-        return _probe(net, case, lambda: inject_sgen(net, bus, 0.0, "connection-probe", c.technology, import_mw=mw))
-    imp = c.import_at(mw)
-    return _probe(net, case, lambda: inject_sgen(net, bus, mw, "connection-probe", c.technology, import_mw=imp))
+        return _probe(net, case, lambda: inject_project(net, probe, p_mw=0.0, import_mw=mw))
+    return _probe(net, case, lambda: inject_project(net, probe, p_mw=mw, import_mw=c.import_at(mw)))
 
 
 def _probed_cases(cases: dict, c: Candidate, direction: str) -> dict:

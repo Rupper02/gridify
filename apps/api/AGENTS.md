@@ -21,6 +21,12 @@ to the API and the agent harness. The API table is in the root `README.md`.
   unprefixed `/model`, `/model/cgmes`, `/boundary`, `/registry`, `/optimize` are the NGED project's aliases.
 
 ### Storage
+- A warehouse read runs on one read-only connection (one committed version); a route that reads several things reads
+  them together (`Warehouse.read(key, fn)`). While the pipeline writes, a read retries ~1.5 s, then serves the last
+  consistent read of the same thing (kept with its `snapshot_id`, one write behind at most) or 503 when there is none;
+  every response that read the warehouse says which version (`X-Warehouse-Snapshot`) and whether it was the previous
+  one (`X-Warehouse-Stale: 1`), and the planner's result stamp says so. Never catch an error as "older warehouse":
+  check the table or column.
 - Reads the warehouse **read-only** (`GRIDFORGE_DB_PATH` overrides it). Anything a user does goes to the scenarios store:
   branches, added projects, scheduled years, planned outages (`branch_outages`), simulated reinforcements
   (`branch_reinforcements`, both copied on branch create and merge by `repository.copy_branch_extras`) and the result cache.

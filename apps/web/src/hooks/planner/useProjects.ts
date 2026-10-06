@@ -1,5 +1,6 @@
 // Projects: the grids the planner can plan on. Boot loads the list and opens the default project;
-// switching loads that project's model and branches, runs its main and fetches its boundary card on
+// switching loads that project's model, branches and demand pathways (an import's are the forecast entered
+// with it), runs its main and fetches its boundary card on
 // its own; importing a file adds a project (the API validates it) and the projects screen shows the
 // report; deleting an import removes it and falls back to the built-in project. The project's
 // assumptions load on demand.
@@ -10,7 +11,7 @@
 
 import { useCallback, useEffect } from "react";
 
-import { api } from "../../api";
+import { api, onWarehouse } from "../../api";
 import { retrying, retryable } from "../../lib/boot";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import type { Project } from "../../types";
@@ -22,7 +23,7 @@ import type { RunFn } from "./useRun";
 const FRESH: Partial<PlannerState> = {
   model: null, boundary: null, modelLoading: true, modelError: null,
   result: null, resultAt: "", prevStatus: {}, added: {}, outages: [], reinforcements: [], candidates: [],
-  diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], study: null,
+  diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], study: null, agents: null,
   registry: [], registryLoaded: false, assumptions: null, showAssumptions: false, sel: null, chat: EMPTY_CHAT,
 };
 
@@ -64,10 +65,12 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
       const current = () => ref.current.projectId === pid;
       patch({ modelLoading: true, modelError: null });
       try {
-        const [model, branches] = await retrying(() => Promise.all([api.getModel(pid), api.listBranches(pid)]), { shouldRetry: (e) => current() && retryable(e) });
+        const [model, branches, forecasts] = await retrying(() => Promise.all([api.getModel(pid), api.listBranches(pid), api.getProjectForecasts(pid)]), {
+          shouldRetry: (e) => current() && retryable(e),
+        });
         if (!current()) return;
         patch((st) => ({
-          model, branches, branchesLoaded: true, activeBranch: mainId, modelLoading: false,
+          model, branches, forecasts, branchesLoaded: true, activeBranch: mainId, modelLoading: false,
           layer: caps && !caps.regions && st.layer === "demand" ? "flow" : st.layer, // no demand groups, no Demand layer
         }));
       } catch (e) {
@@ -159,6 +162,14 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
     },
     [loadProject, patch, ref],
   );
+
+  // whether what the warehouse served was its previous version (the pipeline writing a new one): the stamp says so
+  useEffect(() => {
+    onWarehouse((stale) => {
+      if (ref.current.warehouseStale !== stale) patch({ warehouseStale: stale });
+    });
+    return () => onWarehouse(null);
+  }, [patch, ref]);
 
   useEffect(() => {
     let cancelled = false;

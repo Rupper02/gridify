@@ -229,8 +229,11 @@ def served_nged(
     ltds_edition_changes: dict,
 ) -> dg.MaterializeResult:
     """Write the model tables, the registry and the edition change-set to the warehouse, and append
-    a row to the snapshot history (only when the content changed: `snapshot_id` is a content hash,
-    so `network@<snapshot_id>` names a version)."""
+    a row to the snapshot history (only when the network changed: `snapshot_id` is a content hash of
+    the network tables, so `network@<snapshot_id>` names a version of what exists). The registry of
+    not-yet-built projects is not part of the id (main is only what exists, and results key a branch's
+    projects themselves); its history is the ECR editions (`ecr_editions`, `ecr_changes`). A row's
+    `candidates` count is the registry's size when that snapshot was first written."""
     m = nged_model_canonical
     buses = pd.DataFrame(m["buses"])[["bus_id", "name", "vn_kv", "lon", "lat"]]
     lines = pd.DataFrame(m["lines"])[["line_id", "line_name", "rating_a", "voltage_kv", "from_bus", "to_bus"]]

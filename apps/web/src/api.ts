@@ -10,10 +10,12 @@ import type {
   Boundary,
   Branch,
   BranchReinforcement,
+  Control,
   Diff,
   Finding,
   FindingCounts,
   FindingStatus,
+  FileInspection,
   Forecast,
   Horizon,
   Job,
@@ -23,6 +25,8 @@ import type {
   OptimizeResult,
   Outage,
   Project,
+  RebasePick,
+  RebasePreview,
   RegistryItem,
   Review,
   StepEvidence,
@@ -63,6 +67,13 @@ async function errorDetail(r: Response): Promise<{ detail: unknown; text: string
   }
 }
 
+/** Told, after each response that read the pipeline's warehouse, whether it was the last version rather than the
+ * current one (the pipeline was writing a new one: `X-Warehouse-Stale`). One listener: the planner's. */
+let warehouseListener: ((stale: boolean) => void) | null = null;
+export const onWarehouse = (fn: ((stale: boolean) => void) | null): void => {
+  warehouseListener = fn;
+};
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     method,
@@ -73,11 +84,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const { detail, text } = await errorDetail(r);
     throw new ApiError(r.status, detail, text);
   }
+  if (r.headers.get("X-Warehouse-Snapshot")) warehouseListener?.(r.headers.get("X-Warehouse-Stale") === "1");
   return (await r.json()) as T;
 }
 const getJson = <T>(path: string) => request<T>("GET", path);
 const postJson = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
 const del = <T>(path: string) => request<T>("DELETE", path);
+const patchJson = <T>(path: string, body: unknown) => request<T>("PATCH", path, body);
 
 /** A multipart POST (a file plus fields); errors as `request` reports them. */
 async function postForm<T>(path: string, form: FormData): Promise<T> {
@@ -138,6 +151,14 @@ export const api = {
     return postForm<Project>("/projects", form);
   },
   deleteProject: (pid: string) => del<{ project_id: string; deleted: boolean }>(`/projects/${pid}`),
+  /** A file's voltage levels before it is imported (what the import form's study basis asks about); nothing is stored. */
+  inspectFile: (file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return postForm<FileInspection>("/projects/inspect", form);
+  },
+  /** The demand pathways a project runs on: the FES pathways, or the forecast entered at import. */
+  getProjectForecasts: async (pid: string) => (await getJson<{ forecasts?: Forecast[] }>(`/projects/${pid}/forecasts`)).forecasts ?? [],
   getAssumptions: (pid: string) => getJson<{ project_id: string; assumptions: Assumption[] }>(`/projects/${pid}/assumptions`),
   getModel: (pid: string) => getJson<Model>(`/projects/${pid}/model`),
   addCandidate: (c: NewCandidate) => postJson<RegistryItem>("/optimize/candidates", c),
@@ -146,6 +167,9 @@ export const api = {
   getRegistry: (pid: string) => getJson<RegistryItem[]>(`/projects/${pid}/registry`),
   addFromRegistry: (branchId: string, requestId: string) =>
     postJson<RegistryItem>(`/branches/${branchId}/registry`, { request_id: requestId }),
+  /** Change a project on a branch (its control mode, here); answers with the stored row. */
+  changeCandidate: (branchId: string, requestId: string, changes: { control: Control }) =>
+    patchJson<RegistryItem>(`/branches/${branchId}/candidates/${requestId}`, changes),
   /** Persist the operator's energisation year for a project on a branch (null = follow the recommendation). */
   setSchedule: (branchId: string, requestId: string, year: number | null) =>
     postJson<{ branch_id: string; request_id: string; scheduled_year: number | null }>(
@@ -214,6 +238,10 @@ export const api = {
   mergeBranch: (id: string, opts: { into: string; acknowledge?: boolean }) =>
     postJson<Branch>(`/branches/${id}/merge`, { into: opts.into, acknowledge: !!opts.acknowledge }),
   discardBranch: (id: string) => postJson<Branch>(`/branches/${id}/discard`),
+  /** What rebasing a branch onto its parent as it is now would do (writes nothing). */
+  rebasePreview: (id: string) => getJson<RebasePreview>(`/branches/${id}/rebase`),
+  /** Rebase with the operator's pick for every conflict; a 409 means a pick is missing or the parent moved again. */
+  rebaseBranch: (id: string, picks: Record<string, RebasePick>) => postJson<{ branch: Branch; taken: number }>(`/branches/${id}/rebase`, { picks }),
   /** The findings ledger: what the branch's last run found, with the counts per status. */
   listFindings: (id: string, opts?: { status?: FindingStatus; year?: number }) => {
     const p = new URLSearchParams();

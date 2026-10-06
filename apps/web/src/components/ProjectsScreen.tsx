@@ -1,18 +1,24 @@
 // The projects screen (a glass sheet over the map): the grids the planner can plan on, with Open and
 // Delete, and the import form: a file (a CIM/CGMES zip, a pandapower JSON or a MATPOWER case), a name
-// and the limits the operator knows, which are recorded as entered. The API validates the file and
-// answers with a report; what it did not carry is listed before the project is opened.
+// and the limits the operator knows, which are recorded as entered. Once a file is chosen its voltage levels
+// are read (nothing stored) and the study basis is asked for: the demand forecast by year (Standard, and
+// optionally Low and High), the lowest level the N-1 screen covers, and the voltage limits by level. The API
+// validates it all and answers with a report; what it did not carry is listed before the project is opened.
 
 import { CheckCircle, FileArrowUp, Globe, Trash, Warning, X } from "@phosphor-icons/react";
-import { type CSSProperties, type FormEvent, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useState } from "react";
 
-import { ApiError } from "../api";
+import { ApiError, api } from "../api";
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { LIMIT_FIELDS, assumptionText, capabilityChips, kindLabel, limitsFromForm, reportLines } from "../lib/projects";
+import {
+  EMPTY_BASIS, LIMIT_FIELDS, PATHWAYS, type StudyBasisForm, assumptionText, capabilityChips, cumulativeOf, kindLabel, limitsFromForm, n1Covers, presetBands,
+  reportLines,
+  studyBasisFields,
+} from "../lib/projects";
 import { C } from "../theme";
-import type { ImportReport, Project } from "../types";
+import type { FileInspection, ImportReport, Project } from "../types";
 
-export type ProjectsScreenPlanner = PlannerSlice<"projectId" | "projects", "closeProjects" | "deleteProject" | "importProject" | "openProject">;
+export type ProjectsScreenPlanner = PlannerSlice<"projectId" | "projects" | "plan", "closeProjects" | "deleteProject" | "importProject" | "openProject">;
 
 const TONE_INK = { good: C.greenInk, warn: C.amberInk, bad: C.redInk } as const;
 const MAX_ASSUMPTIONS = 8;
@@ -41,7 +47,7 @@ export function ProjectsScreen({ planner }: { planner: ProjectsScreenPlanner }) 
             ))}
             {!s.projects.length && <span className="mute" style={{ fontSize: 12 }}>Loading the projects…</span>}
           </div>
-          <ImportForm onImport={actions.importProject} onOpen={(pid) => void actions.openProject(pid)} />
+          <ImportForm years={s.plan?.years.slice(1) ?? []} onImport={actions.importProject} onOpen={(pid) => void actions.openProject(pid)} />
         </div>
       </div>
     </div>
@@ -92,8 +98,11 @@ function ProjectRow({ p, current, onOpen, onDelete }: { p: Project; current: boo
 
 type Outcome = { kind: "done"; project: Project } | { kind: "refused"; message: string; report: ImportReport | null } | null;
 
-function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string, limits: Record<string, string>) => Promise<Project>; onOpen: (pid: string) => void }) {
+function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (file: File, name: string, limits: Record<string, string>) => Promise<Project>; onOpen: (pid: string) => void }) {
   const [file, setFile] = useState<File | null>(null);
+  const [inspection, setInspection] = useState<FileInspection | null>(null);
+  const [inspectError, setInspectError] = useState<string | null>(null);
+  const [basis, setBasis] = useState<StudyBasisForm>(EMPTY_BASIS);
   const [name, setName] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [showLimits, setShowLimits] = useState(false);
@@ -103,17 +112,18 @@ function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string,
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file || !inspection) return;
     const { limits, error } = limitsFromForm(values);
-    if (error) {
-      setFormError(error);
+    const study = studyBasisFields(basis, years, inspection.levels);
+    if (error || study.error) {
+      setFormError(error ?? study.error);
       return;
     }
     setFormError(null);
     setBusy(true);
     setOutcome(null);
     try {
-      const project = await onImport(file, name.trim() || file.name.replace(/\.[^.]+$/, ""), limits);
+      const project = await onImport(file, name.trim() || file.name.replace(/\.[^.]+$/, ""), { ...limits, ...study.fields });
       setOutcome({ kind: "done", project });
     } catch (err) {
       const detail = err instanceof ApiError ? (err.detail as { message?: string; report?: ImportReport } | string | null) : null;
@@ -121,6 +131,21 @@ function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string,
       setOutcome({ kind: "refused", message: err instanceof Error ? err.message : "the import failed", report });
     } finally {
       setBusy(false);
+    }
+  };
+
+  /** A new file: read its voltage levels for the study basis (the limits by level and the N-1 choices). */
+  const choose = async (f: File | null) => {
+    setFile(f);
+    setInspection(null);
+    setInspectError(null);
+    setBasis(EMPTY_BASIS);
+    setOutcome(null);
+    if (!f) return;
+    try {
+      setInspection(await api.inspectFile(f));
+    } catch (err) {
+      setInspectError(err instanceof Error ? err.message : "could not read the file");
     }
   };
 
@@ -133,7 +158,7 @@ function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string,
           <span className="ellipsis" style={{ fontSize: 12.5 }}>{file ? file.name : "Choose a file"}</span>
           <span style={{ fontSize: 11, color: C.mute }}>.zip (CGMES), .json (pandapower), .mat (MATPOWER) · up to 50 MB</span>
         </span>
-        <input type="file" accept=".zip,.json,.mat" aria-label="Grid file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ display: "none" }} />
+        <input type="file" accept=".zip,.json,.mat" aria-label="Grid file" onChange={(e) => void choose(e.target.files?.[0] ?? null)} style={{ display: "none" }} />
       </label>
       <input className="search" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name (defaults to the file name)" aria-label="Project name" />
       <button type="button" className="btn ghost" style={{ alignSelf: "flex-start", height: 26, fontSize: 11.5 }} onClick={() => setShowLimits((v) => !v)} aria-expanded={showLimits}>
@@ -152,8 +177,11 @@ function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string,
           ))}
         </div>
       )}
+      {file && !inspection && !inspectError && <span className="mute" style={{ fontSize: 11.5 }}>Reading the file's voltage levels…</span>}
+      {inspectError && <span style={{ fontSize: 11.5, color: C.redInk }}>Could not read the file: {inspectError}</span>}
+      {inspection && <StudyBasis years={years} inspection={inspection} basis={basis} onChange={setBasis} />}
       {formError && <span style={{ fontSize: 11.5, color: C.redInk }}>{formError}</span>}
-      <button type="submit" className="btn primary sm" style={{ alignSelf: "flex-start" }} disabled={!file || busy}>
+      <button type="submit" className="btn primary sm" style={{ alignSelf: "flex-start" }} disabled={!file || !inspection || busy}>
         {busy ? "Validating…" : "Import"}
       </button>
       {outcome?.kind === "done" && <Report report={outcome.project.report} ok onOpen={() => onOpen(outcome.project.project_id)} />}
@@ -167,6 +195,98 @@ function ImportForm({ onImport, onOpen }: { onImport: (file: File, name: string,
         </div>
       )}
     </form>
+  );
+}
+
+/** What the import must state that the file does not: the forecast by year, the N-1 floor, the limits by level. */
+function StudyBasis({ years, inspection, basis, onChange }: { years: number[]; inspection: FileInspection; basis: StudyBasisForm; onChange: (b: StudyBasisForm) => void }) {
+  const { levels, presets } = inspection;
+  const setCell = (pid: string, y: number, v: string) => onChange({ ...basis, forecast: { ...basis.forecast, [pid]: { ...(basis.forecast[pid] ?? {}), [y]: v } } });
+  const setBand = (kv: number, side: "vmin" | "vmax", v: string) => {
+    const cur = basis.bands[`${kv}`] ?? { vmin: "", vmax: "" };
+    onChange({ ...basis, bands: { ...basis.bands, [`${kv}`]: { ...cur, [side]: v } } });
+  };
+  return (
+    <div className="study-basis">
+      <span style={{ fontSize: 12, fontWeight: 600 }}>Study basis (required)</span>
+      <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>What the plan is judged on that a grid file does not carry. Each is recorded as entered by you.</span>
+
+      <span style={{ fontSize: 11.5 }}>
+        Demand forecast <span style={{ color: C.mute2 }}>· peak demand's growth on the year before (1.02 = +2 %); Standard is required, Low and High optional</span>
+      </span>
+      <div className="forecast-grid" style={{ gridTemplateColumns: `64px repeat(${years.length}, minmax(0, 1fr))` }}>
+        <span />
+        {years.map((y) => (
+          <span key={y} className="fc-year">{y}</span>
+        ))}
+        {PATHWAYS.map((p) => (
+          <GridRow key={p.id} label={`${p.label}${p.required ? " *" : ""}`}>
+            {years.map((y) => (
+              <input key={y} className="fc-cell" inputMode="decimal" value={basis.forecast[p.id]?.[y] ?? ""} onChange={(e) => setCell(p.id, y, e.target.value)} aria-label={`${p.label} forecast ${y}`} />
+            ))}
+          </GridRow>
+        ))}
+      </div>
+      <ForecastTotals years={years} basis={basis} />
+      <input className="search" value={basis.source} onChange={(e) => onChange({ ...basis, source: e.target.value })} placeholder="Where the forecast comes from (e.g. the DSO's own forecast and its edition)" aria-label="Forecast source" />
+
+      <span style={{ fontSize: 11.5 }}>
+        N-1 screen <span style={{ color: C.mute2 }}>· the lowest voltage whose lines and transformers are taken out one at a time</span>
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {levels.map((l) => (
+          <label key={l.kv} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11.5 }}>
+            <input type="radio" name="n1-floor" checked={basis.n1MinKv === `${l.kv}`} onChange={() => onChange({ ...basis, n1MinKv: `${l.kv}` })} />
+            <span>
+              {l.kv} kV and above <span style={{ color: C.mute }}>· {n1Covers(l)}</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <span style={{ fontSize: 11.5 }}>
+        Voltage limits by level <span style={{ color: C.mute2 }}>· per unit, after the tap changers settle</span>
+      </span>
+      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: C.mute }}>Fill from</span>
+        {presets.map((p) => (
+          <button key={p.id} type="button" className="btn ghost" style={{ height: 24, fontSize: 11 }} title={p.note} onClick={() => onChange({ ...basis, bands: presetBands(p, levels, basis.bands) })}>
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div className="band-grid">
+        <span />
+        <span className="fc-year">min</span>
+        <span className="fc-year">max</span>
+        {levels.map((l) => (
+          <GridRow key={l.kv} label={`${l.kv} kV`}>
+            <input className="fc-cell" inputMode="decimal" value={basis.bands[`${l.kv}`]?.vmin ?? ""} onChange={(e) => setBand(l.kv, "vmin", e.target.value)} aria-label={`Minimum at ${l.kv} kV`} />
+            <input className="fc-cell" inputMode="decimal" value={basis.bands[`${l.kv}`]?.vmax ?? ""} onChange={(e) => setBand(l.kv, "vmax", e.target.value)} aria-label={`Maximum at ${l.kv} kV`} />
+          </GridRow>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** What the typed growth adds up to, per pathway: the multiple of today's peak at each phase's end, as the plan studies it. */
+function ForecastTotals({ years, basis }: { years: number[]; basis: StudyBasisForm }) {
+  const ends = [2030, years[years.length - 1]].filter((y, i, a) => years.includes(y) && a.indexOf(y) === i);
+  const lines = PATHWAYS.flatMap((p) => {
+    const c = cumulativeOf(basis.forecast[p.id], years);
+    return c ? [`${p.label} ${ends.map((y) => `×${c[y].toFixed(2)} by ${y}`).join(", ")}`] : [];
+  });
+  return lines.length ? <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>Of today's peak: {lines.join(" · ")}</span> : null;
+}
+
+/** A labelled row of a CSS grid: the label cell, then its cells (the grid's columns place them). */
+function GridRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <span className="fc-label">{label}</span>
+      {children}
+    </>
   );
 }
 

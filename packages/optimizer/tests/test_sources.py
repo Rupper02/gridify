@@ -1,7 +1,7 @@
 """The GridSource seam: NGED behind it unchanged, and any grid through it. The NGED CGMES export
 re-imports as a project with the same elements and a converging base case; a pandapower JSON with no
 coordinates gets a synthetic layout and keeps its voltage-controlled generators; a file that lacks what a
-real simulation needs is refused with the list, never filled."""
+real simulation needs, or an import that does not state its study basis, is refused with the list, never filled."""
 
 import math
 
@@ -20,6 +20,7 @@ from gridforge_optimizer.sources import (
     cgmes_source,
     default_source,
     pandapower_json_source,
+    levels_of,
     source_from_file,
     source_kind_for,
     validate_net,
@@ -28,6 +29,14 @@ from gridforge_optimizer.sources import (
 
 def _keys(assumptions: list[ModelAssumption]) -> set[str]:
     return {a.key for a in assumptions}
+
+
+def _basis(net, **limits) -> ImportMeta:
+    """The study basis an import must state, for any grid: a flat Standard forecast, the N-1 screen from the top
+    level, the GB bands at each of its levels (read from the net, never hardcoded)."""
+    levels = levels_of(net)
+    return ImportMeta(forecasts={"ht": {y: 1.0 for y in range(2027, 2036)}}, n1_min_kv=levels[0],
+                      voltage_bands=[{"kv": v, "vmin_pu": 0.90 if v >= 132 else 0.94, "vmax_pu": 1.10 if v >= 132 else 1.06} for v in levels], **limits)
 
 
 # --- the registry and NGED behind the seam -----------------------------------------------------------------------
@@ -64,14 +73,14 @@ def nged_zip():
 
 def test_the_nged_cgmes_export_imports_as_a_grid_with_the_same_elements(nged_zip):
     base = build_base_net()
-    src = cgmes_source(nged_zip, id="imp-nged", name="NGED re-imported")
+    src = cgmes_source(nged_zip, id="imp-nged", name="NGED re-imported", meta=_basis(base))
     net = src.build_net()
     assert (len(net.bus), len(net.line), len(net.trafo), len(net.load), len(net.sgen), len(net.ext_grid)) == (
         len(base.bus), len(base.line), len(base.trafo), len(base.load), len(base.sgen), len(base.ext_grid))
     report = src.validate()
     assert report.ok and report.converged and report.cases == ["winter_peak"], report
     keys = _keys(src.assumptions())
-    assert {"no_seasonal_ratings", "no_min_demand", "no_gsp_limit", "gb_voltage_bands", "n1_scope"} <= keys
+    assert {"no_seasonal_ratings", "no_min_demand", "no_gsp_limit", "forecast_entered", "n1_scope_entered", "bands_entered"} <= keys
     assert "unrated_lines" not in keys and src.candidates() == [] and src.boundary() is None
     caps = src.capabilities()
     assert caps["summer_case"] is False and caps["boundary"] is False and caps["registry"] is False and caps["crs"] == "wgs84"
@@ -85,7 +94,7 @@ def test_the_nged_cgmes_export_imports_as_a_grid_with_the_same_elements(nged_zip
 
 
 def test_operator_entered_limits_enable_the_summer_case_and_the_boundary(nged_zip):
-    meta = ImportMeta(gsp_export_limit_mw=527.0, gsp_name="Bicker Fen", min_demand_factor=0.5, summer_rating_ratio=0.9)
+    meta = _basis(build_base_net(), gsp_export_limit_mw=527.0, gsp_name="Bicker Fen", min_demand_factor=0.5, summer_rating_ratio=0.9)
     src = cgmes_source(nged_zip, id="imp-nged-meta", name="NGED with limits", meta=meta)
     report = src.validate()
     assert report.ok and report.cases == ["winter_peak", "summer_min"]
@@ -95,7 +104,7 @@ def test_operator_entered_limits_enable_the_summer_case_and_the_boundary(nged_zi
     b = src.boundary()
     assert b and b["export_limit_mw"] == 527.0 and b["export_today_mw"] > 0
     assert src.capabilities()["summer_case"] and src.capabilities()["boundary"]
-    assert src.fingerprint() != cgmes_source(nged_zip, id="x", name="x").fingerprint()  # the limits are part of the identity
+    assert src.fingerprint() != cgmes_source(nged_zip, id="x", name="x", meta=_basis(build_base_net())).fingerprint()  # the limits are part of the identity
 
 
 # --- a plain pandapower network with no coordinates -----------------------------------------------------------------------
@@ -103,7 +112,7 @@ def test_a_pandapower_json_with_no_coordinates_gets_a_synthetic_layout_and_keeps
     c9 = pn.case9()
     c9.bus["geo"] = None
     c9.gen["type"] = "thermal"
-    src = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9")
+    src = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9", meta=_basis(c9))
     report = src.validate()
     assert report.ok and report.converged and report.counts["slacks"] == 1 and report.counts["generators"] == 2, report
     assert len(src.build_net().gen) == 2  # still voltage-controlled, never turned into fixed injections
@@ -111,10 +120,10 @@ def test_a_pandapower_json_with_no_coordinates_gets_a_synthetic_layout_and_keeps
     assert "merit_order_dispatch" in keys and "no_gsp_limit" in keys and "no_demand_groups" in keys
     m = src.model()
     assert m.crs == "synthetic" and len(m.buses) == 9 and m.regions == [] and src.capabilities()["crs"] == "synthetic"
-    again = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9").model()
+    again = pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9", meta=_basis(c9)).model()
     assert [(b.lon, b.lat) for b in m.buses] == [(b.lon, b.lat) for b in again.buses]  # deterministic
     assert len({(b.lon, b.lat) for b in m.buses}) == 9  # no two buses on the same spot
-    assert src.fingerprint() == pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9").fingerprint()
+    assert src.fingerprint() == pandapower_json_source(pp.to_json(c9).encode(), id="imp-c9", name="case9", meta=_basis(c9)).fingerprint()
     assert source_from_file("case9.json", pp.to_json(c9).encode(), id="imp-c9", name="case9").kind == "pandapower_json"
 
 
@@ -126,6 +135,7 @@ def test_a_file_missing_what_a_real_simulation_needs_is_refused_with_the_list():
     errors = " | ".join(report.errors)
     assert not report.ok and report.converged is False
     assert "technology" in errors and "thermal rating" in errors and "reactive limits" in errors and "line 0" in errors
+    assert "demand forecast" in errors and "N-1 scope" in errors and "voltage limits" in errors  # the study basis was not stated
 
 
 def test_validation_reports_a_network_nobody_can_feed():

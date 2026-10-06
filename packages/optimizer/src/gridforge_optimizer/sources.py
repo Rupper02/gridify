@@ -36,12 +36,12 @@ import pandapower as pp
 import pandapower.topology as top
 import pandas as pd
 
-from .config import MAX_CONNECTION_MW, N1_CASES, N1_MIN_KV, VOLTAGE_BANDS
+from .config import FORECASTS, IMPORT_PATHWAYS, MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR, VOLTAGE_BAND_PRESETS
 from .geometry import SYNTHETIC_CENTER, interpolate_positions, synthetic_positions
 from .gridmodel import fleet_of, model_from_net
 from .types import GridModel, ImportMeta, ModelAssumption, ValidationReport
 
-IMPORTER_VERSION = "2"  # bump when normalise_net changes what an imported net looks like (it is in the fingerprint)
+IMPORTER_VERSION = "3"  # bump when normalise_net changes what an imported net looks like (it is in the fingerprint)
 
 
 @runtime_checkable
@@ -58,6 +58,7 @@ class GridSource(Protocol):
     def candidates(self) -> list[dict]: ...  # the registry of optional projects (may be empty)
     def boundary(self) -> dict | None: ...  # the GSP boundary card, or None when the source models none
     def fingerprint(self) -> str: ...  # the content identity results are cached under
+    def forecasts(self) -> dict[str, dict[int, float]] | None: ...  # the grid's own demand pathways; None: the FES pathways
     def assumptions(self) -> list[ModelAssumption]: ...
     def capabilities(self) -> dict: ...  # {boundary, regions, registry, editions, summer_case, crs}
 
@@ -70,14 +71,10 @@ class SourceSpec(NamedTuple):
 
 # --- the planning assumptions every imported grid is judged under (listed, never hidden) ---------------------------
 _GENERIC = {
-    "gb_voltage_bands": "Statutory GB voltage bands assumed by level (" + "; ".join(
-        f"{lo:.2f}-{hi:.2f} pu from {kv:g} kV" for kv, lo, hi in sorted(VOLTAGE_BANDS, key=lambda b: -b[0])) + "); a non-GB grid may use other limits",
-    "n1_scope": f"The N-1 screen covers elements at {N1_MIN_KV:g} kV and above in each study case the grid supports ({', '.join(N1_CASES)}); it is reported, never a gate",
     "no_seasonal_ratings": "No seasonal line ratings in the file: the summer-minimum case is not studied unless a summer rating ratio is entered",
     "no_min_demand": "No minimum-demand factor in the file: the summer-minimum case is not studied unless one is entered",
     "no_gsp_limit": "No export limit to the external grid in the file: the slack's export is reported, never limited",
     "no_demand_groups": "No demand groups (firm capacities) in the file: no security-of-supply alerts for customers",
-    "no_load_types": "No load types in the file: demand growth is spread without a residential/industrial shape",
     "slack_from_generator": "The file's slack generator is the external-grid infeed, at its voltage setpoint",
     "merit_order_dispatch": "Power stations (voltage-controlled units) share each study case's demand by merit order (equal marginal cost "
                             "from the file's costs, within their minimum and maximum), all staying synchronised: the units an operator keeps "
@@ -88,6 +85,9 @@ _GENERIC = {
     "min_demand_entered": "Minimum-demand factor entered by the operator at import, applied to every load",
     "summer_ratio_entered": "Summer rating ratio entered by the operator at import, applied to every line",
     "intermediate_ratio_entered": "Intermediate-season rating ratio entered by the operator at import, applied to every line",
+    "forecast_entered": "Demand forecast entered by the operator at import (peak demand's growth on the year before, every plan year), spread uniformly over every load",
+    "n1_scope_entered": "N-1 scope entered by the operator at import; the screen is reported, never a gate",
+    "bands_entered": "Voltage limits by level entered by the operator at import",
 }
 _TECH_FROM_TYPE = {"wp": "wind", "wind": "wind", "pv": "solar", "solar": "solar", "battery": "battery", "storage": "battery",
                    "hydro": "other", "thermal": "other", "gas": "other", "biomass": "other", "nuclear": "other", "chp": "other"}
@@ -118,11 +118,18 @@ def _fill_names(table, prefix: str) -> None:
     table["name"] = [f"{prefix} {i}" if _isnan(v) or str(v).strip() in ("", "nan", "None") else str(v) for i, v in zip(table.index, table["name"])]
 
 
+def _tagged(row, key: str) -> str | None:
+    """A value our own CGMES export writes into a description (`gridforge.<key>=<value>`), or None."""
+    desc = str(row.get("description") or "")
+    marker = f"gridforge.{key}="
+    return desc.split(marker, 1)[1].split()[0].strip(" ;,") if marker in desc else None
+
+
 def _tech_of(row) -> tuple[str, bool]:
     """(technology, known): from our own CGMES tag, else the type the file gives, else 'other'."""
-    desc = str(row.get("description") or "")
-    if "gridforge.tech=" in desc:
-        return desc.split("gridforge.tech=", 1)[1].split()[0].strip(" ;,"), True
+    tagged = _tagged(row, "tech")
+    if tagged:
+        return tagged, True
     t = str(row.get("type") or "").strip().lower()
     for k, v in _TECH_FROM_TYPE.items():
         if k in t:
@@ -203,6 +210,9 @@ def _normalise_fleet(net, rec: _Records, gaps: _Gaps) -> None:
                 gaps.add("generators without a rating (max_p_mw)", label)
             elif _isnan(t.at[i, "p_rated_mw"]):
                 t.at[i, "p_rated_mw"] = rating
+            stated = _tagged(t.loc[i], "import_mw")  # our own export states a charging capacity CIM has no field for
+            if stated is not None and _isnan(t.at[i, "import_mw"]):
+                t.at[i, "import_mw"] = float(stated)
             if tech == "battery" and _isnan(t.at[i, "import_mw"]):
                 gaps.add("batteries without their charging capacity (import_mw)", label)
             elif _isnan(t.at[i, "import_mw"]) and not _isnan(t.at[i, "p_rated_mw"]):
@@ -293,12 +303,57 @@ def normalise_net(net, source_id: str = "import") -> list[ModelAssumption]:
     return rec.list()
 
 
+def levels_of(net) -> list[float]:
+    """The grid's voltage levels (the in-service buses' nominal kV), highest first."""
+    live = net.bus[net.bus["in_service"].astype(bool)]
+    return sorted({round(float(v), 3) for v in live["vn_kv"] if float(v) > 0}, reverse=True)
+
+
+def _study_basis(net, meta: ImportMeta, rec: _Records) -> list[str]:
+    """The study basis a grid file does not carry and the operator must state: the demand forecast (Standard at
+    least), the lowest level the N-1 screen covers, the voltage limits at every level. Applied to the net and
+    recorded as entered; what is missing is a gap (the import is refused with the list)."""
+    from .network import n1_elements
+    gaps: list[str] = []
+    levels = levels_of(net)
+    years = f"{PLAN_START_YEAR + 1} to {PLAN_END_YEAR}"
+    if not meta.forecasts or "ht" not in meta.forecasts:
+        gaps.append(f"no demand forecast: enter the Standard pathway's peak-demand growth on the year before (1.02 = +2 %) for every year "
+                    f"from {years} (Low and High are optional)")
+    else:
+        net["forecasts"] = meta.cumulative()  # what each year is studied at: the year-on-year factors multiplied up
+        named = "; ".join(f"{FORECASTS[p]['short']} x{c[2030]:.2f} by 2030, x{c[PLAN_END_YEAR]:.2f} by {PLAN_END_YEAR}" for p, c in net["forecasts"].items())
+        cited = f" (source: {meta.forecast_source.strip()})" if meta.forecast_source and meta.forecast_source.strip() else " (no source given)"
+        rec.add("forecast_entered", source="operator-entered", element_kind="load", element_ids=net.load.index,
+                message=f"Demand forecast entered at import as year-on-year growth{cited}: {named}; each year's demand is spread uniformly over every load")
+    if meta.n1_min_kv is None:
+        gaps.append(f"no N-1 scope: choose the lowest voltage level the single-outage screen covers (this grid's levels: {', '.join(f'{v:g}' for v in levels)} kV)")
+    elif round(float(meta.n1_min_kv), 3) not in levels:
+        gaps.append(f"the N-1 scope {meta.n1_min_kv:g} kV is not one of this grid's voltage levels ({', '.join(f'{v:g}' for v in levels)} kV)")
+    else:
+        net["n1_min_kv"] = float(meta.n1_min_kv)
+        n = len(n1_elements(net))
+        rec.add("n1_scope_entered", source="operator-entered",
+                message=f"The N-1 screen covers lines and transformers at {meta.n1_min_kv:g} kV and above ({n} elements), entered at import; "
+                        "it is reported, never a gate")
+    stated = {round(b.kv, 3): b for b in meta.voltage_bands or []}
+    missing = [v for v in levels if v not in stated]
+    if missing:
+        gaps.append(f"no voltage limits at {', '.join(f'{v:g}' for v in missing)} kV: state the minimum and maximum (pu) for every level of the grid")
+    else:
+        net["voltage_bands"] = tuple((v, stated[v].vmin_pu, stated[v].vmax_pu) for v in sorted(levels))
+        rec.add("bands_entered", source="operator-entered", element_kind="bus", element_ids=net.bus.index,
+                message="Voltage limits entered at import: " + "; ".join(f"{stated[v].vmin_pu:g}-{stated[v].vmax_pu:g} pu at {v:g} kV" for v in levels))
+    return gaps
+
+
 def apply_import_meta(net, meta: ImportMeta | None) -> list[ModelAssumption]:
-    """Limits the operator knows and the file did not carry, applied uniformly and recorded as
-    operator-entered: an export limit, a minimum-demand factor, seasonal rating ratios."""
+    """What the operator states and the file did not carry, applied and recorded as operator-entered: the
+    known limits (an export limit, a minimum-demand factor, seasonal rating ratios, each optional and applied
+    uniformly) and the study basis (required: a missing part is a gap, `_study_basis`)."""
     rec = _Records()
-    if meta is None:
-        return []
+    meta = meta or ImportMeta()
+    net["gaps"] = list(net.get("gaps") or []) + _study_basis(net, meta, rec)
     if meta.gsp_export_limit_mw is not None:
         net["gsp_name"] = meta.gsp_name or "the external grid"
         net["gsp_export_limit_mw"] = float(meta.gsp_export_limit_mw)
@@ -330,10 +385,6 @@ def inspect_net(net) -> list[ModelAssumption]:
         rec.add("no_gsp_limit", source="file")
     if not has(net.load, "region_id"):
         rec.add("no_demand_groups", source="file")
-    if not has(net.load, "type"):
-        rec.add("no_load_types", source="file")
-    rec.add("gb_voltage_bands")
-    rec.add("n1_scope")
     return rec.list()
 
 
@@ -407,17 +458,17 @@ def validate_net(net) -> ValidationReport:
             warnings.append(_non_convergence(net, why.message))
         elif why is not None and why.type != "gsp":
             warnings.append(f"the base case already breaks a limit: {why.message}; every project would be deferred for it")
-    if converged:  # the plan grows demand to 2035: a network can collapse there even if today's case solves
-        from .config import DEFAULT_SCENARIO, GROWTH_2035
-        from .network import grow_demand
+    if converged:  # the plan grows demand to its last year: a network can collapse there even if today's case solves
+        from .network import apply_growth
+        m_end = net["forecasts"]["ht"][PLAN_END_YEAR]
         grown = copy.deepcopy(net)
-        grow_demand(grown, GROWTH_2035, DEFAULT_SCENARIO, 2035)
+        apply_growth(grown, m_end)  # the Standard forecast, spread as every run spreads it (network.grow_for)
         _, why_grown, _ = feasibility(grown)
         if why_grown is not None and why_grown.type == "non_convergent":
             short = _generation_shortfall(grown)
             cause = (f"its demand of {short[0]:,.0f} MW is more than every power station and the external grid can supply "
                      f"({short[1]:,.0f} MW)" if short else "the grid as described cannot carry that demand")
-            warnings.append(f"with demand grown to 2035 (x{GROWTH_2035:g}, the default pathway) the power flow does not converge: "
+            warnings.append(f"with demand grown to {PLAN_END_YEAR} (x{m_end:.2f}, the Standard forecast) the power flow does not converge: "
                             f"{cause}; every plan year it fails in is reported as having no solution")
     recorded = [ModelAssumption(**{k: v for k, v in r.items()}, count=len(r.get("element_ids", [])) or None)
                 for r in (net["assumptions"].values() if isinstance(net.get("assumptions"), dict) else [])]
@@ -485,6 +536,9 @@ class NgedSource:
     def capabilities(self) -> dict:
         return {"boundary": True, "regions": True, "registry": True, "editions": True, "summer_case": True, "crs": "wgs84"}
 
+    def forecasts(self) -> None:
+        return None  # NGED plans on the FES pathways (config.FORECASTS)
+
     @property
     def cgmes_meta(self):
         return self._nged.NGED_CGMES_META
@@ -526,6 +580,9 @@ class NetBackedSource:
     def fingerprint(self) -> str:
         return self._fingerprint
 
+    def forecasts(self) -> dict[str, dict[int, float]] | None:
+        return self._net.get("forecasts")  # entered at import (apply_import_meta)
+
     def assumptions(self) -> list[ModelAssumption]:
         return list(self._assumptions)
 
@@ -557,6 +614,27 @@ def from_pandapower_net(net, *, id: str, name: str, kind: str, data: bytes, meta
     """Any pandapower net as a source: normalised, the operator's limits applied, what is missing stated."""
     assumptions = normalise_net(net, id) + apply_import_meta(net, meta) + inspect_net(net)
     return NetBackedSource(id=id, name=name, kind=kind, net=net, meta=meta, fingerprint=_fingerprint(data, kind, meta), assumptions=assumptions)
+
+
+def study_levels(net) -> list[dict]:
+    """Each voltage level of a grid, highest first, with what an N-1 screen from that level up would cover."""
+    from .network import n1_elements
+    out = []
+    for v in levels_of(net):
+        els = n1_elements(net, v - 1e-6)
+        out.append({"kv": v, "buses": int((net.bus["vn_kv"].astype(float).round(3) == v).sum()),
+                    "n1_lines": sum(1 for k, _ in els if k == "line"), "n1_trafos": sum(1 for k, _ in els if k == "trafo")})
+    return out
+
+
+def inspect_file(filename: str, data: bytes) -> dict:
+    """What the import form needs to ask about a file before importing it: its voltage levels (`study_levels`) and
+    the voltage-limit presets. Read only: nothing is simulated or kept."""
+    net = source_from_file(filename, data, id="inspect", name=filename).build_net()
+    presets = [{"id": k, "label": p["label"], "note": p["note"],
+                "bands": [{"min_kv": lo_kv, "max_kv": hi_kv, "vmin_pu": lo, "vmax_pu": hi} for lo_kv, hi_kv, lo, hi in p["bands"]]}
+               for k, p in VOLTAGE_BAND_PRESETS.items()]
+    return {"levels": study_levels(net), "presets": presets, "pathways": list(IMPORT_PATHWAYS)}
 
 
 def _cgmes_version(xml_heads: list[bytes]) -> str:
@@ -626,5 +704,6 @@ def default_source() -> NgedSource:
 
 
 __all__ = ["GridSource", "SourceSpec", "SOURCES", "NgedSource", "NetBackedSource", "normalise_net", "apply_import_meta", "inspect_net",
+           "inspect_file", "study_levels", "levels_of",
            "validate_net", "positions", "from_pandapower_net", "cgmes_source", "pandapower_json_source", "matpower_source",
            "source_kind_for", "source_from_file", "default_source", "SYNTHETIC_CENTER"]

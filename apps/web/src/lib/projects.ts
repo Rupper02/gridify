@@ -2,7 +2,7 @@
 // can do (its capabilities), how a source kind and an import report read, and the import form's
 // known-limit fields. Pure; the API validates, imports and stores.
 
-import type { Assumption, Capabilities, ImportReport, Project } from "../types";
+import type { Assumption, BandPreset, Capabilities, Control, FileLevel, ImportReport, Project } from "../types";
 
 export const DEFAULT_PROJECT_ID = "nged-bickerfen";
 
@@ -71,7 +71,11 @@ export function assumptionGroups(rows: Assumption[]): { source: string; label: s
 }
 
 /** One line for an assumption: its message and, when it names elements, how many. */
-export const assumptionText = (a: Assumption): string => (a.count ? `${a.message} (${a.count} ${a.element_kind ?? "element"}${a.count === 1 ? "" : "s"})` : a.message);
+export const assumptionText = (a: Assumption): string => {
+  if (!a.count) return a.message;
+  const kind = a.element_kind ?? "element";
+  return `${a.message} (${a.count} ${a.count === 1 ? kind : kind.endsWith("s") ? `${kind}es` : `${kind}s`})`;
+};
 
 export interface LimitField {
   key: string;
@@ -99,3 +103,127 @@ export function limitsFromForm(values: Record<string, string>): { limits: Record
   }
   return { limits, error: null };
 }
+
+// ---- a project's control mode -----------------------------------------------------------------------------
+
+/** How a project's offer runs it, in words; null: not stated. */
+export function controlText(c: Control | null | undefined): string | null {
+  if (!c) return null;
+  if (c.mode === "voltage") return `Voltage control at ${c.vm_pu} pu, reactive range ±${c.q_range_pf} pf`;
+  return (c.pf ?? 1) >= 1 ? "Unity power factor" : `${c.pf} power factor, ${c.absorbing === false ? "injecting" : "absorbing"}`;
+}
+
+export interface ControlForm {
+  mode: "pf" | "voltage";
+  pf: string;
+  absorbing: boolean;
+  vm: string;
+  range: string;
+}
+export const EMPTY_CONTROL: ControlForm = { mode: "pf", pf: "", absorbing: true, vm: "", range: "" };
+
+/** The typed control mode as the API takes it, or what is missing or out of range. */
+export function controlFromForm(f: ControlForm): { control: Control | null; error: string | null } {
+  if (f.mode === "pf") {
+    const pf = Number(f.pf);
+    if (!f.pf.trim() || !(pf >= 0.5 && pf <= 1)) return { control: null, error: "Power factor between 0.5 and 1 (1 is unity)" };
+    return { control: { mode: "pf", pf, absorbing: f.absorbing }, error: null };
+  }
+  const vm = Number(f.vm), range = Number(f.range);
+  if (!f.vm.trim() || !(vm >= 0.9 && vm <= 1.1)) return { control: null, error: "Setpoint between 0.9 and 1.1 pu" };
+  if (!f.range.trim() || !(range >= 0.5 && range < 1)) return { control: null, error: "Reactive range as a power factor between 0.5 and 1 (e.g. 0.95)" };
+  return { control: { mode: "voltage", vm_pu: vm, q_range_pf: range }, error: null };
+}
+
+// ---- the study basis: what the import must state that a grid file does not carry ------------------------------
+
+/** The demand pathways an import's forecast stands in for, by the FES pathway ids the picker uses; Standard is required. */
+export const PATHWAYS = [
+  { id: "fb", label: "Low", required: false },
+  { id: "ht", label: "Standard", required: true },
+  { id: "ee", label: "High", required: false },
+] as const;
+
+/** The study basis as typed: the forecast by pathway and year, its source, the N-1 floor and the limits by level (kV as text). */
+export interface StudyBasisForm {
+  forecast: Record<string, Record<number, string>>;
+  source: string;
+  n1MinKv: string;
+  bands: Record<string, { vmin: string; vmax: string }>;
+}
+
+export const EMPTY_BASIS: StudyBasisForm = { forecast: {}, source: "", n1MinKv: "", bands: {} };
+
+const kvText = (kv: number): string => `${kv}`;
+
+/**
+ * A preset's limits for each of the file's levels: the band with the highest threshold the level reaches, within that
+ * band's top (EN 50160 stops at 36 kV). A level the preset sets nothing for keeps what was typed there.
+ */
+export function presetBands(preset: BandPreset, levels: FileLevel[], typed: StudyBasisForm["bands"]): StudyBasisForm["bands"] {
+  const out: StudyBasisForm["bands"] = { ...typed };
+  const asc = [...preset.bands].sort((a, b) => a.min_kv - b.min_kv);
+  for (const l of levels) {
+    const band = asc.filter((b) => l.kv >= b.min_kv && (b.max_kv == null || l.kv <= b.max_kv)).pop();
+    if (band) out[kvText(l.kv)] = { vmin: `${band.vmin_pu}`, vmax: `${band.vmax_pu}` };
+  }
+  return out;
+}
+
+const num = (v: string | undefined): number | null => {
+  const t = (v ?? "").trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : NaN;
+};
+
+/**
+ * The study basis as the import form's fields (the forecast and the limits as JSON tables), or the first thing
+ * missing or wrong. `years` are the plan years after the first (today is ×1.00). The API checks it all again.
+ */
+export function studyBasisFields(f: StudyBasisForm, years: number[], levels: FileLevel[]): { fields: Record<string, string>; error: string | null } {
+  const forecasts: Record<string, Record<string, number>> = {};
+  for (const p of PATHWAYS) {
+    const row = f.forecast[p.id] ?? {};
+    const vals = years.map((y) => num(row[y]));
+    if (vals.every((v) => v === null)) {
+      if (p.required) return { fields: {}, error: `Enter the ${p.label} forecast for every year, ${years[0]} to ${years[years.length - 1]}` };
+      continue;
+    }
+    const bad = years.find((_, i) => vals[i] === null || !((vals[i] as number) > 0 && (vals[i] as number) <= 2));
+    if (bad !== undefined) return { fields: {}, error: `The ${p.label} forecast needs a growth factor between 0 and 2 for every year, 1.02 being +2 % (${bad} is missing or out of range)` };
+    forecasts[p.id] = Object.fromEntries(years.map((y, i) => [`${y}`, vals[i] as number]));
+  }
+  const n1 = num(f.n1MinKv);
+  if (n1 === null || Number.isNaN(n1)) return { fields: {}, error: "Choose the lowest voltage level the N-1 screen covers" };
+  const bands = [];
+  for (const l of levels) {
+    const b = f.bands[kvText(l.kv)];
+    const lo = num(b?.vmin), hi = num(b?.vmax);
+    if (lo === null || hi === null || Number.isNaN(lo) || Number.isNaN(hi)) return { fields: {}, error: `Enter the voltage limits at ${l.kv} kV (or pick a preset)` };
+    if (!(lo < 1 && hi > 1)) return { fields: {}, error: `The limits at ${l.kv} kV must hold 1.00 pu between them (min below, max above)` };
+    bands.push({ kv: l.kv, vmin_pu: lo, vmax_pu: hi });
+  }
+  const fields: Record<string, string> = { forecasts: JSON.stringify(forecasts), n1_min_kv: `${n1}`, voltage_bands: JSON.stringify(bands) };
+  if (f.source.trim()) fields.forecast_source = f.source.trim();
+  return { fields, error: null };
+}
+
+/** A pathway's year-on-year factors as typed, multiplied up: its multiple of today's peak by year (null while any year is missing). */
+export function cumulativeOf(row: Record<number, string> | undefined, years: number[]): Record<number, number> | null {
+  let m = 1;
+  const out: Record<number, number> = {};
+  for (const y of years) {
+    const r = num(row?.[y]);
+    if (r === null || Number.isNaN(r) || r <= 0) return null;
+    m *= r;
+    out[y] = m;
+  }
+  return out;
+}
+
+/** What an N-1 floor covers, for the choice's label. */
+export const n1Covers = (l: FileLevel): string => {
+  const parts = [l.n1_trafos ? `${l.n1_trafos} transformer${l.n1_trafos === 1 ? "" : "s"}` : "", l.n1_lines ? `${l.n1_lines} line${l.n1_lines === 1 ? "" : "s"}` : ""].filter(Boolean);
+  return parts.length ? parts.join(", ") : "nothing to screen";
+};

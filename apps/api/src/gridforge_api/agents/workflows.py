@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from dbos import DBOS, SetWorkflowID
 from dbos._error import DBOSWorkflowCancelledError
+from gridforge_optimizer.naming import name_payload
 from pydantic_ai import DeferredToolRequests, DeferredToolResults, ModelMessagesTypeAdapter, ToolApproved, ToolDenied, UsageLimits
 from pydantic_ai.messages import ModelResponse, TextPart
 
@@ -169,6 +170,8 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
             runs.supersede_reviews(con, branch_id, run_key)
             head = repository.require_branch(con, branch_id)
             base = repository.base_of(con, head)
+        if base is None:  # a project's main merges nowhere: nothing to review
+            return None
         with rt.harness.solver_gate.hold():
             verdict, evidence = rt.harness.plans.merge_check(branch_id, base["branch_id"])
         short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value, "limit": f.limit,  # noqa: E731
@@ -177,7 +180,7 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
                 "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings], "n_context": len(verdict.context)}
     mc = _step(gate)
     if mc is None:
-        return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, or superseded by a newer run"}
+        return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, superseded by a newer run, or a main (it merges nowhere)"}
     begun = _begin(run_id, project_id, kind="review", agent="reviewer", branch_id=branch_id)
     if begun["paused"]:
         return {"run_id": run_id, "status": "skipped_paused"}
@@ -241,20 +244,25 @@ def _failed(rt: AgentRuntime, run_id: str, project_id: str, message_id: str, e: 
 
 
 def _figure_flags(text: str, step_outputs: list) -> list[str]:
-    """The soft flags on what the model wrote: digit figures no tool output of the run contains (`check_numbers`)."""
-    return [f"figure {n:g} appears in no tool output of this run" for n in check_numbers(text, step_outputs)]
+    """The soft flags on what the model wrote: digit figures no tool output it read contains (`check_numbers`)."""
+    return [f"figure {n:g} appears in no tool output of this conversation" for n in check_numbers(text, step_outputs)]
 
 
-def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str, run_id: str, res, deps) -> dict:
+def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str, run_id: str, res, deps, earlier_runs: list[str]) -> dict:
     """Store the answerer's result: a text answer, or the proposals that wait for the operator's approval
-    with what the model said alongside them; both carry flags for figures no step produced. A reply the
-    operator cancelled meanwhile is left as it is."""
+    with what the model said alongside them; both carry flags for figures no step produced, its own or one
+    of the earlier runs whose outputs its history holds (`threads.history_runs`). A reply the operator
+    cancelled meanwhile is left as it is."""
     if _cancelled(rt, message_id):
         return {"status": "cancelled", "text": "", "approvals": [], "flags": []}
     out = res.output
-    step_outputs = [s.get("result") for s in rt.evidence.steps(run_id) if s.get("result") is not None]
-    trace = [{"step_id": s["step_id"], "tool": s["tool"], "args": s["args"], "solves": s.get("solves", 0)} for s in rt.evidence.steps(run_id)]
-    evidence = {"steps": [t["step_id"] for t in trace], "branch_id": deps.branch_id, "snapshot_id": rt.harness.warehouse.baseline_id(), "engine": rt.evidence.engine}
+    own = rt.evidence.steps(run_id)
+    read = [s for rid in earlier_runs for s in rt.evidence.steps(rid)] + own
+    # checked against what the model read: the stored engine words named as `tools._recorded` handed them over
+    names = rt.harness.projects.names(project_id)
+    step_outputs = [name_payload(s["result"], names) for s in read if s.get("result") is not None]
+    trace = [{"step_id": s["step_id"], "tool": s["tool"], "args": s["args"], "solves": s.get("solves", 0)} for s in own]
+    evidence = {"steps": [s["step_id"] for s in read], "branch_id": deps.branch_id, "snapshot_id": rt.harness.warehouse.baseline_id(), "engine": rt.evidence.engine}
     if isinstance(out, DeferredToolRequests):
         approvals = []
         with rt.harness.store.cursor() as con:
@@ -290,7 +298,8 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
             question = next((m for m in reversed(msgs) if m["role"] == "user" and m["seq"] < reply["seq"]), None)
             threads.set_message(con, message_id, status="streaming", run_id=run_id)
             t = threads.thread_row(con, thread_id)
-            return {"question": question["content"] if question else "", "history": threads.history(con, thread_id, before_seq=reply["seq"]), "branch_id": t["branch_id"] if t else None}
+            return {"question": question["content"] if question else "", "history": threads.history(con, thread_id, before_seq=reply["seq"]),
+                    "earlier_runs": threads.history_runs(con, thread_id, reply["seq"]), "branch_id": t["branch_id"] if t else None}
     loaded = _step(load)
     begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id)
     if begun["paused"]:
@@ -302,7 +311,7 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
         history = ModelMessagesTypeAdapter.validate_python(loaded["history"]) if loaded["history"] else None
         res = rt.agents["answerer"].run_sync(loaded["question"], deps=deps, message_history=history, usage_limits=_limits())
-        done = _step(lambda: _answered(rt, project_id, thread_id, message_id, run_id, res, deps))
+        done = _step(lambda: _answered(rt, project_id, thread_id, message_id, run_id, res, deps, loaded.get("earlier_runs", [])))
         _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
         _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": 10_000})
         return {"run_id": run_id, **done}
@@ -325,7 +334,8 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
             prior = threads.message_row(con, message_id)
             reply = threads.add_message(con, thread_id, "assistant", "", status="streaming", run_id=run_id, workflow_id=DBOS.workflow_id)
             t = threads.thread_row(con, thread_id)
-            return {"approvals": approvals, "history": prior["model_messages"] or [], "reply_id": reply["message_id"], "branch_id": t["branch_id"] if t else None}
+            return {"approvals": approvals, "history": prior["model_messages"] or [], "reply_id": reply["message_id"],
+                    "earlier_runs": threads.history_runs(con, thread_id, reply["seq"]), "branch_id": t["branch_id"] if t else None}
     loaded = _step(load)
     approvals = loaded["approvals"]
     begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id,
@@ -340,7 +350,7 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
         }
         res = rt.agents["answerer"].run_sync(None, deps=deps, message_history=ModelMessagesTypeAdapter.validate_python(loaded["history"]),
                                              deferred_tool_results=DeferredToolResults(approvals=decisions), usage_limits=_limits())
-        done = _step(lambda: _answered(rt, project_id, thread_id, loaded["reply_id"], run_id, res, deps))
+        done = _step(lambda: _answered(rt, project_id, thread_id, loaded["reply_id"], run_id, res, deps, loaded.get("earlier_runs", [])))
 
         def settle():
             with rt.harness.store.cursor() as con:

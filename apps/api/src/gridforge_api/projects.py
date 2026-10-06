@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from gridforge_optimizer import GridModel, ImportMeta, ModelAssumption
 from gridforge_optimizer.cim import cgmes_zip_bytes, export_cgmes
+from gridforge_optimizer.config import FORECASTS
 from gridforge_optimizer.naming import Names, name_model
 from gridforge_optimizer.network import build_base_net, feasibility
 from gridforge_optimizer.nged import NGED_CGMES_META, gsp_boundary
@@ -66,6 +67,9 @@ class WarehouseNgedSource:
 
     def capabilities(self) -> dict:
         return self._engine.capabilities()
+
+    def forecasts(self) -> dict[str, dict[int, float]] | None:
+        return self._engine.forecasts()
 
 
 class Projects:
@@ -175,6 +179,29 @@ class Projects:
 
     def capabilities(self, pid: str) -> dict:
         return self.source(pid).capabilities()
+
+    def forecasts(self, pid: str) -> dict[str, dict[int, float]] | None:
+        """The project's own demand pathways (entered at import), or None when it plans on the FES pathways."""
+        return self.source(pid).forecasts()
+
+    def pathway_ids(self, pid: str) -> list[str]:
+        """The demand pathways a project's branches can be run on."""
+        own = self.forecasts(pid)
+        return list(own) if own is not None else [fid for fid, f in FORECASTS.items() if f.get("selectable", True)]
+
+    def pathways_for_client(self, pid: str) -> list[dict]:
+        """The demand picker's pathways for a project: the FES pathways, or the forecast entered at import
+        (labelled by the FES pathway it stands in for: Low, Standard, High), each with its multiplier per year."""
+        own = self.forecasts(pid)
+        if own is None:
+            return [{"id": fid, **f} for fid, f in FORECASTS.items() if f.get("selectable", True)]
+        meta = getattr(self.source(pid), "meta", None)
+        cited = (meta.forecast_source or "").strip() if meta is not None else ""
+        return [{"id": fid, "label": f"{FORECASTS[fid]['short']} (entered at import)", "short": FORECASTS[fid]["short"],
+                 "description": f"Peak demand per year as entered at import{f': {cited}' if cited else ''}.",
+                 "growth_2030": curve[2030], "growth_2035": curve[2035], "curve": {str(y): m for y, m in sorted(curve.items())},
+                 "source": cited or "entered at import", "cited": bool(cited), "selectable": True}
+                for fid, curve in own.items()]
 
     def assumptions(self, pid: str) -> list[dict]:
         return [a.model_dump() for a in self.source(pid).assumptions()]

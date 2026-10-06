@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from gridforge_optimizer import Control
 from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_END_YEAR, PLAN_START_YEAR
 
 from .config import MANUAL_READINESS_DEFAULT, MANUAL_STRATEGIC_DEFAULT
@@ -21,6 +22,7 @@ class NewCandidate(BaseModel):
     readiness_rationale: str = ""
     commissioning_year: int | None = None  # requested energisation year; derived if omitted
     import_mw: float | None = None  # charging capacity (batteries); defaults to the rating
+    control: Control | None = None  # how its connection offer runs it; None: not stated (modelled at unity power factor)
     branch_id: str = "main"  # which branch to add the project to
 
 
@@ -66,6 +68,13 @@ class MergeRequest(BaseModel):
     acknowledge: bool = False
 
 
+class RebaseRequest(BaseModel):
+    """Rebase a branch onto its parent as it is now: the operator's pick for every conflict the preview showed
+    (`GET /branches/{id}/rebase`), by conflict id. Nothing is picked for them."""
+
+    picks: dict[str, Literal["parent", "branch", "both"]] = {}
+
+
 class ScenarioUpdate(BaseModel):
     """A branch's demand profile: the pathway and its two growth anchors."""
 
@@ -109,12 +118,14 @@ class RegistryAdd(BaseModel):
 
 class CandidateChange(BaseModel):
     """A change to a project on a branch (the operator's, or an agent's approved proposal): its point of
-    connection, its export rating, its import capacity or its requested year. Omitted fields keep their value."""
+    connection, its export rating, its import capacity, its requested year or how its offer runs it (`control`).
+    Omitted fields keep their value."""
 
     bus_id: int | None = None
     rating_mw: float | None = Field(default=None, ge=0.0)
     import_mw: float | None = Field(default=None, ge=0.0)
     commissioning_year: int | None = None
+    control: Control | None = None
 
 
 class ScheduleSet(BaseModel):

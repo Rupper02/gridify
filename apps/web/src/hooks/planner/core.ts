@@ -64,6 +64,7 @@ export interface PlannerState {
   model: Model | null;
   modelLoading: boolean; // the active project's grid (model + branches) is on its way
   modelError: string | null; // why it could not load (the stamp says so, with a Retry)
+  warehouseStale: boolean; // the last warehouse read was its previous version: the pipeline was writing a new one
   forecasts: Forecast[];
   plan: Plan | null; // the plan's years and phases (GET /forecasts); null until the boot has read them
   maxMw: number;
@@ -127,7 +128,7 @@ export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
 export const INITIAL: PlannerState = {
   projects: [], projectId: DEFAULT_PROJECT_ID, projectsOpen: false, assumptions: null, showAssumptions: false,
-  model: null, modelLoading: true, modelError: null, forecasts: [], plan: null, maxMw: 300, boundary: null, registry: [], registryLoaded: false,
+  model: null, modelLoading: true, modelError: null, warehouseStale: false, forecasts: [], plan: null, maxMw: 300, boundary: null, registry: [], registryLoaded: false,
   branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,

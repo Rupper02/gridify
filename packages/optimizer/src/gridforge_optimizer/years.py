@@ -27,10 +27,10 @@ from .network import (
     apply_reinforcement,
     build_base_net,
     bus_voltages,
+    demand_multiplier,
     feasibility,
-    grow_demand,
-    inject_sgen,
-    interpolate_growth_for_year,
+    grow_for,
+    inject_project,
     line_loadings,
     n1_screen,
     n1_screen_cases,
@@ -89,9 +89,9 @@ def evaluate_year(
     """Solve one year of the plan (see the module docstring). `n1` runs the year's own N-1 screen;
     `n1_windows` the screen during that year's works windows (the year's setting when None)."""
     screen_windows = n1 if n1_windows is None else n1_windows
-    growth = interpolate_growth_for_year(year, params.growth_2030, params.growth_2035)
+    growth = demand_multiplier(params, year)
     net = net_factory()
-    grow_demand(net, growth, params.scenario, _horizon(year))
+    grow_for(net, params, growth, _horizon(year))
     for r in reinforcements:
         apply_reinforcement(net, r)
     apply_works_after(net, outages, year)  # repowered elements, from the year after their window
@@ -99,7 +99,7 @@ def evaluate_year(
     for c in candidates:
         y = in_service.get(c.request_id)
         if y is not None and y <= year and c.bus_id is not None:
-            inject_sgen(net, c.bus_id, c.rating_mw or 0.0, c.request_id, c.technology, import_mw=c.import_mw)
+            inject_project(net, c)
             energised.append(c.request_id)
 
     feasibility(net)  # settles the taps for the intact state
@@ -158,6 +158,8 @@ def year_signature(
     )
     sig = [year, params.scenario, round(params.growth_2030, 4), round(params.growth_2035, 4), energised,
            sorted(r.model_dump_json() for r in reinforcements), works]
+    if params.curve:  # an entered forecast's own figure for the year (the FES path is set by its anchors above)
+        sig.append(round(demand_multiplier(params, year), 4))
     return hashlib.sha256(json.dumps(sig, default=str).encode()).hexdigest()[:24]
 
 

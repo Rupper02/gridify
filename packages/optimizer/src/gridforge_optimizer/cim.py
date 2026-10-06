@@ -315,14 +315,17 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
             tech = str(t.at[i, "type"] or "other").lower()
             p_rated = float(t.at[i, "p_rated_mw"]) if "p_rated_mw" in t.columns and t.at[i, "p_rated_mw"] == t.at[i, "p_rated_mw"] else float(t.at[i, "p_mw"])
             uid = _id("genunit", key)
+            imp = t.at[i, "import_mw"] if "import_mw" in t.columns else None
+            tag = f"gridforge.tech={tech}" + (f" gridforge.import_mw={float(imp):g}" if imp == imp and imp is not None else "")  # what CIM has no field for
             e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
             eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
-            eq.attr(e, "IdentifiedObject.description", f"gridforge.tech={tech}")  # so our own export round-trips battery / hybrid
+            eq.attr(e, "IdentifiedObject.description", tag)  # so our own export round-trips battery / hybrid and a charging capacity
             eq.attr(e, "GeneratingUnit.initialP", float(t.at[i, "p_mw"]))
             eq.attr(e, "GeneratingUnit.maxOperatingP", p_rated)
             eq.attr(e, "GeneratingUnit.minOperatingP", float(t.at[i, "min_p_mw"]) if regulating else 0.0)
             eq.attr(e, "GeneratingUnit.nominalP", p_rated)
             e = eq.obj("SynchronousMachine", mid, name=f"{name} ({key})")
+            eq.attr(e, "IdentifiedObject.description", tag)  # the machine is what an importer reads as the generator
             eq.ref(e, "Equipment.EquipmentContainer", vl_of_bus[b])
             eq.ref(e, "ConductingEquipment.BaseVoltage", base_voltage[round(float(net.bus.at[b, "vn_kv"]), 3)])
             eq.ref(e, "RotatingMachine.GeneratingUnit", uid)

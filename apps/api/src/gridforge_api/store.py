@@ -19,14 +19,14 @@ from .config import NGED_PROJECT_ID, now
 
 ADDED_COLS = (
     "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
-    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw"
+    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw, control_json"
 )
 OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "weeks", "kind", "created_at",
                "work", "repower", "factor"]
 REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "factor", "label", "created_at"]
 BRANCH_COLS = [
     "branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035",
-    "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by", "project_id",
+    "w_readiness", "w_need", "w_strategic", "status", "created_at", "merged_at", "created_by", "project_id", "fork_json",
 ]
 PROJECT_COLS = ["project_id", "name", "source_kind", "source_ref", "snapshot_id", "created_at", "meta_json", "report_json", "capabilities_json", "main_id"]
 FINDING_COLS = [
@@ -205,6 +205,8 @@ def migrate(con: Cursor) -> None:
         con.execute("ALTER TABLE added_candidates ADD COLUMN scheduled_year INTEGER")
     if "import_mw" not in cols:  # charging capacity (batteries); None = same as the rating
         con.execute("ALTER TABLE added_candidates ADD COLUMN import_mw DOUBLE")
+    if "control_json" not in cols:  # how its connection offer runs it (types.Control); None = not stated
+        con.execute("ALTER TABLE added_candidates ADD COLUMN control_json VARCHAR")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS branches (
@@ -219,6 +221,10 @@ def migrate(con: Cursor) -> None:
     if "project_id" not in con.columns("branches"):
         con.execute("ALTER TABLE branches ADD COLUMN project_id VARCHAR")
         con.execute("UPDATE branches SET project_id = ? WHERE project_id IS NULL", [NGED_PROJECT_ID])
+    # the fork point: the parent's state when the branch was opened (or last rebased), what tells the branch's
+    # own changes from the ones its parent received since (rebase.py); NULL on a main and on older branches
+    if "fork_json" not in con.columns("branches"):
+        con.execute("ALTER TABLE branches ADD COLUMN fork_json VARCHAR")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS projects (

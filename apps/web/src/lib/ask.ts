@@ -42,9 +42,10 @@ export function suggestedQuestions(c: AskContext): string[] {
 }
 
 /** What the planner refreshes after a proposal the operator approved, by the tool that made it. */
-export type ProposalEffect = "run" | "project" | "reinforcement" | "works" | "branch";
+export type ProposalEffect = "run" | "project" | "reinforcement" | "works" | "branch" | "rebase";
 export const PROPOSAL_EFFECT: Record<string, ProposalEffect> = {
   propose_run: "run",
+  propose_rebase: "rebase",
   propose_candidate: "project",
   propose_candidate_change: "project",
   propose_reinforcement: "reinforcement",

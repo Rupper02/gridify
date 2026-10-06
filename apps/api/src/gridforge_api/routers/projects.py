@@ -1,11 +1,13 @@
-"""Projects over HTTP: list them, import one (a CGMES zip, a pandapower JSON or a MATPOWER .mat as a
-multipart upload, with the limits the operator knows), read a project's model, boundary, registry,
+"""Projects over HTTP: list them, read a file's voltage levels before importing it, import one (a CGMES zip,
+a pandapower JSON or a MATPOWER .mat as a multipart upload, with the limits the operator knows and the study
+basis: the demand forecast, the N-1 scope and the voltage limits), read a project's model, boundary, registry,
 assumptions and branches, run its main, export it as CGMES, delete it. The unprefixed routes in
 `model.py`, `registry.py` and `optimize.py` are the same reads bound to the built-in NGED project."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -13,6 +15,7 @@ from fastapi.responses import Response
 from pydantic import ValidationError
 
 from gridforge_optimizer import ImportMeta
+from gridforge_optimizer.sources import inspect_file, source_kind_for
 
 from .. import repository
 from ..agents import events
@@ -38,6 +41,10 @@ async def import_project(
     min_demand_factor: float | None = Form(None),
     summer_rating_ratio: float | None = Form(None),
     intermediate_rating_ratio: float | None = Form(None),
+    forecasts: str | None = Form(None),
+    forecast_source: str | None = Form(None),
+    n1_min_kv: float | None = Form(None),
+    voltage_bands: str | None = Form(None),
 ) -> dict:
     """Import a grid as a new project. The file's extension picks the importer (`sources.SOURCES`:
     .zip CGMES, .json pandapower, .mat MATPOWER); the optional form fields are what the operator knows
@@ -46,7 +53,13 @@ async def import_project(
     data = await file.read()
     filename = file.filename or "upload"
     entered = {"gsp_export_limit_mw": gsp_export_limit_mw, "gsp_name": gsp_name, "min_demand_factor": min_demand_factor,
-               "summer_rating_ratio": summer_rating_ratio, "intermediate_rating_ratio": intermediate_rating_ratio}
+               "summer_rating_ratio": summer_rating_ratio, "intermediate_rating_ratio": intermediate_rating_ratio,
+               "forecast_source": forecast_source, "n1_min_kv": n1_min_kv}
+    try:  # the forecast and the bands are tables, sent as JSON fields of the form
+        entered["forecasts"] = json.loads(forecasts) if forecasts else None
+        entered["voltage_bands"] = json.loads(voltage_bands) if voltage_bands else None
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"the forecast or the voltage limits are not valid JSON: {e}") from None
     try:
         meta = ImportMeta(**entered) if any(v not in (None, "") for v in entered.values()) else None
     except ValidationError as e:
@@ -58,6 +71,28 @@ async def import_project(
         events.emit(agents, "project.imported", {"project_id": out["project_id"], "snapshot_id": out["snapshot_id"]})
         return out
     return await asyncio.to_thread(create)
+
+
+@router.post("/projects/inspect")
+async def inspect_project_file(file: UploadFile = File(...)) -> dict:
+    """What the import form asks about a file before it is imported: its voltage levels (each with what an N-1
+    screen from that level down covers) and the voltage-limit presets. Nothing is stored or simulated."""
+    data = await file.read()
+    filename = file.filename or "upload"
+    try:
+        source_kind_for(filename)
+    except ValueError as e:
+        raise HTTPException(status_code=415, detail=str(e)) from None
+    try:
+        return await asyncio.to_thread(inspect_file, filename, data)
+    except Exception as e:  # a file the importer cannot read is the user's problem to see, not a 500
+        raise HTTPException(status_code=422, detail={"code": "unreadable", "message": f"could not read the file: {type(e).__name__}: {e}"}) from None
+
+
+@router.get("/projects/{pid}/forecasts")
+def project_forecasts(pid: str) -> dict:
+    """The demand pathways a project's branches run on: the FES pathways, or the forecast entered at import."""
+    return {"project_id": pid, "forecasts": projects.pathways_for_client(pid)}
 
 
 @router.get("/projects/{pid}")

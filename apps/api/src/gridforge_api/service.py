@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable
 from typing import Literal, NamedTuple
 
+from fastapi import HTTPException
 from gridforge_optimizer import (
     PLAN_YEARS,
     STUDIES,
@@ -39,7 +40,7 @@ from gridforge_optimizer import (
 )
 from gridforge_optimizer.config import FORECASTS
 
-from . import ledger, narration, repository
+from . import ledger, narration, proposals, repository
 from .cache import ResultCache, cand_key
 from .config import now
 from .projects import Projects
@@ -47,8 +48,20 @@ from .schemas import BestWindowRequest, OptimizeRequest
 from .store import ScenarioStore
 
 
-def resolve_params(body: OptimizeRequest) -> OptimizeParams:
-    """Resolve a request to concrete OptimizeParams (named DFES pathway -> feeder multipliers)."""
+def resolve_params(body: OptimizeRequest, forecasts: dict[str, dict[int, float]] | None = None) -> OptimizeParams:
+    """Resolve a request to concrete OptimizeParams: on a grid with its own forecast (`forecasts`, entered at
+    import) the pathway's multiplier for every plan year; otherwise a named FES pathway's anchors, or the
+    request's own figures ("custom")."""
+    weights = {
+        k: v for k, v in {
+            "w_readiness": body.w_readiness, "w_need": body.w_need, "w_strategic": body.w_strategic,
+        }.items() if v is not None
+    }
+    if forecasts is not None:
+        if body.scenario not in forecasts:
+            raise HTTPException(status_code=422, detail=f"this grid's forecast has no '{body.scenario}' pathway; it has {', '.join(forecasts)}")
+        curve = forecasts[body.scenario]
+        return OptimizeParams(growth_2030=curve[2030], growth_2035=curve[2035], scenario=body.scenario, curve=curve, **weights)
     if body.scenario in FORECASTS:
         scenario = body.scenario
         growth_2030 = FORECASTS[scenario]["growth_2030"]
@@ -56,11 +69,6 @@ def resolve_params(body: OptimizeRequest) -> OptimizeParams:
     else:
         scenario = "custom"
         growth_2030, growth_2035 = body.growth_2030, body.growth_2035
-    weights = {
-        k: v for k, v in {
-            "w_readiness": body.w_readiness, "w_need": body.w_need, "w_strategic": body.w_strategic,
-        }.items() if v is not None
-    }
     return OptimizeParams(growth_2030=growth_2030, growth_2035=growth_2035, scenario=scenario, **weights)
 
 
@@ -129,6 +137,10 @@ class PlanService:
         self.narrator = narrator
 
     # --- inputs ------------------------------------------------------------------------------------
+    def params(self, req: OptimizeRequest, project_id: str) -> OptimizeParams:
+        """A request's engine parameters on its project (an imported grid plans on its own forecast)."""
+        return resolve_params(req, self.projects.forecasts(project_id))
+
     def candidates(self, branch_id: str = "main") -> list[Candidate]:
         """The optimizer's candidate list for a branch (the projects added to it)."""
         with self.store.cursor() as con:
@@ -146,6 +158,7 @@ class PlanService:
                 review_reasons=r.get("review_reasons") or "",
                 commissioning_year=(None if r.get("commissioning_year") is None else int(r["commissioning_year"])),
                 import_mw=(None if r.get("import_mw") is None else float(r["import_mw"])),
+                control=repository.control_of(r),
             )
             for r in rows
         ]
@@ -188,7 +201,7 @@ class PlanService:
         `result_cache` table (survives restarts, shared by every endpoint that needs the same run), then
         the engine. Keys include the project's baseline, the parameters, the candidate set, the
         reinforcements and the engine fingerprint."""
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
         return self.cache.through(
             self._optimize_key(b, params), "optimize", baseline=b.baseline,
             parse=OptimizeResult.model_validate_json,
@@ -206,7 +219,7 @@ class PlanService:
         """Every year of the plan (years.evaluate_years), cached like a run: the key adds the outages,
         the schedule and the reinforcements, which change the years but not the queue. A cached plan
         still reaches `on_year` year by year, the same way a fresh one does."""
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
         return self.cache.through(
             self._years_key(b, params), "years", baseline=b.baseline,
             parse=lambda s: {k: YearResult.model_validate(v) for k, v in json.loads(s).items()},
@@ -232,7 +245,7 @@ class PlanService:
         is this plan's years key with the outages swapped for the windows studied."""
         if not outages:
             return []
-        params = resolve_params(plan.req)
+        params = self.params(plan.req, plan.project_id)
         on = plan._replace(outages=list(outages))
 
         def study() -> list[OutageStudy]:
@@ -270,7 +283,7 @@ class PlanService:
         the cache under the keys its current projects, profile, reinforcements, works windows and
         schedule produce. Costs no solve."""
         b = self.inputs(branch_id)
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
         okey, ykey = self._optimize_key(b, params), self._years_key(b, params)
         reasons: list[str] = []
         if not self.cache.has(okey):
@@ -279,29 +292,50 @@ class PlanService:
             reasons.append("the plan years have not been solved for the current schedule or works windows")
         return Freshness(not reasons, reasons, okey, ykey)
 
-    def merge_check(self, head_id: str, base_id: str, *, removed_works=(), removed_reinforcements=()) -> tuple[MergeVerdict, dict]:
+    def _what_merging_undoes(self, head_id: str, base_id: str) -> dict:
+        """What a merge of the head into its base would take away from the base, read from the store (no solve):
+        the parent's changes since the fork the branch lacks (None when the fork point is not known), and the works
+        windows and reinforcements the branch itself removed."""
+        with self.store.cursor() as con:
+            head = repository.require_branch(con, head_id)
+            onto_parent = head.get("parent_id") == base_id
+            plan = repository.rebase_plan(con, head) if onto_parent else None
+            removed = proposals.on_merge(repository.outage_rows(con, base_id), repository.outage_rows(con, head_id),
+                                         repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, head_id))
+        works = [w["outage_id"] for w in removed["works_removed"]]
+        reinf = [r["reinforcement_id"] for r in removed["reinforcements_removed"]]
+        known = plan is not None and plan.fork_kind != "none"
+        if known:  # what the parent added after the fork is `behind`, not something the branch removed
+            works = [w for w in works if w in plan.fork["works"]]
+            reinf = [r for r in reinf if r in plan.fork["reinforcements"]]
+        return {"parent_moved": [c.move() for c in plan.behind] if known else None,
+                "fork_unknown": plan is not None and not known, "removed_works": works, "removed_reinforcements": reinf}
+
+    def merge_check(self, head_id: str, base_id: str) -> tuple[MergeVerdict, dict]:
         """May this branch merge into its base? A stale branch is refused without a solve; otherwise
-        both plans (the base solved if need be, as the diff does) go through `gate.merge_verdict`.
-        Returns the verdict and the evidence it was judged on (cache keys, snapshot, engine)."""
+        both plans (the base solved if need be, as the diff does) go through `gate.merge_verdict`. A branch
+        behind its parent is refused either way. Returns the verdict and the evidence it was judged on
+        (cache keys, snapshot, engine)."""
+        undoes = self._what_merging_undoes(head_id, base_id)
         fresh = self.freshness(head_id)
         head_in = self.inputs(head_id)
         evidence = {"fresh": fresh.fresh, "stale_reasons": fresh.reasons, "head_optimize_key": fresh.optimize_key,
                     "head_years_key": fresh.years_key, "snapshot_id": head_in.baseline,
                     "engine": self.cache.engine}
         if not fresh.fresh:
-            return merge_verdict(None, None, fresh=False, stale_reasons=fresh.reasons, base_label=base_id), evidence
+            return merge_verdict(None, None, fresh=False, stale_reasons=fresh.reasons, base_label=base_id,
+                                 parent_moved=undoes["parent_moved"], fork_unknown=undoes["fork_unknown"]), evidence
         base_in = self.inputs(base_id)
         head, base, d = self._solved_pair(head_in, base_in)
-        evidence["base_years_key"] = self._years_key(base_in, resolve_params(base_in.req))
-        verdict = merge_verdict(head, base, d, scheduled=head_in.schedule, removed_works=list(removed_works),
-                                removed_reinforcements=list(removed_reinforcements), base_label=base_id)
+        evidence["base_years_key"] = self._years_key(base_in, self.params(base_in.req, base_in.project_id))
+        verdict = merge_verdict(head, base, d, scheduled=head_in.schedule, base_label=base_id, **undoes)
         return verdict, evidence
 
     # --- the findings ledger --------------------------------------------------------------------------
     def record_findings(self, branch_id: str, b: BranchInputs, result: OptimizeResult, years: dict[str, YearResult]) -> None:
         """Write what a run found to the ledger: upsert what is still there (same fingerprint, same
         row), resolve what the run no longer reports. The evidence points at the exact cached study."""
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
         found = extract_findings(result.model_copy(update={"years": years}), scheduled=b.schedule)
         evidence = {"optimize_key": self._optimize_key(b, params),
                     "years_key": self._years_key(b, params), "snapshot_id": b.baseline,
@@ -316,7 +350,7 @@ class PlanService:
         """`suggest_unblock` for a branch (optionally for one deferred project), through the same two
         cache layers (it costs dozens of solves). Trialled on the branch's reinforced network."""
         b = self.inputs(branch_id)
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
         base = self.compute(b)
         return self.cache.through(
             self.cache.key("suggest", params, b.ckey, b.baseline, extra=f"{limit}|{request_id}|{reinf_key(b.reinforcements)}"), "suggest",
@@ -334,7 +368,7 @@ class PlanService:
         depend on (years_key) and the request itself."""
         report = progress or (lambda _s, _f: None)
         b = self.inputs(branch_id)
-        params = resolve_params(b.req)
+        params = self.params(b.req, b.project_id)
 
         def search() -> list[dict]:
             result = self.compute(b, progress=lambda s, f: report("queue decided" if s == "done" else s, 0.3 * f))
@@ -359,7 +393,7 @@ class PlanService:
         years' key for the studies that read them (what an agent's recorded step points at)."""
         b = self.inputs(branch_id)
         extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if STUDIES[kind].needs_plan else "")
-        return self.cache.key(f"study:{kind}", resolve_params(b.req), b.ckey, b.baseline, extra=extra)
+        return self.cache.key(f"study:{kind}", self.params(b.req, b.project_id), b.ckey, b.baseline, extra=extra)
 
     def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False, hold=nullcontext) -> StudyResult:
         """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
@@ -372,7 +406,7 @@ class PlanService:
         spec = STUDIES[kind]
         p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
         b = self.inputs(branch_id)
-        engine_params = resolve_params(b.req)
+        engine_params = self.params(b.req, b.project_id)
 
         def context() -> StudyContext:
             result = self.result_with_years(b) if spec.needs_plan else None
@@ -413,6 +447,7 @@ class PlanService:
             row = rows_by_id.get(q["request_id"], {})
             q["applicant"] = row.get("applicant") or ""
             q["import_mw"] = row.get("import_mw")
+            q["control"] = repository.control_of(row) if row else None  # how the run ran it (None: not stated, unity)
             # the operator's chosen energisation year (persisted on the branch) vs the optimizer's
             # recommendation (one definition, shared with the findings ledger and the merge gate)
             sy = row.get("scheduled_year")
@@ -442,14 +477,14 @@ class PlanService:
         out["branch_id"] = branch_id
         # the identity of this result's physics (the plan-years cache key): what a review or an agent event
         # refers to, the same for a re-run with the same inputs, different as soon as anything changes
-        out["run_key"] = self._years_key(b, resolve_params(b.req))
+        out["run_key"] = self._years_key(b, self.params(b.req, b.project_id))
         out["justification"] = ""
         return out
 
     def _payload_key(self, b, body: OptimizeRequest, branch_id: str) -> str:
         # the payload is per branch (it carries the branch id, schedule and ledger write), while the engine
         # results underneath it are shared by every branch with the same inputs
-        return self.cache.key("payload", resolve_params(body), b.ckey, b.baseline, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
+        return self.cache.key("payload", self.params(body, b.project_id), b.ckey, b.baseline, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
 
     def payload_key(self, body: OptimizeRequest, branch_id: str) -> str:
         """The identity of `optimize_payload(body, branch_id)`'s result (the view year only orders the work):
@@ -460,11 +495,12 @@ class PlanService:
         """Pre-compute a branch's plan on every selectable demand profile other than its own (its own is a
         real job the planner joins), so switching the profile finds the run in the cache. Best-effort, on
         the job worker: before each profile it checks `idle()` and stops as soon as a real job is waiting."""
-        own = self.inputs(branch_id).req
-        for fid, fc in FORECASTS.items():
+        own_in = self.inputs(branch_id)
+        own = own_in.req
+        for fid in self.projects.pathway_ids(own_in.project_id):
             if not idle():
                 return
-            if fid != own.scenario and fc.get("selectable", True):
+            if fid != own.scenario:
                 self.optimize_payload(own.model_copy(update={"scenario": fid, "with_justification": False}), branch_id)
 
     def optimize_payload(self, body: OptimizeRequest, branch_id: str = "main", progress=None,
@@ -479,7 +515,7 @@ class PlanService:
         report = progress or (lambda _s, _f: None)
         stored = self.inputs(branch_id)
         b = stored._replace(req=body)
-        params = resolve_params(body)
+        params = self.params(body, b.project_id)
         key = self._payload_key(b, body, branch_id)
         if key in self.cache.payload:
             return self.cache.payload[key]
@@ -498,7 +534,7 @@ class PlanService:
         years = self.plan_years(b, result, view_year, progress=lambda s, f: report(s, 0.5 + 0.45 * f),
                                 on_year=on_year)
         out["years"] = {k: v.model_dump() for k, v in years.items()}
-        if params == resolve_params(stored.req):
+        if params == self.params(stored.req, stored.project_id):
             self.record_findings(branch_id, b, result, years)
         if body.with_justification and result.queue:  # nothing queued (main today): nothing to narrate
             report("narration", 0.95)

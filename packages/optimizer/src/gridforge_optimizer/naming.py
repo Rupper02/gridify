@@ -182,8 +182,11 @@ def name_model(model) -> Names:
     return names
 
 
-# "line 12", "Lines 0 and 1", "transformers 29, 30 and 31", "bus 19": not one already named "(line 12)"
-_REF = re.compile(r"(?<!\()\b(line|transformer|trafo|bus)(?:s|es)? (\d+(?:(?:,? and |, )\d+)*)\b", re.IGNORECASE)
+# "line 12", "Lines 0 and 1", "transformers 29, 30 and 31", "bus 19": not one already named "(line 12)", and not a
+# figure written after the word ("worst line 93%", "a line 4 km long", "line 4.5 MW"): a number followed by a percent
+# sign, a decimal or a unit is a value, not an element
+_REF = re.compile(r"(?<!\()\b(line|transformer|trafo|bus)(?:s|es)? (\d+(?:(?:,? and |, )\d+)*)\b"
+                  r"(?![.,]\d)(?!\s*%)(?!\s*(?:km|MW|MVAr|MVA|kV|kA|pu)\b)", re.IGNORECASE)
 
 
 def name_text(text: str, names: Names) -> str:

@@ -39,8 +39,9 @@ export const sumMw = (xs: { rating_mw: number | null }[]): number =>
   Math.round(xs.reduce((a, b) => a + (b.rating_mw ?? 0), 0) * 10) / 10;
 export const byStatus = (q: QueueItem[], st: Status): QueueItem[] => q.filter((x) => x.status === st);
 /** A project's headline MW: its export, or its import for demand-type projects that export nothing. */
-export const headlineMw = (x: { rating_mw: number | null; import_mw?: number | null }): number =>
-  (x.rating_mw ?? 0) > 0 ? (x.rating_mw ?? 0) : (x.import_mw ?? 0);
+/** A project's headline MW: its export, else its import; null when it states neither (an incomplete application). */
+export const headlineMw = (x: { rating_mw: number | null; import_mw?: number | null }): number | null =>
+  (x.rating_mw ?? 0) > 0 ? (x.rating_mw as number) : (x.import_mw ?? x.rating_mw ?? null);
 
 // ---- the year being viewed ----------------------------------------------------------------------
 /** The stored result for a year; while a run is still solving, the nearest year already solved. */
@@ -71,6 +72,14 @@ export interface Staleness {
  * Whether the result on screen is out of date for the branch as it stands now: the profile changed,
  * or outages, reinforcements or scheduled years changed since the run (`studied` is what it covered).
  */
+/** What a branch's parent is called in copy: "main" for its project's main, else the parent branch's name. */
+export const parentName = (branches: Branch[], b: Pick<Branch, "parent_id"> | null | undefined, mainId: string): string =>
+  !b?.parent_id || b.parent_id === mainId ? "main" : (branches.find((x) => x.branch_id === b.parent_id)?.name ?? b.parent_id);
+
+/** "behind main · 2": an open branch lacking changes its parent received after it was opened (rebase it), else null. */
+export const behindLabel = (b: Pick<Branch, "behind"> | null | undefined, parent = "main"): string | null =>
+  b?.behind ? `behind ${parent} · ${b.behind}` : null;
+
 export function staleness(
   r: OptimizeResult | null,
   branch: Pick<Branch, "scenario"> | null,
@@ -146,7 +155,8 @@ export function changedProjects(stored: RegistryItem[], q: QueueItem[]): number 
     const x = by.get(c.request_id);
     return (
       !!x &&
-      (x.bus_id !== c.bus_id || (x.rating_mw ?? 0) !== (c.rating_mw ?? 0) || (x.import_mw ?? null) !== (c.import_mw ?? null) || (x.commissioning_year ?? null) !== (c.commissioning_year ?? null))
+      (x.bus_id !== c.bus_id || (x.rating_mw ?? 0) !== (c.rating_mw ?? 0) || (x.import_mw ?? null) !== (c.import_mw ?? null) || (x.commissioning_year ?? null) !== (c.commissioning_year ?? null) ||
+        JSON.stringify(x.control ?? null) !== JSON.stringify(c.control ?? null))
     );
   }).length;
 }
@@ -311,6 +321,13 @@ export interface WorstElement {
   sel: ElementSel;
 }
 /** The most loaded line or transformer in a year (worst case across the two study cases). */
+/** The year's N-1 screen in two counts: the single outages that breach a limit (in any case), and every breach (the
+ * screen lists each element an outage breaches as its own finding). */
+export function n1Counts(yr: YearResult | null): { outages: number; breaches: number } {
+  const v = yr?.n1_violations ?? [];
+  return { outages: new Set(v.map((x) => `${x.outage_type}:${x.outage_id}`)).size, breaches: v.length };
+}
+
 export function worstElement(yr: YearResult | null, ix: ModelIndex | null): WorstElement | null {
   if (!yr || !ix) return null;
   let best: WorstElement | null = null;
@@ -410,10 +427,12 @@ export function projectLabel(x: QueueItem | RegistryItem): string {
 export const deferredMw = (q: QueueItem[]): number => sumMw(byStatus(q, "Deferred"));
 
 // one reference or a list of them ("line 16", "lines 0 and 1", "transformers 29, 30 and 31"); not one the API already
-// named, whose id sits in brackets after its name ("Bicker Fen to Boston 132 kV, circuit 2 (line 1)")
+// named, whose id sits in brackets after its name ("Bicker Fen to Boston 132 kV, circuit 2 (line 1)"), and not a figure
+// written after the word ("worst line 93%", "a line 4 km long"): as the engine's naming._REF
+const NOT_A_FIGURE = String.raw`(?![.,]\d)(?!\s*%)(?!\s*(?:km|MW|MVAr|MVA|kV|kA|pu)\b)`;
 const REF: Record<"line" | "transformer", RegExp> = {
-  line: /(?<!\()\b(lines?) (\d+(?:(?:,? and |, )\d+)*)\b/gi,
-  transformer: /(?<!\()\b(transformers?) (\d+(?:(?:,? and |, )\d+)*)\b/gi,
+  line: new RegExp(String.raw`(?<!\()\b(lines?) (\d+(?:(?:,? and |, )\d+)*)\b` + NOT_A_FIGURE, "gi"),
+  transformer: new RegExp(String.raw`(?<!\()\b(transformers?) (\d+(?:(?:,? and |, )\d+)*)\b` + NOT_A_FIGURE, "gi"),
 };
 const joinNames = (xs: string[]): string => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 const nameRefs = (text: string, kind: "line" | "transformer", name: (id: number) => string | null): string =>

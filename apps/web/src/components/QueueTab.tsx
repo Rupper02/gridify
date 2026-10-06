@@ -53,7 +53,7 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
             const onBranch = derived.branchOnly.has(x.request_id);
             const isSel = s.sel?.kind === "project" && s.sel.id === x.request_id;
             const eff = isQ(x) ? effYearOf(x) : null;
-            const when = !isQ(x) ? "unranked" : eff ? `energises ${eff}` : x.status === "Rejected" ? "rejected" : "no year";
+            const when = !isQ(x) ? "unranked" : eff ? `energises ${eff}` : x.status === "Rejected" ? "not assessed" : "no year";
             const mw = headlineMw(x);
             return (
               <button

@@ -7,7 +7,7 @@ import { Info, X } from "@phosphor-icons/react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
-import { gspTicks, worstElement } from "../lib/derive";
+import { gspTicks, n1Counts, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
 import { runStatus } from "../lib/runStages";
@@ -15,7 +15,7 @@ import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "year",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "warehouseStale" | "year",
   "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsFailed" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
 >;
@@ -97,6 +97,7 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
         </div>
       )}
       {synthetic && <span className="synthetic-tag">Synthetic layout: the file has no coordinates, so the buses are laid out, not placed.</span>}
+      {s.warehouseStale && <span className="synthetic-tag">Read while the pipeline was writing a new warehouse version: what you see is the previous version. Reload the page to read the new one.</span>}
       <button className="assume-btn" onClick={() => void actions.toggleAssumptions()} aria-expanded={s.showAssumptions}>
         <Info size={12} />
         {s.showAssumptions ? "Hide what the model assumes" : "What the model assumes"}
@@ -122,6 +123,7 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
 function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean }) {
   const { s, actions, derived } = planner;
   const { yr, ix, exact, yearsSolved, yearsFailed, yearsTotal } = derived;
+  const n1 = n1Counts(yr);
   const { note } = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
   const worst = worstElement(yr, ix);
   const sgt = s.boundary?.sgt_count;
@@ -163,7 +165,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         <div className="reading">
           <span className="k">Voltage band</span>
           <span className="v">{yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
-          <span className="n">to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "statutory bands"}</span>
+          <span className="n">to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "limits by level"}</span>
         </div>
         <div className="reading">
           <span className="k">Peak demand</span>
@@ -173,9 +175,13 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
         <div className="reading">
           <span className="k">N-1 findings</span>
           <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
-            {yr ? `${yr.n1_violations.length} / ${yr.n1_screened}` : "–"}
+            {yr ? (yr.n1_screened ? `${n1.outages} / ${yr.n1_screened}` : "none") : "–"}
           </span>
-          <span className="n">single outages screened{yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only</span>
+          <span className="n">
+            {yr && !yr.n1_screened
+              ? "no line or transformer is in the N-1 scope: not studied"
+              : `single outages that breach a limit${n1.breaches ? ` (${n1.breaches} ${n1.breaches === 1 ? "breach" : "breaches"})` : ""}, screened${yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only`}
+          </span>
         </div>
       </div>
       )}

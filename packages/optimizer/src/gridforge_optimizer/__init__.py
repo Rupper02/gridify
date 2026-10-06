@@ -32,6 +32,7 @@ from .suggest import suggest_unblock
 from .types import (
     Candidate,
     ValidationReport,
+    Control,
     ImportMeta,
     GridModel,
     OptimizeParams,
@@ -109,6 +110,7 @@ __all__ = [
     "source_from_file",
     "validate_net",
     "GridModel",
+    "Control",
     "ImportMeta",
     "ValidationReport",
     "STUDIES",

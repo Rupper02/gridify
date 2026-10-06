@@ -22,13 +22,14 @@ from .greedy import NetFactory, optimize
 from .network import (
     apply_reinforcement,
     build_base_net,
-    drop_sgen,
+
     feasibility,
-    grow_demand,
-    inject_sgen,
+    grow_for,
+    drop_project,
+    inject_project,
     upstream_path_lines,
 )
-from .types import Candidate, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
+from .types import Candidate, Control, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
 
 _THERMAL_TYPES = ("line", "trafo")  # reasons fixed by adding a parallel circuit to the binding element
 _HARDEST_PHASE = "2035"  # max demand growth -> the binding set that gates the whole horizon
@@ -47,13 +48,13 @@ def _phase_net(cand_by_id, params, base, phase_key, reinf, exclude: str | None =
     """A phase net grown + reinforced, with everything the base run already connected replayed in
     (except `exclude`, a project about to be probed on its own)."""
     net = cand_by_id.net_factory()
-    grow_demand(net, getattr(params, f"growth_{phase_key}"), params.scenario, int(phase_key))
+    grow_for(net, params, getattr(params, f"growth_{phase_key}"), int(phase_key))
     for r in reinf:
         apply_reinforcement(net, r)
     for rid in base.phases[phase_key].accepted:
         c = cand_by_id.get(rid)
         if c is not None and rid != exclude:
-            inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
+            inject_project(net, c)
     return net
 
 
@@ -69,24 +70,24 @@ def discover_chain(candidates, params, base, target_rid: str, *, net_factory: Ne
     return _discover_chain(_Candidates(candidates, net_factory), params, base, target_rid)
 
 
-def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, q_factor=0.0):
-    """Re-trial every deferred project for one phase; return (freed_mw, newly_ids, solves)."""
+def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, control=None):
+    """Re-trial every deferred project for one phase, each as `control` runs it when given (the reactive lever: a power
+    factor absorbing, its reactive power following its output in every case), else as its own offer does; return
+    (freed_mw, newly_ids, solves)."""
     net = _phase_net(cand_by_id, params, base, phase_key, reinf or [])
     freed, newly, solves = 0.0, [], 0
     for rid in deferred_ids:  # deferred projects in the base run's rank order
         c = cand_by_id.get(rid)
         if c is None:
             continue
-        idx = inject_sgen(
-            net, c.bus_id, c.rating_mw, c.request_id, c.technology, q_mvar=-q_factor * c.rating_mw, import_mw=c.import_mw
-        )
+        ref = inject_project(net, c, control=control)
         ok, _, _ = feasibility(net)
         solves += 1
         if ok:
             newly.append(rid)
             freed += c.rating_mw or (c.import_mw or 0.0)  # an import-only project frees its import
         else:
-            drop_sgen(net, idx)
+            drop_project(net, ref)
     return round(freed, 1), newly, solves
 
 
@@ -104,7 +105,7 @@ def _discover_chain(cand_by_id, params, base, target_rid):
         return reinf, False, None, solves
     for _ in range(MAX_REINFORCE_STEPS + 1):
         net = _phase_net(cand_by_id, params, base, _HARDEST_PHASE, reinf, exclude=target_rid)
-        inject_sgen(net, target.bus_id, target.rating_mw, target.request_id, target.technology, import_mw=target.import_mw)
+        inject_project(net, target)
         ok, reason, _ = feasibility(net)
         solves += 1
         last_reason = reason
@@ -166,9 +167,10 @@ def _reinforcement_suggestion(cand_by_id, deferred_ids, params, base, target_rid
 def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked):
     """Voltage binding: try reactive absorption first (cheapest), else one upstream reinforcement."""
     solves = 0
-    for pf, k in VOLTAGE_ABSORB_PF_STEPS:
-        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", q_factor=k)
-        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", q_factor=k)
+    for pf in VOLTAGE_ABSORB_PF_STEPS:
+        control = Control(mode="pf", pf=pf, absorbing=True)
+        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", control=control)
+        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", control=control)
         solves += s30 + s35
         if n30 or n35:
             return Suggestion(
@@ -182,9 +184,10 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
                 blocked_project_ids=blocked,
                 extra_solves=solves,
                 caveat=(
-                    "Voltage binding is voltage rise from unity-power-factor export; quantified by "
-                    f"re-running power flow with the new DER absorbing reactive power (to ~{pf:.2f} "
-                    "pf). A feasible operating lever, not the minimum-cost or only fix."
+                    "Voltage binding is voltage rise from the projects' export; quantified by re-running "
+                    f"power flow with the deferred projects at a {pf:.2f} power factor absorbing, their reactive "
+                    "power following their output in every case. A feasible operating lever for the connection "
+                    "offer, not the minimum-cost or only fix."
                 ),
             )
     # fall back to one upstream reinforcement on the weakest line of the feeder path

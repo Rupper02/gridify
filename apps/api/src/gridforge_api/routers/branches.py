@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from gridforge_optimizer import MergeVerdict
 from gridforge_optimizer.config import MAX_SUGGESTIONS
 
-from .. import ledger, narration, proposals, repository
+from .. import ledger, narration, proposals, rebase, repository
 from ..agents import events
 from ..config import now
 from ..deps import agents, jobs, narrator, plans, projects, scenarios
@@ -17,6 +17,7 @@ from ..schemas import (
     BranchCreate,
     MergeRequest,
     OutageCreate,
+    RebaseRequest,
     RegistryAdd,
     ReinforcementCreate,
     ScenarioUpdate,
@@ -92,11 +93,17 @@ def update_scenario(branch_id: str, body: ScenarioUpdate) -> dict:
 
 # --- review: diff, the merge gate, merge, discard ------------------------------------------------------
 def _pair(con, branch_id: str, into: str | None) -> tuple[dict, dict]:
-    """The head branch and the base it is compared with / merges into (`into`, else its parent, else main)."""
+    """The head branch and the base it is compared with / merges into (`into`, else its parent). A project's main
+    is the plan of record: branches merge into it and it merges nowhere (400); `into` must be a branch of the same
+    project."""
     head = repository.require_branch(con, branch_id)
+    if not head.get("parent_id"):
+        raise HTTPException(status_code=400, detail=f"'{branch_id}' is its project's main, the plan of record: branches merge into it, it merges nowhere")
     base = repository.require_branch(con, into) if into else repository.base_of(con, head)
-    if base["branch_id"] == branch_id:
+    if base is None or base["branch_id"] == branch_id:
         raise HTTPException(status_code=400, detail="cannot merge a branch into itself")
+    if base.get("project_id") != head.get("project_id"):
+        raise HTTPException(status_code=400, detail=f"'{base['branch_id']}' belongs to another project: a branch merges only within its own")
     return head, base
 
 
@@ -106,10 +113,8 @@ def _changes_on_merge(con, base_id: str, head_id: str) -> dict:
                               repository.reinforcement_rows(con, base_id), repository.reinforcement_rows(con, head_id))
 
 
-def _gate(branch_id: str, base_id: str, changes: dict) -> tuple[MergeVerdict, dict]:
-    return plans.merge_check(branch_id, base_id,
-                             removed_works=[w["outage_id"] for w in changes["works_removed"]],
-                             removed_reinforcements=[r["reinforcement_id"] for r in changes["reinforcements_removed"]])
+def _gate(branch_id: str, base_id: str) -> tuple[MergeVerdict, dict]:
+    return plans.merge_check(branch_id, base_id)
 
 
 @router.get("/branches/{branch_id}/diff")
@@ -138,8 +143,7 @@ def merge_check(branch_id: str, into: str | None = None) -> dict:
     parent already carries. Read-only; it solves the parent's plan if it is not cached yet."""
     with scenarios.cursor() as con:
         head, base = _pair(con, branch_id, into)
-        changes = _changes_on_merge(con, base["branch_id"], branch_id)
-    verdict, evidence = _gate(branch_id, base["branch_id"], changes)
+    verdict, evidence = _gate(branch_id, base["branch_id"])
     return {
         "branch_id": branch_id, "into": base["branch_id"], "branch_status": head["status"],
         "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"],
@@ -150,7 +154,7 @@ def merge_check(branch_id: str, into: str | None = None) -> dict:
 
 @router.post("/branches/{branch_id}/merge")
 def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
-    """Squash-merge a branch into `into` (default main): it adopts the branch's scenario, projects,
+    """Squash-merge a branch into `into` (default its parent, the project's main for a branch off it): it adopts the branch's scenario, projects,
     planned works and reinforcements. Gated: a stale branch, or one that introduces or worsens a
     problem in any plan year, is refused (409, `code: "blocked"`, the verdict in the body); warnings
     are refused until `acknowledge` is true (`code: "warnings_unacknowledged"`). Every attempt,
@@ -160,8 +164,7 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
         head, base = _pair(con, branch_id, body.into)
         repository.require_open(con, branch_id, allow_main=False)
         repository.require_open(con, base["branch_id"])
-        changes = _changes_on_merge(con, base["branch_id"], branch_id)
-    verdict, evidence = _gate(branch_id, base["branch_id"], changes)
+    verdict, evidence = _gate(branch_id, base["branch_id"])
     if verdict.blockers:
         code, message = "blocked", verdict.blockers[0].message
     elif verdict.warnings and not body.acknowledge:
@@ -185,13 +188,49 @@ def merge_branch(branch_id: str, body: MergeRequest | None = None) -> dict:
 
 @router.post("/branches/{branch_id}/discard")
 def discard_branch(branch_id: str) -> dict:
-    """Soft-discard an open branch (kept for audit; main cannot be discarded, a merged one neither)."""
-    if branch_id == "main":
-        raise HTTPException(status_code=400, detail="cannot discard main")
+    """Soft-discard an open branch (kept for audit; a project's main cannot be discarded, a merged branch neither)."""
     with scenarios.cursor() as con:
-        repository.require_open(con, branch_id)
+        row = repository.require_open(con, branch_id)
+        if not row.get("parent_id"):
+            raise HTTPException(status_code=400, detail="cannot discard a project's main, the plan of record")
         repository.set_branch_status(con, branch_id, "discarded")
         return repository.branch_to_client(con, repository.branch_row(con, branch_id))
+
+
+def _rebase_plan(con, branch_id: str) -> tuple[dict, rebase.Plan]:
+    head = repository.require_open(con, branch_id, allow_main=False)
+    p = repository.rebase_plan(con, head)
+    if p is None:
+        raise HTTPException(status_code=409, detail=f"the branch '{branch_id}' was opened from is gone: there is nothing to rebase onto")
+    return head, p
+
+
+@router.get("/branches/{branch_id}/rebase")
+def rebase_preview(branch_id: str) -> dict:
+    """What rebasing this branch onto its parent as it is now would do: the parent's changes since the branch was
+    opened, the branch's own, which of the parent's the branch lacks (`behind`), and the conflicts to pick, with where
+    the fork point comes from (`fork`: recorded, rebuilt from the merge history, or none). Writes nothing."""
+    with scenarios.cursor() as con:
+        head, p = _rebase_plan(con, branch_id)
+    return {"branch_id": branch_id, **rebase.preview(p, onto=head["parent_id"])}
+
+
+@router.post("/branches/{branch_id}/rebase")
+def rebase_branch(branch_id: str, body: RebaseRequest) -> dict:
+    """Rebase the branch onto its parent as it is now: the parent's state plus the branch's own changes, every conflict
+    answered by the operator's `picks` (409 when one is missing or the parent moved since the preview). Returns the
+    branch and how many of the parent's changes it took in (`taken`). The branch's result is out of date until it runs
+    again; the gate then judges it as usual."""
+    with scenarios.cursor() as con:
+        head, p = _rebase_plan(con, branch_id)
+        try:
+            taken = repository.apply_rebase(con, head, p, body.picks, projects.element_ids(head["project_id"])["buses"])
+        except rebase.PicksError as e:
+            raise HTTPException(status_code=409, detail={"code": "picks", "message": "The picks do not answer this rebase's conflicts "
+                                                         "(the parent may have moved since the preview): review it again.", **e.args[0]}) from e
+        out = repository.branch_to_client(con, repository.branch_row(con, branch_id))
+    plans.invalidate("plan")
+    return {"branch": out, "taken": taken}
 
 
 @router.get("/branches/{branch_id}/suggestions")

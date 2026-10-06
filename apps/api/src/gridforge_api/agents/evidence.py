@@ -44,6 +44,7 @@ class StepRecord(NamedTuple):
     cache_key: str | None
     result: dict | list | None
     study: StudyResult | None
+    engine: str | None = None  # the engine fingerprint that computed what `cache_key` names (None: no key, or not cached)
 
 
 class EvidenceLedger:
@@ -85,19 +86,21 @@ class EvidenceLedger:
         return rows
 
     def load_step(self, step_id: str) -> StepRecord | None:
-        """A step with its output: inline, or the study re-fetched from the durable cache by its key."""
+        """A step with its output: inline, and the study re-fetched from the durable cache by its key when that key holds
+        a study (a run step's key holds the plan years: not a study)."""
         with self._store.cursor() as con:
             r = con.execute(f"SELECT {', '.join(STEP_COLS)} FROM agent_steps WHERE step_id = ?", [step_id]).fetchone()
         if r is None:
             return None
         row = dict(zip(STEP_COLS, r))
         result = json.loads(row["result_json"]) if row["result_json"] else None
-        study = None
+        study, cached = None, None
         if row["cache_key"]:
-            cached = self._cache.get(row["cache_key"])
-            if cached is not None:
-                study = StudyResult.model_validate_json(cached)
-        return StepRecord(step_id, row["run_id"], row["tool"], json.loads(row["args_json"] or "{}"), row["cache_key"], result, study)
+            cached = self._cache.get_with_kind(row["cache_key"])
+            if cached is not None and cached[0].startswith("study:"):
+                study = StudyResult.model_validate_json(cached[1])
+        return StepRecord(step_id, row["run_id"], row["tool"], json.loads(row["args_json"] or "{}"), row["cache_key"], result, study,
+                          cached[2] if cached else None)
 
     def bind_findings(self, run_id: str, branch_id: str, proposals: list[AgentFinding], *, snapshot_id: str, at: str) -> list[str]:
         """File the agent's findings: for each, the item it names is loaded from the recorded step and
@@ -139,7 +142,8 @@ class EvidenceLedger:
             return None
         return {"step": {"step_id": step.step_id, "run_id": step.run_id, "tool": step.tool, "args": step.args, "cache_key": step.cache_key},
                 "study": step.study.model_dump() if step.study else None, "result": step.result,
-                "current_engine": self._cache.engine, "stale": step.study is None and step.cache_key is not None}
+                "engine": step.engine, "current_engine": self._cache.engine,
+                "stale": step.cache_key is not None and step.engine != self._cache.engine}
 
 
 # --- the soft guard on free text ------------------------------------------------------------------------

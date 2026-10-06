@@ -15,6 +15,17 @@ The division of labour is deliberate:
 # in nged.py) that hold their LV busbar near OLTC_SETPOINT_PU, so the tight band below 132 kV is a
 # real planning limit rather than an artefact of fixed taps.
 VOLTAGE_BANDS = ((132.0, 0.90, 1.10), (1.0, 0.94, 1.06))
+# An imported grid states its own limits at every voltage level it has (sources.apply_import_meta); these presets
+# only fill the import form's boxes. Each band is (min kV, max kV or None, vmin pu, vmax pu); a level takes the
+# band with the highest min kV it reaches within that band's max. EN 50160 sets limits at supply terminals up to
+# 36 kV only, so its preset leaves the levels above blank for the operator to state.
+VOLTAGE_BAND_PRESETS = {
+    "gb_esqcr": {"label": "GB ESQCR", "note": "ESQCR 2002 reg. 27: ±10 % at 132 kV and above, ±6 % from 1 kV, +10 / −6 % at low voltage",
+                 "bands": ((132.0, None, 0.90, 1.10), (1.0, None, 0.94, 1.06), (0.0, 1.0, 0.94, 1.10))},
+    "en_50160": {"label": "EN 50160", "note": "EN 50160: ±10 % at low- and medium-voltage supply terminals (up to 36 kV); it sets no limits above "
+                                              "36 kV, so those levels are left for you to state",
+                 "bands": ((0.0, 36.0, 0.90, 1.10),)},
+}
 # Tap changers regulate their LV busbar to this voltage. A PLANNING ASSUMPTION: LTDS does not publish
 # AVC target voltages, and GB DNOs set them above nominal so feeder ends stay in band at peak. 1.02 pu
 # is the lowest value at which today's network (LTDS + NESO's GSP peak) meets the statutory band at
@@ -126,7 +137,7 @@ GSP_MARGIN_WARN_FRACTION = 0.10
 # is decided, so a policy change is a one-line, registered change (README, Sources and assumptions).
 MERGE_GATE_LEVELS = {
     "stale": "blocker", "no_result": "blocker", "unstudied_years": "blocker", "non_convergent": "blocker",
-    "behind_base": "blocker",
+    "behind_base": "blocker", "fork_unknown": "warning",
     "new_overload": "blocker", "overload_worse": "blocker",
     "new_voltage_violation": "blocker", "voltage_worse": "warning",
     "gsp_over_limit": "blocker", "gsp_worse": "blocker", "gsp_near_limit": "warning",
@@ -227,6 +238,9 @@ FORECASTS = {
     },
 }
 DEFAULT_SCENARIO = "ht"
+# An imported grid's own forecast stands in for these pathways (by id, so the planner's picker works on it):
+# Low, Standard (required at import) and High.
+IMPORT_PATHWAYS = ("fb", "ht", "ee")
 
 # Policy-anchored planning horizons (GB planning is milestone/snapshot-based, not continuous).
 # 2030 = Clean Power 2030 (DESNZ Action Plan, Dec 2024); 2035 = the strategic-need window the
@@ -306,9 +320,9 @@ NARRATE_DIFF_SYSTEM_PROMPT = (
 MAX_SUGGESTIONS = 5            # deferred projects to propose an unblock for (highest-ranked first)
 MAX_REINFORCE_STEPS = 4        # max parallel circuits chained to connect one project (a bottleneck
 #                                cascades: reinforcing the worst line exposes the next, so we iterate)
-# Reactive-absorption steps tried for a voltage-bound connection, as (power factor, q/p factor).
-# q_mvar = -factor * p_mw (the DER absorbing reactive power) counters voltage rise from PQ export.
-VOLTAGE_ABSORB_PF_STEPS = [(0.98, 0.20), (0.95, 0.33), (0.90, 0.48)]
+# Power factors tried, absorbing, for a voltage-bound connection (suggest.py): its reactive power then follows its
+# output in every case (types.Control, network.inject_project), countering the voltage rise its export causes.
+VOLTAGE_ABSORB_PF_STEPS = [0.98, 0.95, 0.90]
 
 # Phrases a pre-computed unblock recommendation. Like the diff narrator, it only restates figures.
 SUGGEST_SYSTEM_PROMPT = (

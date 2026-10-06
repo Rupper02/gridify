@@ -254,7 +254,7 @@ def test_a_branch_behind_main_is_refused_and_its_run_gets_a_review_that_restates
     assert len(client.get(f"/branches/{behind}/reviews?all=true").json()["reviews"]) == 1
     refused = client.post(f"/branches/{behind}/merge", json={"into": "main", "acknowledge": True})
     assert refused.status_code == 409 and refused.json()["detail"]["code"] == "blocked"
-    assert "Open a new branch" in refused.json()["detail"]["message"]
+    assert "rebase this branch onto main" in refused.json()["detail"]["message"]
     from gridforge_api import ledger  # the refused attempt is on record
     with deps.scenarios.cursor() as con:
         rows = ledger.merge_rows(con, behind)

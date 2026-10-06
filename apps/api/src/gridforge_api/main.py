@@ -23,6 +23,7 @@ from .deps import agents, jobs, plans, projects, scenarios, warehouse
 from .routers import agents as agents_router
 from .routers import branches, findings, model, optimize, registry, studies
 from .routers import projects as projects_router  # aliased: `projects` here is the deps instance the warm-up uses
+from .warehouse import WarehouseBusy, request_state
 
 
 @asynccontextmanager
@@ -75,15 +76,24 @@ app = FastAPI(title="GridForge API", lifespan=_lifespan)
 async def _json_errors(request: Request, call_next):
     """Turn an unhandled exception into a JSON 500. Registered BEFORE the CORS middleware so it sits
     inside it: the browser then sees CORS headers plus the reason, not an opaque CORS error."""
+    state = request_state()  # which warehouse version this request read, and whether it was the fallback
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        if state.get("snapshot"):
+            response.headers["X-Warehouse-Snapshot"] = state["snapshot"]
+            if state.get("stale"):
+                response.headers["X-Warehouse-Stale"] = "1"  # one write behind: the pipeline was writing a new version
+        return response
+    except WarehouseBusy as exc:  # the pipeline is writing and nothing was read before: a moment, not a failure
+        return JSONResponse({"detail": str(exc)}, status_code=503, headers={"Retry-After": "2"})
     except Exception as exc:  # the one place a blind except is right: it's the last line of defence
         log.exception("unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse({"detail": f"{type(exc).__name__}: {exc}"}, status_code=500)
 
 
 # dev: permissive CORS so the planner works from any local host. Lock down in prod.
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["X-Warehouse-Snapshot", "X-Warehouse-Stale"])
 
 for _router in (model.router, registry.router, optimize.router, branches.router, findings.router, studies.router, projects_router.router, agents_router.router):
     app.include_router(_router)

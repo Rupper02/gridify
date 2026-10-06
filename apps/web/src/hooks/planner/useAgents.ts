@@ -9,7 +9,7 @@ import type { Core } from "./core";
 
 const POLL_MS = 15_000;
 
-export function useAgents({ patch, ref, toastMsg }: Core) {
+export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
   const loadAgents = useCallback(async () => {
     try {
       const pid = ref.current.projectId;
@@ -60,8 +60,8 @@ export function useAgents({ patch, ref, toastMsg }: Core) {
   );
   const closeEvidence = useCallback(() => patch({ study: null }), [patch]);
 
-  // the status, once at start and then every few seconds; a branch's reviews refresh with it (the
-  // reviewer comments a few seconds after a run)
+  // the status, at once for each project opened and then every few seconds; a branch's reviews refresh
+  // with it (the reviewer comments a few seconds after a run)
   useEffect(() => {
     void loadAgents();
     const id = window.setInterval(() => {
@@ -70,7 +70,7 @@ export function useAgents({ patch, ref, toastMsg }: Core) {
       if (bid && bid !== mainIdOf(ref.current.projects, ref.current.projectId)) void loadReviews(bid);
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [loadAgents, loadReviews, ref]);
+  }, [loadAgents, loadReviews, ref, projectId]);
 
   return { loadAgents, loadReviews, setAgentsPaused, openEvidence, closeEvidence };
 }

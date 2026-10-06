@@ -34,7 +34,11 @@ export function useRegistry(
       if (!bid) return;
       try {
         const row = await api.addFromRegistry(bid, requestId);
-        patch((st) => ({ added: withAdded(st.added, bid, row) }));
+        // the branch's stored projects too: the project card reads its control mode from them
+        patch((st) => ({
+          added: withAdded(st.added, bid, row),
+          candidates: st.activeBranch === bid ? [...st.candidates.filter((c) => c.request_id !== row.request_id), row] : st.candidates,
+        }));
         void refreshBranches();
         toastMsg(`${requestId} added to Preliminary. Run to rank it against the queue.`);
       } catch {

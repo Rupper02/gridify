@@ -1,5 +1,6 @@
 // The evidence behind a step an agent cited: the study it ran, re-read from the durable cache, its
-// items with the engine's figures, what it did not study, and whether the engine has changed since.
+// items with the engine's figures, what it did not study, and whether the engine has changed since;
+// a step that is not a study (a lookup, a run) shows what it returned.
 
 import { Receipt, Warning, X } from "@phosphor-icons/react";
 
@@ -36,12 +37,12 @@ export function StudyDrawer({ planner }: { planner: StudyDrawerPlanner }) {
       {ev.stale && (
         <div className="notice amber">
           <Warning size={12} weight="fill" style={{ marginRight: 4, verticalAlign: -1 }} />
-          The engine has changed since this study ran; the figures are as recorded then.
+          The engine has changed since this step ran: the figures are as that engine computed them, and a run now may differ.
         </div>
       )}
       {!st && (
         <span className="mute" style={{ fontSize: 12, lineHeight: 1.45 }}>
-          This step was a lookup, not a study: {ev.result != null ? JSON.stringify(ev.result).slice(0, 500) : "no stored result"}
+          This step is not a study, so there are no study items; what it returned: {ev.result != null ? JSON.stringify(ev.result).slice(0, 500) : "no stored result"}
         </span>
       )}
       {st && (
@@ -69,7 +70,8 @@ export function StudyDrawer({ planner }: { planner: StudyDrawerPlanner }) {
         </>
       )}
       <span className="evidence-line">
-        step {ev.step.step_id} · engine {ev.current_engine.slice(0, 10)}
+        step {ev.step.step_id} · engine {(ev.engine ?? ev.current_engine).slice(0, 10)}
+        {ev.stale ? ` (now ${ev.current_engine.slice(0, 10)})` : ""}
         {st ? ` · ${st.solves} ${st.solves === 1 ? "solve" : "solves"}` : ""}
       </span>
     </div>

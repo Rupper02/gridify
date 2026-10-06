@@ -449,7 +449,7 @@ def _screen_during(net, screen: Screen, solved: dict[str, _CaseState], baseline:
             found.append((_n1_rank(v, extra), extra, {**v, "case": v.get("case") or name}))
     found.sort(key=lambda t: t[0])
     n1.violations = [v for _, _, v in found]
-    n1.findings = len(n1.violations)
+    n1.findings = len({(v.get('outage_type'), v.get('outage_id'), v.get('case')) for v in n1.violations})  # second faults, not breaches
     n1.second_fault_at_risk_mw = round(max((extra for _, extra, _ in found), default=0.0), 1)
     n1.worst = _n1_words(found[0][2], found[0][1]) if found else ""
     return n1
@@ -496,8 +496,8 @@ def _message(o: Outage, with_ids: list[str], g: _GroupResult) -> str:
         head += f", studied together with {_and(with_ids)}"
     found = "; ".join(v.message for v in g.violations)
     if g.verdict == "feasible":
-        body = (f"Feasible: no limit breached; worst line {g.worst_line:.0f}%, worst transformer "
-                f"{g.worst_trafo:.0f}% at {' and '.join(_CASE_LABEL[c] for c in g.cases)}.")
+        body = (f"Feasible: no limit breached; the most loaded line at {g.worst_line:.0f}%, the most loaded transformer "
+                f"at {g.worst_trafo:.0f}%, at {' and '.join(_CASE_LABEL[c] for c in g.cases)}.")
     elif g.verdict == "curtailment":
         body = (f"Feasible with curtailment: {found}. {_curtailment_text(g.curtailment)} holds every "
                 f"limit (a first-order estimate, not an optimal dispatch).")

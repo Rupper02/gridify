@@ -254,6 +254,12 @@ _ASSUMPTION_TEXT = {
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
     "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
     "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (the N-1 screen reads that as it is; NGED publishes the connectivity, not the running arrangement)",
+    "small_embedded": "Connected ECR sites under 1 MW (most at 0.4 kV) are aggregated per primary and technology at its 11 kV busbar (the "
+                      "model's lowest level), so voltage rise inside the LV network behind it is not modelled; they are added, not netted, "
+                      "because the LTDS minimum demand behaves as gross of generation (no negative minimum in 2,294 rows, ~33-36% even "
+                      "where generation is twice a primary's peak). Domestic rooftop PV is in no register (the ECR and LTDS Table 5 list "
+                      "connections that applied to NGED) and is not modelled",
+    "small_embedded_unmodelled": "Connected ECR sites under 1 MW that publish no export capacity or no technology are not modelled",
     "mv_mesh_closed": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and a 132 kV outage routes power through it (post-fault 33 kV and grid-transformer loadings read as that mesh carries them)",
 }
 
@@ -563,6 +569,54 @@ def _add_existing_fleet(net, tables) -> list[dict]:
     return existing
 
 
+# the ECR's conversion technology for a connected sub-MW site -> the model's technology; anything not listed (an engine, a
+# turbine) is firm in both cases, as Table 5's non-renewables are; "data not available" is not modelled
+_SMALL_TECH = {"photovoltaic": "solar", "storage": "battery", "wind": "wind"}
+
+
+def _small_tech(row: dict) -> str | None:
+    t = (row.get("Energy Conversion Technology 1") or "").lower()
+    if not t or "not available" in t:
+        return None
+    return next((v for k, v in _SMALL_TECH.items() if k in t), "other")
+
+
+def _add_small_embedded(net, tables, first_id: int) -> list[dict]:
+    """The ECR's connected sites under 1 MW, which LTDS Table 5 (1 MW and up) leaves out: aggregated per primary and
+    technology, each aggregate shared across that primary's busbars at its connection voltage (0.4 kV sites at 11 kV,
+    the model's lowest level). A site with no export capacity or no technology is recorded, not modelled."""
+    deg0 = _bus_degree(net)
+    groups: dict[tuple[str, str, float], list[float]] = {}
+    for i, row in enumerate(tables.get("ecr", [])):
+        if (row.get("connection_status") or "") != "Connected":
+            continue
+        mw = _num(row.get("connected_maximum_export_capacity(mw)"))
+        if mw is not None and mw >= ECR_MIN_EXPORT_MW:
+            continue  # 1 MW and up: Table 5's fleet
+        tech = _small_tech(row)
+        if not mw or mw <= 0 or tech is None:
+            _assume(net, "small_embedded_unmodelled", "ecr_site", i)
+            continue
+        kv = max(_num(str(row.get("point_of_connection(poc)_voltage(kv)") or "").lower().replace("kv", "")) or 0.0, 11.0)
+        groups.setdefault((row.get("primary") or row.get("bulk_supply_point") or "", tech, kv), []).append(mw)
+    out: list[dict] = []
+    for k, ((primary, tech, kv), mws) in enumerate(sorted(groups.items())):
+        total = sum(mws)
+        buses, placement = _site_buses(net, (primary,), kv, deg0)
+        fid = f"EX-{first_id + k}"
+        for j, bus in enumerate(buses):
+            share = total / len(buses)
+            idx = pp.create_sgen(net, bus=int(bus), p_mw=share, q_mvar=0.0, name=f"{fid}" + (f"-{j}" if j else ""), type=tech)
+            net.sgen.at[idx, "p_rated_mw"] = share
+            net.sgen.at[idx, "import_mw"] = share
+            net.sgen.at[idx, "fleet_id"] = fid
+            _assume(net, "small_embedded", "sgen", int(idx))
+        out.append({"request_id": fid, "bus_id": int(buses[0]), "rating_mw": total, "technology": tech,
+                    "fuel": f"{len(mws)} sites under 1 MW", "status": "connected", "placement": placement,
+                    "applicant": f"{len(mws)} {tech} site{'s' if len(mws) > 1 else ''} under 1 MW · {_substation(primary) or 'Bicker Fen'}"})
+    return out
+
+
 def _add_gsp_infeed(net) -> int:
     """The external grid at the best-connected 132 kV busbar (the GSP transmission infeed), the
     transmission boundary carried on the net, and the buses the GSP can't reach dropped.
@@ -648,6 +702,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     _add_transformers(net, t2a, gb)
     _add_loads(net, dem, gb)
     existing = _add_existing_fleet(net, tables)
+    existing += _add_small_embedded(net, tables, 4000)  # ids after Table 5's (EX-3000...)
     slack = _add_gsp_infeed(net)
     _assume_structure(net)  # after the unreachable buses are dropped
 

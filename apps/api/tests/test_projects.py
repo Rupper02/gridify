@@ -1,8 +1,9 @@
 """Projects: the built-in NGED one behind the same routes as before, and any grid imported from a file
 becoming a project with its own main, baseline, model, branches and runs. A CGMES zip of NGED's own
 export re-imports with the same elements; a pandapower JSON with no coordinates gets a synthetic
-layout; a branch with a hand-entered project at one of its buses runs through the same engine."""
+layout; every import states its study basis (the forecast, the N-1 scope, the limits by level); a branch with a hand-entered project at one of its buses runs through the same engine."""
 
+import json
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -20,6 +21,17 @@ def _import(filename: str, data: bytes, name: str = "", **fields) -> dict:
     r = client.post("/projects", files={"file": (filename, data, "application/octet-stream")}, data={"name": name, **{k: str(v) for k, v in fields.items()}})
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def _basis(filename: str, data: bytes) -> dict:
+    """The study basis the import form would send for a file, from its levels as the API reads them: a flat
+    Standard forecast, the N-1 screen from the top level, the GB preset at every level."""
+    r = client.post("/projects/inspect", files={"file": (filename, data, "application/octet-stream")})
+    assert r.status_code == 200, r.text
+    levels = [lv["kv"] for lv in r.json()["levels"]]
+    bands = [{"kv": v, "vmin_pu": 0.90 if v >= 132 else 0.94, "vmax_pu": 1.10 if v >= 132 else 1.06} for v in levels]
+    return {"forecasts": json.dumps({"ht": {str(y): 1.0 for y in range(PLAN_START_YEAR + 1, PLAN_START_YEAR + 10)}}),
+            "n1_min_kv": levels[0], "voltage_bands": json.dumps(bands)}
 
 
 def test_bad_files_are_refused_with_the_reason():
@@ -42,7 +54,7 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     r = client.post("/projects", files={"file": ("case9.json", pp.to_json(c9).encode(), "application/json")}, data={"name": "IEEE 9-bus as is"})
     assert r.status_code == 422 and any("technology" in e for e in r.json()["detail"]["report"]["errors"])
     c9.gen["type"] = "thermal"  # completed, as an operator would
-    p = _import("case9.json", pp.to_json(c9).encode(), name="IEEE 9-bus")
+    p = _import("case9.json", pp.to_json(c9).encode(), name="IEEE 9-bus", **_basis("case9.json", pp.to_json(c9).encode()))
     pid, main = p["project_id"], p["main_id"]
     assert p["source_kind"] == "pandapower_json" and main == f"{pid}-main" and not p["builtin"]
     assert p["report"]["ok"] and p["report"]["cases"] == ["winter_peak"] and p["capabilities"]["crs"] == "synthetic"
@@ -52,7 +64,8 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     assert client.get(f"/projects/{pid}/boundary").status_code == 404
     assert client.get(f"/projects/{pid}/registry").json() == []
     keys = {a["key"] for a in client.get(f"/projects/{pid}/assumptions").json()["assumptions"]}
-    assert {"merit_order_dispatch", "no_gsp_limit", "gb_voltage_bands"} <= keys
+    assert {"merit_order_dispatch", "no_gsp_limit", "forecast_entered", "n1_scope_entered", "bands_entered"} <= keys
+    assert [f["id"] for f in client.get(f"/projects/{pid}/forecasts").json()["forecasts"]] == ["ht"]  # it plans on its own forecast
     # its main runs (an empty queue), on the same engine
     r = client.post(f"/projects/{pid}/optimize", json={"with_justification": False}).json()
     assert r["queue"] == [] and r["project_id"] == pid and r["snapshot_id"] == p["snapshot_id"] and len(r["years"]) == 10
@@ -71,7 +84,7 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     assert d["base_branch"] == main and d["head_branch"] == b["branch_id"]
     # a project out of this grid's buses is refused as before; a works window names its own elements
     bad = client.post("/optimize/candidates", json={"applicant": "X", "bus_id": 9999, "technology": "solar", "rating_mw": 5.0, "readiness_score": 0.9, "branch_id": b["branch_id"]}).json()
-    assert bad["status"] == "rejected"
+    assert bad["status"] == "incomplete"
     line = m["lines"][0]["line_id"]
     w = client.post(f"/branches/{b['branch_id']}/outages", json={"element_kind": "line", "element_id": str(line), "season": "Summer", "year": PLAN_START_YEAR + 3, "weeks": 4})
     assert w.status_code == 200, w.text
@@ -89,7 +102,8 @@ def test_nged_own_cgmes_export_imports_as_a_project_with_the_same_elements_and_e
     z = client.get("/model/cgmes")
     assert z.status_code == 200
     bnd = client.get("/boundary").json()  # the limits the operator would enter: the ones the export was built with
-    limits = {"gsp_export_limit_mw": bnd["export_limit_mw"], "gsp_name": bnd["gsp_name"], "min_demand_factor": 0.5, "summer_rating_ratio": 0.9}
+    limits = {"gsp_export_limit_mw": bnd["export_limit_mw"], "gsp_name": bnd["gsp_name"], "min_demand_factor": 0.5, "summer_rating_ratio": 0.9,
+              **_basis("nged.zip", z.content)}
     p = _import("nged.zip", z.content, name="NGED re-imported", **limits)
     pid = p["project_id"]
     assert p["source_kind"] == "cgmes" and p["report"]["ok"] and p["report"]["cases"] == ["winter_peak", "summer_min"]

@@ -1,4 +1,5 @@
-// The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu, Diff / Merge
+// The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu (a branch its parent
+// moved past says "behind main"), Diff / Merge
 // on a branch, the agents pill, the demand profile control and the Run button ("Re-run" when the shown result is out of date).
 
 import { CaretDown, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Play, Sparkle, Warning } from "@phosphor-icons/react";
@@ -6,14 +7,14 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { branchHue } from "../lib/derive";
+import { behindLabel, branchHue, parentName } from "../lib/derive";
 import { agentsPill } from "../lib/trace";
 import type { Layout } from "../lib/layout";
 import { PROFILES, profileOf, tint } from "../theme";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "agents" | "branches" | "diffMode" | "menuOpen" | "model" | "projects" | "running",
+  "activeBranch" | "agents" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects" | "running",
   "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
   "branch" | "gate" | "hue" | "mainId" | "onMain" | "prelim" | "profile" | "project" | "stale"
 >;
@@ -23,7 +24,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
   const { onMain, branch, hue, profile, stale, prelim, gate, project } = derived;
   const wide = layout.wide;
   const nAdded = branch?.n_added ?? 0;
-  const sub = onMain ? "plan of record" : `from main · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
+  const parent = parentName(s.branches, branch, derived.mainId);
+  const sub = onMain ? "plan of record" : `from ${parent} · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
   const runLabel = wide ? `${stale.stale ? "Re-run" : "Run"} on ${profile.label}` : stale.stale ? "Re-run" : "Run";
   const pill = agentsPill(s.agents);
 
@@ -47,7 +49,12 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
           <span className="chip-ic">{onMain ? <LockSimple size={15} weight="bold" /> : <GitBranch size={15} weight="bold" />}</span>
           <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
             <span className="nm">{onMain ? "main" : (branch?.name ?? s.activeBranch)}</span>
-            {wide && <span className="sub">{sub}</span>}
+            {wide && (
+              <span className="sub">
+                {sub}
+                {behindLabel(branch, parent) && <span className="behind"> · {behindLabel(branch, parent)}</span>}
+              </span>
+            )}
           </span>
           <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
         </button>
@@ -82,7 +89,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
         {wide && <span style={{ fontSize: 11, color: "var(--mute)" }}>Demand</span>}
         <div className="seg" role="radiogroup" aria-label="Demand profile" title={onMain ? "The demand profile main is planned on" : "Demand profile for this branch"}>
-          {PROFILES.map((p) => {
+          {/* the project's own pathways: an import offers only those entered with it */}
+          {PROFILES.filter((p) => !s.forecasts.length || s.forecasts.some((f) => f.id === p.id)).map((p) => {
             const on = p.id === branch?.scenario;
             return (
               <button
@@ -142,7 +150,14 @@ function BranchMenu({ planner }: { planner: HeaderPlanner }) {
             <span className="dot" style={{ background: hue, boxShadow: `0 0 0 3px ${tint(hue, "33")}` }} />
             <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, lineHeight: 1.3 }}>
               <span className="mono ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{b.branch_id === mainId ? "main" : b.name}</span>
-              <span style={{ fontSize: 11, color: "var(--mute)" }}>{b.branch_id === mainId ? "plan of record" : `from main · ${b.n_added} added · open`}</span>
+              <span style={{ fontSize: 11, color: "var(--mute)" }}>
+                {b.branch_id === mainId ? "plan of record" : `from ${parentName(s.branches, b, mainId)} · ${b.n_added} added · open`}
+                {behindLabel(b, parentName(s.branches, b, mainId)) && (
+                  <span className="behind" title="its parent received changes after this branch was opened: rebase it from its Review tab before merging">
+                    {" "}· {behindLabel(b, parentName(s.branches, b, mainId))}
+                  </span>
+                )}
+              </span>
             </span>
             <span style={{ fontSize: 11, color: "var(--mute)" }}>{profileOf(b.scenario).label}</span>
           </button>

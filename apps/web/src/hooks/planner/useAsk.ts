@@ -220,6 +220,10 @@ export function useAsk(
               await loadExtras(bid);
               edited("works");
               break;
+            case "rebase": // the branch now holds main's state plus its own changes: re-read both; the result shows out of date
+              await refreshBranches();
+              await loadExtras(bid);
+              break;
           }
         }
       } catch (e) {

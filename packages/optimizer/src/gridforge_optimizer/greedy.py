@@ -11,10 +11,10 @@ from .network import (
     apply_reinforcement,
     build_base_net,
     bus_voltages,
-    drop_sgen,
+    drop_project,
     feasibility,
-    grow_demand,
-    inject_sgen,
+    grow_for,
+    inject_project,
     line_loadings,
     n1_screen_cases,
     overloaded_line_ids,
@@ -67,7 +67,7 @@ NetFactory = Callable[[], Any]  # builds a fresh base network (default: today's 
 
 def _sig(c: Candidate) -> tuple:
     """What a trial's outcome depends on, per project."""
-    return (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology)
+    return (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology, c.control.model_dump_json() if c.control else None)
 
 
 class _Run:
@@ -99,7 +99,7 @@ class _Run:
     def _study_net(self, growth: float, horizon: int):
         """A fresh network grown to `horizon` with the simulated reinforcements applied."""
         net = self.net_factory()
-        grow_demand(net, growth, self.params.scenario, horizon)
+        grow_for(net, self.params, growth, horizon)
         for r in self.reinforcements:
             apply_reinforcement(net, r)
         return net
@@ -143,18 +143,18 @@ class _Run:
         if hit is not None and (settled or not hit[0]):
             ok, reason, max_line, taps_after = hit
             if ok:
-                inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
+                inject_project(net, c)
                 set_tap_positions(net, taps_after)
             return ok, reason, max_line, False
 
         taps_before = tap_positions(net)
-        idx = inject_sgen(net, c.bus_id, c.rating_mw, c.request_id, c.technology, import_mw=c.import_mw)
+        ref = inject_project(net, c)
         ok, reason, m = feasibility(net)
         max_line = round(m.get("max_line_pct", 0.0), 1)
         if ok:
             taps_after = tap_positions(net)
         else:
-            drop_sgen(net, idx)  # roll back the trial; keep eligibility for next phase
+            drop_project(net, ref)  # roll back the trial; keep eligibility for next phase
             set_tap_positions(net, taps_before)  # a rejected trial leaves no trace
             taps_after = taps_before
         if self.trial_cache is not None:
@@ -167,7 +167,7 @@ class _Run:
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
         net = self._study_net(getattr(self.params, growth_attr), int(phase_key))
         for a in self.accepted_order:
-            inject_sgen(net, a.bus_id, a.rating_mw, a.request_id, a.technology, import_mw=a.import_mw)
+            inject_project(net, a)
         settled = False  # taps are regulated by the first real solve of the phase
 
         todo = [c for c in self.ranked if c.request_id not in self.accepted_phase]

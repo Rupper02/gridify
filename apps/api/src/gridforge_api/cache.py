@@ -29,14 +29,17 @@ def cand_key(cands: list[Candidate]) -> str:
     sig = sorted(
         (c.request_id, c.bus_id, c.rating_mw, round(c.readiness_score, 4),
          round(c.strategic_fit, 4), c.status, c.import_mw, c.technology, c.commissioning_year)
+        + ((c.control.model_dump_json(),) if c.control else ())  # how it runs changes its physics; unstated keys as before
         for c in cands
     )
     return hashlib.md5(json.dumps(sig, default=str).encode()).hexdigest()
 
 
 def params_key(params: OptimizeParams) -> tuple:
-    return (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
-            params.w_readiness, params.w_need, params.w_strategic)
+    key = (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3),
+           params.w_readiness, params.w_need, params.w_strategic)
+    # an entered forecast's in-between years (the FES path is set by its two anchors alone)
+    return key + (tuple((y, round(m, 4)) for y, m in sorted(params.curve.items())),) if params.curve else key
 
 
 class ResultCache:
@@ -126,6 +129,13 @@ class ResultCache:
         with self._store.cursor() as con:
             row = con.execute("SELECT result_json FROM result_cache WHERE cache_key = ?", [key]).fetchone()
         return row[0] if row else None
+
+    def get_with_kind(self, key: str) -> tuple[str, str, str] | None:
+        """A durable result with the kind it was stored as ("study:hosting_capacity", "years", ...) and the engine
+        fingerprint that computed it."""
+        with self._store.cursor() as con:
+            row = con.execute("SELECT kind, result_json, engine FROM result_cache WHERE cache_key = ?", [key]).fetchone()
+        return (row[0], row[1], row[2]) if row else None
 
     def put(self, key: str, kind: str, baseline: str, compute_ms: int, result_json: str) -> None:
         with self._store.cursor() as con:

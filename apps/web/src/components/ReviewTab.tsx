@@ -2,13 +2,15 @@
 // deferred; the network effect
 // in the viewed year with a year picker tied to the planner's year, the planned works on main vs the
 // branch, what changed), the reinforcements proposed on it, the merge gate, the reviewer agent's comment
-// (the gate restated, prepared for engineer review), then Merge into main or Discard. main has nothing to review.
+// (the gate restated, prepared for engineer review), then Merge into its parent (main, or the branch it was opened
+// from) or Discard. A branch main moved past is
+// offered a rebase first (RebaseCard). main has nothing to review.
 
 import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Sparkle, Trash, Warning, Wrench } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { type ModelIndex, lineName, nameElements, trafoName } from "../lib/derive";
+import { type ModelIndex, lineName, nameElements, parentName, trafoName } from "../lib/derive";
 import { type GateState, type GateView, gateText, gateTitle } from "../lib/gate";
 import {
   type Namers,
@@ -27,11 +29,12 @@ import {
 import type { Plan } from "../lib/plan";
 import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
 import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
+import { RebaseCard } from "./RebaseCard";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
   "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
-  "createBranch" | "discardBranch" | "mergeBranch" | "removeReinforcement" | "setYear",
+  "createBranch" | "discardBranch" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "removeReinforcement" | "setYear",
   "branch" | "gate" | "hue" | "ix" | "mainId" | "onMain" | "reviewStale" | "yearDelta"
 >;
 
@@ -57,6 +60,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
     );
 
   const main = s.branches.find((b) => b.branch_id === derived.mainId);
+  const parent = parentName(s.branches, branch, derived.mainId); // what it is judged against and merges into
   const mismatch = main && branch && main.scenario !== branch.scenario;
   const { diff: d, plan } = s;
   const open = branch?.status === "open";
@@ -76,10 +80,11 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   return (
     <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
       <div className="mono" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-        <span style={{ color: C.mute }}>main</span>
+        <span style={{ color: C.mute }}>{parent}</span>
         <ArrowRight size={12} color={C.mute2} />
         <span style={{ color: hue, fontWeight: 600 }}>{branch?.name}</span>
       </div>
+      {branch && open && <RebaseCard key={branch.branch_id} branch={branch} parent={parentName(s.branches, branch, derived.mainId)} name={(t) => nameElements(t, ix)} onPreview={actions.previewRebase} onRebase={actions.rebaseBranch} />}
       {mismatch && (
         <div className="notice amber">
           main is tested on {profileOf(main!.scenario).label} and this branch on {profileOf(branch!.scenario).label}. Part of the difference below comes from demand, not from
@@ -88,7 +93,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
       )}
       {!d || !plan ? (
         <span className="mute" style={{ fontSize: 12 }}>
-          {s.solving ? "The comparison with main appears once every year of this run is solved." : "Comparing with main…"}
+          {s.solving ? `The comparison with ${parent} appears once every year of this run is solved.` : `Comparing with ${parent}…`}
         </span>
       ) : (
         <>
@@ -98,7 +103,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
           <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} name={(t) => nameElements(t, ix)} onPick={actions.setYear} />
           <Changed d={d} name={(t) => nameElements(t, ix)} />
-          <MergeChanges m={d.on_merge} hue={hue} title={(o) => outageTitle(o, ix)} />
+          <MergeChanges m={d.on_merge} hue={hue} parent={parent} title={(o) => outageTitle(o, ix)} />
         </>
       )}
       {s.reinforcements.length > 0 && (
@@ -115,7 +120,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           ))}
         </div>
       )}
-      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} />
+      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} parent={parent} />
       <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} ix={ix} />
       {confirm && s.mergeCheck && (
         <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
@@ -131,7 +136,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
       <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
         <button className="btn solid-hue grow" onClick={onMerge} disabled={!canMerge} title={gate.headline} data-gate={gate.state}>
           <GitMerge size={14} weight="bold" />
-          {confirm ? "Merge anyway" : "Merge into main"}
+          {confirm ? "Merge anyway" : `Merge into ${parent}`}
         </button>
         {confirm ? (
           <button className="btn" onClick={() => setConfirm(false)}>
@@ -152,7 +157,7 @@ const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: Arrow
 const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
 
 /** The merge gate: may this branch become the plan of record? Blockers, warnings, and what main already carries. */
-function MergeReadiness({ mc, gate, ix }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null }) {
+function MergeReadiness({ mc, gate, ix, parent }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null; parent: string }) {
   const I = GATE_ICON[gate.state];
   const v = gate.state === "stale" || gate.state === "checking" || gate.state === "closed" ? null : (mc?.verdict ?? null);
   const row = (f: Parameters<typeof gateText>[0], cls: string, i: number) => (
@@ -173,13 +178,13 @@ function MergeReadiness({ mc, gate, ix }: { mc: MergeCheck | null; gate: GateVie
       {v?.warnings.map((w, i) => row(w, "warning", i))}
       {v && v.context.length > 0 && (
         <details className="gate-context">
-          <summary>Already on {mc?.into ?? "main"}: {v.context.length} {v.context.length === 1 ? "item" : "items"} this branch inherits, not held against it</summary>
+          <summary>Already on {parent}: {v.context.length} {v.context.length === 1 ? "item" : "items"} this branch inherits, not held against it</summary>
           {v.context.map((c, i) => (
             <span key={i} className="gate-row info">{gateText(c, ix)}</span>
           ))}
         </details>
       )}
-      {v && <span className="mute" style={{ fontSize: 10.5 }}>Judged on {v.years_compared.length} plan years against {mc?.into ?? "main"}; every figure is the engine's.</span>}
+      {v && <span className="mute" style={{ fontSize: 10.5 }}>Judged on {v.years_compared.length} plan years against {parent}; every figure is the engine's.</span>}
     </div>
   );
 }
@@ -231,8 +236,8 @@ function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boo
   );
 }
 
-/** What merging replaces on main: the planned works and reinforcements it adds, and those it removes. */
-function MergeChanges({ m, hue, title }: { m: OnMerge | undefined; hue: string; title: (o: OnMerge["works_added"][number]) => string }) {
+/** What merging replaces on the parent: the planned works and reinforcements it adds, and those it removes. */
+function MergeChanges({ m, hue, parent, title }: { m: OnMerge | undefined; hue: string; parent: string; title: (o: OnMerge["works_added"][number]) => string }) {
   if (!m || !mergeChangeCount(m)) return null;
   const rows = [
     ...m.works_added.map((o) => ({ key: o.outage_id, add: true, text: `${title(o)} · ${o.season} ${o.year}` })),
@@ -242,8 +247,8 @@ function MergeChanges({ m, hue, title }: { m: OnMerge | undefined; hue: string; 
   ];
   return (
     <div className="merge-changes">
-      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merging changes on main</span>
-      <span className="mute" style={{ fontSize: 11.5 }}>Main takes this branch's planned works and reinforcements, so it gains and loses these.</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merging changes on {parent}</span>
+      <span className="mute" style={{ fontSize: 11.5 }}>{parent} takes this branch's planned works and reinforcements, so it gains and loses these.</span>
       {rows.map((r) => (
         <div key={r.key} className="mrow">
           {r.add ? <Plus size={12} color={hue} weight="bold" /> : <Minus size={12} color={C.redInk} weight="bold" />}

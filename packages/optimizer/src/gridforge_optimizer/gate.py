@@ -10,7 +10,9 @@ against the parent, because the parent is not perfect either:
     becomes infeasible, a year that stops converging);
   * what the parent already carries is context, never a blocker;
   * a result that is stale or incomplete blocks on its own: an unstudied year cannot be declared safe;
-  * a branch that fell behind its parent blocks, because merging replaces the parent's projects.
+  * a branch that fell behind its parent blocks, because merging replaces the parent's projects, works,
+    reinforcements and demand profile: the parent's changes since the branch was opened (`parent_moved`,
+    read by the API from the fork point) are taken in by a rebase, never dropped by a merge.
 
 Connections are not gated by this (AGENTS.md rule 4: N-1 and planned works are reported, never a
 connection gate). Merges are: a supply-security regression is exactly what "the grid will be broken"
@@ -20,8 +22,9 @@ means. `MERGE_CHECKS` is the registry, one function per concern; the LEVEL of ev
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from .config import (
     GATE_GSP_WORSEN_MW,
@@ -30,6 +33,7 @@ from .config import (
     GSP_NEAR_LIMIT_FRACTION,
     LINE_LOADING_MAX_PCT,
     MERGE_GATE_LEVELS,
+    N1_ISLAND_MIN_MW,
     PLAN_END_YEAR,
     PLAN_START_YEAR,
     TRAFO_LOADING_MAX_PCT,
@@ -42,10 +46,20 @@ _EPS = 0.05  # movements below this (loading points, MW, pu) are noise, not a ch
 _PLAN_YEARS = tuple(range(PLAN_START_YEAR, PLAN_END_YEAR + 1))
 
 
+class ParentMove(NamedTuple):
+    """One change the parent received after the branch was opened, which the branch does not have."""
+
+    element_kind: str | None  # project | outage | reinforcement | None (the demand profile)
+    element_id: str | None
+    text: str  # "ECR-AD82A: export rating 4 MW → 3.5 MW"
+
+
 @dataclass(frozen=True)
 class GateContext:
     """Everything a check may read. `fresh` is the API's verdict on whether `head` was solved for the
-    branch's current inputs; the checks never second-guess it."""
+    branch's current inputs; the checks never second-guess it. `parent_moved` is None when the branch's
+    fork point is not known (no common ancestor with its parent, or judged against another branch than
+    its parent); `fork_unknown` says the first case, so the gate can say what it cannot tell."""
 
     head: OptimizeResult | None
     base: OptimizeResult | None
@@ -56,6 +70,8 @@ class GateContext:
     removed_works: tuple[str, ...] = ()
     removed_reinforcements: tuple[str, ...] = ()
     base_label: str = "main"
+    parent_moved: tuple[ParentMove, ...] | None = None
+    fork_unknown: bool = False
 
     @property
     def complete(self) -> bool:
@@ -145,8 +161,15 @@ def _non_convergent(ctx: GateContext) -> list[GateFinding]:
 
 
 def _behind_base(ctx: GateContext) -> list[GateFinding]:
-    """Merging REPLACES the parent's projects with the branch's: a project on the parent but not on the
-    branch (it merged after the branch was opened) would silently disappear."""
+    """Merging REPLACES the parent's state with the branch's: whatever the parent received after the
+    branch was opened would silently disappear. With the fork point known, each such change blocks until
+    the branch is rebased (whatever its run says); without it, only a project missing from the branch can
+    be seen, from the diff."""
+    if ctx.parent_moved is not None:
+        return [_finding("behind_base", f"{ctx.base_label} changed after this branch was opened: {m.text}. Merging would undo it: "
+                                        f"rebase this branch onto {ctx.base_label} to take it in.",
+                         element_kind=m.element_kind, element_id=m.element_id)
+                for m in ctx.parent_moved]
     if not ctx.complete or ctx.diff is None:
         return []
     return [
@@ -156,6 +179,16 @@ def _behind_base(ctx: GateContext) -> list[GateFinding]:
                  element_kind="project", element_id=p.request_id)
         for p in ctx.diff.projects if p.change == "dropped"
     ]
+
+
+def _fork_unknown(ctx: GateContext) -> list[GateFinding]:
+    if not ctx.fork_unknown:
+        return []
+    return [_finding("fork_unknown", f"Where this branch started from {ctx.base_label} is not known (it was opened from a branch "
+                                     f"before fork points were recorded), so a change {ctx.base_label} received since cannot be told "
+                                     f"from this branch's own, and merging replaces {ctx.base_label}'s projects, works, reinforcements "
+                                     f"and demand profile with this branch's. Rebase it onto {ctx.base_label} first: every difference "
+                                     f"between the two is then yours to pick.")]
 
 
 def _thermal(ctx: GateContext) -> list[GateFinding]:
@@ -241,8 +274,20 @@ def _gsp(ctx: GateContext) -> list[GateFinding]:
     return out
 
 
+# when the same N-1 finding (same outage, case and breached element) counts as WORSE on the branch, per kind of breach,
+# with the planning tolerances the intact checks use, and how its figure reads: (moved beyond the tolerance, figure)
+_N1_WORSE: dict[str, tuple[Callable[[float, float], bool], Callable[[float], str]]] = {
+    "line": (lambda h, b: h - b > GATE_WORSEN_PTS, lambda v: f"{v:.1f}%"),
+    "trafo": (lambda h, b: h - b > GATE_WORSEN_PTS, lambda v: f"{v:.1f}%"),
+    # further outside its band: further from 1.0 pu, in either direction (as `_voltage`)
+    "voltage": (lambda h, b: abs(h - 1.0) - abs(b - 1.0) > GATE_VM_WORSEN_PU, lambda v: f"{v:.3f} pu"),
+    "islanded": (lambda h, b: h - b > N1_ISLAND_MIN_MW, lambda v: f"{v:.1f} MW"),
+}
+
+
 def _n1(ctx: GateContext) -> list[GateFinding]:
-    """New or worsened N-1 findings. Keyed by `diff.n1_key`, never by the diff's capped lists."""
+    """New or worsened N-1 findings. Keyed by `diff.n1_key`, never by the diff's capped lists; worse per kind of breach
+    (`_N1_WORSE`), a smaller move is context."""
     out: list[GateFinding] = []
     for y, b, h in ctx.common_years():
         bk = {n1_key(v): v for v in b.n1_violations}
@@ -257,9 +302,11 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
         same = 0
         for k in sorted(hk.keys() & bk.keys(), key=str):
             hv, bv = hk[k].get("value"), bk[k].get("value")
-            if hv is not None and bv is not None and hv - bv > _EPS:
+            worse, figure = _N1_WORSE.get(hk[k].get("type"), (lambda h, b: False, str))
+            if hv is not None and bv is not None and worse(hv, bv):
                 v = hk[k]
-                out.append(_finding("n1_worse", f"N-1 finding worse in {y}: {v.get('message', '')} ({bv:g} on {ctx.base_label}).",
+                out.append(_finding("n1_worse", f"N-1 finding worse in {y}: {v.get('message', '')} (now {figure(hv)}, "
+                                                f"{figure(bv)} on {ctx.base_label}).",
                                     year=y, case=v.get("case"), element_kind=v.get("outage_type"), element_id=v.get("outage_id"),
                                     value=hv, base_value=bv,
                                     ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, v.get("case"),
@@ -373,7 +420,7 @@ def _deferred(ctx: GateContext) -> list[GateFinding]:
 
 # the checks, one per concern; a new rule is one function + one entry here + its kinds in MERGE_GATE_LEVELS
 MERGE_CHECKS: tuple[Callable[[GateContext], list[GateFinding]], ...] = (
-    _stale, _no_result, _unstudied_years, _non_convergent, _behind_base,
+    _stale, _no_result, _unstudied_years, _non_convergent, _behind_base, _fork_unknown,
     _thermal, _voltage, _gsp, _n1, _alerts, _works,
     _schedule, _profile, _proposals, _deferred,
 )
@@ -400,6 +447,8 @@ def merge_verdict(
     removed_works: tuple[str, ...] | list[str] = (),
     removed_reinforcements: tuple[str, ...] | list[str] = (),
     base_label: str = "main",
+    parent_moved: Sequence[ParentMove] | None = None,
+    fork_unknown: bool = False,
 ) -> MergeVerdict:
     """Run every check in MERGE_CHECKS on the branch (`head`) against its parent (`base`) and bucket
     the findings by level. `diff` is `diff_results(base, head)` when not given. Pure and deterministic."""
@@ -407,7 +456,8 @@ def merge_verdict(
         diff = diff_results(base, head)
     ctx = GateContext(head=head, base=base, diff=diff, fresh=fresh, stale_reasons=tuple(stale_reasons),
                       scheduled=dict(scheduled or {}), removed_works=tuple(removed_works),
-                      removed_reinforcements=tuple(removed_reinforcements), base_label=base_label)
+                      removed_reinforcements=tuple(removed_reinforcements), base_label=base_label,
+                      parent_moved=None if parent_moved is None else tuple(parent_moved), fork_unknown=fork_unknown)
     found = [f for check in MERGE_CHECKS for f in check(ctx)]
 
     def order(f: GateFinding):

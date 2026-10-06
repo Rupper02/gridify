@@ -1,8 +1,10 @@
-// Branch flows ("git for grids"): switch, open, set the demand profile, diff, merge, discard.
+// Branch flows ("git for grids"): switch, open, set the demand profile, diff, merge, discard, rebase onto main.
 
 import { useCallback, useMemo } from "react";
 
 import { ApiError, api } from "../../api";
+import type { RebasePick, RebasePreview } from "../../types";
+import { parentName } from "../../lib/derive";
 import { refusedCheck } from "../../lib/gate";
 import { latestWins } from "../../lib/latest";
 import { mainIdOf } from "../../lib/projects";
@@ -127,22 +129,26 @@ export function useBranchFlows(
   }, [patch, ref, refreshDiff]);
 
   /**
-   * Merge the active branch into main through the gate. A refusal (409) carries the verdict: it goes
-   * into the Review tab and a toast; nothing changes until the operator re-runs or acknowledges.
+   * Merge the active branch into its parent (main, or the branch it was opened from: what the gate judged it against).
+   * A refusal (409) carries the verdict: it goes into the Review tab and a toast; nothing changes until the operator
+   * re-runs or acknowledges.
    */
   const mergeBranch = useCallback(
     async (opts: { acknowledge?: boolean } = {}) => {
       const st = ref.current;
       const mainId = mainIdOf(st.projects, st.projectId);
       if (!st.activeBranch || st.activeBranch === mainId) return;
-      const name = st.branches.find((b) => b.branch_id === st.activeBranch)?.name ?? "The branch";
+      const branch = st.branches.find((b) => b.branch_id === st.activeBranch);
+      const name = branch?.name ?? "The branch";
+      const into = branch?.parent_id || mainId;
+      const intoName = parentName(st.branches, branch, mainId);
       try {
-        await api.mergeBranch(st.activeBranch, { into: mainId, acknowledge: !!opts.acknowledge });
+        await api.mergeBranch(st.activeBranch, { into, acknowledge: !!opts.acknowledge });
         await refreshBranches();
-        toastMsg(`${name} merged into main, the new plan of record.`);
-        patch({ activeBranch: mainId, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, tab: "queue", chat: EMPTY_CHAT });
-        void loadExtras(mainId);
-        void run({ activeBranch: mainId });
+        toastMsg(into === mainId ? `${name} merged into main, the new plan of record.` : `${name} merged into ${intoName}.`);
+        patch({ activeBranch: into, diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], sel: null, tab: into === mainId ? "queue" : "review", chat: EMPTY_CHAT });
+        void loadExtras(into);
+        void run({ activeBranch: into });
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
           const refusal = refusedCheck(e.detail, st.mergeCheck, st.activeBranch);
@@ -175,5 +181,41 @@ export function useBranchFlows(
     }
   }, [loadExtras, patch, ref, refreshBranches, run, toastMsg]);
 
-  return { selectBranch, createBranch, ensureEditableBranch, setProfile, refreshDiff, refreshMergeCheck, toggleDiff, mergeBranch, discardBranch };
+  /** What rebasing the active branch onto main as it is now would do; null (with a toast) when it cannot be told. */
+  const previewRebase = useCallback(async (): Promise<RebasePreview | null> => {
+    const bid = ref.current.activeBranch;
+    try {
+      return await api.rebasePreview(bid);
+    } catch (e) {
+      toastMsg(`Could not prepare the rebase: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+      return null;
+    }
+  }, [ref, toastMsg]);
+
+  /**
+   * Rebase the active branch onto main with the operator's pick for every conflict. Only the operator starts it.
+   * The branch then holds main's current state plus its own changes, and its result is out of date until it runs.
+   */
+  const rebaseBranch = useCallback(
+    async (picks: Record<string, RebasePick>): Promise<boolean> => {
+      const bid = ref.current.activeBranch;
+      let taken = 0;
+      try {
+        taken = (await api.rebaseBranch(bid, picks)).taken;
+      } catch (e) {
+        toastMsg(`Rebase refused: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        return false;
+      }
+      await refreshBranches();
+      if (ref.current.activeBranch !== bid) return true;
+      patch({ diff: null, mergeCheck: null, suggestions: null });
+      await loadExtras(bid);
+      void refreshMergeCheck(bid);
+      toastMsg(`Rebased onto main: ${taken ? `${taken} of main's change${taken === 1 ? "" : "s"} taken in` : "this branch's values kept wherever both sides changed"}. If the result shows out of date, re-run it before merging.`);
+      return true;
+    },
+    [loadExtras, patch, ref, refreshBranches, refreshMergeCheck, toastMsg],
+  );
+
+  return { selectBranch, createBranch, ensureEditableBranch, setProfile, refreshDiff, refreshMergeCheck, toggleDiff, mergeBranch, discardBranch, previewRebase, rebaseBranch };
 }

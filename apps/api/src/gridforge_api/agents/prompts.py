@@ -83,7 +83,11 @@ move to the higher-voltage busbar that takes its full MW. Offer the one the figu
 (propose_candidate_change for a size or a move, propose_reinforcement for the chain), then propose_run so
 the next run measures it; never another round of parallel circuits as the only answer. For a planned work,
 run best_window (narrow the years or seasons, or set n1 false, when the budget is short) and offer
-propose_works_window. To add a project the operator describes, use propose_candidate."""
+propose_works_window. To add a project the operator describes, use propose_candidate. Its control mode (a power factor, or
+voltage control with a setpoint and reactive range) is set by its connection offer: pass it only as the operator states it,
+ask when it matters (a large connection, a voltage-bound one), and never choose one yourself.
+When the merge check says a branch is behind main (main changed after it was opened), offer propose_rebase; if the rebase
+has conflicts, say what they are and that the operator picks each in the Review tab: never pick a side yourself."""
 
 
 def specialist_prompt(kind: str) -> str:

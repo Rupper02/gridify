@@ -28,7 +28,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_ai import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
-from gridforge_optimizer import STUDIES
+from gridforge_optimizer import STUDIES, Control
 from gridforge_optimizer.naming import name_payload
 
 from .. import ledger, repository
@@ -177,7 +177,8 @@ def scope_instructions(ctx: RunContext[AgentDeps]) -> str:
     here = d.branch_id or d.main_id
     with d.h.store.cursor() as con:
         row = repository.branch_row(con, here)
-        parent = repository.base_of(con, row)["branch_id"] if row and here != d.main_id else None
+        base = repository.base_of(con, row) if row else None
+        parent = base["branch_id"] if base else None
     this = _branch_label(d.h, here)
     where = (f"branch {this}, opened from {_branch_label(d.h, parent)}" if parent
              else f"{this}, the plan of record (what physically exists today)")
@@ -233,7 +234,13 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             y = res.years.get(str(year))
             if y is None:
                 return ({"branch_id": bid, "year": year, "error": "that year is not in the plan"}, None, 0)
+            # which element carries the worst figure: the year's per-element loadings are the same worst-of-every-case
+            # envelope the worst figure is the maximum of (named by `_recorded` like every element)
+            worst_line = max(y.line_loading.items(), key=lambda kv: kv[1], default=None)
+            worst_trafo = max(y.trafo_loading.items(), key=lambda kv: kv[1], default=None)
+            most = lambda kind, w: f"the most loaded {kind} is {kind} {w[0]} at {w[1]:.0f}%" if w else f"no {kind} loading (not solved)"  # noqa: E731
             return ({"branch_id": bid, "year": year, "worst_line_loading_pct": y.worst_line_loading_pct, "worst_trafo_loading_pct": y.worst_trafo_loading_pct,
+                     "worst_line": f"line {worst_line[0]}" if worst_line else None, "worst_transformer": f"transformer {worst_trafo[0]}" if worst_trafo else None,
                      "min_vm_pu": y.min_vm_pu, "max_vm_pu": y.max_vm_pu, "overloaded_line_ids": y.overloaded_line_ids,
                      "voltage_violation_bus_ids": y.voltage_violation_bus_ids, "gsp_export_mw": y.gsp_export_mw, "gsp_limit_mw": y.gsp_limit_mw,
                      "n1_findings": [v.get("message") for v in y.n1_violations][:TOP_ITEMS], "alerts": [a.message for a in y.alerts][:TOP_ITEMS],
@@ -242,9 +249,10 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
                                 if s.n1_during else None}
                                for s in y.outage_studies],
                      "energised": y.energised, "converged": y.converged,
-                     "summary": f"{year}: worst line {y.worst_line_loading_pct:.0f}%, worst transformer {y.worst_trafo_loading_pct:.0f}%, "
+                     "summary": f"{year}: {most('line', worst_line)}, {most('transformer', worst_trafo)}, "
                                 f"voltage {y.min_vm_pu:.3f}-{y.max_vm_pu:.3f} pu, GSP export {y.gsp_export_mw:.0f} of {y.gsp_limit_mw or 0:.0f} MW, "
-                                f"{len(y.n1_violations)} N-1 findings, {len(y.alerts)} customer alerts"}, None, 0)
+                                f"{len(y.n1_violations)} N-1 breaches from {len({(v.get('outage_type'), v.get('outage_id')) for v in y.n1_violations})} single outages, "
+                                f"{len(y.alerts)} customer alerts"}, None, 0)
         return _recorded(ctx, "plan_year", {"branch_id": bid, "year": year}, work)
 
     @ts.tool
@@ -257,6 +265,9 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             with h.store.cursor() as con:
                 head = repository.require_branch(con, bid)
                 base = repository.base_of(con, head)
+            if base is None:
+                return ({"branch_id": bid, "summary": "This is the project's main, the plan of record: branches merge into it and it merges "
+                                                      "nowhere, so it has no merge check. Check a branch instead."}, None, 0)
             with _gate(ctx.deps)():
                 verdict, evidence = h.plans.merge_check(bid, base["branch_id"])
             short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value,  # noqa: E731
@@ -275,6 +286,9 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             h = ctx.deps.h
             with h.store.cursor() as con:
                 base = repository.base_of(con, repository.require_branch(con, bid))
+            if base is None:
+                return ({"branch_id": bid, "summary": "This is the project's main, the plan of record: it has no parent to diff against. "
+                                                      "Diff a branch instead."}, None, 0)
             with _gate(ctx.deps)():
                 d = h.plans.diff(bid, base["branch_id"])
             years = {k: {"newly_overloaded_line_ids": y.newly_overloaded_line_ids, "newly_overloaded_trafo_ids": y.newly_overloaded_trafo_ids,
@@ -415,12 +429,13 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
 
     @ts.tool
     def propose_candidate(ctx: RunContext[AgentDeps], branch_id: str, applicant: str, technology: str, bus_id: int, rating_mw: float,
-                          import_mw: float | None = None, commissioning_year: int | None = None, readiness_rationale: str = "") -> dict:
-        """Propose adding a connection project to a branch: technology solar | wind | battery | hybrid | demand | electrolyser | other, rating_mw its export (0 for a demand connection), import_mw its import (batteries, demand), commissioning_year the year asked for. Intake-triaged like the operator's own entry; the next run ranks it. The operator approves; main is never edited."""
+                          import_mw: float | None = None, commissioning_year: int | None = None, readiness_rationale: str = "",
+                          control: Control | None = None) -> dict:
+        """Propose adding a connection project to a branch: technology solar | wind | battery | hybrid | demand | electrolyser | other, rating_mw its export (0 for a demand connection), import_mw its import (batteries, demand), commissioning_year the year asked for. control: how its connection offer runs it, as the operator states it: {mode: pf, pf, absorbing} (a fixed power factor) or {mode: voltage, vm_pu, q_range_pf} (voltage control within a reactive range); never assume one: ask, and leave it out when not known (the project then runs at unity power factor, marked not stated). Intake-triaged like the operator's own entry; the next run ranks it. The operator approves; main is never edited."""
         def work():
             h = ctx.deps.h
             body = NewCandidate(applicant=applicant, technology=technology, bus_id=bus_id, rating_mw=rating_mw, import_mw=import_mw,
-                                commissioning_year=commissioning_year, readiness_rationale=readiness_rationale, branch_id=branch_id)
+                                commissioning_year=commissioning_year, readiness_rationale=readiness_rationale, control=control, branch_id=branch_id)
             with h.store.cursor() as con:
                 branch = repository.require_open(con, branch_id, allow_main=False)
                 row = repository.insert_candidate(con, branch_id, body, h.projects.element_ids(branch["project_id"])["buses"])
@@ -428,23 +443,49 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             client = repository.to_client(row)
             return ({**client, "summary": f"{row['request_id']} ({client['status']}) added to {branch_id}"}, None, 0)
         return _recorded(ctx, "propose_candidate", {"branch_id": branch_id, "applicant": applicant, "technology": technology, "bus_id": bus_id, "rating_mw": rating_mw,
-                                                    "import_mw": import_mw, "commissioning_year": commissioning_year, "readiness_rationale": readiness_rationale}, work)
+                                                    "import_mw": import_mw, "commissioning_year": commissioning_year, "readiness_rationale": readiness_rationale,
+                                                    "control": control.model_dump() if control else None}, work)
 
     @ts.tool
     def propose_candidate_change(ctx: RunContext[AgentDeps], branch_id: str, request_id: str, bus_id: int | None = None, rating_mw: float | None = None,
-                                 import_mw: float | None = None, commissioning_year: int | None = None) -> dict:
-        """Propose changing a project on a branch: its point of connection (bus_id, e.g. the higher-voltage busbar connection_options found), its export rating (a firm size; a battery's import scales with it unless import_mw is given, as connection_options probed it), its import capacity or its requested year; omitted fields keep their value. Re-triaged; the next run measures it. The operator approves."""
+                                 import_mw: float | None = None, commissioning_year: int | None = None, control: Control | None = None) -> dict:
+        """Propose changing a project on a branch: its point of connection (bus_id, e.g. the higher-voltage busbar connection_options found), its export rating (a firm size; a battery's import scales with it unless import_mw is given, as connection_options probed it), its import capacity, its requested year or its control mode (as for propose_candidate: only what the operator states); omitted fields keep their value. Re-triaged; the next run measures it. The operator approves."""
         def work():
             h = ctx.deps.h
-            changes = {k: v for k, v in {"bus_id": bus_id, "rating_mw": rating_mw, "import_mw": import_mw, "commissioning_year": commissioning_year}.items() if v is not None}
+            changes = {k: v for k, v in {"bus_id": bus_id, "rating_mw": rating_mw, "import_mw": import_mw, "commissioning_year": commissioning_year,
+                                         "control": control.model_dump() if control else None}.items() if v is not None}
             with h.store.cursor() as con:
                 branch = repository.require_open(con, branch_id, allow_main=False)
                 row = repository.update_candidate(con, branch_id, request_id, changes, h.projects.element_ids(branch["project_id"])["buses"])
             h.plans.invalidate("plan")
-            applied = {k: row.get(k) for k in ("bus_id", "rating_mw", "import_mw", "commissioning_year") if k in changes or (k == "import_mw" and "rating_mw" in changes and row.get(k) is not None)}
+            applied = {k: row.get(k) for k in ("bus_id", "rating_mw", "import_mw", "commissioning_year", "control") if k in changes or (k == "import_mw" and "rating_mw" in changes and row.get(k) is not None)}
             return ({**row, "summary": f"{request_id} on {branch_id}: " + ", ".join(f"{k} -> {v}" for k, v in applied.items())}, None, 0)
         return _recorded(ctx, "propose_candidate_change", {"branch_id": branch_id, "request_id": request_id, "bus_id": bus_id, "rating_mw": rating_mw,
-                                                           "import_mw": import_mw, "commissioning_year": commissioning_year}, work)
+                                                           "import_mw": import_mw, "commissioning_year": commissioning_year,
+                                                           "control": control.model_dump() if control else None}, work)
+
+    @ts.tool
+    def propose_rebase(ctx: RunContext[AgentDeps], branch_id: str) -> dict:
+        """Propose rebasing a branch onto its parent as it is now (when the merge check says it is behind main): the parent's
+        current state plus the branch's own changes. Only a rebase without conflicts is applied: where both sides changed the
+        same thing the operator picks in the Review tab, never an agent. The branch's result is then out of date until it runs
+        (propose_run). The operator approves."""
+        def work():
+            h = ctx.deps.h
+            with h.store.cursor() as con:
+                head = repository.require_open(con, branch_id, allow_main=False)
+                p = repository.rebase_plan(con, head)
+                if p is None:
+                    return ({"branch_id": branch_id, "refused": "the branch it was opened from is gone: nothing to rebase onto"}, None, 0)
+                if p.conflicts:
+                    return ({"branch_id": branch_id, "refused": f"{len(p.conflicts)} conflict(s): both sides changed the same thing, and only the "
+                                                                "operator picks a side, in the Review tab. Tell them which.",
+                             "conflicts": [c.text for c in p.conflicts]}, None, 0)
+                n = repository.apply_rebase(con, head, p, {}, h.projects.element_ids(head["project_id"])["buses"])
+            h.plans.invalidate("plan")
+            return ({"branch_id": branch_id, "taken": n, "summary": f"rebased {branch_id} onto {head['parent_id']}: {n} of its changes taken in; "
+                                                                     "the branch's result is out of date until it runs"}, None, 0)
+        return _recorded(ctx, "propose_rebase", {"branch_id": branch_id}, work)
 
     @ts.tool
     def propose_run(ctx: RunContext[AgentDeps], branch_id: str) -> dict:

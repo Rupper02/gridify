@@ -150,7 +150,7 @@ def test_a_project_on_a_branch_can_be_changed_and_is_re_triaged():
     r = client.patch(f"/branches/{bid}/candidates/{rid}", json={"bus_id": new_bus, "rating_mw": 7.5})
     assert r.status_code == 200, r.text
     assert r.json()["bus_id"] == new_bus and r.json()["rating_mw"] == 7.5 and r.json()["status"] == "valid" and r.json()["request_id"] == rid
-    assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": 0}).json()["status"] == "rejected"  # re-triaged: out of range
+    assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": 0}).json()["status"] == "incomplete"  # re-triaged: out of range
     assert client.patch(f"/branches/{bid}/candidates/{rid}", json={"rating_mw": 7.5}).json()["status"] == "valid"
     assert client.patch(f"/branches/{bid}/candidates/CR-nope", json={"bus_id": new_bus}).status_code == 404
     assert client.patch(f"/branches/main/candidates/{rid}", json={"bus_id": new_bus}).status_code == 409
@@ -208,7 +208,7 @@ def test_a_run_writes_findings_and_a_rerun_upserts_and_resolves():
     keeps the same row, acknowledging it takes it out of the open list, and fixing the project resolves it."""
     bid = create_branch("Ledger")["branch_id"]
     added = add_project(bid, broken_project())
-    assert added["status"] == "rejected"
+    assert added["status"] == "incomplete"
     rid = added["request_id"]
     run(bid)
     fs = client.get(f"/branches/{bid}/findings").json()

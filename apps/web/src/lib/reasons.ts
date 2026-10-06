@@ -130,19 +130,19 @@ const intake: Normaliser = ({ msg, item, base }) => {
   if (m.includes("not in") || m.includes("does not exist") || (m.includes("bus") && !m.includes("busbar"))) {
     short = "Connection point not in the network model";
     why = `The point of connection${item.bus_id != null ? ` (bus ${item.bus_id})` : ""} isn't in this network model, so it can't be assessed.`;
-    action = "Pick a real connection point: a busbar in the model. Ask the agents where a project of this size could connect.";
+    action = "Pick a real connection point: a busbar in the model. Ask the agents where a project of this size could connect; they propose the change for you to approve.";
   } else if (m.includes("rating") && (m.includes("exceed") || m.includes("range") || m.includes("cap"))) {
     short = `Capacity over the ${cap} MW connection cap`;
     why = `The requested capacity${item.rating_mw != null ? ` (${item.rating_mw} MW)` : ""} is above the ${cap} MW connection cap for this network.`;
     action = `Reduce the capacity to ≤ ${cap} MW, split it across sites, or connect at a higher-voltage point.`;
   } else if (m.includes("missing") || m.includes("capacity")) {
     short = "Incomplete application";
-    why = msg || "The application is missing required details.";
-    action = "Complete the missing fields (capacity, point of connection, technology) and resubmit.";
+    why = msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}.` : "The application is missing required details.";
+    action = "Ask the agents to complete it: give them the missing figure and they propose the change for you to approve. The next run assesses it.";
   } else {
     short = "Can't be assessed yet";
     why = msg || "This application can't be assessed yet.";
-    action = "Complete the application details and resubmit.";
+    action = "Ask the agents to complete it: they propose the change for you to approve. The next run assesses it.";
   }
   return { ...base, kind: "intake", element: null, short, why, action };
 };

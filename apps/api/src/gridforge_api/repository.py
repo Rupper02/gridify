@@ -3,6 +3,7 @@
 Plain functions over a store cursor; no HTTP and no engine here (except the request/candidate types).
 """
 
+import json
 import uuid
 
 from fastapi import HTTPException
@@ -11,6 +12,7 @@ from gridforge_optimizer import Candidate, Outage, Reinforcement
 from gridforge_optimizer.config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 from gridforge_optimizer.nged import commission_year
 
+from . import rebase
 from .config import ADDED_CANDIDATE_ID_BASE, MANUAL_READINESS_DEFAULT, MANUAL_STRATEGIC_DEFAULT, now
 from .schemas import NewCandidate, OptimizeRequest, OutageCreate, ReinforcementCreate
 from .store import ADDED_COLS, BRANCH_COLS, OUTAGE_COLS, REINFORCEMENT_COLS, Cursor
@@ -59,11 +61,15 @@ def branch_to_client(con: Cursor, row: dict) -> dict:
     n_added = con.execute(
         "SELECT count(*) FROM added_candidates WHERE branch_id = ?", [row["branch_id"]]
     ).fetchone()[0]
+    # how many of its parent's changes since it was opened an open branch lacks (None: not known, see rebase_plan)
+    plan = rebase_plan(con, row) if row["status"] == "open" else None
     return {
         "branch_id": row["branch_id"], "name": row["name"], "parent_id": row["parent_id"],
         **branch_params(row),
         "status": row["status"], "created_at": row["created_at"], "merged_at": row["merged_at"],
         "created_by": row.get("created_by") or "operator", "project_id": row.get("project_id"), "n_added": int(n_added),
+        "behind": None if plan is None or plan.fork_kind == "none" else len(rebase.items(plan.behind)),
+        "fork": None if plan is None else plan.fork_kind,
     }
 
 
@@ -91,7 +97,89 @@ def open_branch(con: Cursor, parent: dict, name: str, *, created_by: str, overri
     )
     copy_projects(con, parent["branch_id"], bid)
     copy_branch_extras(con, parent["branch_id"], bid)
+    set_fork(con, bid, branch_state(con, parent["branch_id"]))
     return bid
+
+
+# --- the fork point and rebase (rebase.py decides; this reads and writes) ------------------------------
+_ADDED_LIST = [c.strip() for c in ADDED_COLS.split(",")]
+
+
+def branch_state(con: Cursor, branch_id: str) -> dict:
+    """A branch's whole plan as `rebase` reads it: its projects, works windows, reinforcements and demand profile."""
+    row = require_branch(con, branch_id)
+    return {
+        "projects": {r["request_id"]: {c: r.get(c) for c in _ADDED_LIST[1:]} for r in candidate_rows(con, branch_id)},
+        "works": {r["outage_id"]: r for r in outage_rows(con, branch_id)},
+        "reinforcements": {r["reinforcement_id"]: r for r in reinforcement_rows(con, branch_id)},
+        "profile": branch_params(row),
+    }
+
+
+def fork_point(con: Cursor, head: dict, parent: dict) -> tuple[dict | None, str]:
+    """The parent's state when the branch was opened or last rebased, and where it comes from:
+    - `recorded`: stored when the branch was opened (or rebased);
+    - `rebuilt` (a branch older than fork points, opened from a project's main): a main changes only by merges and a
+      merged branch is frozen, so main's state then is the last branch merged into it before the branch was opened, or
+      the empty seed. Main's demand profile can be changed on main itself and is not logged, so it is left unknown
+      (None): a difference in it is a conflict the operator picks;
+    - `none` (an older branch opened from another branch, whose past is not kept): (None, "none"), every difference
+      between the two is a conflict (git's rebase without a common ancestor)."""
+    if head.get("fork_json"):
+        return json.loads(head["fork_json"]), "recorded"
+    if parent.get("parent_id"):
+        return None, "none"
+    r = con.execute("SELECT branch_id FROM merges WHERE into_branch = ? AND outcome = 'merged' AND created_at < ? "
+                    "ORDER BY created_at DESC LIMIT 1", [parent["branch_id"], head["created_at"]]).fetchone()
+    if r is None:  # merges from before the audit table: the merged branches themselves say when
+        r = con.execute("SELECT branch_id FROM branches WHERE parent_id = ? AND status = 'merged' AND merged_at < ? "
+                        "ORDER BY merged_at DESC LIMIT 1", [parent["branch_id"], head["created_at"]]).fetchone()
+    state = branch_state(con, r[0]) if r else {"projects": {}, "works": {}, "reinforcements": {}}
+    return {**state, "profile": None}, "rebuilt"
+
+
+def set_fork(con: Cursor, branch_id: str, state: dict) -> None:
+    con.execute("UPDATE branches SET fork_json = ? WHERE branch_id = ?", [json.dumps(state), branch_id])
+
+
+def rebase_plan(con: Cursor, head: dict) -> rebase.Plan | None:
+    """The rebase of a branch onto its parent as it is now; None for a main, or when the parent it forked from is gone."""
+    parent = branch_row(con, head["parent_id"]) if head.get("parent_id") else None
+    if parent is None:
+        return None
+    fork, kind = fork_point(con, head, parent)
+    return rebase.plan(fork, branch_state(con, parent["branch_id"]), branch_state(con, head["branch_id"]), fork_kind=kind)
+
+
+def apply_rebase(con: Cursor, head: dict, p: rebase.Plan, picks: dict, valid_bus_ids: set[int]) -> int:
+    """Write the rebase `p` with the operator's `picks` (rebase.PicksError when they do not answer its conflicts): a
+    project row mixed from both sides is triaged again, and the fork point moves to the parent's current state. Returns
+    how many of the parent's changes the branch took in."""
+    state = rebase.resolve(p, picks)
+    for row in state["projects"].values():
+        if row.pop("_retriage", False):
+            row["status"], row["review_reasons"] = triage_row(row, head["branch_id"], valid_bus_ids)
+    write_rebased(con, head["branch_id"], state, p.parent)
+    return rebase.taken(p, state, picks)
+
+
+def write_rebased(con: Cursor, branch_id: str, state: dict, fork: dict) -> None:
+    """Replace a branch's plan with a rebased state and move its fork point to the parent's current state."""
+    con.execute("DELETE FROM added_candidates WHERE branch_id = ?", [branch_id])
+    con.executemany(
+        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) VALUES ({', '.join('?' * (len(_ADDED_LIST) + 1))})",
+        [[rid, *(row.get(c) for c in _ADDED_LIST[1:]), branch_id] for rid, row in state["projects"].items()],
+    )
+    clear_branch_extras(con, branch_id)
+    for table, cols, area in (("branch_outages", OUTAGE_COLS, "works"), ("branch_reinforcements", REINFORCEMENT_COLS, "reinforcements")):
+        con.executemany(
+            f"INSERT INTO {table} (branch_id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})",
+            [[branch_id, *(r.get(c) for c in cols)] for r in state[area].values()],
+        )
+    p = state["profile"]
+    con.execute("UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, w_readiness=?, w_need=?, w_strategic=? WHERE branch_id=?",
+                [p["scenario"], p["growth_2030"], p["growth_2035"], p["w_readiness"], p["w_need"], p["w_strategic"], branch_id])
+    set_fork(con, branch_id, fork)
 
 
 # --- projects on a branch ----------------------------------------------------
@@ -109,12 +197,21 @@ def project_on_branch(con: Cursor, branch_id: str, request_id: str) -> bool:
     ).fetchone())
 
 
+def control_of(r: dict) -> dict | None:
+    """A stored project's control mode (types.Control as a dict), or None when it states none."""
+    raw = r.get("control_json")
+    return json.loads(raw) if raw else r.get("control")
+
+
 def to_client(r: dict) -> dict:
-    """Shape a candidate for the UI: valid/rejected status, non-null applicant."""
+    """Shape a candidate for the UI: valid / incomplete status (triage's `needs_review`: something to complete or
+    correct before it can be assessed), non-null applicant, its control mode (None: not stated)."""
+    out = {k: v for k, v in r.items() if k != "control_json"}
     return {
-        **r,
+        **out,
         "applicant": r.get("applicant") or "",
-        "status": "valid" if r.get("status") == "auto_accept" else "rejected",
+        "status": "valid" if r.get("status") == "auto_accept" else "incomplete",
+        "control": control_of(r),
     }
 
 
@@ -139,6 +236,18 @@ def triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
     return ("auto_accept" if not reasons else "needs_review"), ", ".join(reasons)
 
 
+def triage_row(row: dict, branch_id: str, valid_bus_ids: set[int]) -> tuple[str, str]:
+    """Triage a stored project row again (after an edit, or a rebase that mixed both sides' fields)."""
+    body = NewCandidate(
+        applicant=row.get("applicant"), bus_id=row.get("bus_id"), technology=row.get("technology"), rating_mw=row.get("rating_mw"),
+        readiness_score=float(row["readiness_score"]) if row.get("readiness_score") is not None else MANUAL_READINESS_DEFAULT,
+        strategic_fit=float(row["strategic_fit"]) if row.get("strategic_fit") is not None else MANUAL_STRATEGIC_DEFAULT,
+        readiness_rationale=row.get("readiness_rationale") or "", commissioning_year=row.get("commissioning_year"),
+        import_mw=row.get("import_mw"), branch_id=branch_id,
+    )
+    return triage(body, valid_bus_ids)
+
+
 def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_ids: set[int]) -> dict:
     """Validate + insert a project on a branch; returns the stored row (client fields)."""
     if (body.technology or "").lower() in IMPORT_ONLY_TECHS and body.rating_mw is None:
@@ -150,10 +259,10 @@ def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_
         body.readiness_score, body.technology, body.rating_mw, request_id)
     con.execute(
         f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [request_id, body.applicant, body.bus_id, body.technology, body.rating_mw,
          body.readiness_score, body.strategic_fit, body.readiness_rationale, status, review,
-         year, None, body.import_mw, branch_id],
+         year, None, body.import_mw, body.control.model_dump_json() if body.control else None, branch_id],
     )
     return {
         "request_id": request_id, "applicant": body.applicant, "bus_id": body.bus_id,
@@ -161,10 +270,11 @@ def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_
         "readiness_score": body.readiness_score, "strategic_fit": body.strategic_fit,
         "readiness_rationale": body.readiness_rationale, "status": status,
         "review_reasons": review, "commissioning_year": year, "import_mw": body.import_mw, "branch_id": branch_id,
+        "control": body.control.model_dump() if body.control else None,
     }
 
 
-_CANDIDATE_EDITS = ("bus_id", "rating_mw", "import_mw", "commissioning_year")
+_CANDIDATE_EDITS = ("bus_id", "rating_mw", "import_mw", "commissioning_year", "control")
 
 
 def update_candidate(con: Cursor, branch_id: str, request_id: str, changes: dict, valid_bus_ids: set[int]) -> dict:
@@ -177,24 +287,20 @@ def update_candidate(con: Cursor, branch_id: str, request_id: str, changes: dict
     if current is None:
         raise KeyError(request_id)
     edits = {k: v for k, v in changes.items() if k in _CANDIDATE_EDITS and v is not None}
+    if "control" in edits:  # stored as JSON (types.Control, validated by the request body)
+        edits["control_json"] = json.dumps(edits.pop("control"))
     if "rating_mw" in edits and "import_mw" not in edits and current.get("import_mw") is not None:
         scaled = Candidate(request_id=request_id, rating_mw=current.get("rating_mw"),
                            import_mw=current["import_mw"]).import_at(float(edits["rating_mw"]))
         if scaled is not None:
             edits["import_mw"] = round(scaled, 3)
     row = {**current, **edits}
-    body = NewCandidate(
-        applicant=row.get("applicant"), bus_id=row.get("bus_id"), technology=row.get("technology"), rating_mw=row.get("rating_mw"),
-        readiness_score=float(row["readiness_score"]) if row.get("readiness_score") is not None else MANUAL_READINESS_DEFAULT,
-        strategic_fit=float(row["strategic_fit"]) if row.get("strategic_fit") is not None else MANUAL_STRATEGIC_DEFAULT,
-        readiness_rationale=row.get("readiness_rationale") or "", commissioning_year=row.get("commissioning_year"),
-        import_mw=row.get("import_mw"), branch_id=branch_id,
-    )
-    status, review = triage(body, valid_bus_ids)
+    status, review = triage_row(row, branch_id, valid_bus_ids)
     con.execute(
-        "UPDATE added_candidates SET bus_id = ?, rating_mw = ?, import_mw = ?, commissioning_year = ?, status = ?, review_reasons = ? "
-        "WHERE branch_id = ? AND request_id = ?",
-        [row.get("bus_id"), row.get("rating_mw"), row.get("import_mw"), row.get("commissioning_year"), status, review, branch_id, request_id],
+        "UPDATE added_candidates SET bus_id = ?, rating_mw = ?, import_mw = ?, commissioning_year = ?, control_json = ?, status = ?, "
+        "review_reasons = ? WHERE branch_id = ? AND request_id = ?",
+        [row.get("bus_id"), row.get("rating_mw"), row.get("import_mw"), row.get("commissioning_year"), row.get("control_json"), status, review,
+         branch_id, request_id],
     )
     return to_client({**row, "status": status, "review_reasons": review, "branch_id": branch_id})
 
@@ -213,11 +319,11 @@ def add_registry_row(con: Cursor, branch_id: str, row: dict) -> None:
     if project_on_branch(con, branch_id, row["request_id"]):
         return
     con.execute(
-        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [row["request_id"], row.get("applicant"), row.get("bus_id"), row.get("technology"),
          row.get("rating_mw"), row.get("readiness_score"), row.get("strategic_fit"),
          row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
-         row.get("commissioning_year"), None, row.get("import_mw"), branch_id],
+         row.get("commissioning_year"), None, row.get("import_mw"), None, branch_id],  # the registry states no control mode
     )
 
 
@@ -287,19 +393,27 @@ def clear_branch_extras(con: Cursor, branch_id: str) -> None:
 
 # --- guards and writes the routers share --------------------------------------
 def require_open(con: Cursor, branch_id: str, *, allow_main: bool = True) -> dict:
-    """The branch exists (404) and is open (409). With allow_main=False, main is refused too (409):
-    the plan of record is changed only by merging into it."""
+    """The branch exists (404) and is open (409). With allow_main=False, any project's main (the branch with no parent)
+    is refused too (409): the plan of record is changed only by merging into it."""
     row = require_branch(con, branch_id)
-    if not allow_main and branch_id == "main":
+    if not allow_main and not row.get("parent_id"):
         raise HTTPException(status_code=409, detail="main is read-only: open a branch to propose this")
     if row["status"] != "open":
         raise HTTPException(status_code=409, detail=f"branch is '{row['status']}', not open")
     return row
 
 
-def base_of(con: Cursor, head: dict) -> dict:
-    """The branch a head is compared with and merges into by default: its parent, else main."""
-    return branch_row(con, head["parent_id"] or "main") or branch_row(con, "main")
+def base_of(con: Cursor, head: dict) -> dict | None:
+    """The branch a head is compared with and merges into: its parent. A project's main has none (None): it is the
+    plan of record, which branches merge into and which merges nowhere. A branch whose parent is gone falls back to
+    its own project's main, never another project's."""
+    if not head.get("parent_id"):
+        return None
+    parent = branch_row(con, head["parent_id"])
+    if parent is not None:
+        return parent
+    r = con.execute("SELECT main_id FROM projects WHERE project_id = ?", [head.get("project_id")]).fetchone()
+    return branch_row(con, r[0]) if r else None
 
 
 def set_schedule(con: Cursor, branch_id: str, request_id: str, year: int | None) -> None:

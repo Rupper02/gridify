@@ -163,7 +163,7 @@ def test_the_n1_screen_runs_with_the_window_in_place(settled):
     assert s.n1_during.screened > 0 and s.n1_during.second_fault_at_risk_mw >= 0.0
     # the second faults the window adds are listed, worst first, each the screen's own finding with its case
     n1 = s.n1_during
-    assert n1.findings == len(n1.violations)
+    assert n1.findings == len({(v["outage_type"], v["outage_id"], v["case"]) for v in n1.violations})  # second faults, each breach listed
     assert all(v["case"] in n1.cases and v["outage_type"] in ("line", "trafo") and v["message"] for v in n1.violations)
     assert (n1.worst != "") == (n1.findings > 0)
     if n1.findings:

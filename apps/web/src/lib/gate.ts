@@ -28,7 +28,14 @@ export function gateState(mc: MergeCheck | null, stale: Staleness, open: boolean
   if (!mc) return { state: "checking", headline: "Checking whether this branch can merge…" };
   if (!mc.fresh) return { state: "stale", headline: `Re-run before merging: ${mc.stale_reasons[0] ?? "the result is out of date"}.` };
   const v = mc.verdict;
-  if (v.blockers.length) return { state: "blocked", headline: `Blocked: ${plural(v.blockers.length, "problem")} this branch introduces.` };
+  if (v.blockers.length) {
+    // being behind main is not a problem the branch introduces: it is fixed by a rebase, not by an edit
+    const behind = v.blockers.filter((b) => b.kind === "behind_base").length;
+    const own = v.blockers.length - behind;
+    const rebase = behind ? `main moved on after this branch was opened (${plural(behind, "change")}): rebase it first` : "";
+    const headline = own ? `Blocked: ${plural(own, "problem")} this branch introduces${rebase ? `, and ${rebase}` : ""}.` : `Blocked: ${rebase}.`;
+    return { state: "blocked", headline };
+  }
   if (v.warnings.length) return { state: "warnings", headline: `Ready to merge, with ${plural(v.warnings.length, "warning")} to acknowledge.` };
   return { state: "ready", headline: "Ready to merge: no new problem in any plan year." };
 }
@@ -44,7 +51,7 @@ export const gateText = (f: GateFinding, ix: ModelIndex | null): string => nameE
 /** Short titles for the gate's kinds (config.MERGE_GATE_LEVELS); unknown kinds fall back to the kind. */
 export const GATE_KIND: Record<string, string> = {
   stale: "Out of date", no_result: "No result", unstudied_years: "Years not solved", non_convergent: "Power flow fails",
-  behind_base: "Behind main", new_overload: "New overload", overload_worse: "Overload worse",
+  behind_base: "Behind main", fork_unknown: "Fork point unknown", new_overload: "New overload", overload_worse: "Overload worse",
   new_voltage_violation: "New voltage breach", voltage_worse: "Voltage worse", gsp_over_limit: "GSP over its limit",
   gsp_worse: "GSP export worse", gsp_near_limit: "GSP near its limit", n1_new_islanded: "New N-1: demand cut off",
   n1_new_limit: "New N-1 finding", n1_worse: "N-1 finding worse", alert_new_breach: "New customer breach",
@@ -66,7 +73,7 @@ const SEV_ORDER: Record<string, number> = { breach: 0, warn: 1, info: 2 };
 /** Short titles for the ledger's kinds (findings.EXTRACTORS); alerts and works read their detail. */
 const FINDING_KIND: Record<string, string> = {
   overload: "Over its rating", voltage: "Outside the voltage band", gsp_over_limit: "GSP over its export limit",
-  gsp_near_limit: "GSP near its export limit", n1: "N-1 finding", deferred: "Deferred", rejected: "Rejected at intake",
+  gsp_near_limit: "GSP near its export limit", n1: "N-1 finding", deferred: "Deferred", rejected: "Not assessed",
   against_recommendation: "Scheduled against the recommendation", non_convergent: "Power flow did not converge",
 };
 export function findingTitle(f: Finding): string {

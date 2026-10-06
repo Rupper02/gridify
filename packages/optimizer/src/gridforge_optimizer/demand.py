@@ -139,16 +139,22 @@ def regions_of(net) -> list[dict]:
 
 def _project_import_by_bus(net) -> pd.Series:
     """MW each bus's plan projects draw at winter peak (demand connections, charging batteries).
-    The existing fleet (sgens with a `fleet_id`) is left out: its import is already in LTDS demand."""
-    if not len(net.sgen):
+    The existing fleet (generators with a `fleet_id`) is left out: its import is already in LTDS demand. A project
+    under voltage control is a `gen`, so both tables are read."""
+    parts = []
+    for table in ("sgen", "gen"):
+        t = net[table]
+        if not len(t):
+            continue
+        p = dispatch_for_case(net, "winter_peak", table)
+        sel = t["in_service"].astype(bool) & (p < 0)
+        if "fleet_id" in t.columns:
+            sel &= t["fleet_id"].isna()
+        if sel.any():
+            parts.append((-p[sel]).groupby(t.loc[sel, "bus"].astype(int)).sum())
+    if not parts:
         return pd.Series(dtype=float)
-    p = dispatch_for_case(net, "winter_peak")
-    sel = net.sgen["in_service"].astype(bool) & (p < 0)
-    if "fleet_id" in net.sgen.columns:
-        sel &= net.sgen["fleet_id"].isna()
-    if not sel.any():
-        return pd.Series(dtype=float)
-    return (-p[sel]).groupby(net.sgen.loc[sel, "bus"].astype(int)).sum()
+    return pd.concat(parts).groupby(level=0).sum()
 
 
 def _bus_owner(groups: list[_Group]) -> dict[tuple[str, int], str]:

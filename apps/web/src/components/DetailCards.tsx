@@ -4,21 +4,22 @@
 // maintenance windows and the form to schedule one).
 
 import { Intersect, LineSegment, Sparkle, Trash, Wrench, X } from "@phosphor-icons/react";
-import type { CSSProperties, ReactNode } from "react";
+import { type CSSProperties, type ReactNode, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
 import { cardSlot, type Layout } from "../lib/layout";
 import { PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
 import { type Plan, clampYear, statusTitle } from "../lib/plan";
+import { type ControlForm, EMPTY_CONTROL, controlFromForm, controlText } from "../lib/projects";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
-import type { ElementSel, QueueItem, RegistryItem, Season } from "../types";
+import type { Control, ElementSel, QueueItem, RegistryItem, Season } from "../types";
 import { Stepper, TechIcon } from "./ui";
 import { VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
-  "diffMode" | "maintDraft" | "outages" | "plan" | "result" | "sel" | "sideOpen" | "year",
-  "askAbout" | "removeOutage" | "scheduleOutage" | "select" | "setDraft" | "setSchedule",
+  "candidates" | "diffMode" | "maintDraft" | "outages" | "plan" | "result" | "sel" | "sideOpen" | "year",
+  "askAbout" | "removeOutage" | "scheduleOutage" | "select" | "setControl" | "setDraft" | "setSchedule",
   "branch" | "branchOnly" | "hue" | "ix" | "onMain" | "prelim" | "q" | "qById" | "yr"
 >;
 
@@ -51,6 +52,64 @@ const CardHead = ({ icon, iconBg, title, sub, mono, onClose }: { icon: ReactNode
   </div>
 );
 
+/** How the project's offer runs it, or that it does not say (modelled at unity power factor), with a form to state it. */
+function ControlBox({ control, editable, onSave }: { control: Control | null; editable: boolean; onSave: (c: Control) => Promise<boolean> }) {
+  const [form, setForm] = useState<ControlForm | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const text = controlText(control);
+  const save = async () => {
+    if (!form) return;
+    const { control: c, error: err } = controlFromForm(form);
+    setError(err);
+    if (c && (await onSave(c))) setForm(null);
+  };
+  return (
+    <div className={`box ${text ? "dark" : "amber"}`}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: text ? C.mute : C.amber }}>Control mode</span>
+      <span style={{ fontSize: 12, color: text ? C.ink : C.amberInk, lineHeight: 1.45 }}>
+        {text ?? "Not stated: modelled at unity power factor. State it from the connection offer (a power factor, or voltage control for a large connection)."}
+      </span>
+      {editable && !form && (
+        <button className="btn ghost" style={{ height: 24, padding: 0, alignSelf: "flex-start", fontSize: 11 }} onClick={() => setForm({ ...EMPTY_CONTROL })}>
+          {text ? "Change" : "State it"}
+        </button>
+      )}
+      {form && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="seg" role="radiogroup" aria-label="Control mode">
+            {(["pf", "voltage"] as const).map((m) => (
+              <button key={m} role="radio" aria-checked={form.mode === m} className={form.mode === m ? "on" : ""} onClick={() => setForm({ ...form, mode: m })} style={{ padding: "0 10px" }}>
+                {m === "pf" ? "Power factor" : "Voltage control"}
+              </button>
+            ))}
+          </div>
+          {form.mode === "pf" ? (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11.5 }}>
+              <input className="fc-cell" style={{ width: 64 }} inputMode="decimal" value={form.pf} onChange={(e) => setForm({ ...form, pf: e.target.value })} aria-label="Power factor" placeholder="0.95" />
+              <label style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <input type="checkbox" checked={form.absorbing} onChange={(e) => setForm({ ...form, absorbing: e.target.checked })} />
+                absorbing reactive power
+              </label>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11.5 }}>
+              <input className="fc-cell" style={{ width: 64 }} inputMode="decimal" value={form.vm} onChange={(e) => setForm({ ...form, vm: e.target.value })} aria-label="Voltage setpoint (pu)" placeholder="1.00" />
+              <span>pu, range ±</span>
+              <input className="fc-cell" style={{ width: 64 }} inputMode="decimal" value={form.range} onChange={(e) => setForm({ ...form, range: e.target.value })} aria-label="Reactive range (power factor)" placeholder="0.95" />
+              <span>pf</span>
+            </div>
+          )}
+          {error && <span style={{ fontSize: 11, color: C.redInk }}>{error}</span>}
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="btn primary sm" onClick={() => void save()}>Save</button>
+            <button className="btn ghost sm" onClick={() => { setForm(null); setError(null); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) {
   const { actions, derived } = planner;
   const x: QueueItem | undefined = derived.qById[id];
@@ -66,6 +125,7 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
   const recText = !rec || eff == null ? "" : eff < rec ? `Earlier than recommended (${rec})` : eff > rec ? `Later than recommended (${rec})` : "Recommended by the optimiser";
   const recColor = !rec || eff == null ? C.mute : eff < rec ? C.amber : eff > rec ? C.mute : C.greenInk;
   const ready = Math.round((item.readiness_score ?? 0) * 100);
+  const stored = planner.s.candidates.find((c) => c.request_id === id);
   return (
     <div className="detail glass" style={{ ...cardPos(planner, layout), width: 296, borderColor: onlyHere ? tint(derived.hue, "80") : undefined }}>
       <CardHead
@@ -90,6 +150,7 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
         <span>Readiness</span><span className="mono">{ready}%</span>
         <span>Study treatment</span><span style={{ color: C.ink2 }}>{isTech(item.technology) ? TECH[item.technology].treatment : "Firm in both cases"}</span>
       </div>
+      {stored && <ControlBox control={stored.control ?? null} editable={!derived.onMain} onSave={(c) => actions.setControl(id, c)} />}
       {x && eff != null && (
         <div className="box dark">
           <span style={{ fontSize: 11.5, color: C.mute }}>Energisation year</span>
@@ -113,13 +174,19 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
       )}
       {x && (x.status === "Deferred" || x.status === "Rejected") && x.reason && (
         <div className="box amber">
-          <span style={{ fontSize: 11, fontWeight: 600, color: C.amber }}>{x.status === "Rejected" ? "Rejected at intake" : "Binding constraint"}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: C.amber }}>{x.status === "Rejected" ? "Not assessed: the application to complete" : "Binding constraint"}</span>
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.45 }}>{nameElements(x.reason.why, derived.ix)}</span>
           <span style={{ fontSize: 11.5, color: C.ink2, lineHeight: 1.45 }}>{nameElements(x.reason.action, derived.ix)}</span>
           {x.status === "Deferred" && (
             <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`How could ${id} connect? What would it take?`)}>
               <Sparkle size={13} weight="fill" />
               Ask the agents how it could connect
+            </button>
+          )}
+          {x.status === "Rejected" && (
+            <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`${id} can't be assessed (${x.reason?.why ?? "its application is incomplete"}). What is missing, and what would you propose to complete it?`)}>
+              <Sparkle size={13} weight="fill" />
+              Ask the agents to complete it
             </button>
           )}
         </div>

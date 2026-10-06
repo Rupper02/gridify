@@ -155,6 +155,8 @@ export interface QueueItem {
   technology: string | null;
   rating_mw: number | null;
   import_mw?: number | null;
+  /** The control mode the run used (from the branch's stored project); null: not stated, unity power factor. */
+  control?: Control | null;
   readiness_score: number;
   strategic_fit: number;
   grid_need: number;
@@ -301,6 +303,8 @@ export interface Forecast {
   growth_2035: number;
   source: string;
   cited: boolean;
+  /** An imported grid's forecast: its multiplier on today's peak, by plan year (absent on the FES pathways). */
+  curve?: Record<string, number>;
 }
 
 /** A policy horizon the engine's phases end at (config.HORIZONS: Clean Power 2030, the 2035 strategic window). */
@@ -325,9 +329,65 @@ export interface Branch {
   created_at: string;
   merged_at: string | null;
   n_added: number;
+  /** How many things (projects, works windows, reinforcements, the profile) its parent changed since an open branch was
+   * opened or last rebased that it lacks: a merge would undo them, so it is rebased first. null: not known. */
+  behind?: number | null;
+  /** Where the branch's fork point comes from (null on a main or a closed branch). */
+  fork?: ForkKind | null;
+}
+
+/** recorded when the branch was opened; rebuilt from main's merge history (an older branch; the demand profile then
+ * unknown); none: no common starting point is known, so every difference is the operator's to pick. */
+export type ForkKind = "recorded" | "rebuilt" | "none";
+
+/** One difference between two states of a branch (rebase.py `Change`). */
+export interface RebaseChange {
+  point: string;
+  element_kind: string | null;
+  element_id: string | null;
+  text: string;
+}
+
+export type RebasePick = "parent" | "branch" | "both";
+
+/** Something both the parent and the branch changed: the operator picks a side (never picked for them). */
+export interface RebaseConflict {
+  id: string;
+  element_kind: string | null;
+  element_id: string | null;
+  text: string;
+  parent: string;
+  branch: string;
+  options: RebasePick[];
+  /** A project's clashing fields, picked together. */
+  fields: string[];
+}
+
+/** What rebasing a branch onto its parent as it is now would do (`GET /branches/{id}/rebase`). */
+export interface RebasePreview {
+  branch_id: string;
+  onto: string;
+  fork: ForkKind;
+  up_to_date: boolean;
+  /** How many things the parent changed that the branch lacks (one resize and the import that follows it count once). */
+  n_behind: number;
+  parent_changes: RebaseChange[];
+  own_changes: RebaseChange[];
+  behind: RebaseChange[];
+  conflicts: RebaseConflict[];
 }
 
 /** A registry (projected) project, or a project added to a branch, as the API shapes it. */
+/** How a project runs, as its connection offer sets it (types.Control): a fixed power factor, or voltage control
+ * (a setpoint at its terminals within a reactive range given as a power factor at full output). */
+export interface Control {
+  mode: "pf" | "voltage";
+  pf?: number | null;
+  absorbing?: boolean;
+  vm_pu?: number | null;
+  q_range_pf?: number | null;
+}
+
 export interface RegistryItem {
   request_id: string;
   applicant: string;
@@ -338,10 +398,12 @@ export interface RegistryItem {
   readiness_score: number;
   strategic_fit?: number;
   readiness_rationale?: string;
-  status: "valid" | "rejected";
+  status: "valid" | "incomplete";
   review_reasons?: string;
   commissioning_year?: number | null;
   branch_id?: string;
+  /** How its offer runs it; null: not stated (modelled at unity power factor). */
+  control?: Control | null;
 }
 
 export interface NewCandidate {
@@ -839,7 +901,10 @@ export interface StepEvidence {
   step: { step_id: string; run_id: string; tool: string; args: Record<string, unknown>; cache_key: string | null };
   study: StudyResult | null;
   result: unknown;
+  /** The engine fingerprint that computed the step's cached result (null: no cached result). */
+  engine: string | null;
   current_engine: string;
+  /** Computed by another engine than the current one: its figures may differ from a run now. */
   stale: boolean;
 }
 
@@ -874,6 +939,24 @@ export interface ImportReport {
   reason: string | null;
   cases: string[];
   assumptions: Assumption[];
+}
+/** A voltage level of a file about to be imported: its buses and what an N-1 screen from it down covers. */
+export interface FileLevel {
+  kv: number;
+  buses: number;
+  n1_lines: number;
+  n1_trafos: number;
+}
+/** A named set of voltage limits the import form offers (`vmin`, `vmax` in pu, by the lowest kV they apply from). */
+export interface BandPreset {
+  id: string;
+  label: string;
+  note: string;
+  bands: { min_kv: number; max_kv: number | null; vmin_pu: number; vmax_pu: number }[];
+}
+export interface FileInspection {
+  levels: FileLevel[];
+  presets: BandPreset[];
 }
 export interface Project {
   project_id: string;

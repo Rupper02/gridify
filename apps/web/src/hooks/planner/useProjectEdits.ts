@@ -1,9 +1,10 @@
-// Edits to the projects on the active branch: set an energisation year.
+// Edits to the projects on the active branch: set an energisation year, state a control mode.
 
 import { useCallback } from "react";
 
 import { api } from "../../api";
 import { mainIdOf } from "../../lib/projects";
+import type { Control } from "../../types";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
@@ -41,5 +42,31 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
     [edited, patch, ref, toastMsg],
   );
 
-  return { setSchedule };
+  /**
+   * State how a project's connection offer runs it (a power factor, or voltage control). Stored on the branch;
+   * it changes the project's physics, so the result shows as out of date until the next run. main is read-only.
+   */
+  const setControl = useCallback(
+    async (rid: string, control: Control): Promise<boolean> => {
+      const st = ref.current;
+      const mainId = mainIdOf(st.projects, st.projectId);
+      const bid = st.activeBranch || mainId;
+      if (bid === mainId) {
+        toastMsg("main is read-only. Open a branch to state a project's control mode.", "warn");
+        return false;
+      }
+      try {
+        const row = await api.changeCandidate(bid, rid, { control });
+        patch((s) => ({ candidates: s.candidates.map((c) => (c.request_id === rid ? row : c)) }));
+        edited("project");
+        return true;
+      } catch (e) {
+        toastMsg(`Couldn't save the control mode for ${rid}: ${e instanceof Error ? e.message : "unknown error"}`, "warn");
+        return false;
+      }
+    },
+    [edited, patch, ref, toastMsg],
+  );
+
+  return { setSchedule, setControl };
 }

@@ -10,12 +10,6 @@ from ..schemas import CandidateChange, NewCandidate
 router = APIRouter()
 
 
-@router.get("/optimize/candidates")
-def optimize_candidates() -> list[dict]:
-    """The registry pool (projected projects available to add to a branch), shaped for the client."""
-    return [repository.to_client(r) for r in projects.registry_rows(NGED_PROJECT_ID)]
-
-
 @router.get("/registry")
 def registry() -> list[dict]:
     """The built-in project's registry of projected connection projects: the pool its branches pull from."""

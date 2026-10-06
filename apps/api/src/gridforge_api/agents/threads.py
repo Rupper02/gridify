@@ -99,5 +99,11 @@ def history(con: Cursor, thread_id: str, before_seq: int | None = None) -> list:
     return out
 
 
+def history_runs(con: Cursor, thread_id: str, before_seq: int) -> list[str]:
+    """The runs whose tool outputs are in `history(con, thread_id, before_seq)`: what the model read before it answers."""
+    return [m["run_id"] for m in messages(con, thread_id)
+            if m["seq"] < before_seq and m["role"] == "assistant" and m.get("model_messages") and m.get("run_id")]
+
+
 def streaming_in(con: Cursor, thread_id: str) -> bool:
     return bool(con.execute("SELECT 1 FROM messages WHERE thread_id = ? AND status IN ('queued', 'streaming')", [thread_id]).fetchone())

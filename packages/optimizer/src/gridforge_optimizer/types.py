@@ -3,18 +3,58 @@ outputs (QueueItem, PhaseResult, OptimizeResult, Reason)."""
 
 from __future__ import annotations
 
+import math
 from typing import Literal
 
-from pydantic import Field, BaseModel
+from pydantic import Field, BaseModel, model_validator
 
 from .config import (
     DEFAULT_SCENARIO,
+    FORECASTS,
     GROWTH_2030,
     GROWTH_2035,
+    IMPORT_PATHWAYS,
+    PLAN_END_YEAR,
+    PLAN_START_YEAR,
     W_NEED,
     W_READINESS,
     W_STRATEGIC,
 )
+
+
+class Control(BaseModel):
+    """How a project runs on the grid, as its connection offer sets it (the DNO's choice, not the engine's): `pf`, a
+    fixed power factor, its reactive power following its active power (absorbing counters the voltage rise its export
+    causes); or `voltage`, holding a voltage setpoint at its terminals within a reactive range (a large connection's
+    voltage support). A project that does not state one (`Candidate.control` None) is modelled at unity power factor."""
+
+    mode: Literal["pf", "voltage"]
+    pf: float | None = Field(default=None, ge=0.5, le=1.0)  # pf: the power factor it holds
+    absorbing: bool = True  # pf: absorbing reactive power (counters voltage rise) or injecting it
+    vm_pu: float | None = Field(default=None, ge=0.9, le=1.1)  # voltage: the setpoint at its terminals
+    q_range_pf: float | None = Field(default=None, ge=0.5, lt=1.0)  # voltage: its reactive range at full output, as a power factor
+
+    @model_validator(mode="after")
+    def _complete(self) -> Control:
+        if self.mode == "pf" and self.pf is None:
+            raise ValueError("a power-factor connection needs its power factor (pf)")
+        if self.mode == "voltage" and (self.vm_pu is None or self.q_range_pf is None):
+            raise ValueError("a voltage-controlled connection needs its setpoint (vm_pu) and its reactive range (q_range_pf)")
+        return self
+
+    def q_per_p(self) -> float:
+        """A power-factor connection's reactive power per MW of active power (negative when absorbing)."""
+        k = math.tan(math.acos(self.pf or 1.0))
+        return -k if self.absorbing else k
+
+    def q_limit(self, rating_mw: float) -> float:
+        """A voltage-controlled connection's reactive limit either way (MVAr) at its rating."""
+        return rating_mw * math.tan(math.acos(self.q_range_pf or 1.0))
+
+    def label(self) -> str:
+        if self.mode == "voltage":
+            return f"voltage control at {self.vm_pu:g} pu (±{self.q_range_pf:g} pf range)"
+        return "unity power factor" if (self.pf or 1.0) >= 1.0 else f"{self.pf:g} power factor {'absorbing' if self.absorbing else 'injecting'}"
 
 
 class Candidate(BaseModel):
@@ -31,6 +71,7 @@ class Candidate(BaseModel):
     review_reasons: str = ""
     commissioning_year: int | None = None  # developer's requested energisation year (the timeline axis)
     import_mw: float | None = None  # charging capacity (batteries); None = same as the rating
+    control: Control | None = None  # how its connection offer runs it; None: not stated, modelled at unity power factor
 
     def import_at(self, rating_mw: float) -> float | None:
         """The import this project keeps at another export size: it scales with the rating (a battery
@@ -79,6 +120,9 @@ class OptimizeParams(BaseModel):
     growth_2035: float = GROWTH_2035
     # DFES pathway id driving the per-bus growth shape; "custom" = uniform scalar growth.
     scenario: str = DEFAULT_SCENARIO
+    # an imported grid's forecast, entered at import: the peak-demand multiplier for every plan year after the first,
+    # spread uniformly over its loads (network.demand_multiplier, grow_for); None: the pathway's two anchors above
+    curve: dict[int, float] | None = None
     w_readiness: float = W_READINESS
     w_need: float = W_NEED
     w_strategic: float = W_STRATEGIC
@@ -137,7 +181,7 @@ class N1During(BaseModel):
 
     cases: list[str] = []
     screened: int = 0  # second faults studied, summed over the cases
-    findings: int = 0  # second faults that breach a limit or strand demand (len(violations))
+    findings: int = 0  # second faults (outage and case) that breach a limit or strand demand; `violations` lists each breach
     violations: list[dict] = []  # those findings, worst first: network.n1_screen dicts (outage, case, type, element, value, message)
     second_fault_at_risk_mw: float = 0.0  # demand stranded by the worst second fault, beyond what the window strands
     worst: str = ""  # the worst finding in words ("" when there is none)
@@ -453,6 +497,14 @@ class GridModel(BaseModel):
     crs: Literal["wgs84", "synthetic"] = "wgs84"
 
 
+class VoltageBand(BaseModel):
+    """The voltage limits at one level of an imported grid, as the operator states them (pu, after the tap changers settle)."""
+
+    kv: float = Field(gt=0)
+    vmin_pu: float = Field(gt=0, lt=1)
+    vmax_pu: float = Field(gt=1, lt=2)
+
+
 class ImportMeta(BaseModel):
     """What the operator knows about an imported grid that its file does not carry. Each is applied
     uniformly and recorded as an operator-entered assumption; none is required."""
@@ -462,6 +514,50 @@ class ImportMeta(BaseModel):
     min_demand_factor: float | None = Field(default=None, gt=0, le=1)  # minimum demand as a share of maximum
     summer_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)  # summer / winter line rating
     intermediate_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)
+    # the study basis, which a grid file does not carry and an import must state (sources.apply_import_meta):
+    # peak demand's year-on-year growth factor (1.02 = +2 % on the year before), every plan year after the first, by
+    # pathway (IMPORT_PATHWAYS: Low, Standard, High; Standard required), where it comes from, the lowest level the
+    # N-1 screen covers, and the voltage limits at every level
+    forecasts: dict[str, dict[int, float]] | None = None
+    forecast_source: str | None = None
+    n1_min_kv: float | None = Field(default=None, gt=0)
+    voltage_bands: list[VoltageBand] | None = None
+
+    def cumulative(self) -> dict[str, dict[int, float]]:
+        """Each pathway's multiplier on today's peak by year: the year-on-year factors multiplied up (2026 = 1.0)."""
+        out: dict[str, dict[int, float]] = {}
+        for p, rates in (self.forecasts or {}).items():
+            m, curve = 1.0, {}
+            for y in sorted(rates):
+                m *= rates[y]
+                curve[y] = round(m, 6)
+            out[p] = curve
+        return out
+
+    @model_validator(mode="after")
+    def _forecast_shape(self) -> ImportMeta:
+        """Every pathway known and complete, each year's factor positive, Low <= Standard <= High in what they add up
+        to (a year's own factor may cross); kept in that order."""
+        if self.forecasts is None:
+            return self
+        years = set(range(PLAN_START_YEAR + 1, PLAN_END_YEAR + 1))
+        unknown = sorted(set(self.forecasts) - set(IMPORT_PATHWAYS))
+        if unknown:
+            raise ValueError(f"unknown forecast pathways {unknown}: use {', '.join(IMPORT_PATHWAYS)} (Low, Standard, High)")
+        name = lambda p: FORECASTS[p]["short"]  # noqa: E731
+        for p, curve in self.forecasts.items():
+            if set(curve) != years:
+                raise ValueError(f"the {name(p)} forecast must give every plan year from {min(years)} to {max(years)}")
+            if any(not (0 < v <= 2) for v in curve.values()):
+                raise ValueError(f"the {name(p)} forecast's year-on-year factors must be above 0 and at most 2 (1.02 is +2 %)")
+        order = [p for p in IMPORT_PATHWAYS if p in self.forecasts]
+        self.forecasts = {p: dict(sorted(self.forecasts[p].items())) for p in order}
+        total = self.cumulative()
+        for lo, hi in zip(order, order[1:]):
+            for y in sorted(years):
+                if total[lo][y] > total[hi][y] + 1e-9:
+                    raise ValueError(f"by {y} the {name(lo)} forecast (x{total[lo][y]:.3f} of today) is above the {name(hi)} one (x{total[hi][y]:.3f})")
+        return self
 
 
 class ValidationReport(BaseModel):

@@ -30,7 +30,7 @@ export const phaseTitle = (p: Plan, phase: Phase): string =>
 
 const OTHER_TITLE: Record<Exclude<Status, Phase> | "Prelim", string> = {
   Deferred: "Deferred",
-  Rejected: "Rejected at intake",
+  Rejected: "Not assessed · application to complete",
   Prelim: "Preliminary · unranked",
 };
 /** A planning state in full: a phase with its years, or the state's name. */

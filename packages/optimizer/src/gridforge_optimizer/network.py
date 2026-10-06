@@ -89,6 +89,23 @@ def interpolate_growth_for_year(year: int, growth_2030: float, growth_2035: floa
     return growth_2035
 
 
+def demand_multiplier(params, year: int) -> float:
+    """The peak-demand multiplier for one plan year: an imported grid's entered forecast as entered, otherwise
+    linear between the pathway's 2030 and 2035 anchors (interpolate_growth_for_year)."""
+    if params.curve:
+        return 1.0 if year <= PLAN_START_YEAR else float(params.curve[min(year, max(params.curve))])
+    return interpolate_growth_for_year(year, params.growth_2030, params.growth_2035)
+
+
+def grow_for(net, params, m: float, horizon: int) -> None:
+    """Grow a study net's demand by `m` for a run: uniformly on an entered forecast (a grid's forecast says how much,
+    not where), by the FES pathway's per-bus shape otherwise (grow_demand)."""
+    if params.curve:
+        apply_growth(net, m)
+    else:
+        grow_demand(net, m, params.scenario, horizon)
+
+
 def grow_demand(net, m: float, scenario: str, horizon: int) -> None:
     """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform).
     Only demand grows here; no generation is pre-loaded: anything not connected today enters the
@@ -128,23 +145,32 @@ def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
 
 
 # --- voltage limits ------------------------------------------------------------------------------
+def bands_of(net) -> tuple[tuple[float, float, float], ...]:
+    """The voltage limits by level, (min kV, vmin, vmax): an imported grid's own, entered at import for each of its
+    levels (`net["voltage_bands"]`), otherwise the GB statutory bands (VOLTAGE_BANDS)."""
+    return tuple(net.get("voltage_bands") or VOLTAGE_BANDS) if net is not None else VOLTAGE_BANDS
+
+
 def voltage_limits(net) -> tuple[pd.Series, pd.Series]:
-    """Per-bus statutory voltage band (vmin, vmax in pu) from the bus's nominal voltage: the first
-    band in VOLTAGE_BANDS whose minimum kV the bus reaches (±10 % at 132 kV, ±6 % below it)."""
+    """Per-bus voltage band (vmin, vmax in pu) from the bus's nominal voltage: the band of the highest
+    level the bus reaches (`bands_of`: the grid's own limits, or GB's ±10 % at 132 kV and ±6 % below it)."""
+    bands = bands_of(net)
     kv = net.bus["vn_kv"].astype(float)
-    vmin = pd.Series(VOLTAGE_BANDS[-1][1], index=net.bus.index, dtype=float)
-    vmax = pd.Series(VOLTAGE_BANDS[-1][2], index=net.bus.index, dtype=float)
-    for min_kv, lo, hi in sorted(VOLTAGE_BANDS, key=lambda b: b[0]):  # ascending: higher levels overwrite
+    lowest = min(bands, key=lambda b: b[0])
+    vmin = pd.Series(lowest[1], index=net.bus.index, dtype=float)
+    vmax = pd.Series(lowest[2], index=net.bus.index, dtype=float)
+    for min_kv, lo, hi in sorted(bands, key=lambda b: b[0]):  # ascending: higher levels overwrite
         sel = kv >= min_kv
         vmin[sel] = lo
         vmax[sel] = hi
     return vmin, vmax
 
 
-def voltage_band(kv: float) -> tuple[float, float]:
-    """The (vmin, vmax) band for one nominal voltage."""
-    lo, hi = VOLTAGE_BANDS[-1][1], VOLTAGE_BANDS[-1][2]
-    for min_kv, lo_b, hi_b in sorted(VOLTAGE_BANDS, key=lambda b: b[0]):
+def voltage_band(kv: float, net=None) -> tuple[float, float]:
+    """The (vmin, vmax) band for one nominal voltage (on `net`'s own limits when it states them)."""
+    bands = bands_of(net)
+    lo, hi = min(bands, key=lambda b: b[0])[1:]
+    for min_kv, lo_b, hi_b in sorted(bands, key=lambda b: b[0]):
         if kv >= min_kv:
             lo, hi = lo_b, hi_b
     return lo, hi
@@ -182,6 +208,51 @@ def inject_sgen(
     net.sgen.at[idx, "p_rated_mw"] = float(p_mw)
     net.sgen.at[idx, "import_mw"] = float(import_mw) if import_mw is not None else float(p_mw)
     return idx
+
+
+def inject_project(net, c, p_mw: float | None = None, control=None, import_mw: float | None = None) -> tuple[str, int]:
+    """Connect a project as its offer runs it (`control`, else `c.control`): a fixed power factor, or unity when it states
+    none, is an `sgen` whose reactive power follows its output in every case (`_follow_power_factor`); voltage control
+    is a `gen` holding its setpoint within its reactive range, dispatched by the case like any project (no `fleet_id`,
+    so never by the merit order). `p_mw` / `import_mw` override the project's own (a probe). Returns (table, index)
+    for `drop_project`."""
+    control = control or c.control
+    p = float(c.rating_mw or 0.0) if p_mw is None else float(p_mw)
+    imp = c.import_mw if import_mw is None else import_mw
+    if control is not None and control.mode == "voltage":
+        if int(c.bus_id) not in net.bus.index:
+            raise ValueError(f"cannot connect at bus {c.bus_id}: not in the network model")
+        q = control.q_limit(max(p, float(imp or 0.0)))
+        idx = int(pp.create_gen(net, bus=int(c.bus_id), p_mw=p, vm_pu=float(control.vm_pu), min_q_mvar=-q, max_q_mvar=q,
+                                name=c.request_id, type=c.technology))
+        _ensure_fleet_columns(net)
+        net.gen.at[idx, "p_rated_mw"] = p
+        net.gen.at[idx, "import_mw"] = float(imp) if imp is not None else p
+        return "gen", idx
+    idx = inject_sgen(net, c.bus_id, p, c.request_id, c.technology, import_mw=imp)
+    if control is not None and control.mode == "pf" and (control.pf or 1.0) < 1.0:
+        if "q_per_p" not in net.sgen.columns:
+            net.sgen["q_per_p"] = pd.Series(dtype=float)
+        k = control.q_per_p()
+        net.sgen.at[idx, "q_per_p"] = k
+        net.sgen.at[idx, "q_mvar"] = abs(p) * k
+    return "sgen", idx
+
+
+def drop_project(net, ref: tuple[str, int]) -> None:
+    """Remove a project `inject_project` connected (rolls back a trial or a probe)."""
+    table, idx = ref
+    net[table] = net[table].drop(index=idx)
+
+
+def _follow_power_factor(net) -> None:
+    """A fixed-power-factor connection's reactive power follows the size of the active power its case dispatches,
+    exporting or importing (`q_per_p`, set by `inject_project`); the caller restores `q_mvar` afterwards."""
+    if "q_per_p" in net.sgen.columns:
+        k = pd.to_numeric(net.sgen["q_per_p"], errors="coerce")
+        sel = k.notna()
+        if sel.any():
+            net.sgen.loc[sel, "q_mvar"] = net.sgen.loc[sel, "p_mw"].astype(float).abs() * k[sel]
 
 
 def drop_sgen(net, idx: int) -> None:
@@ -353,19 +424,22 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
     """Solve one study case in place and return its results, leaving the net's inputs as found.
     None when the power flow does not converge."""
     scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
-    p0, gen_p0, gen_on0 = net.sgen["p_mw"].copy(), net.gen["p_mw"].copy(), net.gen["in_service"].copy()
+    p0, q0, gen_p0, gen_on0 = net.sgen["p_mw"].copy(), net.sgen["q_mvar"].copy(), net.gen["p_mw"].copy(), net.gen["in_service"].copy()
     try:
         if load_scale is not None:
             net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
         if rating_ratio is not None:
             net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
-        if net.get("dispatch") == "merit_order":  # an imported grid's power stations follow the market (dispatch.py)
+        # an imported grid's power stations follow the market (dispatch.py); a voltage-controlled project (a `gen`)
+        # is dispatched by the case there too, which `merit_order` does on any grid
+        if net.get("dispatch") == "merit_order" or len(net.gen):
             merit_order(net, case)
         elif len(net.sgen):
             net.sgen["p_mw"] = dispatch_for_case(net, case)
+        _follow_power_factor(net)
         ok = _solve(net, regulate=regulate)
     finally:
-        net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"] = scaling0, imax0, p0
+        net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"], net.sgen["q_mvar"] = scaling0, imax0, p0, q0
         net.gen["p_mw"], net.gen["in_service"] = gen_p0, gen_on0
     if not ok:
         return None
@@ -386,7 +460,7 @@ def case_dispatch(net, case: str, load_scale: pd.Series | None = None) -> dict[s
     try:
         if load_scale is not None:
             net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
-        if net.get("dispatch") == "merit_order":
+        if net.get("dispatch") == "merit_order" or len(net.gen):
             merit_order(net, case)
         elif len(net.sgen):
             net.sgen["p_mw"] = dispatch_for_case(net, case)
@@ -397,51 +471,54 @@ def case_dispatch(net, case: str, load_scale: pd.Series | None = None) -> dict[s
             net[t]["p_mw"], net[t]["in_service"] = p, on
 
 
-def _voltage_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+def _voltage_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
+    """Every bus outside its band, furthest outside first."""
     vmin, vmax = voltage_limits(net)
     v = vm.reindex(net.bus.index)
     excess = pd.concat([vmin - v, v - vmax], axis=1).max(axis=1).fillna(0.0)  # islanded buses have no voltage
-    if not (excess > 1e-9).any():
-        return None
-    worst = int(excess.idxmax())
-    val = float(v.loc[worst])
-    lo, hi = float(vmin.loc[worst]), float(vmax.loc[worst])
-    kv = float(net.bus.at[worst, "vn_kv"])
-    return Reason(type="voltage", element_id=worst, value=round(val, 4), limit=round(hi if val > hi else lo, 2), case=case,
-                  message=f"voltage {val:.3f} pu at bus {worst} ({kv:g} kV) outside [{lo:.2f}, {hi:.2f}] at {_CASE_LABEL[case]}")
+    out = []
+    for b in excess[excess > 1e-9].sort_values(ascending=False, kind="stable").index:
+        val, lo, hi = float(v.loc[b]), float(vmin.loc[b]), float(vmax.loc[b])
+        kv = float(net.bus.at[b, "vn_kv"])
+        out.append(Reason(type="voltage", element_id=int(b), value=round(val, 4), limit=round(hi if val > hi else lo, 2), case=case,
+                          message=f"voltage {val:.3f} pu at bus {int(b)} ({kv:g} kV) outside [{lo:.2f}, {hi:.2f}] at {_CASE_LABEL[case]}"))
+    return out
 
 
-def _line_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
-    if not (line_pct > LINE_LOADING_MAX_PCT).any():
-        return None
-    worst = line_pct.idxmax()
-    val = float(line_pct.loc[worst])
+def _line_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
+    """Every line over its rating, most loaded first."""
     rating = _CASE_BY_NAME[case].rating_label
-    return Reason(type="line", element_id=int(worst), value=round(val, 1), limit=LINE_LOADING_MAX_PCT, case=case,
-                  message=f"line {int(worst)} overloaded at {val:.0f}% of {rating} at {_CASE_LABEL[case]}")
+    return [Reason(type="line", element_id=int(i), value=round(float(val), 1), limit=LINE_LOADING_MAX_PCT, case=case,
+                   message=f"line {int(i)} overloaded at {float(val):.0f}% of {rating} at {_CASE_LABEL[case]}")
+            for i, val in line_pct[line_pct > LINE_LOADING_MAX_PCT].sort_values(ascending=False, kind="stable").items()]
 
 
-def _trafo_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
-    if not (trafo_pct > TRAFO_LOADING_MAX_PCT).any():
-        return None
-    worst = trafo_pct.idxmax()
-    val = float(trafo_pct.loc[worst])
-    return Reason(type="trafo", element_id=int(worst), value=round(val, 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
-                  message=f"transformer {int(worst)} overloaded at {val:.0f}% at {_CASE_LABEL[case]}")
+def _trafo_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
+    """Every transformer over its rating, most loaded first."""
+    return [Reason(type="trafo", element_id=int(i), value=round(float(val), 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
+                   message=f"transformer {int(i)} overloaded at {float(val):.0f}% at {_CASE_LABEL[case]}")
+            for i, val in trafo_pct[trafo_pct > TRAFO_LOADING_MAX_PCT].sort_values(ascending=False, kind="stable").items()]
 
 
-# the per-case limit checks, in the order they bind: a new local limit is one function + one entry here
-# (the GSP boundary is checked after all cases, in feasibility())
-LIMIT_CHECKS = (_voltage_reason, _line_reason, _trafo_reason)
+# the per-case limit checks, in the order they bind, each returning every breach worst first: a new local limit is one
+# function + one entry here (the GSP boundary is checked after all cases, in feasibility())
+LIMIT_CHECKS = (_voltage_breaches, _line_breaches, _trafo_breaches)
 
 
 def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
-    """The first limit this case breaches (voltage → line → transformer; then the GSP boundary)."""
+    """The first limit this case breaches (voltage → line → transformer; then the GSP boundary): the worst element of the
+    first check that has any. What a connection is judged on."""
     for check in LIMIT_CHECKS:
-        reason = check(net, case, vm, line_pct, trafo_pct)
-        if reason is not None:
-            return reason
+        breaches = check(net, case, vm, line_pct, trafo_pct)
+        if breaches:
+            return breaches[0]
     return None
+
+
+def case_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
+    """Every limit this case breaches, each element its own (voltage, then lines, then transformers, worst first within
+    each): what an N-1 study lists, so a breach behind a worse one is never hidden."""
+    return [r for check in LIMIT_CHECKS for r in check(net, case, vm, line_pct, trafo_pct)]
 
 
 def gsp_export_limit(net) -> float | None:
@@ -584,8 +661,15 @@ class OutageResult(NamedTuple):
     island: list[int]
 
 
-def n1_elements(net, min_kv: float = N1_MIN_KV) -> list[tuple[str, int]]:
-    """The in-service lines and transformers at or above `min_kv` (by from-bus / HV bus), lines first."""
+def n1_floor(net) -> float:
+    """The lowest voltage the N-1 screen covers: an imported grid's, entered at import, otherwise N1_MIN_KV."""
+    return float(net.get("n1_min_kv") or N1_MIN_KV)
+
+
+def n1_elements(net, min_kv: float | None = None) -> list[tuple[str, int]]:
+    """The in-service lines and transformers at or above `min_kv` (by from-bus / HV bus; the grid's N-1 floor,
+    `n1_floor`, when None), lines first."""
+    min_kv = n1_floor(net) if min_kv is None else min_kv
     kv = net.bus["vn_kv"].astype(float)
     lines = [("line", int(i)) for i in net.line.index if net.line.at[i, "in_service"] and kv.loc[int(net.line.at[i, "from_bus"])] >= min_kv]
     trafos = [("trafo", int(i)) for i in net.trafo.index if net.trafo.at[i, "in_service"] and kv.loc[int(net.trafo.at[i, "hv_bus"])] >= min_kv]
@@ -625,9 +709,10 @@ def outage_results(net, case: str, load_scale, rating_ratio, elements):
 
 
 def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
-    """Single-outage screen of the EHV backbone: take each in-service line and transformer at or
-    above N1_MIN_KV out of service in turn, solve the study case, and report any thermal, voltage or
-    islanding violation. Informational (not a connection gate); roughly P2/8 security of supply.
+    """Single-outage screen of the backbone: take each in-service line and transformer at or
+    above the grid's N-1 floor (`n1_floor`: N1_MIN_KV, or an import's own) out of service in turn, solve the study case, and report any thermal, voltage or
+    islanding violation, every breached element its own finding. Informational (not a connection gate); roughly P2/8
+    security of supply.
     `rating_ratio` overrides the case's line ratings (a maintenance window's season, maintenance.py)."""
     cases = {c: (ls, rr) for c, ls, rr in _study_cases(net)}
     if case not in cases:
@@ -653,9 +738,9 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
                                "islanded_bus_ids": o.island,  # demand.py attributes it to regions
                                "message": f"{o.kind} {o.eid} out islands {o.lost_mw:.1f} MW of demand at {len(o.island)} bus(es) at {_CASE_LABEL[case]}"})
             continue
-        r = _case_reason(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"])
-        if r is not None:
-            msg = r.message + (" (post-fault, of its emergency rating)" if r.type == "trafo" else "")
+        # every element the outage breaches, each its own finding: a breach behind a worse one is a finding too
+        for r in case_breaches(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"]):
+            msg = f"{o.kind} {o.eid} out: " + r.message + (" (post-fault, of its emergency rating)" if r.type == "trafo" else "")
             violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": msg})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state
     return {"case": case, "screened": len(elements), "violations": violations}
