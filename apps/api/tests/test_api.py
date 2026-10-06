@@ -300,7 +300,7 @@ def test_discard_and_main_guard():
     bid = create_branch("To discard")["branch_id"]
     assert client.post(f"/branches/{bid}/discard").json()["status"] == "discarded"
     assert client.post(f"/branches/{bid}/discard").status_code == 409  # not open any more
-    assert client.post("/branches/main/discard").status_code == 400
+    assert client.post("/branches/main/discard").status_code == 409
     assert client.post("/branches/main/merge", json={"into": "main"}).status_code == 400
 
 

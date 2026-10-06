@@ -38,7 +38,7 @@ def test_concurrent_first_requests_on_an_empty_scenarios_db(fresh_db):
         lambda: client.get("/branches/main/outages"),
         lambda: client.get("/branches/main/findings"),
         lambda: client.get("/branches"),
-        lambda: client.post("/branches", json={"name": "race"}),
+        lambda: client.post("/branches", json={"name": "race", "from_branch": "main"}),
     ]
     with ThreadPoolExecutor(max_workers=len(calls)) as ex:
         results = list(ex.map(lambda f: f(), calls))

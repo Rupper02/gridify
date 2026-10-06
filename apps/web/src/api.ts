@@ -5,8 +5,6 @@ import type {
   AgentsStatus,
   Approval,
   Assumption,
-  BestWindowRequest,
-  BestWindowResult,
   Boundary,
   Branch,
   BranchReinforcement,
@@ -16,12 +14,12 @@ import type {
   FindingCounts,
   FindingStatus,
   FileInspection,
+  ImportFormats,
   Forecast,
   Horizon,
   Job,
   MergeCheck,
   Model,
-  NewCandidate,
   OptimizeResult,
   Outage,
   Project,
@@ -30,17 +28,15 @@ import type {
   RegistryItem,
   Review,
   StepEvidence,
-  Suggestion,
   Thread,
   ThreadView,
   TraceEvent,
 } from "./types";
 import { planOf } from "./lib/plan";
-import { getMaxMw, normReason, setMaxMw } from "./lib/reasons";
+import { normReason } from "./lib/reasons";
 
 export const BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000";
-export { DEFAULT_PROJECT_ID } from "./lib/projects";
 
 /** A failed call: the status and the API's `detail` (a string, or a structured body such as a refused merge's verdict). */
 export class ApiError extends Error {
@@ -53,6 +49,9 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+
+/** A failed call's reason for a toast or a stamp: the API's detail when it answered, else that it may be down. */
+export const failureText = (e: unknown): string => (e instanceof Error ? e.message : "check the API is running");
 
 async function errorDetail(r: Response): Promise<{ detail: unknown; text: string }> {
   const fallback = `${r.status} ${r.statusText}`;
@@ -74,18 +73,23 @@ export const onWarehouse = (fn: ((stale: boolean) => void) | null): void => {
   warehouseListener = fn;
 };
 
+/** A response's JSON, or the API's refusal as an ApiError (its status and `detail`). */
+async function parse<T>(r: Response): Promise<T> {
+  if (!r.ok) {
+    const { detail, text } = await errorDetail(r);
+    throw new ApiError(r.status, detail, text);
+  }
+  return (await r.json()) as T;
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const r = await fetch(`${BASE}${path}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!r.ok) {
-    const { detail, text } = await errorDetail(r);
-    throw new ApiError(r.status, detail, text);
-  }
-  if (r.headers.get("X-Warehouse-Snapshot")) warehouseListener?.(r.headers.get("X-Warehouse-Stale") === "1");
-  return (await r.json()) as T;
+  if (r.ok && r.headers.get("X-Warehouse-Snapshot")) warehouseListener?.(r.headers.get("X-Warehouse-Stale") === "1");
+  return parse<T>(r);
 }
 const getJson = <T>(path: string) => request<T>("GET", path);
 const postJson = <T>(path: string, body?: unknown) => request<T>("POST", path, body);
@@ -94,13 +98,12 @@ const patchJson = <T>(path: string, body: unknown) => request<T>("PATCH", path, 
 
 /** A multipart POST (a file plus fields); errors as `request` reports them. */
 async function postForm<T>(path: string, form: FormData): Promise<T> {
-  const r = await fetch(`${BASE}${path}`, { method: "POST", body: form });
-  if (!r.ok) {
-    const { detail, text } = await errorDetail(r);
-    throw new ApiError(r.status, detail, text);
-  }
-  return (await r.json()) as T;
+  return parse<T>(await fetch(`${BASE}${path}`, { method: "POST", body: form }));
 }
+
+/** How often a job is polled: while it waits for the solver, and while it solves. */
+const POLL_QUEUED_MS = 400;
+const POLL_RUNNING_MS = 600;
 
 // ---- reasons: see lib/reasons.ts ---------------------------------------------------------------
 export { normReason } from "./lib/reasons";
@@ -141,7 +144,6 @@ export interface RunProgress {
 export const api = {
   // projects: the grids planned on, each with its own main; the built-in one is NGED's
   listProjects: async () => (await getJson<{ projects: Project[] }>("/projects")).projects ?? [],
-  getProject: (pid: string) => getJson<Project>(`/projects/${pid}`),
   /** Import a grid as a project: the file, a name and the limits the operator knows (strings, as typed). */
   importProject: (file: File, name: string, limits: Record<string, string>) => {
     const form = new FormData();
@@ -151,6 +153,8 @@ export const api = {
     return postForm<Project>("/projects", form);
   },
   deleteProject: (pid: string) => del<{ project_id: string; deleted: boolean }>(`/projects/${pid}`),
+  /** The source kinds (labels, the extensions the import form offers) and the upload size limit. */
+  importFormats: () => getJson<ImportFormats>("/projects/formats"),
   /** A file's voltage levels before it is imported (what the import form's study basis asks about); nothing is stored. */
   inspectFile: (file: File) => {
     const form = new FormData();
@@ -161,7 +165,6 @@ export const api = {
   getProjectForecasts: async (pid: string) => (await getJson<{ forecasts?: Forecast[] }>(`/projects/${pid}/forecasts`)).forecasts ?? [],
   getAssumptions: (pid: string) => getJson<{ project_id: string; assumptions: Assumption[] }>(`/projects/${pid}/assumptions`),
   getModel: (pid: string) => getJson<Model>(`/projects/${pid}/model`),
-  addCandidate: (c: NewCandidate) => postJson<RegistryItem>("/optimize/candidates", c),
   /** A branch's projects as stored (added by hand, pulled from the registry, or an agent's approved proposal): what its next run ranks. */
   listCandidates: (id: string) => getJson<RegistryItem[]>(`/branches/${id}/candidates`),
   getRegistry: (pid: string) => getJson<RegistryItem[]>(`/projects/${pid}/registry`),
@@ -179,15 +182,11 @@ export const api = {
   /** Store a branch's demand profile (scenario + growth). The next run uses it. */
   updateScenario: (branchId: string, scenario: string, growth_2030: number, growth_2035: number) =>
     postJson<Branch>(`/branches/${branchId}/scenario`, { scenario, growth_2030, growth_2035 }),
-  /** NESO FES 2025 demand pathways (fixed growth multipliers per pathway), the plan's years and phases, and the intake cap. */
+  /** The built-in demand pathways (fixed growth multipliers per pathway), and the plan's years and phases. */
   getForecasts: async () => {
-    const r = await getJson<{ forecasts?: Forecast[]; plan_years: number[]; horizons: Horizon[]; max_connection_mw?: number }>("/forecasts");
-    if (r.max_connection_mw) setMaxMw(r.max_connection_mw);
-    return {
-      forecasts: Array.isArray(r.forecasts) ? r.forecasts : [],
-      plan: planOf(r.plan_years, r.horizons),
-      maxMw: r.max_connection_mw ?? getMaxMw(),
-    };
+    const r = await getJson<{ default: string; forecasts?: Forecast[]; plan_years: number[]; horizons: Horizon[] }>("/forecasts");
+    // `defaultScenario`: the engine's DEFAULT_SCENARIO, the pathway a branch is planned on unless it says otherwise
+    return { forecasts: Array.isArray(r.forecasts) ? r.forecasts : [], plan: planOf(r.plan_years, r.horizons), defaultScenario: r.default };
   },
   /** The project's transmission boundary (export limit, export today, the projects behind it), or null when it models none (404). */
   getBoundary: async (pid: string): Promise<Boundary | null> => {
@@ -201,8 +200,8 @@ export const api = {
 
   // branches ("git for grids"). A branch = a demand profile + the projects, outages and
   // reinforcements added on it.
-  createBranch: (body: { name: string; from_branch: string; scenario: string }) => postJson<Branch>("/branches", body),
-  listBranches: async (pid?: string) => (await getJson<{ branches: Branch[] }>(pid ? `/projects/${pid}/branches` : "/branches")).branches ?? [],
+  createBranch: (body: { name: string; from_branch: string; scenario?: string }) => postJson<Branch>("/branches", body),
+  listBranches: async (pid: string) => (await getJson<{ branches: Branch[] }>(`/projects/${pid}/branches`)).branches ?? [],
   /**
    * Run a branch as a background job: the queue first, then every year of the plan with
    * `view_year` first. Partial results are handed over as they land.
@@ -220,7 +219,7 @@ export const api = {
           p.onPartial(applyReasons(job.partial));
         }
       }
-      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 600));
+      await new Promise((r) => setTimeout(r, job.status === "queued" ? POLL_QUEUED_MS : POLL_RUNNING_MS));
       job = await getJson<Job>(`/jobs/${job.job_id}?partial=${p.onPartial ? "true" : "false"}`);
     }
     if (job.status === "cancelled") throw new RunCancelled();
@@ -232,8 +231,8 @@ export const api = {
   cancelJob: (jobId: string) => postJson<Job>(`/jobs/${jobId}/cancel`),
   diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
     applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
-  /** The merge gate's verdict for a branch against `into` (default its parent). Read-only. */
-  mergeCheck: (id: string, into?: string) => getJson<MergeCheck>(`/branches/${id}/merge-check${into ? `?into=${encodeURIComponent(into)}` : ""}`),
+  /** The merge gate's verdict for a branch against its parent. Read-only. */
+  mergeCheck: (id: string) => getJson<MergeCheck>(`/branches/${id}/merge-check`),
   /** Merge through the gate: a 409 ApiError carries `{code, message, verdict}`; warnings need `acknowledge`. */
   mergeBranch: (id: string, opts: { into: string; acknowledge?: boolean }) =>
     postJson<Branch>(`/branches/${id}/merge`, { into: opts.into, acknowledge: !!opts.acknowledge }),
@@ -243,48 +242,20 @@ export const api = {
   /** Rebase with the operator's pick for every conflict; a 409 means a pick is missing or the parent moved again. */
   rebaseBranch: (id: string, picks: Record<string, RebasePick>) => postJson<{ branch: Branch; taken: number }>(`/branches/${id}/rebase`, { picks }),
   /** The findings ledger: what the branch's last run found, with the counts per status. */
-  listFindings: (id: string, opts?: { status?: FindingStatus; year?: number }) => {
-    const p = new URLSearchParams();
-    if (opts?.status) p.set("status", opts.status);
-    if (opts?.year != null) p.set("year", String(opts.year));
-    const qs = p.toString() ? `?${p}` : "";
-    return getJson<{ branch_id: string; counts: FindingCounts; findings: Finding[] }>(`/branches/${id}/findings${qs}`);
-  },
+  listFindings: (id: string) => getJson<{ branch_id: string; counts: FindingCounts; findings: Finding[] }>(`/branches/${id}/findings`),
   setFindingStatus: (findingId: string, status: FindingStatus, note = "") => postJson<Finding>(`/findings/${findingId}/ack`, { status, note }),
-  /** The copilot's levers: for the branch's deferred projects, or for one of them (`request_id`). */
-  getSuggestions: async (id: string, opts?: { limit?: number; with_narration?: boolean; request_id?: string }) => {
-    const p = new URLSearchParams();
-    if (opts?.limit) p.set("limit", String(opts.limit));
-    if (opts?.with_narration) p.set("with_narration", "1");
-    if (opts?.request_id) p.set("request_id", opts.request_id);
-    const qs = p.toString() ? `?${p}` : "";
-    return (await getJson<{ suggestions: Suggestion[] }>(`/branches/${id}/suggestions${qs}`)).suggestions ?? [];
-  },
 
   // planned maintenance and simulated reinforcements on a branch
   listOutages: async (id: string) => (await getJson<{ outages: Outage[] }>(`/branches/${id}/outages`)).outages ?? [],
   addOutage: (id: string, o: Omit<Outage, "outage_id" | "created_at">) => postJson<Outage>(`/branches/${id}/outages`, o),
   removeOutage: (id: string, outageId: string) => del<{ removed: boolean }>(`/branches/${id}/outages/${outageId}`),
-  /** The best window for a planned work, as a background job (progress per year studied). */
-  bestWindowJob: async (id: string, body: BestWindowRequest, onProgress: (stage: string, fraction: number) => void): Promise<BestWindowResult> => {
-    let job = await postJson<Job<BestWindowResult>>(`/branches/${id}/works/best-window`, body);
-    while (job.status === "queued" || job.status === "running") {
-      onProgress(job.stage, job.fraction);
-      await new Promise((r) => setTimeout(r, job.status === "queued" ? 400 : 700));
-      job = await getJson<Job<BestWindowResult>>(`/jobs/${job.job_id}`);
-    }
-    if (job.status !== "done" || !job.result) throw new Error(job.error ?? "the window search failed");
-    return job.result;
-  },
   listReinforcements: async (id: string) =>
     (await getJson<{ reinforcements: BranchReinforcement[] }>(`/branches/${id}/reinforcements`)).reinforcements ?? [],
-  addReinforcement: (id: string, r: Omit<BranchReinforcement, "reinforcement_id" | "created_at">) =>
-    postJson<BranchReinforcement>(`/branches/${id}/reinforcements`, r),
   removeReinforcement: (id: string, rid: string) => del<{ removed: boolean }>(`/branches/${id}/reinforcements/${rid}`),
 
   // the agents: status and the pause switch, conversations with a streamed reply, approvals, reviews, evidence
   agentsStatus: (pid: string) => getJson<AgentsStatus>(`/projects/${pid}/agents`),
-  pauseAgents: (pid: string, reason = "operator") => postJson<AgentsStatus>(`/projects/${pid}/agents/pause`, { reason }),
+  pauseAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/pause`, { reason: "operator" }),
   resumeAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/resume`),
   listThreads: async (pid: string) => (await getJson<{ threads: Thread[] }>(`/projects/${pid}/threads`)).threads ?? [],
   createThread: (pid: string, branchId: string | null, title: string) => postJson<Thread>(`/projects/${pid}/threads`, { branch_id: branchId, title }),
@@ -321,14 +292,12 @@ export const api = {
   },
   /** Stop the reply on its way in a thread: marked cancelled at once, its workflow cancelled at its next step. */
   cancelReply: (pid: string, tid: string) => postJson<{ thread_id: string; message_id: string; status: "cancelled" }>(`/projects/${pid}/threads/${tid}/cancel`),
-  listApprovals: async (pid: string) => (await getJson<{ approvals: Approval[] }>(`/projects/${pid}/approvals`)).approvals ?? [],
   /** Decide a proposal. The answer continues once every proposal of its reply is decided; until then `waiting_for` lists the open ones. */
   decideApproval: (pid: string, aid: string, decision: "approve" | "deny", note = "") =>
     postJson<Approval & { workflow_id: string | null; waiting_for: string[] }>(`/projects/${pid}/approvals/${aid}`, { decision, note }),
-  /** The reviewer's comments on a branch: the current one, or all with `all`. */
-  listReviews: async (branchId: string, all = false) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews${all ? "?all=true" : ""}`)).reviews ?? [],
+  /** The reviewer's current comment on a branch. */
+  listReviews: async (branchId: string) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews`)).reviews ?? [],
   /** The evidence behind a step an agent cited. */
   stepEvidence: (pid: string, stepId: string) => getJson<StepEvidence>(`/projects/${pid}/agents/steps/${encodeURIComponent(stepId)}`),
 };
 
-export type Api = typeof api;

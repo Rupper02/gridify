@@ -3,19 +3,19 @@
 // line, transformer or existing generator opens the element card (rating, loading in the year, its
 // maintenance windows and the form to schedule one).
 
-import { Intersect, LineSegment, Sparkle, Trash, Wrench, X } from "@phosphor-icons/react";
+import { Intersect, LineSegment, Sparkle, Wrench, X } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
 import { cardSlot, type Layout } from "../lib/layout";
-import { PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
+import { DERATE_PCT, PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
 import { type Plan, clampYear, statusTitle } from "../lib/plan";
 import { type ControlForm, EMPTY_CONTROL, controlFromForm, controlText } from "../lib/projects";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { Control, ElementSel, QueueItem, RegistryItem, Season } from "../types";
 import { Stepper, TechIcon } from "./ui";
-import { VerdictChip, WindowDetail } from "./WindowVerdict";
+import { RemoveWindow, VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
   "candidates" | "diffMode" | "maintDraft" | "outages" | "plan" | "result" | "sel" | "sideOpen" | "year",
@@ -53,6 +53,12 @@ const CardHead = ({ icon, iconBg, title, sub, mono, onClose }: { icon: ReactNode
 );
 
 /** How the project's offer runs it, or that it does not say (modelled at unity power factor), with a form to state it. */
+/** The form for changing a stated control mode starts from it (an empty one when none is stated). */
+const formOf = (c: Control | null): ControlForm =>
+  c
+    ? { mode: c.mode, pf: c.pf != null ? String(c.pf) : "", absorbing: c.absorbing ?? true, vm: c.vm_pu != null ? String(c.vm_pu) : "", range: c.q_range_pf != null ? String(c.q_range_pf) : "" }
+    : { ...EMPTY_CONTROL };
+
 function ControlBox({ control, editable, onSave }: { control: Control | null; editable: boolean; onSave: (c: Control) => Promise<boolean> }) {
   const [form, setForm] = useState<ControlForm | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +76,7 @@ function ControlBox({ control, editable, onSave }: { control: Control | null; ed
         {text ?? "Not stated: modelled at unity power factor. State it from the connection offer (a power factor, or voltage control for a large connection)."}
       </span>
       {editable && !form && (
-        <button className="btn ghost" style={{ height: 24, padding: 0, alignSelf: "flex-start", fontSize: 11 }} onClick={() => setForm({ ...EMPTY_CONTROL })}>
+        <button className="btn ghost" style={{ height: 24, padding: 0, alignSelf: "flex-start", fontSize: 11 }} onClick={() => setForm(formOf(control))}>
           {text ? "Change" : "State it"}
         </button>
       )}
@@ -144,9 +150,9 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
       <div className="kv">
         <span>Technology</span><span>{techLabel(item.technology)}</span>
         <span>{importOnly ? "Import" : "Export"}</span>
-        <span className="mono">{fmtMw(headlineMw(item))} MW{!importOnly && (item.import_mw ?? 0) > 0 && TECH[item.technology as keyof typeof TECH]?.imports ? ` · imports ${fmtMw(item.import_mw)}` : ""}</span>
+        <span className="mono">{fmtMw(headlineMw(item))} MW{!importOnly && (item.import_mw ?? 0) > 0 && isTech(item.technology) && TECH[item.technology].imports ? ` · imports ${fmtMw(item.import_mw)}` : ""}</span>
         <span>Connection</span><span className="mono">{derived.ix ? busLabel(derived.ix, item.bus_id) : `Bus ${item.bus_id}`}</span>
-        <span>Rank</span><span className="mono">{x ? (x.rank != null ? `#${x.rank}` : "unranked") : "unranked"}</span>
+        <span>Rank</span><span className="mono">{x?.rank != null ? `#${x.rank}` : "unranked"}</span>
         <span>Readiness</span><span className="mono">{ready}%</span>
         <span>Study treatment</span><span style={{ color: C.ink2 }}>{isTech(item.technology) ? TECH[item.technology].treatment : "Firm in both cases"}</span>
       </div>
@@ -155,7 +161,11 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
         <div className="box dark">
           <span style={{ fontSize: 11.5, color: C.mute }}>Energisation year</span>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Stepper value={eff} label="energisation year" onDec={() => void actions.setSchedule(id, clampYear(plan, eff - 1))} onInc={() => void actions.setSchedule(id, clampYear(plan, eff + 1))} />
+            {derived.onMain ? (
+              <b className="mono" style={{ fontSize: 15 }}>{eff}</b>
+            ) : (
+              <Stepper value={eff} label="energisation year" onDec={() => void actions.setSchedule(id, clampYear(plan, eff - 1))} onInc={() => void actions.setSchedule(id, clampYear(plan, eff + 1))} />
+            )}
             <span style={{ marginLeft: "auto", fontSize: 11, textAlign: "right", lineHeight: 1.35, color: recColor }}>{recText}</span>
           </div>
           {x.scheduled_year != null && !derived.onMain && (
@@ -234,11 +244,7 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
               <div key={o.outage_id} className="mrow">
                 <Wrench size={13} color={verdictColor(view.verdict) ?? C.lineHigh} />
                 <span className="ellipsis" style={{ fontSize: 12 }}>{outageLine(o)}</span>
-                {!derived.onMain ? (
-                  <button className="icon-btn sm" onClick={() => void actions.removeOutage(o.outage_id)} title="Remove" aria-label="Remove window">
-                    <Trash size={12} />
-                  </button>
-                ) : <span />}
+                <RemoveWindow onMain={derived.onMain} onRemove={() => void actions.removeOutage(o.outage_id)} />
                 <span className="wdetail">
                   <VerdictChip view={view} />
                   <WindowDetail view={view} />
@@ -283,7 +289,7 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
             <span className="lbl">Type</span>
             <div className="opts">
               <button className={`pill-opt${d.kind === "outage" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "outage" })}>Full outage</button>
-              <button className={`pill-opt${d.kind === "derate" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "derate" })}>Derate to 50%</button>
+              <button className={`pill-opt${d.kind === "derate" ? " on" : ""}`} onClick={() => actions.setDraft({ kind: "derate" })}>Derate to {DERATE_PCT}%</button>
             </div>
           </div>
         )}

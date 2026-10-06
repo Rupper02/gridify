@@ -1,22 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { ThreadMessage, TraceEvent } from "../types";
-import { evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, stageOf, traceFromMessage } from "./trace";
-
-describe("stages", () => {
-  it("maps a tool to its planning stage by prefix, defaulting to ASSEMBLE", () => {
-    expect(stageOf("study_hosting_capacity")).toBe("RUN");
-    expect(stageOf("merge_check")).toBe("CHECK");
-    expect(stageOf("findings")).toBe("CHECK");
-    expect(stageOf("propose_branch")).toBe("PROPOSE");
-    expect(stageOf("queue")).toBe("ASSEMBLE");
-  });
-});
+import { evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, traceFromMessage } from "./trace";
 
 describe("foldTrace", () => {
   const events: TraceEvent[] = [
     { t: "tool_call", tool: "queue", stage: "ASSEMBLE", step_id: "r:1", args: {} },
-    { t: "tool_result", tool: "queue", step_id: "r:1", summary: "5 projects", solves: 0 },
+    { t: "tool_result", tool: "queue", stage: "ASSEMBLE", step_id: "r:1", summary: "5 projects", solves: 0 },
     { t: "tool_call", tool: "study_tap_margin", stage: "RUN", step_id: "r:2", args: {} },
     { t: "token", text: "Two transformers " },
     { t: "token", text: "are at a stop." },
@@ -38,7 +28,7 @@ describe("foldTrace", () => {
     const done = foldTrace([
       ...events,
       { t: "progress", tool: "study_tap_margin", step_id: "r:2", stage: "tap_margin: part 2 of 2", fraction: 0.5 },
-      { t: "tool_result", tool: "study_tap_margin", step_id: "r:2", summary: "2 at a stop", solves: 4 },
+      { t: "tool_result", tool: "study_tap_margin", stage: "RUN", step_id: "r:2", summary: "2 at a stop", solves: 4 },
     ]);
     expect(done.chips[1].status).toBe("done");
     expect(done.chips[1].progress).toBeUndefined();
@@ -48,7 +38,7 @@ describe("foldTrace", () => {
   it("marks a failed step, the citation, the final event and an error", () => {
     const f = foldTrace([
       ...events,
-      { t: "tool_result", tool: "study_tap_margin", step_id: "r:2", summary: "error: budget spent", solves: 0 },
+      { t: "tool_result", tool: "study_tap_margin", stage: "RUN", step_id: "r:2", summary: "error: budget spent", solves: 0 },
       { t: "cite", stage: "CITE" },
       { t: "final", status: "done", text: "ignored: text already streamed", flags: ["figure 9 appears in no tool output of this run"] },
     ]);
@@ -63,7 +53,7 @@ describe("foldTrace", () => {
 
 const msg = (over: Partial<ThreadMessage> = {}): ThreadMessage => ({
   message_id: "m-1", thread_id: "th-1", seq: 2, role: "assistant", content: "x", status: "done", workflow_id: "w", run_id: "r", usage: null,
-  tool_trace: [{ step_id: "r:1", tool: "queue", args: {}, solves: 0 }, { step_id: "r:2", tool: "study_tap_margin", args: {}, solves: 2 }],
+  tool_trace: [{ step_id: "r:1", tool: "queue", stage: "ASSEMBLE", args: {}, solves: 0 }, { step_id: "r:2", tool: "study_tap_margin", stage: "RUN", args: {}, solves: 2 }],
   cost_credits: null, flags: ["figure 9 appears in no tool output of this run"],
   evidence: { steps: ["r:1", "r:2"], branch_id: "br-1", snapshot_id: "network@abcdef0123456789", engine: "0123456789abcdef" }, created_at: "2026-10-03T10:00:00Z", ...over,
 });

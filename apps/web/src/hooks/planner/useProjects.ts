@@ -11,23 +11,19 @@
 
 import { useCallback, useEffect } from "react";
 
-import { api, onWarehouse } from "../../api";
+import { api, failureText, onWarehouse } from "../../api";
 import { retrying, retryable } from "../../lib/boot";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import type { Project } from "../../types";
-import { EMPTY_CHAT } from "./core";
+import { BRANCH_FRESH } from "./core";
 import type { Core, PlannerState } from "./core";
 import type { RunFn } from "./useRun";
 
 /** What a project switch resets: everything that belonged to the previous project's grid, branches and result. */
 const FRESH: Partial<PlannerState> = {
-  model: null, boundary: null, modelLoading: true, modelError: null,
-  result: null, resultAt: "", prevStatus: {}, added: {}, outages: [], reinforcements: [], candidates: [],
-  diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null, reviews: [], thread: null, trace: [], study: null, agents: null,
-  registry: [], registryLoaded: false, assumptions: null, showAssumptions: false, sel: null, chat: EMPTY_CHAT,
+  ...BRANCH_FRESH, model: null, boundary: null, modelLoading: true, modelError: null, branches: [], activeBranch: "",
+  result: null, resultAt: "", added: {}, agents: null, registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
 };
-
-const failureText = (e: unknown): string => (e instanceof Error ? e.message : "is the API running?");
 
 export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) {
   const loadProjects = useCallback(async (): Promise<Project[] | null> => {
@@ -35,10 +31,11 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
       const projects = await api.listProjects();
       patch({ projects });
       return projects;
-    } catch {
+    } catch (e) {
+      toastMsg(`Could not load the projects: ${failureText(e)}`, "warn");
       return null;
     }
-  }, [patch]);
+  }, [patch, toastMsg]);
 
   /** The project's transmission boundary card, fetched after the grid is up: on a cold API it is a full power flow. */
   const loadBoundary = useCallback(
@@ -70,7 +67,7 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
         });
         if (!current()) return;
         patch((st) => ({
-          model, branches, forecasts, branchesLoaded: true, activeBranch: mainId, modelLoading: false,
+          model, branches, forecasts, activeBranch: mainId, modelLoading: false,
           layer: caps && !caps.regions && st.layer === "demand" ? "flow" : st.layer, // no demand groups, no Demand layer
         }));
       } catch (e) {
@@ -141,8 +138,8 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
     try {
       const r = await api.getAssumptions(st.projectId);
       if (ref.current.projectId === st.projectId) patch({ assumptions: r.assumptions });
-    } catch {
-      toastMsg("Could not load the assumptions. Check the API is running.", "warn");
+    } catch (e) {
+      toastMsg(`Could not load the assumptions: ${failureText(e)}`, "warn");
     }
   }, [patch, ref, toastMsg]);
 
@@ -154,7 +151,7 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
       try {
         const [projects, fc] = await retrying(() => Promise.all([api.listProjects(), api.getForecasts()]), { shouldRetry: (e) => !isCancelled() && retryable(e) });
         if (isCancelled()) return;
-        patch({ projects, forecasts: fc.forecasts, plan: fc.plan, year: fc.plan.phase1, maxMw: fc.maxMw });
+        patch({ projects, forecasts: fc.forecasts, defaultScenario: fc.defaultScenario, plan: fc.plan, year: fc.plan.phase1 });
         await loadProject(ref.current.projectId, projects);
       } catch (e) {
         if (!isCancelled()) patch({ modelLoading: false, modelError: failureText(e) });

@@ -4,11 +4,12 @@
 // the operator's approval; approving runs it on the branch, the answer continues, and the planner
 // refreshes what the proposal touched (lib/ask.ts). A reply on its way can be stopped.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { api } from "../../api";
-import { proposalEffect } from "../../lib/ask";
+import { api, failureText } from "../../api";
+import { type ProposalEffect, proposalEffect } from "../../lib/ask";
 import { mainIdOf } from "../../lib/projects";
+import type { Approval } from "../../types";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
@@ -22,9 +23,31 @@ export function useAsk(
   refreshBranches: () => Promise<unknown>,
   loadExtras: (branchId: string) => Promise<void>,
   edited: EditedFn,
+  afterRebase: (branchId: string) => Promise<void>,
 ) {
   const stop = useRef<(() => void) | null>(null); // closes the open event stream
   useEffect(() => () => stop.current?.(), []);
+
+  /** What an approved proposal refreshes on the branch in view (lib/ask.ts PROPOSAL_EFFECT names the effect). */
+  const APPLY: Record<ProposalEffect, (bid: string) => Promise<void>> = useMemo(() => {
+    const extras = (kind: "project" | "reinforcement" | "works") => async (bid: string) => {
+      await loadExtras(bid);
+      edited(kind);
+    };
+    return {
+      branch: async () => void (await refreshBranches()),
+      // the agent's run is the branch's run: cached, so this only shows it
+      run: async (bid) => {
+        void refreshBranches();
+        void run({ activeBranch: bid });
+      },
+      project: extras("project"),
+      reinforcement: extras("reinforcement"),
+      works: extras("works"),
+      // the branch now holds its parent's state plus its own changes: the operator's own post-rebase steps
+      rebase: afterRebase,
+    };
+  }, [afterRebase, edited, loadExtras, refreshBranches, run]);
 
   const setBusy = useCallback((busy: boolean) => patch((st) => ({ chat: { ...st.chat, busy } })), [patch]);
   const setInput = useCallback((input: string) => patch((st) => ({ chat: { ...st.chat, input } })), [patch]);
@@ -60,19 +83,24 @@ export function useAsk(
           stop.current = null;
           void reload(tid)
             .then(() => patch({ trace: [] }))
+            .catch((e) => toastMsg(`Could not read the finished reply: ${failureText(e)}`, "warn"))
             .finally(() => setBusy(false));
           void loadThreads();
         },
-        // the connection dropped: if the reply has settled meanwhile, stop following it
+        // the connection dropped: if the reply has settled meanwhile, stop following it (the API may be down: then
+        // the stream keeps retrying and so does this probe, quietly)
         onDrop: () =>
-          void api.getThread(ref.current.projectId, tid).then((t) => {
-            const m = t.messages.find((x) => x.message_id === messageId);
-            if (m && m.status !== "queued" && m.status !== "streaming") end();
-          }),
+          void api
+            .getThread(ref.current.projectId, tid)
+            .then((t) => {
+              const m = t.messages.find((x) => x.message_id === messageId);
+              if (m && m.status !== "queued" && m.status !== "streaming") end();
+            })
+            .catch(() => {}),
       });
       stop.current = end;
     },
-    [loadThreads, patch, ref, reload, setBusy],
+    [loadThreads, patch, ref, reload, setBusy, toastMsg],
   );
 
   /** Open a stored conversation (and follow a reply still on its way). */
@@ -85,7 +113,7 @@ export function useAsk(
         const live = t.messages.find((m) => m.role === "assistant" && (m.status === "queued" || m.status === "streaming"));
         if (live) follow(tid, live.message_id);
       } catch (e) {
-        toastMsg(`Could not open the conversation: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not open the conversation: ${failureText(e)}`, "warn");
       }
     },
     [follow, patch, ref, toastMsg],
@@ -133,7 +161,7 @@ export function useAsk(
         void loadThreads();
       } catch (e) {
         setBusy(false);
-        toastMsg(`Could not send that: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not send that: ${failureText(e)}`, "warn");
       }
     },
     [follow, loadThreads, patch, ref, reload, setBusy, toastMsg],
@@ -162,7 +190,7 @@ export function useAsk(
       patch({ trace: [] });
       toastMsg("Stopped. What it had already computed stays in the cache.");
     } catch (e) {
-      toastMsg(`Could not stop it: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+      toastMsg(`Could not stop it: ${failureText(e)}`, "warn");
     } finally {
       setBusy(false);
     }
@@ -180,11 +208,18 @@ export function useAsk(
       if (!tid) return;
       const mine = st.thread?.approvals.find((a) => a.approval_id === approvalId);
       const siblings = st.thread?.approvals.filter((a) => a.message_id === mine?.message_id) ?? [];
-      const bid = st.thread?.branch_id ?? st.activeBranch;
+      const bid = st.thread?.branch_id || mainIdOf(st.projects, st.projectId); // threads are project-wide: a thread without a branch is main's
       const before = st.thread?.messages.length ?? 0;
       setBusy(true);
+      let r: Awaited<ReturnType<typeof api.decideApproval>>;
       try {
-        const r = await api.decideApproval(st.projectId, approvalId, decision, note);
+        r = await api.decideApproval(st.projectId, approvalId, decision, note);
+      } catch (e) {
+        setBusy(false);
+        toastMsg(`Could not record the decision: ${failureText(e)}`, "warn");
+        return;
+      }
+      try {
         if (r.waiting_for.length) {
           await reload(tid);
           toastMsg(`Recorded. ${r.waiting_for.length} more proposal${r.waiting_for.length > 1 ? "s" : ""} of this reply wait${r.waiting_for.length > 1 ? "" : "s"} for your decision; the answer continues once all are decided.`);
@@ -198,41 +233,25 @@ export function useAsk(
         }
         // what every approved proposal of this reply touched, the run last (it shows what the others changed)
         const approved = siblings.filter((a) => (a.approval_id === approvalId ? decision === "approve" : a.status === "approved"));
-        const effects = approved.map((a) => proposalEffect(a.tool)).filter((e): e is NonNullable<typeof e> => e != null);
-        for (const effect of [...new Set(effects)].sort((a, b) => Number(a === "run") - Number(b === "run"))) {
-          switch (effect) {
-            case "branch":
-              void refreshBranches();
-              break;
-            case "run": // the agent's run is the branch's run: cached, so this only shows it
-              void refreshBranches();
-              void run({ activeBranch: bid });
-              break;
-            case "project":
-              await loadExtras(bid);
-              edited("project");
-              break;
-            case "reinforcement":
-              await loadExtras(bid);
-              edited("reinforcement");
-              break;
-            case "works":
-              await loadExtras(bid);
-              edited("works");
-              break;
-            case "rebase": // the branch now holds main's state plus its own changes: re-read both; the result shows out of date
-              await refreshBranches();
-              await loadExtras(bid);
-              break;
-          }
+        const active = ref.current.activeBranch;
+        const branchOf = (a: Approval) => (typeof a.args.branch_id === "string" && a.args.branch_id ? a.args.branch_id : bid);
+        // a proposal on a branch not in view changes that branch, not the view: the branch list is all that refreshes for it
+        const elsewhere = approved.filter((a) => proposalEffect(a.tool) !== "branch" && branchOf(a) !== active);
+        const here = approved.filter((a) => !elsewhere.includes(a));
+        const effects = [...new Set(here.map((a) => proposalEffect(a.tool)).filter((e): e is ProposalEffect => e != null))];
+        for (const effect of effects.sort((a, b) => Number(a === "run") - Number(b === "run"))) await APPLY[effect](active);
+        if (elsewhere.length) {
+          if (!effects.length) await refreshBranches();
+          const names = [...new Set(elsewhere.map((a) => ref.current.branches.find((b) => b.branch_id === branchOf(a))?.name ?? branchOf(a)))];
+          toastMsg(`Applied on ${names.join(" and ")}. Switch to it to see the change.`);
         }
       } catch (e) {
-        toastMsg(`Could not record the decision: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Recorded; the view could not refresh: ${failureText(e)}`, "warn");
       } finally {
         setBusy(false);
       }
     },
-    [edited, loadExtras, ref, refreshBranches, reload, run, setBusy, toastMsg],
+    [APPLY, ref, refreshBranches, reload, setBusy, toastMsg],
   );
 
   return { loadThreads, openThread, startAsk, closeThread, setInput, ask, askAbout, cancelReply, decideApproval };

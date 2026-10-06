@@ -19,7 +19,7 @@ class SpecialistRequest(BaseModel):
     """One specialist the steward asks for, and why."""
 
     kind: str = Field(description="the specialist's name, from the allowed list")
-    branch_id: str | None = Field(default=None, description="the branch to study; null = main")
+    branch_id: str | None = Field(default=None, description="the branch to study; null = the project's main")
     why: str = Field(description="one sentence: what in the event or the findings calls for this study")
 
 

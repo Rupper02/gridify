@@ -4,18 +4,8 @@
 
 import type { AgentsStatus, Review, ThreadMessage, TraceEvent, TraceStage } from "../types";
 
-export const STAGES: TraceStage[] = ["PLAN", "ASSEMBLE", "RUN", "CHECK", "PROPOSE", "CITE"];
 export const STAGE_LABEL: Record<TraceStage, string> = { PLAN: "Plan", ASSEMBLE: "Assemble", RUN: "Run", CHECK: "Check", PROPOSE: "Propose", CITE: "Cite" };
 
-/** The planning stage a tool belongs to, by name prefix (mirrors the API's `streaming.STAGE_BY_TOOL_PREFIX`; first match wins, "" is the default). */
-export const STAGE_BY_TOOL_PREFIX: [string, TraceStage][] = [
-  ["study_", "RUN"],
-  ["merge_check", "CHECK"],
-  ["findings", "CHECK"],
-  ["propose_", "PROPOSE"],
-  ["", "ASSEMBLE"],
-];
-export const stageOf = (tool: string): TraceStage => STAGE_BY_TOOL_PREFIX.find(([p]) => tool.startsWith(p))![1];
 
 /** One tool call of a reply, as a chip: its stage, and whether it is still running. */
 export interface TraceChip {
@@ -51,7 +41,7 @@ export function foldTrace(events: TraceEvent[]): FoldedTrace {
       const c = out.chips.find((x) => x.step_id === ev.step_id);
       const status = ev.summary.startsWith("error") ? "failed" : "done";
       if (c) Object.assign(c, { status, summary: ev.summary, solves: ev.solves, progress: undefined });
-      else out.chips.push({ step_id: ev.step_id, tool: ev.tool, stage: stageOf(ev.tool), status, summary: ev.summary, solves: ev.solves });
+      else out.chips.push({ step_id: ev.step_id, tool: ev.tool, stage: ev.stage, status, summary: ev.summary, solves: ev.solves });
     } else if (ev.t === "cite") out.cited = true;
     else if (ev.t === "final") {
       out.final = ev;
@@ -67,7 +57,7 @@ export const progressLabel = (stage: string): string => (stage.includes(": ") ? 
 
 /** A stored message's recorded tool calls as finished chips. */
 export function traceFromMessage(m: Pick<ThreadMessage, "tool_trace">): TraceChip[] {
-  return (m.tool_trace ?? []).map((t) => ({ step_id: t.step_id, tool: t.tool, stage: stageOf(t.tool), status: "done" as const, summary: "", solves: t.solves ?? 0 }));
+  return (m.tool_trace ?? []).map((t) => ({ step_id: t.step_id, tool: t.tool, stage: t.stage ?? "ASSEMBLE", status: "done" as const, summary: "", solves: t.solves ?? 0 }));
 }
 
 /** "study_hosting_capacity" → "hosting capacity study"; "propose_branch" → "propose branch"; "merge_check" → "merge check". */

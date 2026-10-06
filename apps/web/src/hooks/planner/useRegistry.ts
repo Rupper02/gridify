@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 
-import { api } from "../../api";
+import { api, failureText } from "../../api";
 import type { RegistryItem } from "../../types";
 import type { Core } from "./core";
 
@@ -19,11 +19,12 @@ export function useRegistry(
 ) {
   const loadRegistry = useCallback(async () => {
     if (ref.current.registryLoaded) return;
+    const pid = ref.current.projectId;
     try {
-      const registry = await api.getRegistry(ref.current.projectId);
-      patch({ registry, registryLoaded: true });
-    } catch {
-      toastMsg("Could not load the registry. Check the API is running.", "warn");
+      const registry = await api.getRegistry(pid);
+      if (ref.current.projectId === pid) patch({ registry, registryLoaded: true });
+    } catch (e) {
+      toastMsg(`Could not load the registry: ${failureText(e)}`, "warn");
     }
   }, [patch, ref, toastMsg]);
 
@@ -41,8 +42,8 @@ export function useRegistry(
         }));
         void refreshBranches();
         toastMsg(`${requestId} added to Preliminary. Run to rank it against the queue.`);
-      } catch {
-        toastMsg("Could not add that project. Check the API is running.", "warn");
+      } catch (e) {
+        toastMsg(`Could not add that project: ${failureText(e)}`, "warn");
       }
     },
     [ensureEditableBranch, patch, refreshBranches, toastMsg],

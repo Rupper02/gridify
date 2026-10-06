@@ -32,6 +32,7 @@ from gridforge_optimizer import STUDIES, Control
 from gridforge_optimizer.naming import name_payload
 
 from .. import ledger, repository
+from . import events
 from ..config import AGENT_RUN_BUDGET, now
 from ..schemas import NewCandidate, OutageCreate, ReinforcementCreate
 from .evidence import EvidenceLedger
@@ -44,6 +45,16 @@ WAIT_NOTE_S = 5.0  # how often a waiting study tells the trace it is still waiti
 
 class SolverBusy(Exception):
     """The solver stayed with an operator's work past what this agent run's own time allows."""
+
+
+def merge_summary(into: str, verdict, evidence: dict) -> dict:
+    """The merge gate's verdict as the agents read it (the `merge_check` tool, the reviewer's prompt and its validator):
+    each blocker and warning with its kind, element, figures and fingerprint."""
+    short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value,  # noqa: E731
+                       "limit": f.limit, "fingerprint": f.finding_fingerprint, "message": f.message}
+    return {"into": into, "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"], "ok": verdict.ok,
+            "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings],
+            "n_context": len(verdict.context), "summary": verdict.summary}
 
 
 class SolverGate:
@@ -88,7 +99,6 @@ class Harness:
     projects: Any  # the grids planned on (baselines, main branches)
     evidence: EvidenceLedger
     solver_gate: SolverGate
-    project_id: str
     in_workflow: Callable[[], bool] = lambda: False
     durable: Callable[[str, Callable[[], Any]], Any] = lambda name, fn: fn()
 
@@ -100,7 +110,7 @@ class AgentDeps:
     h: Harness
     run_id: str
     project_id: str = ""
-    main_id: str = "main"  # the project's plan of record (what a tool reads when no branch is named)
+    main_id: str = ""  # the project's plan of record (what a tool reads when no branch is named); set by `deps_for`
     branch_id: str | None = None
     thread_id: str | None = None
     allowed_studies: tuple[str, ...] = tuple(STUDIES)
@@ -270,11 +280,7 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
                                                       "nowhere, so it has no merge check. Check a branch instead."}, None, 0)
             with _gate(ctx.deps)():
                 verdict, evidence = h.plans.merge_check(bid, base["branch_id"])
-            short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value,  # noqa: E731
-                               "limit": f.limit, "fingerprint": f.finding_fingerprint, "message": f.message}
-            return ({"branch_id": bid, "into": base["branch_id"], "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"],
-                     "ok": verdict.ok, "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings],
-                     "n_context": len(verdict.context), "summary": verdict.summary}, None, 0)
+            return ({"branch_id": bid, **merge_summary(base["branch_id"], verdict, evidence)}, None, 0)
         return _recorded(ctx, "merge_check", {"branch_id": bid}, work)
 
     @ts.tool
@@ -350,24 +356,29 @@ def _study_tool(kind: str):
     def run(ctx: RunContext[AgentDeps], branch_id: str | None = None, params: BaseModel | None = None) -> dict:
         bid = _branch(ctx, branch_id)
         deps = ctx.deps
+        refusal, p = None, None
         if kind not in deps.allowed_studies:  # refusals are answers the model reads, not retries that end the run
-            return {"refused": f"{kind} is not in your remit; you may run: {', '.join(deps.allowed_studies)}", "solves": 0}
-        try:
-            p = params if params is not None else params_model()
-        except ValidationError as e:  # a study about one project or element: the model must say which
-            missing = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors())
-            return {"refused": f"{kind} needs its parameters: {missing}", "solves": 0}
-        left = deps.budget["max_solves"] - deps.solves
-        if spec.cost_hint(p) > left:
-            return {"refused": f"{kind} with these parameters would cost about {spec.cost_hint(p)} solves; this run has {left} left. Narrow it (fewer buses or elements) or say it was not studied.", "solves": 0}
+            refusal = f"{kind} is not in your remit; you may run: {', '.join(deps.allowed_studies)}"
+        else:
+            try:
+                p = params if params is not None else params_model()
+            except ValidationError as e:  # a study about one project or element: the model must say which
+                missing = "; ".join(f"{'.'.join(str(x) for x in err['loc'])}: {err['msg']}" for err in e.errors())
+                refusal = f"{kind} needs its parameters: {missing}"
+        if p is not None and spec.cost_hint(p) > (left := deps.budget["max_solves"] - deps.solves):
+            refusal = (f"{kind} with these parameters would cost about {spec.cost_hint(p)} solves; this run has {left} left. "
+                       "Narrow it (fewer buses or elements) or say it was not studied.")
         h = deps.h
 
         def work(report):
+            if refusal is not None:  # recorded like any step: an audit row, a step id, a call against the run's budget
+                return ({"refused": refusal}, None, 0)
             # the solver per chunk (operators get it between chunks); each chunk and the study's own stages stream to the trace
             res = h.plans.study(bid, kind, p, progress=report, chunked=True, hold=_gate(deps, report))
             return (_compact(res), h.plans.study_key(bid, kind, p), res.solves)
 
-        return _recorded(ctx, f"study_{kind}", {"branch_id": bid, "params": p.model_dump()}, work, reports=True)
+        args = {"branch_id": bid, "params": (p.model_dump() if p is not None else params.model_dump() if params is not None else {})}
+        return _recorded(ctx, f"study_{kind}", args, work, reports=True)
 
     run.__name__ = f"study_{kind}"
     run.__doc__ = spec.description + " `params` are the study's parameters (all optional)."
@@ -388,6 +399,13 @@ def build_study_tools() -> FunctionToolset[AgentDeps]:
 
 
 # --- proposals: deferred tools the operator approves -----------------------------------------------------------------
+def _element_ids(h: Harness, branch_id: str) -> dict[str, set]:
+    """The ids a proposal on a branch may name: its own project's (a model read, so never under the store lock)."""
+    with h.store.cursor() as con:
+        pid = repository.require_branch(con, branch_id)["project_id"]
+    return h.projects.element_ids(pid)
+
+
 def build_proposal_tools() -> FunctionToolset[AgentDeps]:
     ts: FunctionToolset[AgentDeps] = FunctionToolset(id="proposals", requires_approval=True)
 
@@ -398,7 +416,7 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             h, main = ctx.deps.h, ctx.deps.main_id
             with h.store.cursor() as con:
                 bid = repository.open_branch(con, repository.require_branch(con, main), name, created_by="agent:answerer")
-            h.plans.invalidate("plan")
+            h.plans.edited()
             return ({"branch_id": bid, "name": name, "note": note, "summary": f"opened {name} ({bid}) off {main}"}, None, 0)
         return _recorded(ctx, "propose_branch", {"name": name, "note": note}, work)
 
@@ -408,10 +426,11 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
         def work():
             h = ctx.deps.h
             body = ReinforcementCreate(kind=kind, element_id=element_id, action=action, factor=factor, label=label)
+            ids = _element_ids(h, branch_id)
             with h.store.cursor() as con:
                 repository.require_open(con, branch_id, allow_main=False)
-                row = repository.insert_reinforcement(con, branch_id, body)
-            h.plans.invalidate("plan")
+                row = repository.insert_reinforcement(con, branch_id, body, ids)
+            h.plans.edited()
             return ({**row, "summary": f"reinforcement {row['reinforcement_id']} on {branch_id}"}, None, 0)
         return _recorded(ctx, "propose_reinforcement", {"branch_id": branch_id, "kind": kind, "element_id": element_id, "action": action, "factor": factor, "label": label}, work)
 
@@ -421,9 +440,10 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
         def do():
             h = ctx.deps.h
             body = OutageCreate(element_kind=element_kind, element_id=element_id, season=season, year=year, weeks=weeks, work=work)
+            ids = _element_ids(h, branch_id)
             with h.store.cursor() as con:
                 repository.require_open(con, branch_id, allow_main=False)
-                row = repository.insert_outage(con, branch_id, body)
+                row = repository.insert_outage(con, branch_id, body, ids)
             return ({**row, "summary": f"window {row['outage_id']} on {branch_id}"}, None, 0)
         return _recorded(ctx, "propose_works_window", {"branch_id": branch_id, "element_kind": element_kind, "element_id": element_id, "season": season, "year": year, "weeks": weeks, "work": work}, do)
 
@@ -436,10 +456,11 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             h = ctx.deps.h
             body = NewCandidate(applicant=applicant, technology=technology, bus_id=bus_id, rating_mw=rating_mw, import_mw=import_mw,
                                 commissioning_year=commissioning_year, readiness_rationale=readiness_rationale, control=control, branch_id=branch_id)
+            valid = _element_ids(h, branch_id)["buses"]
             with h.store.cursor() as con:
-                branch = repository.require_open(con, branch_id, allow_main=False)
-                row = repository.insert_candidate(con, branch_id, body, h.projects.element_ids(branch["project_id"])["buses"])
-            h.plans.invalidate("plan")
+                repository.require_open(con, branch_id, allow_main=False)
+                row = repository.insert_candidate(con, branch_id, body, valid)
+            h.plans.edited()
             client = repository.to_client(row)
             return ({**client, "summary": f"{row['request_id']} ({client['status']}) added to {branch_id}"}, None, 0)
         return _recorded(ctx, "propose_candidate", {"branch_id": branch_id, "applicant": applicant, "technology": technology, "bus_id": bus_id, "rating_mw": rating_mw,
@@ -454,10 +475,11 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             h = ctx.deps.h
             changes = {k: v for k, v in {"bus_id": bus_id, "rating_mw": rating_mw, "import_mw": import_mw, "commissioning_year": commissioning_year,
                                          "control": control.model_dump() if control else None}.items() if v is not None}
+            valid = _element_ids(h, branch_id)["buses"]
             with h.store.cursor() as con:
-                branch = repository.require_open(con, branch_id, allow_main=False)
-                row = repository.update_candidate(con, branch_id, request_id, changes, h.projects.element_ids(branch["project_id"])["buses"])
-            h.plans.invalidate("plan")
+                repository.require_open(con, branch_id, allow_main=False)
+                row = repository.update_candidate(con, branch_id, request_id, changes, valid)
+            h.plans.edited()
             applied = {k: row.get(k) for k in ("bus_id", "rating_mw", "import_mw", "commissioning_year", "control") if k in changes or (k == "import_mw" and "rating_mw" in changes and row.get(k) is not None)}
             return ({**row, "summary": f"{request_id} on {branch_id}: " + ", ".join(f"{k} -> {v}" for k, v in applied.items())}, None, 0)
         return _recorded(ctx, "propose_candidate_change", {"branch_id": branch_id, "request_id": request_id, "bus_id": bus_id, "rating_mw": rating_mw,
@@ -472,6 +494,7 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
         (propose_run). The operator approves."""
         def work():
             h = ctx.deps.h
+            valid = _element_ids(h, branch_id)["buses"]
             with h.store.cursor() as con:
                 head = repository.require_open(con, branch_id, allow_main=False)
                 p = repository.rebase_plan(con, head)
@@ -481,8 +504,8 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
                     return ({"branch_id": branch_id, "refused": f"{len(p.conflicts)} conflict(s): both sides changed the same thing, and only the "
                                                                 "operator picks a side, in the Review tab. Tell them which.",
                              "conflicts": [c.text for c in p.conflicts]}, None, 0)
-                n = repository.apply_rebase(con, head, p, {}, h.projects.element_ids(head["project_id"])["buses"])
-            h.plans.invalidate("plan")
+                n = repository.apply_rebase(con, head, p, {}, valid)
+            h.plans.edited()
             return ({"branch_id": branch_id, "taken": n, "summary": f"rebased {branch_id} onto {head['parent_id']}: {n} of its changes taken in; "
                                                                      "the branch's result is out of date until it runs"}, None, 0)
         return _recorded(ctx, "propose_rebase", {"branch_id": branch_id}, work)
@@ -501,7 +524,8 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
             for q in queue:
                 by[q["status"]] = by.get(q["status"], 0) + 1
             deferred = [{"request_id": q["request_id"], "reason": (q.get("reason") or {}).get("message")} for q in queue if q["status"] == "Deferred"]
-            return ({"branch_id": branch_id, "run_key": out.get("run_key"), "statuses": by, "deferred": deferred,
+            event = events.run_finished(branch_id, out, is_main=repository.is_main(row))  # what the workflow announces
+            return ({"branch_id": branch_id, "run_key": out.get("run_key"), "statuses": by, "deferred": deferred, "event": event,
                      "summary": f"ran {branch_id}: " + (", ".join(f"{n} {s}" for s, n in sorted(by.items())) or "an empty queue")}, out.get("run_key"), 0)
         return _recorded(ctx, "propose_run", {"branch_id": branch_id}, work)
 

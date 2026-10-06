@@ -1,7 +1,7 @@
 """The findings ledger and the merge audit: plain functions over a store cursor.
 
-Findings come from the engine (`gridforge_optimizer.extract_findings`, after every run) or, later,
-from agents filing them against a recorded study step; `source` and the `evidence_*` columns say
+Findings come from the engine (`gridforge_optimizer.extract_findings`, after every run) or from the
+agents filing them against a recorded study step; `source` and the `evidence_*` columns say
 which. A finding's id is stable per branch and fingerprint, so a re-run upserts what is still there
 and `resolve_missing` closes what is gone. Merges, refused or done, are recorded with their verdict.
 No HTTP and no engine here.

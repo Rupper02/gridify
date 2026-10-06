@@ -58,7 +58,7 @@ function addLayers(map: MLMap): void {
   L({ id: "trafos", type: "symbol", source: "trafos", layout: { "icon-image": "trafo", "icon-allow-overlap": true, "icon-ignore-placement": true } });
 }
 
-export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode" | "sideOpen", "select"> & WithMap & MapMarkersPlanner & RegionLabelsPlanner;
+export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode", "select"> & WithMap & MapMarkersPlanner & RegionLabelsPlanner;
 
 export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapViewPlanner; geo: Geo | null; layout: Layout; reducedMotion: boolean }) {
   const { s, actions, mapApi } = planner;

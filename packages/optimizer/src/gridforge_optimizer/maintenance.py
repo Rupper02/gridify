@@ -13,11 +13,12 @@ verdict:
   demand_at_risk  demand is stranded on an island, or sits at load buses left outside the voltage
                   band that constraining generation does not clear
   not_feasible    a limit stays breached after the bounded curtailment search (or no convergence)
+  unstudied       the element is not in the network model: nothing was studied
 
 The curtailment search is a first-order planning estimate, not an optimal dispatch: one generator at
 a time, nearest the binding element first, re-solving each time, then a short bisection on the last
 one, at most config.CURTAIL_MAX_SOLVES extra solves per case. With an N-1 screen passed in, the
-132 kV backbone is also screened with the window in place (informational, like the year's own screen).
+N-1 scope (the grid's own floor) is also screened with the window in place (informational, like the year's own screen).
 
 After the window: maintenance and replacement (like-for-like) return the element as it was;
 repowering returns it with a new capability from the FOLLOWING year on (`apply_works_after`, called
@@ -61,7 +62,8 @@ from .network import (
     tap_positions,
     voltage_limits,
 )
-from .types import VERDICT_SEVERITY, Curtailment, N1During, Outage, OutageStudy, Reason, Reinforcement
+from .findings import n1_key
+from .types import REASON_SPECS, VERDICT_SEVERITY, Curtailment, N1During, Outage, OutageStudy, Reason, Reinforcement
 
 Screen = Callable[..., dict]  # network.n1_screen's shape: (net, case, rating_ratio=...) -> {"screened", "violations"}
 
@@ -307,7 +309,6 @@ def _out_of_band_demand(net, vm: pd.Series) -> float:
     return float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum())
 
 
-_SEVERITY = VERDICT_SEVERITY
 
 
 
@@ -333,7 +334,7 @@ class _GroupResult:
         self.solved: dict[str, _CaseState] = {}  # converged cases only
 
     def judge(self, verdict: str) -> None:
-        if _SEVERITY[verdict] > _SEVERITY[self.verdict]:
+        if VERDICT_SEVERITY[verdict] > VERDICT_SEVERITY[self.verdict]:
             self.verdict = verdict
 
     @property
@@ -385,10 +386,6 @@ def _study_case(net, name: str, load_scale, ratio, out: _GroupResult) -> None:
 Baseline = dict[str, dict[tuple, float]]
 
 
-def _finding_key(v: dict) -> tuple:
-    return (v.get("outage_type"), v.get("outage_id"), v.get("case"), v.get("type"), None if v.get("type") == "islanded" else v.get("element_id"))
-
-
 def _baseline_screen(net, screen: Screen, season_name: str) -> Baseline:
     """The N-1 screen of the year as it is (no window), in the season's cases and ratings: what a
     window's own screen is compared with, so only what the window adds is reported. Taps as found."""
@@ -402,18 +399,17 @@ def _baseline_screen(net, screen: Screen, season_name: str) -> Baseline:
                 continue
             ratio = _column(net.line, season["rating_column"]) if season["rating_column"] else cases[name].rating_ratio
             found = screen(net, name, rating_ratio=ratio).get("violations", [])
-            out[name] = {_finding_key(v): float(v.get("value") or 0.0) for v in found}
+            out[name] = {n1_key(v): float(v.get("value") or 0.0) for v in found}
     finally:
         set_tap_positions(net, taps)
     return out
 
 
-_N1_ORDER = {"non_convergent": 0, "islanded": 1, "line": 2, "trafo": 2, "voltage": 3}
 
 
 def _n1_rank(v: dict, extra_mw: float) -> tuple:
     """Worst first: no convergence, then demand stranded (most first), then thermal (highest first), then voltage."""
-    return (_N1_ORDER.get(v.get("type"), 4), -(extra_mw if v.get("type") == "islanded" else float(v.get("value") or 0.0)))
+    return (REASON_SPECS[v["type"]].n1_order if v.get("type") in REASON_SPECS else 4, -(extra_mw if v.get("type") == "islanded" else float(v.get("value") or 0.0)))
 
 
 def _n1_words(v: dict, extra_mw: float) -> str:
@@ -438,7 +434,7 @@ def _screen_during(net, screen: Screen, solved: dict[str, _CaseState], baseline:
         n1.cases.append(name)
         n1.screened += int(s.get("screened", 0))
         for v in s.get("violations", []):
-            key = _finding_key(v)
+            key = n1_key(v)
             extra = 0.0
             if v.get("type") == "islanded":
                 extra = float(v.get("value") or 0.0) - max(own.stranded_mw, base.get(key, 0.0))
@@ -513,8 +509,8 @@ def _message(o: Outage, with_ids: list[str], g: _GroupResult) -> str:
 
 def _missing(o: Outage) -> OutageStudy:
     noun = _ELEMENT_NOUN.get(o.element_kind, o.element_kind)
-    return OutageStudy(outage_id=o.outage_id, year=o.year, cases=[], ok=True, work=o.work,
-                       message=f"{noun} {o.element_id} is not in the network model", after=WORKS[o.work].note(o))
+    return OutageStudy(outage_id=o.outage_id, year=o.year, cases=[], ok=False, work=o.work, verdict="unstudied",
+                       message=f"Not studied: {noun} {o.element_id} is not in the network model.", after=WORKS[o.work].note(o))
 
 
 def study_windows(net, windows: list[Outage], *, screen: Screen | None = None) -> list[OutageStudy]:

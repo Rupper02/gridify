@@ -32,14 +32,14 @@ const result = (over: Partial<OptimizeResult> = {}): OptimizeResult => ({
 
 const model: Model = {
   buses: [
-    { bus_id: 1, name: "BOSTON 33kV MAIN1", vn_kv: 33, lon: 0, lat: 53 },
-    { bus_id: 2, name: "BICKER FEN 132kV", vn_kv: 132, lon: -0.2, lat: 52.9 },
-    { bus_id: 3, name: "KIRTON 33kV", vn_kv: 33, lon: -0.05, lat: 52.9 },
-    { bus_id: 4, name: "KIRTON 11kV", vn_kv: 11, lon: -0.05, lat: 52.9 },
+    { bus_id: 1, name: "BOSTON 33kV MAIN1", vn_kv: 33, lon: 0, lat: 53, vmin_pu: 0.94, vmax_pu: 1.06 },
+    { bus_id: 2, name: "BICKER FEN 132kV", vn_kv: 132, lon: -0.2, lat: 52.9, vmin_pu: 0.94, vmax_pu: 1.06 },
+    { bus_id: 3, name: "KIRTON 33kV", vn_kv: 33, lon: -0.05, lat: 52.9, vmin_pu: 0.94, vmax_pu: 1.06 },
+    { bus_id: 4, name: "KIRTON 11kV", vn_kv: 11, lon: -0.05, lat: 52.9, vmin_pu: 0.94, vmax_pu: 1.06 },
   ],
   lines: [
-    { line_id: 10, line_name: "BOS-BKF", rating_a: 600, voltage_kv: 132, from_bus: 1, to_bus: 2, from_lon: 0, from_lat: 53, to_lon: -0.2, to_lat: 52.9 },
-    { line_id: 11, line_name: "KIR-BOS", rating_a: 400, voltage_kv: 33, from_bus: 3, to_bus: 1, from_lon: -0.05, from_lat: 52.9, to_lon: 0, to_lat: 53 },
+    { line_id: 10, line_name: "BOS-BKF", rating_a: 600, voltage_kv: 132, from_bus: 1, to_bus: 2, from_lon: 0, from_lat: 53, to_lon: -0.2, to_lat: 52.9, in_service: true },
+    { line_id: 11, line_name: "KIR-BOS", rating_a: 400, voltage_kv: 33, from_bus: 3, to_bus: 1, from_lon: -0.05, from_lat: 52.9, to_lon: 0, to_lat: 53, in_service: true },
   ],
   transformers: [
     { trafo_id: 5, name: "T5", sn_mva: 45, hv_bus: 2, lv_bus: 1, hv_kv: 132, lv_kv: 33, hv_name: "BICKER FEN 132kV", hv_lon: -0.2, hv_lat: 52.9, lv_lon: 0, lv_lat: 53 },
@@ -139,8 +139,8 @@ describe("stored projects against the shown run", () => {
 
 describe("place names", () => {
   it("names a coded busbar after its neighbour, and names elements in engine text", () => {
-    const m2: Model = { ...model, buses: [...model.buses, { bus_id: 9, name: "BOST1_MAIN1", vn_kv: 132, lon: 0, lat: 53 }],
-      lines: [...model.lines, { line_id: 12, line_name: "X", rating_a: 600, voltage_kv: 132, from_bus: 9, to_bus: 1, from_lon: 0, from_lat: 53, to_lon: 0, to_lat: 53 }] };
+    const m2: Model = { ...model, buses: [...model.buses, { bus_id: 9, name: "BOST1_MAIN1", vn_kv: 132, lon: 0, lat: 53, vmin_pu: 0.94, vmax_pu: 1.06 }],
+      lines: [...model.lines, { line_id: 12, line_name: "X", rating_a: 600, voltage_kv: 132, from_bus: 9, to_bus: 1, from_lon: 0, from_lat: 53, to_lon: 0, to_lat: 53, in_service: true }] };
     const ix2 = indexModel(m2);
     expect(busPlace(ix2, 9)).toBe("Boston");
     expect(nameElements("Overloads transformer 5 to 102%", ix2)).toBe("Overloads Bicker Fen 132/33 kV transformer to 102%");

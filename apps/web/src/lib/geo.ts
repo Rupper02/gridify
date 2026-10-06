@@ -6,9 +6,9 @@ import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 import { C, loadColor, voltColor } from "../theme";
 import type { MapLayer, Model, Sel, YearResult } from "../types";
 import { regionFeatures } from "./demand";
-import { voltageBand } from "./derive";
 import { type DiffMap, diffColor } from "./diff";
 import { type FeatureKey, type LineTier, type LineTiers, lineFeature, shows, tierOf } from "./mapFeatures";
+import { midpoint } from "./placement";
 
 export interface GeoInputs {
   model: Model;
@@ -109,7 +109,7 @@ export function buildGeo(g: GeoInputs): Geo {
     .filter((b) => b.lon != null)
     .map((b) => {
       const v = yr?.bus_vm?.[b.bus_id] ?? null;
-      const [lo, hi] = voltageBand(b.vn_kv);
+      const [lo, hi] = [b.vmin_pu, b.vmax_pu]; // the engine's band for this bus
       const vMode = layer === "voltage";
       const style = BUS_STYLE[tierOf(b.vn_kv, tiers)];
       return pt(b.lon, b.lat, {
@@ -124,7 +124,7 @@ export function buildGeo(g: GeoInputs): Geo {
   const loads: Feature[] = (on("loads") ? m.loads : []).map((l) => pt(l.lon, l.lat, { id: l.load_id, size: 0.5 + (l.p_mw / maxLoad) * 0.5 }));
   const openpts: Feature[] = mLines
     .filter((l) => l.in_service === false)
-    .map((l) => pt((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2, { id: l.line_id }));
+    .map((l) => pt(...midpoint(l), { id: l.line_id }));
   // transformers carry their loading: a ring in the loading layer, and a red glow when over 100 % in any;
   // in diff mode only the changed ones are ringed, coloured like the changed lines
   const tl = yr?.trafo_loading ?? {};

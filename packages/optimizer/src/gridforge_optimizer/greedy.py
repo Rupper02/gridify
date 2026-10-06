@@ -5,22 +5,18 @@ from __future__ import annotations
 from typing import Any, Callable
 
 
-from .config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
+from .config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
 from .network import (
+    plan_net,
+    snapshot,
     _run_case,
-    apply_reinforcement,
     build_base_net,
-    bus_voltages,
     drop_project,
     feasibility,
-    grow_for,
     inject_project,
-    line_loadings,
     n1_screen_cases,
-    overloaded_line_ids,
     set_tap_positions,
     tap_positions,
-    voltage_violation_bus_ids,
 )
 from .scoring import grid_need_from_solved
 from .types import (
@@ -38,7 +34,7 @@ _STATUS = {1: "Phase1", 2: "Phase2"}
 # the year window the grid can actually host each phase's projects: Phase 1 lands by 2030, Phase 2
 # across 2031-2035. The optimizer recommends an energisation year inside this window (nudged by the
 # developer's requested year); deferred/rejected projects can't be hosted, so they get no year.
-_REC_WINDOW = {"Phase1": (2027, 2030), "Phase2": (2031, 2035)}
+_REC_WINDOW = {"Phase1": (PLAN_START_YEAR + 1, 2030), "Phase2": (2031, PLAN_END_YEAR)}  # the phase boundary is decided (findings #4)
 
 
 def _recommended_year(requested: int | None, status: str) -> int | None:
@@ -67,7 +63,7 @@ NetFactory = Callable[[], Any]  # builds a fresh base network (default: today's 
 
 def _sig(c: Candidate) -> tuple:
     """What a trial's outcome depends on, per project."""
-    return (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology, c.control.model_dump_json() if c.control else None)
+    return c.signature()
 
 
 class _Run:
@@ -96,13 +92,9 @@ class _Run:
         self.last_reason: dict[str, Reason | None] = {}
         self.worst_line_at_accept: dict[str, float | None] = {}
 
-    def _study_net(self, growth: float, horizon: int):
-        """A fresh network grown to `horizon` with the simulated reinforcements applied."""
-        net = self.net_factory()
-        grow_for(net, self.params, growth, horizon)
-        for r in self.reinforcements:
-            apply_reinforcement(net, r)
-        return net
+    def _study_net(self, growth: float, horizon: int, projects=()):
+        """A fresh network grown to `horizon` with the simulated reinforcements applied and `projects` connected."""
+        return plan_net(self.net_factory, self.params, growth, horizon, self.reinforcements, projects)
 
     def rank_score(self, c: Candidate) -> float:
         """Weighted blend of readiness, grid need, and strategic fit for this candidate."""
@@ -165,9 +157,7 @@ class _Run:
         """Trial every not-yet-accepted project at this phase's demand; snapshot the resulting grid."""
         n_phases = len(_PHASES)
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
-        net = self._study_net(getattr(self.params, growth_attr), int(phase_key))
-        for a in self.accepted_order:
-            inject_project(net, a)
+        net = self._study_net(getattr(self.params, growth_attr), int(phase_key), self.accepted_order)
         settled = False  # taps are regulated by the first real solve of the phase
 
         todo = [c for c in self.ranked if c.request_id not in self.accepted_phase]
@@ -193,17 +183,7 @@ class _Run:
         _, _, m = feasibility(net)
         return PhaseResult(
             accepted=[a.request_id for a in self.accepted_order],
-            worst_line_loading_pct=round(m.get("max_line_pct", 0.0), 1),
-            worst_trafo_loading_pct=round(m.get("max_trafo_pct", 0.0), 1),
-            min_vm_pu=round(m.get("min_vm", 0.0), 4),
-            max_vm_pu=round(m.get("max_vm", 0.0), 4),
-            overloaded_line_ids=overloaded_line_ids(net),
-            line_loading=line_loadings(net),
-            bus_vm=bus_voltages(net),
-            voltage_violation_bus_ids=voltage_violation_bus_ids(net),
-            gsp_export_mw=m.get("gsp_export_mw", 0.0),
-            gsp_import_mw=m.get("gsp_import_mw", 0.0),
-            gsp_limit_mw=m.get("gsp_limit_mw"),
+            **snapshot(net, m),
             n1_cases=n1["cases"],
             n1_screened=n1["screened"],
             n1_violations=n1["violations"],

@@ -4,7 +4,8 @@ plan, ranked deterministically. Grid-agnostic: the element is the network's own 
 import pytest
 
 from gridforge_optimizer import OptimizeParams, OptimizeResult, Outage, best_windows
-from gridforge_optimizer.windows import SEASONS, VERDICT_RANK, rank_key
+from gridforge_optimizer.types import VERDICT_SEVERITY as VERDICT_RANK
+from gridforge_optimizer.windows import SEASONS, rank_key
 from gridforge_optimizer.years import evaluate_year
 
 PARAMS = OptimizeParams()

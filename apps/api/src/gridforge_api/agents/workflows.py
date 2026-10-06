@@ -9,7 +9,8 @@ The runtime that owns the collaborators is looked up through `RUNTIME`, set by `
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from dbos import DBOS, SetWorkflowID
 from dbos._error import DBOSWorkflowCancelledError
@@ -23,6 +24,8 @@ from . import runs, threads
 from .evidence import check_numbers
 from .roster import SPECIALISTS
 from .schemas import HealthBrief, ReviewComment, SpecialistReport, StewardPlan
+from .streaming import stage_of
+from .tools import merge_summary
 
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
@@ -41,7 +44,10 @@ def _step(fn):
 
 
 def _limits() -> UsageLimits:
-    return UsageLimits(request_limit=AGENT_RUN_BUDGET["max_tool_calls"] + 4, tool_calls_limit=AGENT_RUN_BUDGET["max_tool_calls"])
+    """The run's hard stop is its number of model requests. The tool-call budget is enforced by `tools._recorded`, which
+    answers past it with a refusal the model writes up from: a Pydantic AI `tool_calls_limit` would raise before that
+    refusal ever ran, and end the answer as failed."""
+    return UsageLimits(request_limit=AGENT_RUN_BUDGET["max_tool_calls"] + 4, tool_calls_limit=None)
 
 
 def _usage(res) -> dict:
@@ -66,6 +72,13 @@ def _begin(run_id: str, project_id: str, *, kind: str, agent: str, branch_id=Non
                            status="skipped_paused" if state.paused else "running")
         return {"paused": state.paused, "reason": state.paused_reason}
     return _step(do)
+
+
+def _sum_usage(*usages: dict) -> dict:
+    """One run's usage from its model calls (the steward's triage and its brief)."""
+    costs = [u["cost_credits"] for u in usages if u.get("cost_credits") is not None]
+    return {"input_tokens": sum(u.get("input_tokens", 0) for u in usages), "output_tokens": sum(u.get("output_tokens", 0) for u in usages),
+            "cost_credits": sum(costs) if costs else None}
 
 
 def _finish(run_id: str, project_id: str, *, status: str, summary: str = "", error: str | None = None, usage: dict | None = None, solves: int = 0) -> None:
@@ -96,12 +109,13 @@ def steward_run(project_id: str, event: dict) -> dict:
         prompt = (f"Event: {json.dumps({k: v for k, v in event.items() if k not in ('allowed_specialists',)}, default=str)}\n"
                   f"Allowed specialists now: {', '.join(allowed) or 'none'}. Each studies: {rt.remits()}.\n"
                   "Read the project overview and the open findings, then plan.")
-        plan: StewardPlan = rt.agents["steward"].run_sync(prompt, deps=deps, usage_limits=_limits()).output
+        triage = rt.agents["steward"].run_sync(prompt, deps=deps, usage_limits=_limits())
+        plan: StewardPlan = triage.output
         reports = []
-        for req in plan.specialists:
+        for i, req in enumerate(plan.specialists):
             if req.kind not in allowed:
                 continue
-            with SetWorkflowID(f"{run_id}:{req.kind}"):
+            with SetWorkflowID(f"{run_id}:{i}:{req.kind}"):
                 handle = DBOS.start_workflow(specialist_run, project_id, req.kind, {"branch_id": req.branch_id or event.get("branch_id"), "why": req.why, "event": event.get("type")}, run_id)
             try:
                 reports.append(handle.get_result())
@@ -121,7 +135,8 @@ def steward_run(project_id: str, event: dict) -> dict:
                 threads.add_message(con, health["thread_id"], "assistant", text, run_id=run_id, evidence={"event": event.get("type"), "reports": reports})
             return True
         _step(store)
-        _finish(run_id, project_id, status="done", summary=brief.headline, usage=_usage(res), solves=deps.solves + brief_deps.solves)
+        _finish(run_id, project_id, status="done", summary=brief.headline, usage=_sum_usage(_usage(triage), _usage(res)),
+                solves=deps.solves + brief_deps.solves)
         return {"run_id": run_id, "status": "done", "headline": brief.headline, "specialists": [r.get("kind") for r in reports]}
     except Exception as e:
         _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
@@ -132,7 +147,7 @@ def steward_run(project_id: str, event: dict) -> dict:
 def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) -> dict:
     rt = _rt()
     run_id = DBOS.workflow_id or f"{parent_run_id}:{kind}"
-    branch_id = scope.get("branch_id") or "main"
+    branch_id = scope.get("branch_id") or rt.harness.projects.main_id(project_id)  # the project's own main, never NGED's
     begun = _begin(run_id, project_id, kind="specialist", agent=kind, branch_id=branch_id, parent=parent_run_id)
     if begun["paused"]:
         return {"kind": kind, "run_id": run_id, "status": "skipped_paused"}
@@ -144,8 +159,9 @@ def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) 
         report: SpecialistReport = res.output
         fps = _step(lambda: rt.evidence.bind_findings(run_id, branch_id, report.findings, snapshot_id=rt.harness.warehouse.baseline_id(), at=now()))
         _finish(run_id, project_id, status="done", summary=report.summary, usage=_usage(res), solves=deps.solves)
+        steps = _step(lambda: [s["step_id"] for s in rt.evidence.steps(run_id)])
         return {"kind": kind, "run_id": run_id, "status": "done", "summary": report.summary, "n_findings": len(fps), "not_studied": report.not_studied,
-                "steps": [s["step_id"] for s in rt.evidence.steps(run_id)]}
+                "steps": steps}
     except Exception as e:
         _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
         raise
@@ -156,9 +172,6 @@ def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) 
 def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
     rt = _rt()
     run_id = DBOS.workflow_id or f"review:{branch_id}:{run_key}"
-    if branch_id == "main":
-        return {"run_id": run_id, "status": "skipped", "reason": "main is not reviewed; branches are"}
-
     def superseded() -> bool:
         """The branch has moved on (a newer run, or new inputs) since this run: its review is not current."""
         return rt.harness.plans.freshness(branch_id).years_key != run_key
@@ -174,10 +187,7 @@ def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
             return None
         with rt.harness.solver_gate.hold():
             verdict, evidence = rt.harness.plans.merge_check(branch_id, base["branch_id"])
-        short = lambda f: {"kind": f.kind, "year": f.year, "element_kind": f.element_kind, "element_id": f.element_id, "value": f.value, "limit": f.limit,  # noqa: E731
-                           "fingerprint": f.finding_fingerprint, "message": f.message}
-        return {"into": base["branch_id"], "fresh": evidence["fresh"], "ok": verdict.ok, "summary": verdict.summary,
-                "blockers": [short(f) for f in verdict.blockers], "warnings": [short(f) for f in verdict.warnings], "n_context": len(verdict.context)}
+        return merge_summary(base["branch_id"], verdict, evidence)
     mc = _step(gate)
     if mc is None:
         return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, superseded by a newer run, or a main (it merges nowhere)"}
@@ -215,6 +225,9 @@ def _dump_messages(msgs) -> list:
     return ModelMessagesTypeAdapter.dump_python(msgs, mode="json")
 
 
+FINAL_SEQ = 10_000  # a run's closing event sorts after every step it streamed
+
+
 def _close(run_id: str, final: dict) -> None:
     rt = _rt()
     try:
@@ -234,13 +247,17 @@ def _cancelled(rt: AgentRuntime, message_id: str) -> bool:
 
 def _failed(rt: AgentRuntime, run_id: str, project_id: str, message_id: str, e: Exception) -> None:
     """An answer that did not finish: a cancellation keeps the operator's message; any other failure is written up."""
-    if isinstance(e, DBOSWorkflowCancelledError) or _cancelled(rt, message_id):
+    if isinstance(e, DBOSWorkflowCancelledError) or _step(lambda: _cancelled(rt, message_id)):
         _finish(run_id, project_id, status="cancelled", summary="cancelled by the operator")
         return
-    with rt.harness.store.cursor() as con:
-        threads.set_message(con, message_id, status="failed", content=f"The answer failed: {type(e).__name__}: {e}")
+
+    def mark():
+        with rt.harness.store.cursor() as con:
+            threads.set_message(con, message_id, status="failed", content=f"The answer failed: {type(e).__name__}: {e}")
+        return True
+    _step(mark)
     _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
-    _close(run_id, {"t": "error", "message": str(e), "seq": 10_000})
+    _close(run_id, {"t": "error", "message": str(e), "seq": FINAL_SEQ})
 
 
 def _figure_flags(text: str, step_outputs: list) -> list[str]:
@@ -261,7 +278,7 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
     # checked against what the model read: the stored engine words named as `tools._recorded` handed them over
     names = rt.harness.projects.names(project_id)
     step_outputs = [name_payload(s["result"], names) for s in read if s.get("result") is not None]
-    trace = [{"step_id": s["step_id"], "tool": s["tool"], "args": s["args"], "solves": s.get("solves", 0)} for s in own]
+    trace = [{"step_id": s["step_id"], "tool": s["tool"], "stage": stage_of(s["tool"]), "args": s["args"], "solves": s.get("solves", 0)} for s in own]
     evidence = {"steps": [s["step_id"] for s in read], "branch_id": deps.branch_id, "snapshot_id": rt.harness.warehouse.baseline_id(), "engine": rt.evidence.engine}
     if isinstance(out, DeferredToolRequests):
         approvals = []
@@ -286,6 +303,16 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
     return {"status": "done", "text": text, "flags": flags}
 
 
+def _paused_reply(rt: AgentRuntime, run_id: str, message_id: str, reason: str) -> None:
+    """The project is paused: the reply says so and its stream ends (a reply left "streaming" would hold the thread)."""
+    def mark():
+        with rt.harness.store.cursor() as con:
+            threads.set_message(con, message_id, status="failed", content=f"The agents are paused ({reason}).")
+        return True
+    _step(mark)
+    _close(run_id, {"t": "final", "status": "failed", "seq": FINAL_SEQ})
+
+
 @DBOS.workflow()
 def answer(project_id: str, thread_id: str, message_id: str) -> dict:
     rt = _rt()
@@ -303,9 +330,7 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
     loaded = _step(load)
     begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id)
     if begun["paused"]:
-        with rt.harness.store.cursor() as con:
-            threads.set_message(con, message_id, status="failed", content=f"The agents are paused ({begun['reason']}).")
-        _close(run_id, {"t": "final", "status": "failed", "seq": 10_000})
+        _paused_reply(rt, run_id, message_id, begun["reason"])
         return {"run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
@@ -313,7 +338,7 @@ def answer(project_id: str, thread_id: str, message_id: str) -> dict:
         res = rt.agents["answerer"].run_sync(loaded["question"], deps=deps, message_history=history, usage_limits=_limits())
         done = _step(lambda: _answered(rt, project_id, thread_id, message_id, run_id, res, deps, loaded.get("earlier_runs", [])))
         _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
-        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": 10_000})
+        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": FINAL_SEQ})
         return {"run_id": run_id, **done}
     except Exception as e:
         _failed(rt, run_id, project_id, message_id, e)
@@ -341,6 +366,7 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
     begun = _begin(run_id, project_id, kind="answer", agent="answerer", branch_id=loaded["branch_id"], thread_id=thread_id,
                    parent=approvals[0]["run_id"] if approvals else None)
     if begun["paused"]:
+        _paused_reply(rt, run_id, loaded["reply_id"], begun["reason"])
         return {"run_id": run_id, "status": "skipped_paused"}
     try:
         deps = rt.deps_for(run_id, project_id=project_id, branch_id=loaded["branch_id"], thread_id=thread_id, allowed=rt.studies_for("answerer"))
@@ -353,26 +379,46 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
         done = _step(lambda: _answered(rt, project_id, thread_id, loaded["reply_id"], run_id, res, deps, loaded.get("earlier_runs", [])))
 
         def settle():
+            steps = {s["step_id"]: s for s in rt.evidence.steps(run_id)}
             with rt.harness.store.cursor() as con:
                 for a in approvals:
-                    runs.set_approval_result(con, a["approval_id"], "applied" if a["status"] == "approved" else "denied", {"status": done["status"]})
-            ran = next((s["result"] for s in rt.evidence.steps(run_id) if s["tool"] == "propose_run" and (s.get("result") or {}).get("run_key")), None)
+                    if a["status"] != "approved":
+                        runs.set_approval_result(con, a["approval_id"], "denied", {"status": done["status"]})
+                        continue
+                    step = steps.get(f"{run_id}:{a['tool_call_id']}") or {}
+                    out = step.get("result") or {}
+                    why = step.get("error") or out.get("error") or out.get("refused")  # a tool answers its failures as payloads
+                    runs.set_approval_result(con, a["approval_id"], "failed" if why else "applied",
+                                             {"status": done["status"], **({"error": why} if why else {})})
+            ran = next((s["result"] for s in steps.values() if s["tool"] == "propose_run" and (s.get("result") or {}).get("event")), None)
             return {"ran": ran}
         settled = _step(settle)
-        if settled["ran"]:  # an approved run is a run like any other: the reviewer (and the steward) hear about it
+        if settled["ran"]:  # an approved run is a run like any other: the reviewer (and the steward) hear about it, alike
             from .events import emit
-            emit(rt, "run.finished", {"project_id": project_id, "branch_id": settled["ran"]["branch_id"], "run_key": settled["ran"]["run_key"]})
+            _step(lambda: emit(rt, "run.finished", {**settled["ran"]["event"], "project_id": project_id}))
         _finish(run_id, project_id, status=done["status"] if done["status"] == "cancelled" else "done", summary=done.get("text", "")[:200], usage=_usage(res), solves=deps.solves)
-        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": 10_000})
+        _close(run_id, {"t": "final", "status": done["status"], "text": done.get("text", ""), "approvals": done.get("approvals", []), "flags": done.get("flags", []), "seq": FINAL_SEQ})
         return {"run_id": run_id, "reply_id": loaded["reply_id"], **done}
     except Exception as e:
         _failed(rt, run_id, project_id, loaded["reply_id"], e)
         raise
 
 
-# the registry events.emit starts workflows from: name -> (workflow, how to build its arguments from the event)
-WORKFLOWS = {
-    "steward_run": (steward_run, lambda pid, ev: (pid, ev)),
-    "review_branch": (review_branch, lambda pid, ev: (pid, ev["branch_id"], ev["run_key"])),
-    "answer": (answer, lambda pid, ev: (pid, ev["thread_id"], ev["message_id"])),
+STEWARD_QUEUE = "steward"  # partitioned by project: one steward activity per project at a time
+CHAT_QUEUE = "chat"  # reviews and answers: a few at once
+
+
+class WorkflowSpec(NamedTuple):
+    fn: Callable
+    args_of: Callable[[str, dict], tuple]  # (project id, event) -> the workflow's arguments
+    queue: str
+    timeout_runs: float  # the workflow's time limit, in agent-run budgets (`AGENT_RUN_BUDGET["timeout_s"]`)
+
+
+# the registry `AgentRuntime.start` enqueues from (events.emit by trigger, the approvals route by name)
+WORKFLOWS: dict[str, WorkflowSpec] = {
+    "steward_run": WorkflowSpec(steward_run, lambda pid, ev: (pid, ev), STEWARD_QUEUE, 3),  # the triage, its specialists and the brief
+    "review_branch": WorkflowSpec(review_branch, lambda pid, ev: (pid, ev["branch_id"], ev["run_key"]), CHAT_QUEUE, 3),
+    "answer": WorkflowSpec(answer, lambda pid, ev: (pid, ev["thread_id"], ev["message_id"]), CHAT_QUEUE, 3),
+    "answer_resume": WorkflowSpec(answer_resume, lambda pid, ev: (pid, ev["thread_id"], ev["message_id"]), CHAT_QUEUE, 1),
 }

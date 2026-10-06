@@ -2,13 +2,13 @@
 // year, each with its studied verdict. Read-only on main. New windows are added from the element card
 // (click a line, transformer or generator).
 
-import { Trash, Wrench } from "@phosphor-icons/react";
+import { Wrench } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { elementInfo, outageSel } from "../lib/derive";
 import { outageLine, verdictColor, windowSummary, windowView, windowsByYear } from "../lib/maintenance";
 import { C, tint } from "../theme";
-import { VerdictChip, WindowDetail } from "./WindowVerdict";
+import { RemoveWindow, VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type OutagesTabPlanner = PlannerSlice<"outages" | "result", "removeOutage" | "select" | "setYear", "branch" | "ix" | "onMain" | "q">;
 
@@ -58,13 +58,7 @@ export function OutagesTab({ planner }: { planner: OutagesTabPlanner }) {
                   <span className="ellipsis" style={{ maxWidth: "100%", fontSize: 12.5, fontWeight: 600 }}>{info?.name ?? `${o.element_kind} ${o.element_id}`}</span>
                   <span style={{ fontSize: 11, color: C.mute }}>{outageLine(o)}</span>
                 </button>
-                {!derived.onMain ? (
-                  <button className="icon-btn sm" style={{ width: 24, height: 24 }} onClick={() => void actions.removeOutage(o.outage_id)} title="Remove" aria-label="Remove window">
-                    <Trash size={12} />
-                  </button>
-                ) : (
-                  <span />
-                )}
+                <RemoveWindow onMain={derived.onMain} size={24} onRemove={() => void actions.removeOutage(o.outage_id)} />
                 <span className="wrow-detail">
                   <VerdictChip view={view} />
                   <WindowDetail view={view} />

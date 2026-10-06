@@ -21,7 +21,7 @@ def grid_need_from_solved(solved_net, bus_id: int) -> float:
     try:
         vm = float(solved_net.res_bus["vm_pu"].loc[int(bus_id)])
         vmin = voltage_band(float(solved_net.bus.at[int(bus_id), "vn_kv"]), solved_net)[0]
-    except Exception:
+    except KeyError:  # a bus the solve has no result for (out of service): neutral, as before
         vm, vmin = 1.0, 0.94
 
     loads = solved_net.load

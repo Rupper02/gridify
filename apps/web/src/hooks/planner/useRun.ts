@@ -6,10 +6,10 @@
 
 import { useCallback, useRef } from "react";
 
-import { RunCancelled, api } from "../../api";
+import { RunCancelled, api, failureText } from "../../api";
 import { mainIdOf } from "../../lib/projects";
 import { mergeQuiet } from "../../lib/refresh";
-import type { OptimizeResult, Status } from "../../types";
+import type { OptimizeResult } from "../../types";
 import type { Core } from "./core";
 
 /** Values an action may need before React has applied the state it just set (e.g. the branch to run). */
@@ -46,14 +46,13 @@ export function useRun({ patch, ref, toastMsg }: Core, afterRun: (branchId: stri
       }
       inFlight.current = true;
       const quiet = !!over.quiet;
-      const bid = over.activeBranch ?? st.activeBranch ?? mainIdOf(st.projects, st.projectId);
-      const prev = st.result;
-      const prevStatus: Record<string, Status> = prev ? Object.fromEntries(prev.queue.map((q) => [q.request_id, q.status])) : {};
+      const bid = over.activeBranch || st.activeBranch || mainIdOf(st.projects, st.projectId);
+      const pid = st.projectId;
       // the gate's verdict and the diff belong to the result being replaced: drop them now, so Merge reads
       // "checking" and Review "comparing" until the new result's land (never a stale verdict or comparison)
       const replaced = { mergeCheck: null, diff: null };
       patch(quiet ? { solving: true, refreshing: true, stage: "queued", fraction: 0, ...replaced } : { running: true, solving: true, stage: "queued", fraction: 0, menuOpen: false, ...replaced });
-      const current = () => ref.current.activeBranch === bid; // ignore results for a branch we left
+      const current = () => ref.current.projectId === pid && ref.current.activeBranch === bid; // ignore results for a branch (or project) we left
 
       const onPartial = (p: OptimizeResult) => {
         if (!current()) return;
@@ -61,7 +60,6 @@ export function useRun({ patch, ref, toastMsg }: Core, afterRun: (branchId: stri
         patch((x) => ({
           // a quiet refresh keeps the years on screen until their re-solved versions land
           result: quiet && x.result ? { ...p, years: { ...x.result.years, ...p.years } } : p,
-          prevStatus,
           ...(viewed && x.running ? { running: false, resultAt: hhmm() } : {}),
         }));
       };
@@ -80,17 +78,15 @@ export function useRun({ patch, ref, toastMsg }: Core, afterRun: (branchId: stri
         if (e instanceof RunCancelled && again) return void run(again); // superseded: the newer run takes over
         patch({ running: false, solving: false, refreshing: false, stage: "" });
         if (!(e instanceof RunCancelled))
-          toastMsg(`The simulation failed: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+          toastMsg(`The simulation failed: ${failureText(e)}`, "warn");
         return;
       }
       jobId.current = null;
       if (current()) {
         const inQueue = new Set(res.queue.map((x) => x.request_id));
         patch((x) => ({
-          runId: x.runId + 1,
           result: res,
           resultAt: x.running || !x.resultAt ? hhmm() : x.resultAt,
-          prevStatus,
           running: false,
           solving: false,
           refreshing: false,
@@ -100,7 +96,7 @@ export function useRun({ patch, ref, toastMsg }: Core, afterRun: (branchId: stri
           added: { ...x.added, [bid]: (x.added[bid] ?? []).filter((a) => !inQueue.has(a.request_id)) },
         }));
         afterRun(bid);
-      }
+      } else if (!runAgain.current) patch({ running: false, solving: false, refreshing: false, stage: "" }); // the view moved on: nothing is solving for it
       inFlight.current = false;
       const again = runAgain.current;
       if (again) {

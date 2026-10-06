@@ -9,8 +9,25 @@ import { type FeatureKey, lineFeature, shows } from "../lib/mapFeatures";
 import { effYearOf, isAccepted, outageSel, outageStudyOf, trafoRatio, trafoSub } from "../lib/derive";
 import { VERDICTS, outageTag, verdictColor } from "../lib/maintenance";
 import { type MapDelta, deltaTag, diffColor } from "../lib/diff";
+import {
+  type Box,
+  GEN_OUTAGE_DY,
+  MARKER_DX,
+  type Project,
+  type SubSite,
+  TRAFO_TAG_DY,
+  fanOffset,
+  lineTagShown,
+  markerBox,
+  midpoint,
+  outagePoint,
+  overlaps,
+  subLabelBox,
+  substationSites,
+  worstTrafoPerSite,
+} from "../lib/placement";
 import { C, ST, loadColor } from "../theme";
-import type { Outage, QueueItem, RegistryItem } from "../types";
+import type { QueueItem, RegistryItem } from "../types";
 import { TechIcon } from "./ui";
 
 export type MapMarkersPlanner = PlannerSlice<
@@ -18,10 +35,6 @@ export type MapMarkersPlanner = PlannerSlice<
   "select",
   "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "tiers" | "yr"
 >;
-
-type Project = (lon: number, lat: number) => [number, number] | null;
-type Box = [number, number, number, number];
-const overlaps = (b: Box, o: Box) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1];
 
 interface MarkerItem {
   id: string;
@@ -70,10 +83,10 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     const k = m.bus ?? -1;
     const n = atBus.get(k) ?? 0;
     atBus.set(k, n + 1);
-    const x = pt[0] + 14;
-    const y = pt[1] + (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 30;
+    const x = pt[0] + MARKER_DX;
+    const y = pt[1] + fanOffset(n);
     if (!inView(x, y)) return null;
-    boxes.push([x - 13, y - 14, x + 13 + m.id.length * 6.6 + 6, y + 14]);
+    boxes.push(markerBox(x, y, m.id));
     const st = ST[m.status];
     const dashed = m.status === "Deferred" || m.status === "Prelim" || m.status === "Rejected";
     const onlyHere = branchOnly.has(m.id);
@@ -93,7 +106,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
           {diffOn && added.has(m.id) && <span className="mk-plus" style={{ background: hue }}>+</span>}
           <TechIcon tech={m.tech} size={14} color={dashed ? st.c : C.night} weight={dashed ? "regular" : "bold"} />
         </button>
-        <span className="mk-id" style={{ color: st.c }} onClick={pick}>
+        <span className="mk-id" style={{ color: st.c }} onClick={pick} aria-hidden="true">{/* the tile button above is its keyboard and screen-reader twin */}
           {m.id}
         </span>
       </div>
@@ -101,20 +114,13 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   });
 
   // ---- substation names (one per substation with a transformer) ---------------------------------
-  const seen = new Map<string, { lon: number; lat: number; ratios: Set<string>; hv: number }>();
-  s.model.transformers.forEach((t) => {
-    const name = trafoSub(t);
-    const e = seen.get(name) ?? { lon: t.hv_lon, lat: t.hv_lat, ratios: new Set<string>(), hv: t.hv_bus };
-    e.ratios.add(trafoRatio(t));
-    seen.set(name, e);
-  });
-  const subEls = (on("substations") ? [...seen.entries()] : []).map(([name, e]) => {
+  const sites = on("substations") ? substationSites(s.model.transformers, trafoSub, trafoRatio) : new Map<string, SubSite>();
+  const subEls = [...sites.entries()].map(([name, e]) => {
     const pt = project(e.lon, e.lat);
     if (!pt || !inView(pt[0], pt[1])) return null;
-    const x = pt[0] + 14;
+    const x = pt[0] + MARKER_DX;
     const y = pt[1];
-    const w = Math.max(name.length * 6.8, 60);
-    const box: Box = [x, y - 12, x + w, y + 12];
+    const box = subLabelBox(x, y, name);
     if (boxes.some((o) => overlaps(box, o))) return null;
     boxes.push(box);
     const v = s.layer === "voltage" ? yr?.bus_vm?.[e.hv] : undefined;
@@ -141,18 +147,18 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     };
     diffDeltas.lines.forEach((d, id) => {
       const l = ix.line.get(id);
-      if (l && lineOn(id)) diffTag(`d${id}`, project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2), d);
+      if (l && lineOn(id)) diffTag(`d${id}`, project(...midpoint(l)), d);
     });
     diffDeltas.trafos.forEach((d, id) => {
       const t = ix.trafo.get(id);
-      if (t && on("transformers")) diffTag(`dt${id}`, project(t.hv_lon, t.hv_lat), d, "T ", -24);
+      if (t && on("transformers")) diffTag(`dt${id}`, project(t.hv_lon, t.hv_lat), d, "T ", TRAFO_TAG_DY);
     });
   } else if (s.layer === "loading" && yr) {
     Object.entries(yr.line_loading ?? {}).forEach(([id, pct]) => {
-      if ((pct < 60 && !(sel?.kind === "line" && sel.id === +id)) || !lineOn(+id)) return;
+      if (!lineTagShown(pct, sel?.kind === "line" && sel.id === +id) || !lineOn(+id)) return;
       const l = ix.line.get(+id);
       if (!l) return;
-      const pt = project((l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2);
+      const pt = project(...midpoint(l));
       if (!pt || !inView(pt[0], pt[1])) return;
       const c = loadColor(pct);
       tagEls.push(
@@ -165,19 +171,12 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   // transformers: the most loaded one at each substation, tagged above its icon (loading layer, or
   // whenever one is over 100 %)
   if (yr && !diffOn && on("transformers")) {
-    const atSite = new Map<string, { pct: number; lon: number; lat: number; id: number }>();
-    Object.entries(yr.trafo_loading ?? {}).forEach(([id, pct]) => {
-      const t = ix.trafo.get(+id);
-      if (!t || (s.layer !== "loading" && pct <= 100) || (s.layer === "loading" && pct < 60)) return;
-      const k = `${t.hv_lon},${t.hv_lat}`;
-      if ((atSite.get(k)?.pct ?? -1) < pct) atSite.set(k, { pct, lon: t.hv_lon, lat: t.hv_lat, id: +id });
-    });
-    atSite.forEach((v) => {
+    worstTrafoPerSite(yr.trafo_loading ?? {}, ix, s.layer === "loading").forEach((v) => {
       const pt = project(v.lon, v.lat);
       if (!pt || !inView(pt[0], pt[1])) return;
       const c = loadColor(v.pct);
       tagEls.push(
-        <span key={`t${v.id}`} className="line-tag" style={{ left: pt[0], top: pt[1] - 24, borderColor: c, color: c }}>
+        <span key={`t${v.id}`} className="line-tag" style={{ left: pt[0], top: pt[1] + TRAFO_TAG_DY, borderColor: c, color: c }}>
           T {Math.round(v.pct)}%
         </span>,
       );
@@ -186,7 +185,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
 
   // ---- planned outages in the viewed year ------------------------------------------------------
   const outEls = (on("works") ? s.outages : [])
-    .filter((o: Outage) => o.year === s.year)
+    .filter((o) => o.year === s.year)
     .map((o) => {
       const at = outagePoint(o, ix);
       const pt = at && project(at[0], at[1]);
@@ -197,7 +196,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
         <button
           key={`o${o.outage_id}`}
           className={`out-tag${state === "unstudied" ? " fresh" : ""}`}
-          style={{ left: pt[0], top: pt[1] + (o.element_kind === "gen" ? -18 : 0), borderColor: vc ?? undefined, borderStyle: vc ? "solid" : undefined }}
+          style={{ left: pt[0], top: pt[1] + (o.element_kind === "gen" ? GEN_OUTAGE_DY : 0), borderColor: vc ?? undefined, borderStyle: vc ? "solid" : undefined }}
           title={study ? VERDICTS[study.verdict]?.label : "Not studied yet"}
           onClick={() => actions.select(outageSel(o))}
         >
@@ -208,24 +207,11 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
     });
 
   return (
-    <div className="markers" aria-hidden={false}>
+    <div className="markers">
       {subEls}
       {tagEls}
       {outEls}
       {projectEls}
     </div>
   );
-}
-
-function outagePoint(o: Outage, ix: NonNullable<MapMarkersPlanner["derived"]["ix"]>): [number, number] | null {
-  if (o.element_kind === "line") {
-    const l = ix.line.get(Number(o.element_id));
-    return l ? [(l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2] : null;
-  }
-  if (o.element_kind === "trafo") {
-    const t = ix.trafo.get(Number(o.element_id));
-    return t ? [t.hv_lon, t.hv_lat] : null;
-  }
-  const g = ix.gen.get(o.element_id);
-  return g ? [g.lon, g.lat] : null;
 }

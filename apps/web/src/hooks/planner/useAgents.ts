@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect } from "react";
 
-import { api } from "../../api";
+import { api, failureText } from "../../api";
 import { mainIdOf } from "../../lib/projects";
 import type { Core } from "./core";
 
@@ -41,7 +41,7 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
         patch({ agents: paused ? await api.pauseAgents(pid) : await api.resumeAgents(pid) });
         toastMsg(paused ? "Agents paused for this project. Nothing new starts until you resume." : "Agents resumed.");
       } catch (e) {
-        toastMsg(`Could not ${paused ? "pause" : "resume"} the agents: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not ${paused ? "pause" : "resume"} the agents: ${failureText(e)}`, "warn");
       }
     },
     [patch, ref, toastMsg],
@@ -53,7 +53,7 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
       try {
         patch({ study: await api.stepEvidence(ref.current.projectId, stepId) });
       } catch (e) {
-        toastMsg(`No evidence for that step: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`No evidence for that step: ${failureText(e)}`, "warn");
       }
     },
     [patch, ref, toastMsg],

@@ -6,15 +6,15 @@ import { ArrowCounterClockwise, Check, Receipt, Warning } from "@phosphor-icons/
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { nameElements } from "../lib/derive";
-import { SEVERITY, findingSel, findingTitle, findingsByYear, openCounts } from "../lib/gate";
+import { ZOOM_ELEMENT, ZOOM_REGION, nameElements } from "../lib/derive";
+import { SEVERITY, findingSel, findingTitle, findingsByYear } from "../lib/gate";
 import { C } from "../theme";
 import type { Finding, FindingStatus } from "../types";
 
 export type FindingsTabPlanner = PlannerSlice<
-  "activeBranch" | "findings" | "model" | "outages" | "running",
+  "findings" | "model" | "outages" | "running",
   "focusSel" | "openEvidence" | "setFindingStatus" | "setLayer" | "setYear",
-  "branch" | "ix" | "onMain" | "stale"
+  "branch" | "ix" | "onMain" | "openFindings" | "stale"
 >;
 
 const FILTERS: { key: FindingStatus; label: string }[] = [
@@ -26,7 +26,7 @@ const FILTERS: { key: FindingStatus; label: string }[] = [
 export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
   const { s, actions, derived } = planner;
   const [filter, setFilter] = useState<FindingStatus>("open");
-  const counts = openCounts(s.findings);
+  const counts = derived.openFindings;
   const shown = s.findings.filter((f) => f.status === filter);
   const groups = findingsByYear(shown);
   const where = derived.onMain ? "main" : derived.branch?.name;
@@ -36,7 +36,7 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
     const sel = findingSel(f, s.model, s.outages);
     if (!sel) return;
     if (sel.kind === "region") actions.setLayer("demand");
-    actions.focusSel(sel, sel.kind === "region" ? 1.6 : 2.4);
+    actions.focusSel(sel, sel.kind === "region" ? ZOOM_REGION : ZOOM_ELEMENT);
   };
 
   return (

@@ -6,7 +6,7 @@ Plain functions over a store cursor; no HTTP and no engine here (except the requ
 import json
 import uuid
 
-from fastapi import HTTPException
+from .errors import Conflict, Invalid, NotFound
 
 from gridforge_optimizer import Candidate, Outage, Reinforcement
 from gridforge_optimizer.config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
@@ -15,7 +15,7 @@ from gridforge_optimizer.nged import commission_year
 from . import rebase
 from .config import ADDED_CANDIDATE_ID_BASE, MANUAL_READINESS_DEFAULT, MANUAL_STRATEGIC_DEFAULT, now
 from .schemas import NewCandidate, OptimizeRequest, OutageCreate, ReinforcementCreate
-from .store import ADDED_COLS, BRANCH_COLS, OUTAGE_COLS, REINFORCEMENT_COLS, Cursor
+from .store import ADDED_COLS, BRANCH_COLS, OUTAGE_COLS, PROFILE_COLS, REINFORCEMENT_COLS, Cursor
 
 
 # --- branches ----------------------------------------------------------------
@@ -30,7 +30,7 @@ def branch_row(con: Cursor, branch_id: str) -> dict | None:
 def require_branch(con: Cursor, branch_id: str) -> dict:
     row = branch_row(con, branch_id)
     if not row:
-        raise HTTPException(status_code=404, detail=f"branch '{branch_id}' not found")
+        raise NotFound(f"branch '{branch_id}' not found")
     return row
 
 
@@ -41,14 +41,36 @@ def pick(val, fallback):
 
 def branch_params(row: dict) -> dict:
     """The scenario fields of a branch row (OptimizeRequest-shaped)."""
-    return {
-        "scenario": row["scenario"],
-        "growth_2030": row["growth_2030"],
-        "growth_2035": row["growth_2035"],
-        "w_readiness": row["w_readiness"],
-        "w_need": row["w_need"],
-        "w_strategic": row["w_strategic"],
-    }
+    return {c: row[c] for c in PROFILE_COLS}
+
+
+def _set_profile(con: Cursor, branch_id: str, profile: dict) -> None:
+    con.execute(f"UPDATE branches SET {', '.join(f'{c} = ?' for c in PROFILE_COLS)} WHERE branch_id = ?",
+                [*(profile[c] for c in PROFILE_COLS), branch_id])
+
+
+# a branch's rows: projects, works windows, reinforcements (one shape: `branch_id` plus the table's columns)
+_PLAN_TABLES = {"projects": ("added_candidates", ADDED_COLS), "works": ("branch_outages", OUTAGE_COLS),
+                "reinforcements": ("branch_reinforcements", REINFORCEMENT_COLS)}
+
+
+def _insert_rows(con: Cursor, area: str, branch_id: str, rows: list[dict]) -> None:
+    table, cols = _PLAN_TABLES[area]
+    if rows:
+        con.executemany(f"INSERT INTO {table} (branch_id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})",
+                        [[branch_id, *(r.get(c) for c in cols)] for r in rows])
+
+
+def _copy_rows(con: Cursor, from_branch: str, to_branch: str, areas=tuple(_PLAN_TABLES)) -> None:
+    for area in areas:
+        table, cols = _PLAN_TABLES[area]
+        con.execute(f"INSERT INTO {table} (branch_id, {', '.join(cols)}) SELECT ?, {', '.join(cols)} FROM {table} WHERE branch_id = ?",
+                    [to_branch, from_branch])
+
+
+def _clear_rows(con: Cursor, branch_id: str, areas=tuple(_PLAN_TABLES)) -> None:
+    for area in areas:
+        con.execute(f"DELETE FROM {_PLAN_TABLES[area][0]} WHERE branch_id = ?", [branch_id])
 
 
 def branch_request(row: dict) -> OptimizeRequest:
@@ -87,29 +109,21 @@ def open_branch(con: Cursor, parent: dict, name: str, *, created_by: str, overri
     o = overrides or {}
     bid = "br-" + uuid.uuid4().hex[:8]
     con.execute(
-        "INSERT INTO branches (branch_id, name, parent_id, scenario, growth_2030, growth_2035, "
-        "w_readiness, w_need, w_strategic, status, created_at, created_by, project_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)",
-        [bid, name, parent["branch_id"],
-         pick(o.get("scenario"), parent["scenario"]), pick(o.get("growth_2030"), parent["growth_2030"]),
-         pick(o.get("growth_2035"), parent["growth_2035"]), pick(o.get("w_readiness"), parent["w_readiness"]),
-         pick(o.get("w_need"), parent["w_need"]), pick(o.get("w_strategic"), parent["w_strategic"]), now(), created_by, parent["project_id"]],
+        f"INSERT INTO branches (branch_id, name, parent_id, {', '.join(PROFILE_COLS)}, status, created_at, created_by, project_id) "
+        f"VALUES (?, ?, ?, {', '.join('?' * len(PROFILE_COLS))}, 'open', ?, ?, ?)",
+        [bid, name, parent["branch_id"], *(pick(o.get(c), parent[c]) for c in PROFILE_COLS), now(), created_by, parent["project_id"]],
     )
-    copy_projects(con, parent["branch_id"], bid)
-    copy_branch_extras(con, parent["branch_id"], bid)
+    _copy_rows(con, parent["branch_id"], bid)
     set_fork(con, bid, branch_state(con, parent["branch_id"]))
     return bid
 
 
 # --- the fork point and rebase (rebase.py decides; this reads and writes) ------------------------------
-_ADDED_LIST = [c.strip() for c in ADDED_COLS.split(",")]
-
-
 def branch_state(con: Cursor, branch_id: str) -> dict:
     """A branch's whole plan as `rebase` reads it: its projects, works windows, reinforcements and demand profile."""
     row = require_branch(con, branch_id)
     return {
-        "projects": {r["request_id"]: {c: r.get(c) for c in _ADDED_LIST[1:]} for r in candidate_rows(con, branch_id)},
+        "projects": {r["request_id"]: {c: r.get(c) for c in ADDED_COLS[1:]} for r in candidate_rows(con, branch_id)},
         "works": {r["outage_id"]: r for r in outage_rows(con, branch_id)},
         "reinforcements": {r["reinforcement_id"]: r for r in reinforcement_rows(con, branch_id)},
         "profile": branch_params(row),
@@ -165,25 +179,21 @@ def apply_rebase(con: Cursor, head: dict, p: rebase.Plan, picks: dict, valid_bus
 
 def write_rebased(con: Cursor, branch_id: str, state: dict, fork: dict) -> None:
     """Replace a branch's plan with a rebased state and move its fork point to the parent's current state."""
-    con.execute("DELETE FROM added_candidates WHERE branch_id = ?", [branch_id])
-    con.executemany(
-        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) VALUES ({', '.join('?' * (len(_ADDED_LIST) + 1))})",
-        [[rid, *(row.get(c) for c in _ADDED_LIST[1:]), branch_id] for rid, row in state["projects"].items()],
-    )
-    clear_branch_extras(con, branch_id)
-    for table, cols, area in (("branch_outages", OUTAGE_COLS, "works"), ("branch_reinforcements", REINFORCEMENT_COLS, "reinforcements")):
-        con.executemany(
-            f"INSERT INTO {table} (branch_id, {', '.join(cols)}) VALUES (?, {', '.join('?' * len(cols))})",
-            [[branch_id, *(r.get(c) for c in cols)] for r in state[area].values()],
-        )
-    p = state["profile"]
-    con.execute("UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, w_readiness=?, w_need=?, w_strategic=? WHERE branch_id=?",
-                [p["scenario"], p["growth_2030"], p["growth_2035"], p["w_readiness"], p["w_need"], p["w_strategic"], branch_id])
+    _replace_plan(con, branch_id, state)
     set_fork(con, branch_id, fork)
 
 
+def _replace_plan(con: Cursor, branch_id: str, state: dict) -> None:
+    """A branch's plan becomes `state` (a `branch_state`): its projects, works, reinforcements and profile."""
+    _clear_rows(con, branch_id)
+    _insert_rows(con, "projects", branch_id, [{**row, "request_id": rid} for rid, row in state["projects"].items()])
+    for area in ("works", "reinforcements"):
+        _insert_rows(con, area, branch_id, list(state[area].values()))
+    _set_profile(con, branch_id, state["profile"])
+
+
 # --- projects on a branch ----------------------------------------------------
-def candidate_rows(con: Cursor, branch_id: str = "main") -> list[dict]:
+def candidate_rows(con: Cursor, branch_id: str) -> list[dict]:
     """Projects IN a branch's plan = the ones added to it. 'main' has none until something is merged
     into it: it is the as-is plan of record; projects are pulled onto branches from the registry."""
     cur = con.execute("SELECT * FROM added_candidates WHERE branch_id = ?", [branch_id])
@@ -225,12 +235,16 @@ def triage(body: NewCandidate, valid_bus_ids: set[int]) -> tuple[str, str]:
     if (body.technology or "").lower() in IMPORT_ONLY_TECHS:  # demand / electrolyser: judged on what it draws
         if body.import_mw is None:
             reasons.append("missing import capacity")
-        elif not (0 < body.import_mw <= MAX_CONNECTION_MW):
-            reasons.append("import capacity is out of range")
+        elif body.import_mw <= 0:
+            reasons.append("import capacity must be above 0 MW")
+        elif body.import_mw > MAX_CONNECTION_MW:
+            reasons.append(f"import capacity is over the {MAX_CONNECTION_MW:g} MW connection cap")
     elif body.rating_mw is None:
         reasons.append("missing rating")
-    elif not (0 < body.rating_mw <= MAX_CONNECTION_MW):
-        reasons.append("rating is out of range")
+    elif body.rating_mw <= 0:
+        reasons.append("rating must be above 0 MW")
+    elif body.rating_mw > MAX_CONNECTION_MW:
+        reasons.append(f"rating is over the {MAX_CONNECTION_MW:g} MW connection cap")
     if not body.technology:
         reasons.append("missing technology")
     return ("auto_accept" if not reasons else "needs_review"), ", ".join(reasons)
@@ -248,22 +262,25 @@ def triage_row(row: dict, branch_id: str, valid_bus_ids: set[int]) -> tuple[str,
     return triage(body, valid_bus_ids)
 
 
+def _next_request_id(con: Cursor) -> str:
+    """A new project's id: one past the highest `CR-` number ever stored (a count would repeat a live id once rows are
+    deleted, and rebase, the proposals and the branch state all match projects by id)."""
+    nums = [int(r[0][3:]) for r in con.execute("SELECT DISTINCT request_id FROM added_candidates WHERE request_id LIKE 'CR-%'").fetchall()
+            if r[0][3:].isdigit()]
+    return f"CR-{max(nums, default=ADDED_CANDIDATE_ID_BASE - 1) + 1}"
+
+
 def insert_candidate(con: Cursor, branch_id: str, body: NewCandidate, valid_bus_ids: set[int]) -> dict:
     """Validate + insert a project on a branch; returns the stored row (client fields)."""
     if (body.technology or "").lower() in IMPORT_ONLY_TECHS and body.rating_mw is None:
         body = body.model_copy(update={"rating_mw": 0.0})  # exports nothing
     status, review = triage(body, valid_bus_ids)
-    n = con.execute("SELECT count(*) FROM added_candidates").fetchone()[0]
-    request_id = f"CR-{ADDED_CANDIDATE_ID_BASE + n}"
+    request_id = _next_request_id(con)
     year = body.commissioning_year or commission_year(
         body.readiness_score, body.technology, body.rating_mw, request_id)
-    con.execute(
-        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [request_id, body.applicant, body.bus_id, body.technology, body.rating_mw,
-         body.readiness_score, body.strategic_fit, body.readiness_rationale, status, review,
-         year, None, body.import_mw, body.control.model_dump_json() if body.control else None, branch_id],
-    )
+    _insert_rows(con, "projects", branch_id, [{
+        **body.model_dump(include=set(ADDED_COLS)), "request_id": request_id, "status": status, "review_reasons": review,
+        "commissioning_year": year, "control_json": body.control.model_dump_json() if body.control else None}])
     return {
         "request_id": request_id, "applicant": body.applicant, "bus_id": body.bus_id,
         "technology": body.technology, "rating_mw": body.rating_mw,
@@ -305,26 +322,11 @@ def update_candidate(con: Cursor, branch_id: str, request_id: str, changes: dict
     return to_client({**row, "status": status, "review_reasons": review, "branch_id": branch_id})
 
 
-def copy_projects(con: Cursor, from_branch: str, to_branch: str) -> None:
-    """Snapshot one branch's projects onto another (copy-on-create and squash-merge)."""
-    con.execute(
-        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) "
-        f"SELECT {ADDED_COLS}, ? FROM added_candidates WHERE branch_id = ?",
-        [to_branch, from_branch],
-    )
-
-
 def add_registry_row(con: Cursor, branch_id: str, row: dict) -> None:
     """Pull one registry project onto a branch (no-op if it is already there)."""
     if project_on_branch(con, branch_id, row["request_id"]):
         return
-    con.execute(
-        f"INSERT INTO added_candidates ({ADDED_COLS}, branch_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        [row["request_id"], row.get("applicant"), row.get("bus_id"), row.get("technology"),
-         row.get("rating_mw"), row.get("readiness_score"), row.get("strategic_fit"),
-         row.get("readiness_rationale"), row.get("status"), row.get("review_reasons"),
-         row.get("commissioning_year"), None, row.get("import_mw"), None, branch_id],  # the registry states no control mode
-    )
+    _insert_rows(con, "projects", branch_id, [{**row, "scheduled_year": None, "control_json": None}])  # the registry states no control mode
 
 
 # --- planned outages and simulated reinforcements on a branch ---------------
@@ -342,12 +344,24 @@ def outages(con: Cursor, branch_id: str) -> list[Outage]:
             for r in outage_rows(con, branch_id)]
 
 
-def insert_outage(con: Cursor, branch_id: str, body: OutageCreate) -> dict:
+class UnknownElement(Invalid):
+    """A works window or a reinforcement on an element the project's network does not have."""
+
+
+_ELEMENT_SETS = {"line": "lines", "trafo": "trafos", "gen": "generators"}  # element kind -> `Projects.element_ids` key
+
+
+def _require_known(kind: str, element_id, element_ids: dict[str, set]) -> None:
+    key = _ELEMENT_SETS.get(kind)  # a GSP reinforcement names no element
+    if key is not None and str(element_id) not in element_ids[key]:
+        raise UnknownElement(f"{kind} '{element_id}' is not in the network model")
+
+
+def insert_outage(con: Cursor, branch_id: str, body: OutageCreate, element_ids: dict[str, set]) -> dict:
+    """Store a works window; UnknownElement when its element is not in the network (`Projects.element_ids`)."""
+    _require_known(body.element_kind, body.element_id, element_ids)
     row = {"outage_id": "mw-" + uuid.uuid4().hex[:8], **body.model_dump(), "created_at": now()}
-    con.execute(
-        f"INSERT INTO branch_outages (branch_id, {', '.join(OUTAGE_COLS)}) VALUES (?, {', '.join('?' * len(OUTAGE_COLS))})",
-        [branch_id, *(row[c] for c in OUTAGE_COLS)],
-    )
+    _insert_rows(con, "works", branch_id, [row])
     return row
 
 
@@ -360,13 +374,11 @@ def reinforcements(con: Cursor, branch_id: str) -> list[Reinforcement]:
             for r in reinforcement_rows(con, branch_id)]
 
 
-def insert_reinforcement(con: Cursor, branch_id: str, body: ReinforcementCreate) -> dict:
+def insert_reinforcement(con: Cursor, branch_id: str, body: ReinforcementCreate, element_ids: dict[str, set]) -> dict:
+    """Store a simulated reinforcement; UnknownElement when its line or transformer is not in the network."""
+    _require_known(body.kind, body.element_id, element_ids)
     row = {"reinforcement_id": "rf-" + uuid.uuid4().hex[:8], **body.model_dump(), "created_at": now()}
-    con.execute(
-        f"INSERT INTO branch_reinforcements (branch_id, {', '.join(REINFORCEMENT_COLS)}) "
-        f"VALUES (?, {', '.join('?' * len(REINFORCEMENT_COLS))})",
-        [branch_id, *(row[c] for c in REINFORCEMENT_COLS)],
-    )
+    _insert_rows(con, "reinforcements", branch_id, [row])
     return row
 
 
@@ -377,29 +389,20 @@ def delete_branch_row(con: Cursor, table: str, id_col: str, branch_id: str, row_
     return bool(found)
 
 
-def copy_branch_extras(con: Cursor, from_branch: str, to_branch: str) -> None:
-    """Snapshot a branch's planned outages and reinforcements onto another (create and merge)."""
-    for table, cols in (("branch_outages", OUTAGE_COLS), ("branch_reinforcements", REINFORCEMENT_COLS)):
-        con.execute(
-            f"INSERT INTO {table} (branch_id, {', '.join(cols)}) SELECT ?, {', '.join(cols)} FROM {table} WHERE branch_id = ?",
-            [to_branch, from_branch],
-        )
-
-
-def clear_branch_extras(con: Cursor, branch_id: str) -> None:
-    for table in ("branch_outages", "branch_reinforcements"):
-        con.execute(f"DELETE FROM {table} WHERE branch_id = ?", [branch_id])
-
-
 # --- guards and writes the routers share --------------------------------------
+def is_main(row: dict) -> bool:
+    """Whether a branch is its project's main, the plan of record: the one branch with no parent (NGED's or an import's)."""
+    return not row.get("parent_id")
+
+
 def require_open(con: Cursor, branch_id: str, *, allow_main: bool = True) -> dict:
     """The branch exists (404) and is open (409). With allow_main=False, any project's main (the branch with no parent)
     is refused too (409): the plan of record is changed only by merging into it."""
     row = require_branch(con, branch_id)
-    if not allow_main and not row.get("parent_id"):
-        raise HTTPException(status_code=409, detail="main is read-only: open a branch to propose this")
+    if not allow_main and is_main(row):
+        raise Conflict("main is read-only: open a branch to propose this")
     if row["status"] != "open":
-        raise HTTPException(status_code=409, detail=f"branch is '{row['status']}', not open")
+        raise Conflict(f"branch is '{row['status']}', not open")
     return row
 
 
@@ -407,7 +410,7 @@ def base_of(con: Cursor, head: dict) -> dict | None:
     """The branch a head is compared with and merges into: its parent. A project's main has none (None): it is the
     plan of record, which branches merge into and which merges nowhere. A branch whose parent is gone falls back to
     its own project's main, never another project's."""
-    if not head.get("parent_id"):
+    if is_main(head):
         return None
     parent = branch_row(con, head["parent_id"])
     if parent is not None:
@@ -433,12 +436,5 @@ def set_branch_status(con: Cursor, branch_id: str, status: str, merged_at: str |
 def merge_into(con: Cursor, head: dict, into: str) -> None:
     """Squash-merge: `into` adopts the head's scenario, projects, planned works and reinforcements
     (replacing its own), and the head is marked merged."""
-    con.execute(
-        "UPDATE branches SET scenario=?, growth_2030=?, growth_2035=?, w_readiness=?, w_need=?, w_strategic=? WHERE branch_id=?",
-        [head["scenario"], head["growth_2030"], head["growth_2035"], head["w_readiness"], head["w_need"], head["w_strategic"], into],
-    )
-    con.execute("DELETE FROM added_candidates WHERE branch_id = ?", [into])
-    copy_projects(con, head["branch_id"], into)
-    clear_branch_extras(con, into)
-    copy_branch_extras(con, head["branch_id"], into)
+    _replace_plan(con, into, branch_state(con, head["branch_id"]))
     set_branch_status(con, head["branch_id"], "merged", now())

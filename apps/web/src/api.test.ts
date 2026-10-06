@@ -9,7 +9,6 @@ describe("normReason", () => {
     const line = normReason({ type: "line", element_id: 115, value: 157.2, message: "", case: "winter_peak" })!;
     expect(line.kind).toBe("grid");
     expect(line.element).toEqual({ line_id: 115 });
-    expect(line.caseLabel).toBe("winter peak");
     expect(normReason({ type: "voltage", element_id: 155, value: 1.112, message: "" })!.element).toEqual({ bus_id: 155 });
     const gsp = normReason({ type: "gsp", value: 540.4, message: "", case: "summer_min" })!;
     expect(gsp.kind).toBe("grid");

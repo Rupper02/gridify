@@ -18,7 +18,8 @@ export const REGION_STATE: Record<RegionState, { c: string; label: string }> = {
   unsolved: { c: C.mute2, label: "Not solved yet" },
 };
 
-/** P2/8 demand classes as the engine reads them (config.P2_8_CLASSES), in plain English. */
+/** P2/8 demand classes in plain English. The class letter is served per region; the MW ranges mirror the engine's
+ * config.P2_8_CLASSES (change both together). */
 export const P2_CLASS: Record<string, { range: string; meaning: string }> = {
   A: { range: "up to 1 MW", meaning: "A small group: it may stay off until the fault is repaired." },
   B: { range: "1 to 12 MW", meaning: "After a first circuit outage, supply is restored within about 3 hours; no second circuit is required." },

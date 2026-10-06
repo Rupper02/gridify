@@ -18,7 +18,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   what an approved proposal refreshes), `plan` (the plan's years and phases, from `GET /forecasts`: never write a plan
   year in the planner), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
   buttons, finding titles, grouping and map targets), `trace` (a reply's events folded into text and stage chips,
-  `STAGE_BY_TOOL_PREFIX`, the evidence line, the agents pill), `projects` (`mainIdOf`: the project's plan-of-record
+  each stage as the API tagged it, the evidence line, the agents pill), `placement` (where the map's markers, labels and
+  tags go: fan-out, collision boxes, thresholds, `midpoint`), `projects` (`mainIdOf`: the project's plan-of-record
   branch, `DEFAULT_PROJECT_ID`, capability chips, the import report's lines, the known-limit fields), `reasons.ts` (the
   reason normaliser registry).
 - `src/components/` is the UI: `Header` (the project capsule opens `ProjectsScreen`; the agents pill), `ProjectsScreen`
@@ -38,11 +39,11 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   the shared `Core` plus only the other hooks' actions it needs. Put a new flow in the hook that owns its concern, or a
   new hook; don't grow `usePlanner`.
 - **Slices:** components never take the whole `Planner`. Each declares the slice it reads with
-  `PlannerSlice<state keys, action keys, derived keys>` (+ `WithPatch` / `WithMap` / `WithFormInvalid` when needed,
+  `PlannerSlice<state keys, action keys, derived keys>` (+ `WithMap` when needed,
   `hooks/planner/slice.ts`) and exports it as e.g. `QueueTabPlanner`; a parent's slice is the intersection of its
   children's (`SidePanelPlanner`, `MapViewPlanner`). Reading a field outside the slice fails to compile, so add the key to
-  the slice when you use a new field. Only `App.tsx` (the composition root) sees the full `Planner`. Known limit: `patch`
-  is still a free-form setter, so what a component may write is not narrowed. Actions that need state React hasn't
+  the slice when you use a new field. Only `App.tsx` (the composition root) sees the full `Planner`. Components never write
+  state: `usePlanner` hands out actions, not `patch`. Actions that need state React hasn't
   flushed yet take an explicit override (e.g. `run({ activeBranch })`) instead of reading it back.
 - **Long calls:** a cold run decides the queue in ~10-20 s, then solves the ten plan years at a few seconds each (about a
   minute; several under load); a cached run is near-instant. Every engine change makes everything cold (the engine

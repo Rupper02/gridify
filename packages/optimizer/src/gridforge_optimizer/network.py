@@ -3,14 +3,15 @@ projects, test feasibility (statutory voltage bands, thermal limits, the GSP bou
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Iterable
 from typing import NamedTuple
 
 import networkx as nx
+import numpy as np
 import pandapower as pp
 import pandapower.topology as top
 import pandas as pd
+from pandapower.auxiliary import LoadflowNotConverged
 
 from .config import (
     N1_CASES,
@@ -34,7 +35,8 @@ from .config import (
     TRAFO_LOADING_MAX_PCT,
     VOLTAGE_BANDS,
 )
-from .dispatch import merit_order
+from .dispatch import FLEET_TABLES, _ensure_fleet_columns, merit_order  # noqa: F401  (re-exported)
+from .geometry import h01
 from .types import Outage, Reason, Reinforcement
 
 
@@ -57,11 +59,6 @@ def apply_growth(net, factor) -> None:
     else:
         s = factor if isinstance(factor, pd.Series) else pd.Series(factor)
         net.load["scaling"] = net.load["scaling"] * net.load.index.map(s).astype(float)
-
-
-def _hash01(key: str) -> float:
-    """Deterministic pseudo-random value in [0,1) from a string (seeded by scenario+bus)."""
-    return int(hashlib.md5(key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
 
 
 def _feeder_hops(net) -> tuple[dict[int, int], int]:
@@ -131,7 +128,7 @@ def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
     for idx, row in load.iterrows():
         bus = int(row["bus"])
         beta = GROWTH_BETA_RESIDENTIAL if str(row.get("type", "")) == LOAD_TYPE_RESIDENTIAL else GROWTH_BETA_INDUSTRIAL
-        h = _hash01(f"{scenario}:{horizon}:{bus}")
+        h = h01(f"{scenario}:{horizon}:{bus}")
         d = hops.get(bus, d_max // 2)
         dist_term = 1.0 + GROWTH_EDGE_TILT * (d / d_max - 0.5)
         hot = GROWTH_HOTSPOT_MULT if h > GROWTH_HOTSPOT_QUANTILE else 1.0
@@ -149,6 +146,13 @@ def bands_of(net) -> tuple[tuple[float, float, float], ...]:
     """The voltage limits by level, (min kV, vmin, vmax): an imported grid's own, entered at import for each of its
     levels (`net["voltage_bands"]`), otherwise the GB statutory bands (VOLTAGE_BANDS)."""
     return tuple(net.get("voltage_bands") or VOLTAGE_BANDS) if net is not None else VOLTAGE_BANDS
+
+
+def band_at(kv: float, bands=VOLTAGE_BANDS) -> tuple[float, float]:
+    """(vmin, vmax) in pu for one nominal voltage: the band of the highest level it reaches (as `voltage_limits`)."""
+    reached = [b for b in bands if kv >= b[0]] or [min(bands, key=lambda b: b[0])]
+    _, lo, hi = max(reached, key=lambda b: b[0])
+    return lo, hi
 
 
 def voltage_limits(net) -> tuple[pd.Series, pd.Series]:
@@ -177,17 +181,6 @@ def voltage_band(kv: float, net=None) -> tuple[float, float]:
 
 
 # --- generation + dispatch -----------------------------------------------------------------------
-# the generator tables: `sgen` (fixed power factor: embedded generation, new connections) and `gen` (voltage-controlled
-# power stations of an imported grid, holding their setpoint within their reactive limits)
-FLEET_TABLES = ("sgen", "gen")
-
-
-def _ensure_fleet_columns(net) -> None:
-    for table in FLEET_TABLES:
-        t = net[table]
-        for col in ("import_mw", "p_rated_mw"):
-            if col not in t.columns:
-                t[col] = pd.Series(dtype=float)
 
 
 def inject_sgen(
@@ -255,11 +248,6 @@ def _follow_power_factor(net) -> None:
             net.sgen.loc[sel, "q_mvar"] = net.sgen.loc[sel, "p_mw"].astype(float).abs() * k[sel]
 
 
-def drop_sgen(net, idx: int) -> None:
-    """Remove a previously injected sgen by index (rolls back a rejected trial injection)."""
-    net.sgen = net.sgen.drop(index=idx)
-
-
 def dispatch_for_case(net, case: str, table: str = "sgen") -> pd.Series:
     """The active power of every generator in a table (`sgen` or `gen`) in a study case.
 
@@ -324,6 +312,14 @@ def _regulate_taps(net) -> int:
     return moved
 
 
+def _no_solution(e: Exception) -> bool:
+    """Whether an exception from the power flow means the network has no solution as solved (it did not converge, its
+    matrix is singular, or nothing is left in service to solve), as opposed to a fault in the code or the data, which
+    must surface instead of reading as "does not converge" (a merge-gate blocker, an N-1 finding, an import report)."""
+    return (isinstance(e, (LoadflowNotConverged, np.linalg.LinAlgError, FloatingPointError, ZeroDivisionError))
+            or (isinstance(e, ValueError) and "ppci is empty" in str(e)))
+
+
 def _runpp(net) -> None:
     """One Newton-Raphson solve, warm-started from the last solution when there is one (the net
     changes little between trials, so this roughly halves the iterations)."""
@@ -332,8 +328,8 @@ def _runpp(net) -> None:
     q_lims = {"enforce_q_lims": True} if len(net.gen) else {}
     try:
         pp.runpp(net, init="results" if warm else "auto", **q_lims)  # numba when installed
-    except Exception:
-        if not warm:
+    except Exception as e:
+        if not warm or not _no_solution(e):
             raise
         pp.runpp(net, init="auto", **q_lims)  # a bad warm start is retried cold
 
@@ -350,8 +346,10 @@ def _solve(net, regulate: bool = True) -> bool:
                     break
                 _runpp(net)
         return True
-    except Exception:
-        return False
+    except Exception as e:
+        if _no_solution(e):
+            return False
+        raise
 
 
 def tap_positions(net) -> tuple:
@@ -371,8 +369,8 @@ def set_tap_positions(net, taps: tuple) -> None:
 #   * summer_min  — minimum demand with summer (lower) thermal ratings, every generator at full
 #     output. This is the GENERATION-critical case: little local load soaks up the export, so
 #     reverse power flow, voltage rise and the GSP's export to transmission all peak here.
-# The summer case needs per-load `min_scale` / per-line `summer_ratio` columns (the NGED builder
-# fills them from LTDS); a network without them is studied at winter peak only.
+# The summer case needs per-load `min_scale` AND per-line `summer_ratio` (the NGED builder fills them from LTDS; an
+# import must state both, `sources.apply_import_meta`): with either missing it would be another case under its name.
 class CaseSpec(NamedTuple):
     """A planning study case. Adding one is adding an entry to CASE_SPECS (plus its dispatch factors
     in config.GENERATION_FACTORS): the solver, the reasons and the N-1 screen all read from here."""
@@ -410,11 +408,11 @@ def _column(table, column: str | None) -> pd.Series | None:
 
 def _study_cases(net) -> list[StudyCase]:
     """The cases this network can be studied in. A case with no data columns always applies (winter
-    peak); one with columns applies when the network carries data in at least one of them."""
+    peak); one with columns applies when the network carries data in every one of them."""
     cases: list[StudyCase] = []
     for spec in CASE_SPECS:
         load_scale, rating_ratio = _column(net.load, spec.load_column), _column(net.line, spec.rating_column)
-        if spec.load_column is None and spec.rating_column is None or load_scale is not None or rating_ratio is not None:
+        if (spec.load_column is None or load_scale is not None) and (spec.rating_column is None or rating_ratio is not None):
             cases.append(StudyCase(spec.name, load_scale, rating_ratio))
     return cases
 
@@ -430,12 +428,7 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
             net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
         if rating_ratio is not None:
             net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
-        # an imported grid's power stations follow the market (dispatch.py); a voltage-controlled project (a `gen`)
-        # is dispatched by the case there too, which `merit_order` does on any grid
-        if net.get("dispatch") == "merit_order" or len(net.gen):
-            merit_order(net, case)
-        elif len(net.sgen):
-            net.sgen["p_mw"] = dispatch_for_case(net, case)
+        merit_order(net, case)  # the case factors, and an imported grid's power stations by merit order (dispatch.py)
         _follow_power_factor(net)
         ok = _solve(net, regulate=regulate)
     finally:
@@ -460,10 +453,7 @@ def case_dispatch(net, case: str, load_scale: pd.Series | None = None) -> dict[s
     try:
         if load_scale is not None:
             net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
-        if net.get("dispatch") == "merit_order" or len(net.gen):
-            merit_order(net, case)
-        elif len(net.sgen):
-            net.sgen["p_mw"] = dispatch_for_case(net, case)
+        merit_order(net, case)
         return {t: net[t]["p_mw"].where(net[t]["in_service"].astype(bool), 0.0).astype(float) for t in FLEET_TABLES}
     finally:
         net.load["scaling"] = scaling0
@@ -588,6 +578,35 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
         "binding_case": binding_case,
     }
     return reason is None, reason, metrics
+
+
+def plan_net(net_factory, params, growth: float, horizon: int, reinforcements=(), projects=()):
+    """A plan's network: a fresh base grown to `horizon`, the simulated reinforcements applied, then `projects`
+    connected as their offers run them. The one way the greedy phases, the levers and the plan years build it."""
+    net = net_factory()
+    grow_for(net, params, growth, horizon)
+    for r in reinforcements:
+        apply_reinforcement(net, r)
+    for c in projects:
+        inject_project(net, c)
+    return net
+
+
+def snapshot(net, m: dict) -> dict:
+    """The solved intact state a phase or a plan year reports (`m` is `feasibility`'s metrics for the net as it stands)."""
+    return dict(
+        worst_line_loading_pct=round(m.get("max_line_pct", 0.0), 1),
+        worst_trafo_loading_pct=round(m.get("max_trafo_pct", 0.0), 1),
+        min_vm_pu=round(m.get("min_vm", 0.0), 4),
+        max_vm_pu=round(m.get("max_vm", 0.0), 4),
+        overloaded_line_ids=overloaded_line_ids(net),
+        line_loading=line_loadings(net),
+        bus_vm=bus_voltages(net),
+        voltage_violation_bus_ids=voltage_violation_bus_ids(net),
+        gsp_export_mw=m.get("gsp_export_mw", 0.0),
+        gsp_import_mw=m.get("gsp_import_mw", 0.0),
+        gsp_limit_mw=m.get("gsp_limit_mw"),
+    )
 
 
 def overloaded_line_ids(net) -> list[int]:

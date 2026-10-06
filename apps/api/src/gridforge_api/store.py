@@ -15,12 +15,11 @@ import duckdb
 
 from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035
 
-from .config import NGED_PROJECT_ID, now
+from .config import NGED_MAIN_ID, NGED_PROJECT_ID, now
 
-ADDED_COLS = (
-    "request_id, applicant, bus_id, technology, rating_mw, readiness_score, "
-    "strategic_fit, readiness_rationale, status, review_reasons, commissioning_year, scheduled_year, import_mw, control_json"
-)
+ADDED_COLS = ["request_id", "applicant", "bus_id", "technology", "rating_mw", "readiness_score", "strategic_fit", "readiness_rationale",
+              "status", "review_reasons", "commissioning_year", "scheduled_year", "import_mw", "control_json"]
+PROFILE_COLS = ["scenario", "growth_2030", "growth_2035", "w_readiness", "w_need", "w_strategic"]  # a branch's demand profile and weights
 OUTAGE_COLS = ["outage_id", "element_kind", "element_id", "season", "year", "weeks", "kind", "created_at",
                "work", "repower", "factor"]
 REINFORCEMENT_COLS = ["reinforcement_id", "kind", "element_id", "action", "factor", "label", "created_at"]
@@ -34,7 +33,6 @@ FINDING_COLS = [
     "element_id", "value", "limit_value", "message", "context_json", "status", "note", "evidence_kind",
     "evidence_ref", "evidence_json", "snapshot_id", "engine", "first_seen_at", "last_seen_at", "acked_at", "resolved_at",
 ]
-EVENT_COLS = ["event_id", "project_id", "type", "dedup_id", "payload_json", "created_at", "workflow_ids"]
 RUN_COLS = [
     "run_id", "project_id", "kind", "agent", "workflow_id", "branch_id", "thread_id", "event_id", "parent_run_id",
     "status", "started_at", "finished_at", "model", "input_tokens", "output_tokens", "cost_credits", "solves", "summary", "error",
@@ -271,7 +269,7 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
-    # the findings ledger: what every run found (and, later, what the agents file), one row per
+    # the findings ledger: what every run found (and what the agents file), one row per
     # branch + fingerprint, upserted by each run; never copied on branch create or merge
     con.execute(
         """
@@ -322,7 +320,7 @@ def migrate(con: Cursor) -> None:
     ):
         con.execute(ddl)
     _ensure_builtin_project(con)
-    ensure_main_branch(con, "main", NGED_PROJECT_ID)
+    ensure_main_branch(con, NGED_MAIN_ID, NGED_PROJECT_ID)
 
 
 def ensure_main_branch(con: Cursor, branch_id: str, project_id: str) -> None:
@@ -343,5 +341,5 @@ def _ensure_builtin_project(con: Cursor) -> None:
         return
     con.execute(
         f"INSERT INTO projects ({', '.join(PROJECT_COLS)}) VALUES ({', '.join('?' * len(PROJECT_COLS))})",
-        [NGED_PROJECT_ID, "NGED Bicker Fen 132 kV GSP", "nged", None, "warehouse", now(), None, None, None, "main"],
+        [NGED_PROJECT_ID, "NGED Bicker Fen 132 kV GSP", "nged", None, "warehouse", now(), None, None, None, NGED_MAIN_ID],
     )

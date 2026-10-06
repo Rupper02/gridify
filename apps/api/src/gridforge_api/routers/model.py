@@ -12,8 +12,9 @@ from gridforge_optimizer.config import DEFAULT_SCENARIO, FORECASTS, HORIZONS, MA
 from gridforge_optimizer.editions import ECR_DIFF_CAVEATS
 
 from ..config import NGED_PROJECT_ID
-from ..deps import cache, projects, scenarios, warehouse
+from ..deps import projects, scenarios, warehouse
 from ..warehouse import has_table, rows
+from .projects import project_cgmes
 
 router = APIRouter()
 
@@ -32,15 +33,8 @@ def get_model() -> dict:
 
 @router.get("/model/cgmes")
 def model_cgmes() -> Response:
-    """Today's network as a CIM/CGMES 2.4.15 exchange (EQ, TP, SSH, GL profiles in one zip), the
-    common model standard GB networks exchange planning models in. Deterministic ids: the same
-    snapshot always serialises to the same bytes. Re-imports with pandapower's CGMES importer, and
-    as a project through POST /projects."""
-    sid = projects.baseline(NGED_PROJECT_ID)
-    return Response(
-        content=projects.cgmes_zip(NGED_PROJECT_ID, cache.engine), media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="GridForge_{sid}_CGMES.zip"'},
-    )
+    """The built-in project's network as a CIM/CGMES exchange (= GET /projects/nged-bickerfen/model/cgmes)."""
+    return project_cgmes(NGED_PROJECT_ID)
 
 
 @router.get("/boundary")

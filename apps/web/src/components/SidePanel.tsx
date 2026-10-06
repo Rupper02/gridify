@@ -15,7 +15,7 @@ import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
 import { ReviewTab, type ReviewTabPlanner } from "./ReviewTab";
 
-export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "openFindings" | "prelim" | "q"> &
+export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "openFindings" | "pendingApprovals" | "prelim" | "q"> &
   AskTabPlanner &
   QueueTabPlanner &
   OutagesTabPlanner &

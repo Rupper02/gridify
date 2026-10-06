@@ -26,7 +26,7 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
     hosting = next(s for s in cat if s["kind"] == "hosting_capacity")
     assert "bus_ids" in hosting["params_schema"]["properties"] and hosting["cost_hint_solves"] > 0 and not hosting["needs_plan"]
     # a branch with its own project, so no earlier run of main can have cached its plan
-    bid = client.post("/branches", json={"name": "studies", "added_projects": [project(applicant="Studies")]}).json()["branch_id"]
+    bid = client.post("/branches", json={"name": "studies", "from_branch": "main", "added_projects": [project(applicant="Studies")]}).json()["branch_id"]
     assert client.post(f"/branches/{bid}/studies/nope", json={}).status_code == 404
     assert client.post(f"/branches/{bid}/studies/hosting_capacity", json={"step_mw": 0}).status_code == 422
     assert client.post(f"/branches/{bid}/studies/gsp_margin_by_year", json={}).status_code == 422  # reads the plan: run first
@@ -43,7 +43,7 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
 
 
 def test_an_agent_finding_is_bound_to_a_recorded_step_and_its_figures_are_the_engines():
-    bid = client.post("/branches", json={"name": "evidence"}).json()["branch_id"]
+    bid = client.post("/branches", json={"name": "evidence", "from_branch": "main"}).json()["branch_id"]
     study = deps.plans.study(bid, "data_quality", {})
     assert study.items, "the builder records assumptions, so the data-quality study has items"
     key = next(k for k, v in deps.plans.cache.compute.items() if v is study)

@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from .. import repository
 from ..config import NGED_PROJECT_ID
 from ..deps import plans, projects, scenarios
-from ..schemas import CandidateChange, NewCandidate
+from ..schemas import CandidateChange, CandidateCreate
 
 router = APIRouter()
 
@@ -16,13 +16,19 @@ def registry() -> list[dict]:
     return [repository.to_client(r) for r in projects.registry_rows(NGED_PROJECT_ID)]
 
 
-@router.post("/optimize/candidates")
-def add_candidate(body: NewCandidate) -> dict:
-    """Add a project to a branch (stored in the API scenarios DB; warehouse untouched)."""
+def _branch_project(branch_id: str) -> str:
     with scenarios.cursor() as con:
-        branch = repository.require_open(con, body.branch_id, allow_main=False)
-        row = repository.insert_candidate(con, body.branch_id, body, projects.element_ids(branch["project_id"])["buses"])
-    plans.invalidate("plan")  # the candidate set changed
+        return repository.require_branch(con, branch_id)["project_id"]
+
+
+@router.post("/optimize/candidates")
+def add_candidate(body: CandidateCreate) -> dict:
+    """Add a project to a branch (stored in the API scenarios DB; warehouse untouched)."""
+    valid = projects.element_ids(_branch_project(body.branch_id))["buses"]  # a model read: never under the store lock
+    with scenarios.cursor() as con:
+        repository.require_open(con, body.branch_id, allow_main=False)
+        row = repository.insert_candidate(con, body.branch_id, body, valid)
+    plans.edited()
     return repository.to_client(row)
 
 
@@ -40,12 +46,12 @@ def change_candidate(branch_id: str, request_id: str, body: CandidateChange) -> 
     """Change a project on a branch: its point of connection (`bus_id`), export rating, import capacity or
     requested year; re-triaged, and the next run measures it. 404 when the project is not on the branch;
     409 on `main` or a branch that is not open."""
+    valid = projects.element_ids(_branch_project(branch_id))["buses"]  # a model read: never under the store lock
     with scenarios.cursor() as con:
-        branch = repository.require_open(con, branch_id, allow_main=False)
+        repository.require_open(con, branch_id, allow_main=False)
         try:
-            row = repository.update_candidate(con, branch_id, request_id, body.model_dump(exclude_none=True),
-                                              projects.element_ids(branch["project_id"])["buses"])
+            row = repository.update_candidate(con, branch_id, request_id, body.model_dump(exclude_none=True), valid)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"project '{request_id}' is not on branch '{branch_id}'") from None
-    plans.invalidate("plan")  # the candidate set changed
+    plans.edited()
     return row

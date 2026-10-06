@@ -21,6 +21,17 @@ T = TypeVar("T")
 
 MAX_TRIAL_CACHE_ENTRIES = 50_000  # bounded: a cold start costs one full run, nothing else
 MAX_YEAR_CACHE_ENTRIES = 2_000  # solved plan years (years.year_signature): an edit re-solves only what it touches
+MAX_RESULT_ENTRIES = 256  # engine results kept in process (the durable table keeps them all): the oldest go first
+MAX_PAYLOAD_ENTRIES = 32  # enriched run payloads (the largest objects here)
+
+
+def remember(d: dict, key, value, cap: int):
+    """Keep `value` under `key` in a dict bounded to `cap` entries, dropping the oldest stored first."""
+    d.pop(key, None)
+    d[key] = value
+    while len(d) > cap:
+        d.pop(next(iter(d)))
+    return value
 
 
 def cand_key(cands: list[Candidate]) -> str:
@@ -52,8 +63,8 @@ class ResultCache:
         # already hold it), so a request or an agent tool that misses the cache waits for the solver instead of
         # solving alongside it, at half speed each, often the very result the job is computing
         self._solver = solver_lock or nullcontext()
-        self.compute: dict = {}  # key -> OptimizeResult / suggestions
-        self.payload: dict = {}  # key -> the enriched /optimize payload
+        self.compute: dict = {}  # key -> OptimizeResult / suggestions (content-addressed, bounded)
+        self.payload: dict = {}  # key -> the enriched /optimize payload (bounded; cleared on every edit, see PlanService.edited)
         # per (parameters, snapshot, engine): the engine's exact trial cache, so a branch that gains
         # one project re-solves only the trials whose state changed (see greedy.optimize)
         self._trials: dict[tuple, dict] = {}
@@ -110,7 +121,7 @@ class ResultCache:
                     t0 = time.perf_counter()
                     value = compute()
                     self.put(key, kind, baseline, int((time.perf_counter() - t0) * 1000), dump(value))
-                    self.compute[key] = value
+                    remember(self.compute, key, value, MAX_RESULT_ENTRIES)
         if hit and on_hit is not None:
             on_hit(value)
         return value
@@ -122,8 +133,7 @@ class ResultCache:
         cached = self.get(key)
         if cached is None:
             return None, False
-        self.compute[key] = value = parse(cached)
-        return value, True
+        return remember(self.compute, key, parse(cached), MAX_RESULT_ENTRIES), True
 
     def get(self, key: str) -> str | None:
         with self._store.cursor() as con:

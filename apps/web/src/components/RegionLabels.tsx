@@ -4,12 +4,9 @@
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { REGION_STATE, labelOrder, regionCentroid, regionFigure, regionRows } from "../lib/demand";
+import { type Box, ID_CHAR_PX, type Project, overlaps } from "../lib/placement";
 
 export type RegionLabelsPlanner = PlannerSlice<"model" | "sel", "select", "yr">;
-
-type Project = (lon: number, lat: number) => [number, number] | null;
-type Box = [number, number, number, number];
-const overlaps = (b: Box, o: Box) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1];
 
 export function RegionLabels({ planner, project, tick, width, height }: { planner: RegionLabelsPlanner; project: Project; tick: number; width: number; height: number }) {
   const { s, actions, derived } = planner;
@@ -22,7 +19,7 @@ export function RegionLabels({ planner, project, tick, width, height }: { planne
     const pt = c && project(c[0], c[1]);
     if (!pt) return null;
     const fig = regionFigure(r);
-    const w = Math.max(r.name.length * 6.6, fig.length * 5.9) + 8;
+    const w = Math.max(r.name.length * ID_CHAR_PX, fig.length * 5.9) + 8;
     const right = pt[0] - 12;
     const box: Box = [right - w, pt[1] - 14, right, pt[1] + 14];
     if (box[2] < -20 || box[0] > width + 20 || box[3] < 0 || box[1] > height) return null;

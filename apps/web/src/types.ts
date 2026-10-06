@@ -2,7 +2,7 @@
 
 export type Status = "Phase1" | "Phase2" | "Deferred" | "Rejected";
 /** Engine technology ids (see theme.TECH for labels, icons and study treatment). */
-export type Tech = "solar" | "wind" | "battery" | "hybrid" | "gas" | "gas_engine" | "biomass" | "electrolyser" | "demand";
+export type Tech = "solar" | "wind" | "battery" | "hybrid" | "gas" | "gas_engine" | "biomass" | "electrolyser" | "demand" | "other";
 export type PhaseKey = string;
 
 export interface Bus {
@@ -13,6 +13,9 @@ export interface Bus {
   lat: number;
   /** Where it is, by name (the engine's `naming`, the same the agents use); absent on an older model. */
   place?: string;
+  /** The voltage band the engine judges this bus against: the grid's own limits at its level (`network.voltage_limits`). */
+  vmin_pu: number;
+  vmax_pu: number;
 }
 export interface Line {
   line_id: number;
@@ -28,7 +31,8 @@ export interface Line {
   to_lon: number;
   to_lat: number;
   length_km?: number;
-  in_service?: boolean;
+  /** False: an open point (in the model, carrying nothing). */
+  in_service: boolean;
 }
 export interface Transformer {
   trafo_id: number;
@@ -76,11 +80,11 @@ export interface Model {
   crs?: "wgs84" | "synthetic";
 }
 
-/** A demand group (one LTDS Table 3 row: a primary, or a BSP's own 33 kV group), GET /model. */
 /** A demand group's level: a primary substation (or a customer's own connection), or a bulk supply
  * point over the primaries it feeds (its demand is theirs, never counted twice). */
 export type RegionLevel = "primary" | "bsp";
 
+/** A demand group (one LTDS Table 3 row: a primary, or a BSP's own 33 kV group), GET /model. */
 export interface Region {
   region_id: string;
   name: string;
@@ -137,7 +141,7 @@ export interface RawReason {
   message: string;
   case?: string | null;
 }
-export type ReasonKind = "grid" | "readiness" | "phased" | "intake";
+export type ReasonKind = "grid" | "intake";
 /** The engine reason, normalised for the UI: what kind of block, which element, why, what to do. */
 export interface Reason extends RawReason {
   kind: ReasonKind;
@@ -145,7 +149,6 @@ export interface Reason extends RawReason {
   short: string;
   why: string;
   action: string;
-  caseLabel?: string;
 }
 
 export interface QueueItem {
@@ -233,7 +236,8 @@ export interface OutageStudy {
   after: string;
 }
 
-export type Verdict = "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
+// "unstudied": the window's season needs a study case this grid cannot run (engine maintenance._missing)
+export type Verdict = "unstudied" | "feasible" | "curtailment" | "demand_at_risk" | "not_feasible";
 /** Generation constrained during a window: a fleet id (EX-...) or a project request id. */
 export interface Curtailment {
   id: string;
@@ -377,7 +381,6 @@ export interface RebasePreview {
   conflicts: RebaseConflict[];
 }
 
-/** A registry (projected) project, or a project added to a branch, as the API shapes it. */
 /** How a project runs, as its connection offer sets it (types.Control): a fixed power factor, or voltage control
  * (a setpoint at its terminals within a reactive range given as a power factor at full output). */
 export interface Control {
@@ -388,6 +391,7 @@ export interface Control {
   q_range_pf?: number | null;
 }
 
+/** A registry (projected) project, or a project added to a branch, as the API shapes it. */
 export interface RegistryItem {
   request_id: string;
   applicant: string;
@@ -404,18 +408,6 @@ export interface RegistryItem {
   branch_id?: string;
   /** How its offer runs it; null: not stated (modelled at unity power factor). */
   control?: Control | null;
-}
-
-export interface NewCandidate {
-  applicant: string;
-  bus_id: number;
-  technology: Tech;
-  rating_mw: number;
-  import_mw: number | null;
-  readiness_score: number;
-  readiness_rationale: string;
-  commissioning_year: number | null;
-  branch_id: string;
 }
 
 /** A planned maintenance window on a branch (API: /branches/{id}/outages). */
@@ -437,39 +429,6 @@ export interface Outage {
   created_at?: string;
 }
 
-/** Find the best window for a planned work (API: POST /branches/{id}/works/best-window). */
-export interface BestWindowRequest {
-  element_kind: ElementKind;
-  element_id: string;
-  work: Work;
-  kind: "outage" | "derate";
-  repower?: Repower | null;
-  factor?: number | null;
-  weeks: number;
-  years?: [number, number];
-  seasons?: Season[];
-}
-/** One ranked window (engine: windows.best_windows), studied against the plan that year. */
-export interface WindowOption {
-  rank: number;
-  year: number;
-  season: Season;
-  verdict: Verdict;
-  curtailed_mw: number;
-  demand_at_risk_mw: number;
-  /** null: not screened (outside the engine's N-1 shortlist). */
-  n1_findings: number | null;
-  worst_line_loading_pct: number;
-  worst_trafo_loading_pct: number;
-  message: string;
-}
-export interface BestWindowResult {
-  branch_id: string;
-  element_kind: ElementKind;
-  element_id: string;
-  work: Work;
-  options: WindowOption[];
-}
 export type Work = "maintenance" | "repowering" | "replacement";
 export type Repower = "uprate" | "add_parallel";
 
@@ -638,21 +597,6 @@ export interface OnMerge {
   reinforcements_removed: BranchReinforcement[];
 }
 
-export interface Suggestion {
-  target_type: string;
-  target_element_id: number;
-  action: string;
-  reinforcements: { kind: string; element_id: number; action: string; factor: number }[];
-  connects_target: boolean;
-  freed_mw_2030: number;
-  freed_mw_2035: number;
-  newly_connected_project_ids: string[];
-  blocked_project_ids: string[];
-  extra_solves: number;
-  caveat: string;
-  narration: string;
-}
-
 // ---- view types ---------------------------------------------------------------------------
 
 /** What can be clicked on the map: a project opens the project card, the rest the element card. */
@@ -779,6 +723,7 @@ export interface AgentsStatus {
   spend: AgentsSpend | null;
   last_events: { event_id: string; type: string; dedup_id: string; created_at: string; workflow_ids: string[] }[];
   models: Record<string, string>;
+  project_id: string;
 }
 /** A conversation: the operator's ("ask", on a branch or on main) or the project's health thread. */
 export interface Thread {
@@ -794,6 +739,8 @@ export type MessageStatus = "queued" | "streaming" | "done" | "failed" | "awaiti
 export interface TraceStep {
   step_id: string;
   tool: string;
+  /** The planning stage the API tagged it with (streaming.stage_of); absent on replies stored before it did. */
+  stage?: TraceStage;
   args: Record<string, unknown>;
   solves: number;
 }
@@ -820,7 +767,7 @@ export interface ThreadMessage {
   evidence: MessageEvidence | null;
   created_at: string;
 }
-export type ApprovalStatus = "pending" | "approved" | "denied" | "applied";
+export type ApprovalStatus = "pending" | "approved" | "denied" | "applied" | "failed";
 /** An action an answer proposed (a branch, a reinforcement, a works window), waiting for the operator. */
 export interface Approval {
   approval_id: string;
@@ -838,13 +785,13 @@ export interface ThreadView extends Thread {
   messages: ThreadMessage[];
   approvals: Approval[];
 }
-/** The planning stages a reply goes through (the API's streaming.STAGE_BY_TOOL_PREFIX names them). */
+/** The planning stages a reply goes through: the API tags every tool event with one (streaming.STAGE_BY_TOOL_PREFIX). */
 export type TraceStage = "PLAN" | "ASSEMBLE" | "RUN" | "CHECK" | "PROPOSE" | "CITE";
 /** One server-sent event of a streamed reply. */
 export type TraceEvent =
   | { t: "token"; text: string; seq?: number }
   | { t: "tool_call"; tool: string; stage: TraceStage; step_id: string; args: Record<string, unknown>; seq?: number }
-  | { t: "tool_result"; tool: string; step_id: string; summary: string; solves: number; seq?: number }
+  | { t: "tool_result"; tool: string; stage: TraceStage; step_id: string; summary: string; solves: number; seq?: number }
   | { t: "progress"; tool: string; step_id: string; stage: string; fraction: number; seq?: number }
   | { t: "cite"; stage: "CITE"; seq?: number }
   | { t: "final"; status: MessageStatus; text?: string; approvals?: string[]; flags?: string[]; seq?: number }
@@ -954,9 +901,29 @@ export interface BandPreset {
   note: string;
   bands: { min_kv: number; max_kv: number | null; vmin_pu: number; vmax_pu: number }[];
 }
+/** A demand pathway an import's forecast stands in for (engine `IMPORT_PATHWAYS`), named as the picker names it. */
+export interface ImportPathway {
+  id: string;
+  label: string;
+  required: boolean;
+}
 export interface FileInspection {
   levels: FileLevel[];
   presets: BandPreset[];
+  pathways: ImportPathway[];
+  /** An entered year-on-year factor is above 0 and at most this (engine `IMPORT_FORECAST_FACTOR_MAX`). */
+  factor_max: number;
+}
+/** A grid source kind (engine `sources.SOURCES`): its label, extensions, and whether the import form offers it. */
+export interface ImportFormat {
+  kind: string;
+  label: string;
+  extensions: string[];
+  offered: boolean;
+}
+export interface ImportFormats {
+  formats: ImportFormat[];
+  max_bytes: number;
 }
 export interface Project {
   project_id: string;

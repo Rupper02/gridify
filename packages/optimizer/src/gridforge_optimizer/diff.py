@@ -22,7 +22,8 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from .config import LINE_LOADING_MAX_PCT, TRAFO_LOADING_MAX_PCT
+from .config import DIFF_NOISE, LINE_LOADING_MAX_PCT, TRAFO_LOADING_MAX_PCT
+from .findings import n1_key
 from .types import (
     VERDICT_SEVERITY,
     OptimizeParams,
@@ -50,7 +51,6 @@ _CHANGE_ORDER = {
     "unchanged": 6,
 }
 
-_EPS = 0.1  # loading-% (and MW) movement below this is treated as noise, not a change
 _TOP_LINES = 10  # how many biggest line (and transformer) movers to surface per phase / year
 _TOP_N1 = 10  # how many new / cleared N-1 findings to list per year
 
@@ -242,9 +242,9 @@ def _crossed(base_pct: float | None, head_pct: float | None, delta: float, limit
         return "newly_overloaded"
     if b_over and not h_over:
         return "cleared"
-    if delta > _EPS:
+    if delta > DIFF_NOISE:
         return "worsened"
-    if delta < -_EPS:
+    if delta < -DIFF_NOISE:
         return "eased"
     return "unchanged"
 
@@ -303,11 +303,6 @@ def _over(loading: dict[int, float], limit: float) -> set[int]:
     return {int(i) for i, v in loading.items() if v is not None and v > limit}
 
 
-def n1_key(v: dict) -> tuple:
-    """A finding's identity: which element was lost, in which case, and which limit broke on what."""
-    return (v.get("outage_type"), str(v.get("outage_id")), v.get("case"), v.get("type"), v.get("element_id"))
-
-
 def diff_year(base: YearResult, head: YearResult) -> YearDelta:
     """The network delta of one plan year, head against base (pure)."""
     b_over, h_over = set(base.overloaded_line_ids), set(head.overloaded_line_ids)
@@ -357,6 +352,7 @@ _VERDICT_TEXT: dict[str, Callable[[OutageStudy], str]] = {
     "curtailment": lambda s: f"needs {s.curtailed_mw:.1f} MW of curtailment",
     "demand_at_risk": lambda s: f"puts {s.demand_at_risk_mw:.1f} MW of demand at risk",
     "not_feasible": lambda s: "not feasible even with curtailment",
+    "unstudied": lambda s: "not studied (the element is not in the network model)",
 }
 
 
@@ -366,6 +362,7 @@ _VERDICT_WOULD: dict[str, Callable[[OutageStudy], str]] = {
     "curtailment": lambda s: f"need {s.curtailed_mw:.1f} MW of curtailment",
     "demand_at_risk": lambda s: f"put {s.demand_at_risk_mw:.1f} MW of demand at risk",
     "not_feasible": lambda s: "not be feasible even with curtailment",
+    "unstudied": lambda s: "not be studied (the element is not in the network model)",
 }
 
 
@@ -405,7 +402,7 @@ def _work_change(on_main: OutageStudy | None, on_branch: OutageStudy) -> str:
     if h != b:
         return "worse" if h > b else "better"
     step = _burden(on_branch) - _burden(on_main)
-    if abs(step) >= _EPS:
+    if abs(step) >= DIFF_NOISE:
         return "worse" if step > 0 else "better"
     if _n1_during(on_main) is None or on_branch.n1_during is None:
         return "unchanged"
@@ -453,7 +450,7 @@ def _consequence(on_main: OutageStudy | None, on_branch: OutageStudy, change: st
         if on_branch.verdict == "feasible":
             return "Feasible on main and on this branch: the branch does not change this window."
         return f"{there}, on main and on this branch alike."
-    same_verdict = on_main.verdict == on_branch.verdict and abs(_burden(on_branch) - _burden(on_main)) < _EPS
+    same_verdict = on_main.verdict == on_branch.verdict and abs(_burden(on_branch) - _burden(on_main)) < DIFF_NOISE
     if same_verdict:
         return f"{there} on main and on this branch alike, but {faults}." if change == "worse" else f"{there} on main and on this branch alike; {faults}."
     if change == "worse":

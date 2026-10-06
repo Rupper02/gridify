@@ -2,19 +2,19 @@
 // a year slider under them, and the Unscheduled column of deferred projects. Moving the slider only
 // switches between the stored years of the last run; it never starts a run.
 
+import type { CSSProperties } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, elementInfo, outageSel, roadmapYears, sumMw } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
 import { firstYear, lastYear, lensOf } from "../lib/plan";
-import { runStatus } from "../lib/runStages";
-import { C, LENS, ST, tint } from "../theme";
+import { C, LENS, ST, fmtMw, tint } from "../theme";
 import { TechIcon } from "./ui";
 
 export type RoadmapPlanner = PlannerSlice<
-  "outages" | "plan" | "refreshing" | "result" | "sel" | "solving" | "stage" | "year",
+  "outages" | "plan" | "result" | "sel" | "solving" | "year",
   "selectProject" | "setYear",
-  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "yearsFailed" | "yearsSolved" | "yearsTotal" | "yr"
+  "branchOnly" | "hue" | "ix" | "prelim" | "q" | "run" | "yr"
 >;
 
 export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: Layout }) {
@@ -32,15 +32,18 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
   const pos = (s.year - firstYear(plan)) / (plan.years.length - 1);
 
   return (
-    <div className="dock glass" style={{ right: layout.sideW + 20, height: layout.dockPx }}>
+    <div
+      className="dock glass"
+      style={{ right: layout.sideW + 20, height: layout.dockPx, "--years": plan.years.length, "--p1-at": plan.years.indexOf(plan.phase1) + 0.5 } as CSSProperties}
+    >
       <div className="dock-main">
         <div className="dock-head">
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Connection roadmap</span>
           <span className="ellipsis" style={{ fontSize: 11.5, color: C.mute, minWidth: 0 }}>
-            {s.result ? `${sumMw(p1)} MW by ${plan.phase1} · ${Math.round((sumMw(p1) + sumMw(p2)) * 10) / 10} MW by ${plan.phase2} · ${df.length} deferred` : "no run yet"}
+            {s.result ? `${fmtMw(sumMw(p1))} MW by ${plan.phase1} · ${fmtMw(sumMw(p1) + sumMw(p2))} MW by ${plan.phase2} · ${df.length} deferred` : "no run yet"}
           </span>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 7, flex: "none" }}>
-            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved: derived.yearsSolved, yearsFailed: derived.yearsFailed, yearsTotal: derived.yearsTotal }).roadmap}</span>}
+            {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{derived.run.roadmap}</span>}
             <b className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{s.year}</b>
             <span style={{ fontSize: 11, fontWeight: 600, color: lens.c }}>{lens.label}</span>
           </span>
@@ -49,20 +52,19 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
           {years.map((y) => {
             const on = y.y === s.year;
             return (
-              <button
+              <div
                 key={y.y}
+                role="group"
                 className={`ycol${on ? " on" : ""}${s.result && !y.solved ? " unsolved" : ""}`}
                 onClick={() => actions.setYear(y.y)}
-                aria-label={`Show ${y.y}${y.failed ? ": the power flow does not converge" : ""}`}
                 title={y.failed ? `The power flow does not converge in ${y.y}: no figures` : undefined}
-                aria-pressed={on}
               >
                 {s.result && !y.solved && s.solving && <span className="solving">solving</span>}
                 <div className="chips">
                   {y.chips.map((c, i) => {
                     if (c.kind === "outage") {
                       const vc = verdictColor(c.verdict);
-                      const tag = WORK_UI[c.work ?? "maintenance"].label;
+                      const tag = WORK_UI[c.work].label;
                       return (
                         <span
                           key={`o${i}-${c.id}`}
@@ -77,10 +79,10 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
                     const st = ST[c.status ?? "Phase1"];
                     const pre = c.kind === "prelim";
                     return (
-                      <span
+                      <button
                         key={c.id}
                         className="ychip"
-                        role="link"
+                        title={`Show ${c.id}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           actions.selectProject(c.id);
@@ -94,16 +96,24 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
                         }}
                       >
                         {layout.wide ? c.id : c.id.replace(/^[A-Z]+-/, "")}
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
                 <span className="band" style={{ background: y.band }} />
-                <span className="foot">
+                <button
+                  className="foot"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    actions.setYear(y.y);
+                  }}
+                  aria-label={`Show ${y.y}${y.failed ? ": the power flow does not converge" : ""}`}
+                  aria-pressed={on}
+                >
                   <b style={{ color: on ? C.ink : C.mute }}>{y.y}</b>
                   {layout.wide && <span>{y.mw ? `${y.mw} MW` : ""}</span>}
-                </span>
-              </button>
+                </button>
+              </div>
             );
           })}
         </div>

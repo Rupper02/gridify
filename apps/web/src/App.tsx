@@ -1,7 +1,7 @@
 // The composition root: the one place that sees the whole planner. It lays the floating panels over
 // the full-bleed map for the viewport (lib/layout.ts) and hands each component its slice.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import { DetailCards } from "./components/DetailCards";
 import { Header } from "./components/Header";
@@ -16,35 +16,9 @@ import { SidePanel } from "./components/SidePanel";
 import { StudyDrawer } from "./components/StudyDrawer";
 import { hueVars } from "./components/ui";
 import { usePlanner } from "./hooks/usePlanner";
+import { useReducedMotion, useViewport } from "./hooks/useViewport";
 import { buildGeo } from "./lib/geo";
 import { layoutFor } from "./lib/layout";
-
-function useViewport() {
-  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
-  useEffect(() => {
-    let t = 0;
-    const on = () => {
-      window.clearTimeout(t);
-      t = window.setTimeout(() => setVp({ w: window.innerWidth, h: window.innerHeight }), 80);
-    };
-    window.addEventListener("resize", on);
-    return () => window.removeEventListener("resize", on);
-  }, []);
-  return vp;
-}
-
-function useReducedMotion() {
-  const q = "(prefers-reduced-motion: reduce)";
-  const [reduce, setReduce] = useState(() => window.matchMedia?.(q).matches ?? false);
-  useEffect(() => {
-    const m = window.matchMedia?.(q);
-    if (!m) return;
-    const on = () => setReduce(m.matches);
-    m.addEventListener("change", on);
-    return () => m.removeEventListener("change", on);
-  }, []);
-  return reduce;
-}
 
 export function App() {
   const planner = usePlanner();
@@ -53,16 +27,20 @@ export function App() {
   const reducedMotion = useReducedMotion();
   const layout = useMemo(() => layoutFor(vp.w, vp.h, s.sideOpen), [vp.w, vp.h, s.sideOpen]);
 
-  // `]` toggles the side panel (not while typing)
+  // `]` toggles the side panel (not while typing); Escape closes the projects screen, else clears the selection
+  const projectsOpen = s.projectsOpen;
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName ?? "";
       if (e.key === "]" && !/input|textarea|select/i.test(tag)) actions.toggleSide();
-      if (e.key === "Escape") actions.select(null);
+      if (e.key === "Escape") {
+        if (projectsOpen) actions.closeProjects();
+        else actions.select(null);
+      }
     };
     window.addEventListener("keyup", on);
     return () => window.removeEventListener("keyup", on);
-  }, [actions]);
+  }, [actions, projectsOpen]);
 
   // GeoJSON for the map layers, rebuilt only when something it depends on changes
   const geo = useMemo(

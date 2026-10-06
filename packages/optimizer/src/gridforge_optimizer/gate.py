@@ -28,22 +28,35 @@ from typing import NamedTuple
 
 from .config import (
     GATE_GSP_WORSEN_MW,
+    GATE_NOISE,
     GATE_VM_WORSEN_PU,
     GATE_WORSEN_PTS,
     GSP_NEAR_LIMIT_FRACTION,
     LINE_LOADING_MAX_PCT,
     MERGE_GATE_LEVELS,
     N1_ISLAND_MIN_MW,
-    PLAN_END_YEAR,
-    PLAN_START_YEAR,
+    PLAN_YEARS,
     TRAFO_LOADING_MAX_PCT,
 )
-from .diff import ConsequenceDiff, YearDelta, diff_results, n1_key
-from .findings import GRID_REASON_TYPES, SEVERE_VERDICTS, against_recommendation, fingerprint
+from .diff import ConsequenceDiff, YearDelta, diff_results
+from .findings import (
+    GRID_REASON_TYPES,
+    SEVERE_VERDICTS,
+    _pct,
+    against_recommendation,
+    alert_id,
+    fingerprint,
+    gsp_id,
+    n1_id,
+    n1_key,
+    overload_id,
+    project_id,
+    voltage_id,
+    work_id,
+    year_id,
+)
 from .types import Alert, GateFinding, MergeVerdict, OptimizeResult, YearResult
 
-_EPS = 0.05  # movements below this (loading points, MW, pu) are noise, not a change
-_PLAN_YEARS = tuple(range(PLAN_START_YEAR, PLAN_END_YEAR + 1))
 
 
 class ParentMove(NamedTuple):
@@ -111,10 +124,6 @@ def _years_text(years: list[int]) -> str:
     return ", ".join(f"{r[0]} to {r[-1]}" if len(r) > 1 else str(r[0]) for r in runs)
 
 
-def _pct(v: float | None) -> str:
-    return "unloaded" if v is None else f"{v:.0f}%"
-
-
 # --- the checks: each (ctx) -> findings; levels come from MERGE_GATE_LEVELS ---------------------------
 def _stale(ctx: GateContext) -> list[GateFinding]:
     if ctx.fresh:
@@ -140,7 +149,7 @@ def _unstudied_years(ctx: GateContext) -> list[GateFinding]:
     for label, r in (("This branch", ctx.head), (ctx.base_label, ctx.base)):
         if not r.years:
             continue  # _no_result covers it
-        missing = [y for y in _PLAN_YEARS if str(y) not in r.years]
+        missing = [y for y in PLAN_YEARS if str(y) not in r.years]
         if missing:
             out.append(_finding("unstudied_years",
                                 f"{label} has no result for {_years_text(missing)}: a year that is not solved cannot be declared safe."))
@@ -154,7 +163,7 @@ def _non_convergent(ctx: GateContext) -> list[GateFinding]:
             continue
         if b.converged:
             out.append(_finding("non_convergent", f"The power flow does not converge on this branch in {y}; {ctx.base_label}'s does.",
-                                year=y, ledger=("non_convergent", None, None, y, None)))
+                                year=y, ledger=year_id("non_convergent", y)))
         else:
             out.append(_finding("preexisting", f"The power flow does not converge in {y} on {ctx.base_label} either.", year=y))
     return out
@@ -209,7 +218,7 @@ def _thermal(ctx: GateContext) -> list[GateFinding]:
                                     f"{label} {eid} newly over its rating in {y}: {_pct(hl.get(eid))} on this branch, "
                                     f"{_pct(bl.get(eid))} on {ctx.base_label}.",
                                     year=y, element_kind=table, element_id=eid, value=hl.get(eid), base_value=bl.get(eid),
-                                    limit=limit, ledger=("overload", table, eid, y, None)))
+                                    limit=limit, ledger=overload_id(table, eid, y)))
             for eid in sorted((h_over & b_over) - new):
                 bv, hv = bl[eid], hl[eid]
                 kind = "overload_worse" if hv - bv > GATE_WORSEN_PTS else "preexisting"
@@ -217,7 +226,7 @@ def _thermal(ctx: GateContext) -> list[GateFinding]:
                         f"{hv - bv:.0f} points more on this branch ({hv:.0f}%) in {y}." if kind == "overload_worse" else
                         f"{label} {eid} is over its rating on {ctx.base_label} in {y} ({bv:.0f}%); this branch leaves it at {hv:.0f}%.")
                 out.append(_finding(kind, text, year=y, element_kind=table, element_id=eid, value=hv, base_value=bv,
-                                    limit=limit, ledger=("overload", table, eid, y, None)))
+                                    limit=limit, ledger=overload_id(table, eid, y)))
     return out
 
 
@@ -231,7 +240,7 @@ def _voltage(ctx: GateContext) -> list[GateFinding]:
             out.append(_finding("new_voltage_violation",
                                 f"bus {bus} newly outside its statutory band in {y}: {text} on this branch.",
                                 year=y, element_kind="bus", element_id=bus, value=hv, base_value=b.bus_vm.get(bus),
-                                ledger=("voltage", "bus", bus, y, None)))
+                                ledger=voltage_id(bus, y)))
         for bus in sorted(h_bad & b_bad):
             hv, bv = h.bus_vm.get(bus), b.bus_vm.get(bus)
             if hv is None or bv is None:
@@ -242,7 +251,7 @@ def _voltage(ctx: GateContext) -> list[GateFinding]:
                     f"({hv:.3f} pu) in {y}." if worse else
                     f"bus {bus} is outside its band on {ctx.base_label} in {y} ({bv:.3f} pu); this branch leaves it at {hv:.3f} pu.")
             out.append(_finding(kind, text, year=y, element_kind="bus", element_id=bus, value=hv, base_value=bv,
-                                ledger=("voltage", "bus", bus, y, None)))
+                                ledger=voltage_id(bus, y)))
     return out
 
 
@@ -258,19 +267,19 @@ def _gsp(ctx: GateContext) -> list[GateFinding]:
         if he > limit and be <= b_limit:
             out.append(_finding("gsp_over_limit", f"GSP export {he:.0f} MW is above its {limit:.0f} MW limit in {y} on this "
                                                   f"branch ({be:.0f} MW on {ctx.base_label}).",
-                                ledger=("gsp_over_limit", "gsp", "gsp", y, None), **common))
+                                ledger=gsp_id("gsp_over_limit", y), **common))
         elif he > limit:
             kind = "gsp_worse" if he - be > GATE_GSP_WORSEN_MW else "preexisting"
             text = (f"GSP export is above its {limit:.0f} MW limit on {ctx.base_label} already ({be:.0f} MW) and this branch "
                     f"adds {he - be:.0f} MW ({he:.0f} MW) in {y}." if kind == "gsp_worse" else
                     f"GSP export is above its {limit:.0f} MW limit on {ctx.base_label} in {y} ({be:.0f} MW); this branch leaves it at {he:.0f} MW.")
-            out.append(_finding(kind, text, ledger=("gsp_over_limit", "gsp", "gsp", y, None), **common))
+            out.append(_finding(kind, text, ledger=gsp_id("gsp_over_limit", y), **common))
         elif he > GSP_NEAR_LIMIT_FRACTION * limit:
-            kind = "gsp_near_limit" if he > be + _EPS else "preexisting"
+            kind = "gsp_near_limit" if he > be + GATE_NOISE else "preexisting"
             text = (f"GSP export {he:.0f} MW is {he / limit:.0%} of its {limit:.0f} MW limit in {y} on this branch "
                     f"({be:.0f} MW on {ctx.base_label})." if kind == "gsp_near_limit" else
                     f"GSP export is within {1 - GSP_NEAR_LIMIT_FRACTION:.0%} of its limit on {ctx.base_label} in {y}; this branch does not add to it.")
-            out.append(_finding(kind, text, ledger=("gsp_near_limit", "gsp", "gsp", y, None), **common))
+            out.append(_finding(kind, text, ledger=gsp_id("gsp_near_limit", y), **common))
     return out
 
 
@@ -286,7 +295,7 @@ _N1_WORSE: dict[str, tuple[Callable[[float, float], bool], Callable[[float], str
 
 
 def _n1(ctx: GateContext) -> list[GateFinding]:
-    """New or worsened N-1 findings. Keyed by `diff.n1_key`, never by the diff's capped lists; worse per kind of breach
+    """New or worsened N-1 findings. Keyed by `findings.n1_key`, never by the diff's capped lists; worse per kind of breach
     (`_N1_WORSE`), a smaller move is context."""
     out: list[GateFinding] = []
     for y, b, h in ctx.common_years():
@@ -297,8 +306,7 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
             kind = "n1_new_islanded" if v.get("type") == "islanded" else "n1_new_limit"
             out.append(_finding(kind, f"New N-1 finding in {y}: {v.get('message', '')}", year=y, case=v.get("case"),
                                 element_kind=v.get("outage_type"), element_id=v.get("outage_id"), value=v.get("value"),
-                                ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, v.get("case"),
-                                        (v.get("type"), v.get("element_id")))))
+                                ledger=n1_id(v, y)))
         same = 0
         for k in sorted(hk.keys() & bk.keys(), key=str):
             hv, bv = hk[k].get("value"), bk[k].get("value")
@@ -309,8 +317,7 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
                                                 f"{figure(bv)} on {ctx.base_label}).",
                                     year=y, case=v.get("case"), element_kind=v.get("outage_type"), element_id=v.get("outage_id"),
                                     value=hv, base_value=bv,
-                                    ledger=("n1", v.get("outage_type"), v.get("outage_id"), y, v.get("case"),
-                                            (v.get("type"), v.get("element_id")))))
+                                    ledger=n1_id(v, y)))
             else:
                 same += 1
         if same:
@@ -335,14 +342,14 @@ def _alerts(ctx: GateContext) -> list[GateFinding]:
                 kind = "alert_new_breach" if a.level == "breach" else "alert_new_warn"
             elif a.level == "breach" and ba.level != "breach":
                 kind = "alert_new_breach"
-            elif _excess(a) - _excess(ba) > _EPS:
+            elif _excess(a) - _excess(ba) > GATE_NOISE:
                 kind = "alert_worse"
             else:
                 kind = "preexisting"
             text = a.message if kind != "preexisting" else f"{a.message} (already so on {ctx.base_label})"
             out.append(_finding(kind, text, year=y, element_kind="region", element_id=a.region_id, value=a.value,
                                 base_value=ba.value if ba else None, limit=a.limit,
-                                ledger=("alert", "region", a.region_id, y, None, (a.kind,))))
+                                ledger=alert_id(a.region_id, y, a.kind)))
     return out
 
 
@@ -363,7 +370,7 @@ def _works(ctx: GateContext) -> list[GateFinding]:
         value = w.demand_at_risk_mw_branch if w.verdict_on_branch == "demand_at_risk" else w.curtailed_mw_branch
         base_value = (w.demand_at_risk_mw_main if w.verdict_on_main == "demand_at_risk" else w.curtailed_mw_main)
         out.append(_finding(kind, w.consequence or w.message, year=w.year, element_kind="outage", element_id=w.outage_id,
-                            value=value, base_value=base_value, ledger=("work", "outage", w.outage_id, w.year, None)))
+                            value=value, base_value=base_value, ledger=work_id(w.outage_id, w.year)))
     return out
 
 
@@ -382,7 +389,7 @@ def _schedule(ctx: GateContext) -> list[GateFinding]:
                 f"{q.request_id} is scheduled for {s}, but the grid has no year it can host it.")
         out.append(_finding("against_recommendation", text, element_kind="project", element_id=q.request_id,
                             value=s, limit=q.recommended_year,
-                            ledger=("against_recommendation", "project", q.request_id, None, None)))
+                            ledger=project_id("against_recommendation", q.request_id)))
     return out
 
 
@@ -412,7 +419,7 @@ def _deferred(ctx: GateContext) -> list[GateFinding]:
     return [
         _finding("deferred_on_grid", f"{q.request_id} stays deferred: {q.reason.message}", case=q.reason.case,
                  element_kind="project", element_id=q.request_id, value=q.reason.value, limit=q.reason.limit,
-                 ledger=("deferred", "project", q.request_id))
+                 ledger=project_id("deferred", q.request_id))
         for q in ctx.head.queue
         if q.status == "Deferred" and q.reason is not None and q.reason.type in GRID_REASON_TYPES
     ]

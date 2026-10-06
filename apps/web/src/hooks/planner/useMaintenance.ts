@@ -4,14 +4,15 @@
 
 import { useCallback } from "react";
 
-import { api } from "../../api";
+import { api, failureText } from "../../api";
 import { WORK_UI, draftBody } from "../../lib/maintenance";
 import type { ElementSel } from "../../types";
-import { mainIdOf } from "../../lib/projects";
+import { editableBranch } from "./core";
 import type { Core, MaintDraft } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
-export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn) {
+export function useMaintenance(core: Core, edited: EditedFn) {
+  const { patch, ref, toastMsg } = core;
   /** Load a branch's stored projects, outages and reinforcements (on switch and boot, and after an agent's proposal is approved). */
   const loadExtras = useCallback(
     async (bid: string) => {
@@ -19,7 +20,7 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
         const [outages, reinforcements, candidates] = await Promise.all([api.listOutages(bid), api.listReinforcements(bid), api.listCandidates(bid)]);
         if (ref.current.activeBranch === bid) patch({ outages, reinforcements, candidates });
       } catch (e) {
-        toastMsg(`Could not load the branch's proposals: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not load the branch's proposals: ${failureText(e)}`, "warn");
       }
     },
     [patch, ref, toastMsg],
@@ -30,54 +31,52 @@ export function useMaintenance({ patch, ref, toastMsg }: Core, edited: EditedFn)
   /** Schedule a maintenance window on an element, on a branch (main is read-only). */
   const addOutage = useCallback(
     async (sel: ElementSel, bid: string) => {
-      const st = ref.current;
-      if (bid === mainIdOf(st.projects, st.projectId)) {
-        toastMsg("main is read-only. Open a branch to schedule maintenance.", "warn");
-        return;
-      }
-      const d = st.maintDraft;
+      if (!editableBranch(core, "schedule maintenance", bid)) return;
+      const d = ref.current.maintDraft;
       try {
         const o = await api.addOutage(bid, draftBody(sel, d));
         patch((x) => (x.activeBranch === bid ? { outages: [...x.outages.filter((y) => y.outage_id !== o.outage_id), o], year: d.year } : {}));
         toastMsg(`${WORK_UI[d.work].label} scheduled for ${d.season.toLowerCase()} ${d.year}. Studying it now.`);
         edited("works");
       } catch (e) {
-        toastMsg(`Could not schedule it: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not schedule it: ${failureText(e)}`, "warn");
       }
     },
-    [edited, patch, ref, toastMsg],
+    [core, edited, patch, ref, toastMsg],
   );
 
   const removeOutage = useCallback(
     async (outageId: string) => {
-      const st = ref.current;
-      if (st.activeBranch === mainIdOf(st.projects, st.projectId)) return;
-      const before = st.outages;
+      const bid = editableBranch(core, "remove planned works");
+      if (!bid) return;
+      const before = ref.current.outages;
       patch({ outages: before.filter((o) => o.outage_id !== outageId) });
       try {
-        await api.removeOutage(st.activeBranch, outageId);
+        await api.removeOutage(bid, outageId);
         edited("works");
-      } catch {
+      } catch (e) {
         patch({ outages: before });
-        toastMsg("Could not remove it. Check the API is running.", "warn");
+        toastMsg(`Could not remove it: ${failureText(e)}`, "warn");
       }
     },
-    [edited, patch, ref, toastMsg],
+    [core, edited, patch, ref, toastMsg],
   );
 
   const removeReinforcement = useCallback(
     async (rid: string) => {
-      const st = ref.current;
-      const before = st.reinforcements;
+      const bid = editableBranch(core, "remove a reinforcement");
+      if (!bid) return;
+      const before = ref.current.reinforcements;
       patch({ reinforcements: before.filter((r) => r.reinforcement_id !== rid) });
       try {
-        await api.removeReinforcement(st.activeBranch, rid);
+        await api.removeReinforcement(bid, rid);
         edited("reinforcement");
-      } catch {
+      } catch (e) {
         patch({ reinforcements: before });
+        toastMsg(`Could not remove the reinforcement: ${failureText(e)}`, "warn");
       }
     },
-    [edited, patch, ref],
+    [core, edited, patch, ref, toastMsg],
   );
 
   return { loadExtras, setDraft, addOutage, removeOutage, removeReinforcement };

@@ -4,7 +4,7 @@ outputs (QueueItem, PhaseResult, OptimizeResult, Reason)."""
 from __future__ import annotations
 
 import math
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from pydantic import Field, BaseModel, model_validator
 
@@ -13,6 +13,7 @@ from .config import (
     FORECASTS,
     GROWTH_2030,
     GROWTH_2035,
+    IMPORT_FORECAST_FACTOR_MAX,
     IMPORT_PATHWAYS,
     PLAN_END_YEAR,
     PLAN_START_YEAR,
@@ -81,16 +82,42 @@ class Candidate(BaseModel):
             return None
         return float(self.import_mw) * rating_mw / float(self.rating_mw)
 
+    def signature(self) -> tuple:
+        """What a power flow with this project in service depends on (`network.inject_project`): the one key both the
+        greedy trial cache and the plan-year signature use, so neither can miss a field the physics reads."""
+        return (self.request_id, self.bus_id, self.rating_mw, self.import_mw, self.technology,
+                self.control.model_dump_json() if self.control else None)
+
 
 class Reason(BaseModel):
     """Why a project was deferred or rejected, with the binding element where applicable."""
 
-    type: str  # "voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "rejected"
+    type: str  # a REASON_SPECS key ("voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "islanded"), or "rejected"
     element_id: int | None = None
     value: float | None = None
     limit: float | None = None  # the limit breached (pu for voltage, % for thermal, MW for the GSP)
     message: str
     case: str | None = None  # the study case it fails in: "winter_peak" | "summer_min" (None = n/a)
+
+
+class ReasonSpec(NamedTuple):
+    """What the planning layer knows about one kind of breach (the engine's `network.LIMIT_CHECKS` and its boundary and
+    convergence reasons): a new kind is one entry here, beside its check (AGENTS.md rule 6)."""
+
+    unit: str  # its figure's unit
+    grid: bool = True  # the GRID held a project back (not intake or policy): findings, the gate, the agents' grid levers
+    thermal: bool = False  # a parallel circuit on the binding element relieves it (suggest's chain)
+    n1_order: int = 4  # worst first among N-1 findings during a works window (maintenance)
+
+
+REASON_SPECS: dict[str, ReasonSpec] = {
+    "non_convergent": ReasonSpec("", n1_order=0),
+    "islanded": ReasonSpec("MW", n1_order=1),
+    "line": ReasonSpec("%", thermal=True, n1_order=2),
+    "trafo": ReasonSpec("%", thermal=True, n1_order=2),
+    "voltage": ReasonSpec("pu", n1_order=3),
+    "gsp": ReasonSpec("MW"),
+}
 
 
 class QueueItem(BaseModel):
@@ -187,8 +214,10 @@ class N1During(BaseModel):
     worst: str = ""  # the worst finding in words ("" when there is none)
 
 
-# how bad a window's verdict is, worst last: the order maintenance folds cases by and diff compares by
-VERDICT_SEVERITY = {"feasible": 0, "curtailment": 1, "not_feasible": 2, "demand_at_risk": 3}
+# how bad a window's verdict is, worst last: the one order maintenance folds cases by, diff and the gate compare by and
+# the best-window search ranks by (demand at risk is the worst: customers lose supply). `unstudied` (the element is not
+# in the network model) is no verdict on the grid, so it ranks with nothing and says so in its own words.
+VERDICT_SEVERITY = {"unstudied": 0, "feasible": 0, "curtailment": 1, "not_feasible": 2, "demand_at_risk": 3}
 
 
 class OutageStudy(BaseModel):
@@ -430,6 +459,9 @@ class ModelBus(BaseModel):
     lon: float
     lat: float
     place: str = ""  # where it is, by name (`naming`): its own name, or a neighbour's for a coded busbar; "" when nothing near is named
+    # the voltage band this bus is judged against (`network.voltage_limits`: the grid's own limits at its level)
+    vmin_pu: float
+    vmax_pu: float
 
 
 class ModelLine(BaseModel):
@@ -445,6 +477,7 @@ class ModelLine(BaseModel):
     from_lat: float
     to_lon: float
     to_lat: float
+    in_service: bool = True  # False: an open point (the line is in the model but carries nothing)
 
 
 class ModelTransformer(BaseModel):
@@ -507,10 +540,12 @@ class VoltageBand(BaseModel):
 
 class ImportMeta(BaseModel):
     """What the operator knows about an imported grid that its file does not carry. Each is applied
-    uniformly and recorded as an operator-entered assumption; none is required."""
+    uniformly and recorded as an operator-entered assumption. The study basis below is required, and so is the summer
+    data (minimum demand, summer ratings) unless the file carries it: a missing part is a gap."""
 
     gsp_export_limit_mw: float | None = Field(default=None, gt=0)
     gsp_name: str | None = None
+    gsp_sgt_mw: float | None = Field(default=None, gt=0)  # one supergrid transformer's rating: the "add an SGT" lever's size
     min_demand_factor: float | None = Field(default=None, gt=0, le=1)  # minimum demand as a share of maximum
     summer_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)  # summer / winter line rating
     intermediate_rating_ratio: float | None = Field(default=None, gt=0, le=1.5)
@@ -548,8 +583,8 @@ class ImportMeta(BaseModel):
         for p, curve in self.forecasts.items():
             if set(curve) != years:
                 raise ValueError(f"the {name(p)} forecast must give every plan year from {min(years)} to {max(years)}")
-            if any(not (0 < v <= 2) for v in curve.values()):
-                raise ValueError(f"the {name(p)} forecast's year-on-year factors must be above 0 and at most 2 (1.02 is +2 %)")
+            if any(not (0 < v <= IMPORT_FORECAST_FACTOR_MAX) for v in curve.values()):
+                raise ValueError(f"the {name(p)} forecast's year-on-year factors must be above 0 and at most {IMPORT_FORECAST_FACTOR_MAX:g} (1.02 is +2 %)")
         order = [p for p in IMPORT_PATHWAYS if p in self.forecasts]
         self.forecasts = {p: dict(sorted(self.forecasts[p].items())) for p in order}
         total = self.cumulative()

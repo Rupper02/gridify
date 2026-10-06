@@ -3,7 +3,7 @@ and simulated reinforcements over the base's (routers.branches.merge_branch), so
 ones the branch added and loses the ones the branch removed. Pure: rows in, the difference out.
 
 Rows match by id: a branch starts with copies of its parent's rows, ids included
-(repository.copy_branch_extras), and a row is never edited in place, only removed and re-added."""
+(repository.open_branch), and a row is never edited in place, only removed and re-added."""
 
 from __future__ import annotations
 

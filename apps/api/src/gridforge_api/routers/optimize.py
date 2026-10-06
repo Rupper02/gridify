@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .. import repository
 from ..agents import events
+from ..config import NGED_MAIN_ID
 from ..deps import agents, cache, jobs, plans, scenarios
 from ..schemas import BranchOptimizeRequest, OptimizeRequest
 
@@ -13,23 +14,12 @@ router = APIRouter()
 @router.post("/optimize")
 def run_optimize(body: OptimizeRequest) -> dict:
     """Run the built-in project's main plan and return the enriched queue + per-phase results (= POST /projects/nged-bickerfen/optimize)."""
-    return ran("main", plans.optimize_payload(body, "main"))
+    return ran(NGED_MAIN_ID, plans.optimize_payload(body, NGED_MAIN_ID), is_main=True)
 
 
-def works_flagged(out: dict) -> tuple[int, int]:
-    """The payload's works windows, and how many of them a planner should look at: not simply feasible,
-    or with second faults found during the window."""
-    studies = [s for y in (out.get("years") or {}).values() for s in (y.get("outage_studies") or [])]
-    flagged = sum(1 for s in studies if s.get("verdict") != "feasible" or ((s.get("n1_during") or {}).get("findings") or 0) > 0)
-    return len(studies), flagged
-
-
-def ran(branch_id: str, out: dict) -> dict:
-    """A run finished: the agents hear about it (deduplicated by the result's identity; a no-op only while the
-    runtime is still starting), with how many works windows it studied and how many of those it flagged."""
-    n_works, flagged = works_flagged(out)
-    events.emit(agents, "run.finished", {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""),
-                                         "n_works": n_works, "works_flagged": flagged})
+def ran(branch_id: str, out: dict, *, is_main: bool) -> dict:
+    """A run finished: the agents hear about it (`events.run_finished`; deduplicated by the result's identity)."""
+    events.emit(agents, "run.finished", events.run_finished(branch_id, out, is_main=is_main))
     return out
 
 
@@ -40,7 +30,7 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
         row = repository.require_branch(con, branch_id)
     req = repository.branch_request(row)
     req.with_justification = bool(body and body.with_justification)
-    return ran(branch_id, plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None))
+    return ran(branch_id, plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None), is_main=repository.is_main(row))
 
 
 @router.post("/branches/{branch_id}/optimize/jobs")
@@ -58,8 +48,9 @@ def start_branch_run(branch_id: str, *, with_justification: bool, view_year: int
     with scenarios.cursor() as con:
         row = repository.require_branch(con, branch_id)
     req = OptimizeRequest(with_justification=with_justification, **repository.branch_params(row))
+    main = repository.is_main(row)
     return jobs.start("optimize", lambda progress, publish: ran(branch_id, plans.optimize_payload(
-        req, branch_id, progress=progress, publish=publish, view_year=view_year)), key=plans.payload_key(req, branch_id))
+        req, branch_id, progress=progress, publish=publish, view_year=view_year), is_main=main), key=plans.payload_key(req, branch_id))
 
 
 @router.post("/jobs/{job_id}/cancel")

@@ -19,10 +19,10 @@ from collections.abc import Callable, Mapping
 from typing import NamedTuple
 
 from .config import GSP_NEAR_LIMIT_FRACTION, LINE_LOADING_MAX_PCT, TRAFO_LOADING_MAX_PCT
-from .types import SEVERITY_ORDER, VERDICT_SEVERITY, Finding, OptimizeResult, YearResult
+from .types import REASON_SPECS, SEVERITY_ORDER, VERDICT_SEVERITY, Finding, OptimizeResult, YearResult
 
 # reason types that mean the GRID (not intake or policy) held a project back
-GRID_REASON_TYPES = ("line", "trafo", "voltage", "gsp", "non_convergent")
+GRID_REASON_TYPES = tuple(k for k, s in REASON_SPECS.items() if s.grid)
 # works verdicts that put supply, not just generation output, at stake
 SEVERE_VERDICTS = tuple(v for v, s in VERDICT_SEVERITY.items() if s >= VERDICT_SEVERITY["not_feasible"])
 
@@ -32,6 +32,49 @@ def fingerprint(kind: str, element_kind: str | None = None, element_id=None, yea
     Deliberately value-independent, so the same overload at 104% and later at 109% is one finding."""
     sig = "|".join("" if x is None else str(x) for x in (kind, element_kind, element_id, year, case, *extra))
     return hashlib.sha1(sig.encode()).hexdigest()[:16]
+
+
+# --- identities: the one place each kind of finding's identity is built, as `fingerprint`'s arguments. The extractors
+# below and the merge gate (`GateFinding.finding_fingerprint`, which the agents and the planner link findings by) both
+# use these, so the two can never drift apart.
+def overload_id(table: str, eid, year: int) -> tuple:
+    return ("overload", table, eid, year, None)
+
+
+def voltage_id(bus, year: int) -> tuple:
+    return ("voltage", "bus", bus, year, None)
+
+
+def gsp_id(kind: str, year: int) -> tuple:  # gsp_over_limit | gsp_near_limit
+    return (kind, "gsp", "gsp", year, None)
+
+
+def n1_key(v: dict) -> tuple:
+    """An N-1 finding's identity within a year: which element was lost, in which case, and which limit broke on what.
+    An island is the outage's alone: its id bus (the lowest one stranded) moves as the island grows."""
+    return (v.get("outage_type"), str(v.get("outage_id")), v.get("case"), v.get("type"),
+            None if v.get("type") == "islanded" else v.get("element_id"))
+
+
+def n1_id(v: dict, year: int) -> tuple:
+    outage_type, outage_id, case, breach, element = n1_key(v)
+    return ("n1", outage_type, outage_id, year, case, (breach, element))
+
+
+def alert_id(region_id, year: int, alert_kind: str) -> tuple:
+    return ("alert", "region", region_id, year, None, (alert_kind,))
+
+
+def work_id(outage_id: str, year: int) -> tuple:
+    return ("work", "outage", outage_id, year, None)
+
+
+def project_id(kind: str, request_id: str) -> tuple:  # deferred | against_recommendation
+    return (kind, "project", request_id, None, None)
+
+
+def year_id(kind: str, year: int) -> tuple:  # non_convergent
+    return (kind, None, None, year, None)
 
 
 def against_recommendation(recommended_year: int | None, scheduled_year: int | None) -> bool:
@@ -78,7 +121,8 @@ def _overloads(ctx: _Ctx) -> list[Finding]:
                     continue
                 out.append(_finding("overload", "breach",
                                     f"{label} {eid} at {pct:.0f}% of its rating in {y.year} (worst case)",
-                                    element_kind=table, element_id=eid, year=y.year, value=round(pct, 1), limit=limit))
+                                    element_kind=table, element_id=eid, year=y.year, value=round(pct, 1), limit=limit,
+                                    fp=fingerprint(*overload_id(table, eid, y.year))))
     return out
 
 
@@ -91,7 +135,7 @@ def _voltage(ctx: _Ctx) -> list[Finding]:
             text = f"{vm:.3f} pu" if vm is not None else "a voltage"
             out.append(_finding("voltage", "breach",
                                 f"bus {bus} at {text}, outside its statutory band in {y.year} (worst case)",
-                                element_kind="bus", element_id=bus, year=y.year, value=vm))
+                                element_kind="bus", element_id=bus, year=y.year, value=vm, fp=fingerprint(*voltage_id(bus, y.year))))
     return out
 
 
@@ -105,11 +149,13 @@ def _gsp(ctx: _Ctx) -> list[Finding]:
         if export > limit:
             out.append(_finding("gsp_over_limit", "breach",
                                 f"GSP export {export:.0f} MW is above its {limit:.0f} MW limit in {y.year}",
-                                element_kind="gsp", element_id="gsp", year=y.year, value=round(export, 1), limit=limit))
+                                element_kind="gsp", element_id="gsp", year=y.year, value=round(export, 1), limit=limit,
+                                fp=fingerprint(*gsp_id("gsp_over_limit", y.year))))
         elif export > GSP_NEAR_LIMIT_FRACTION * limit:
             out.append(_finding("gsp_near_limit", "warn",
                                 f"GSP export {export:.0f} MW is {export / limit:.0%} of its {limit:.0f} MW limit in {y.year}",
-                                element_kind="gsp", element_id="gsp", year=y.year, value=round(export, 1), limit=limit))
+                                element_kind="gsp", element_id="gsp", year=y.year, value=round(export, 1), limit=limit,
+                                fp=fingerprint(*gsp_id("gsp_near_limit", y.year))))
     return out
 
 
@@ -123,7 +169,7 @@ def _n1(ctx: _Ctx) -> list[Finding]:
                                 case=v.get("case"), value=v.get("value"),
                                 context={"breach_type": v.get("type"), "breach_element_id": v.get("element_id"),
                                          "outage_name": v.get("outage_name")},
-                                extra=(v.get("type"), v.get("element_id"))))
+                                fp=fingerprint(*n1_id(v, y.year))))
     return out
 
 
@@ -131,7 +177,7 @@ def _alerts(ctx: _Ctx) -> list[Finding]:
     """The demand-side alerts (demand.ALERT_CHECKS), at their own level."""
     return [
         _finding("alert", a.level, a.message, element_kind="region", element_id=a.region_id, year=a.year,
-                 value=a.value, limit=a.limit, context={"alert_kind": a.kind}, extra=(a.kind,))
+                 value=a.value, limit=a.limit, context={"alert_kind": a.kind}, fp=fingerprint(*alert_id(a.region_id, a.year, a.kind)))
         for y in ctx.years() for a in y.alerts
     ]
 
@@ -148,7 +194,7 @@ def _works(ctx: _Ctx) -> list[Finding]:
             out.append(_finding("work", "breach" if severe else "warn", s.message, element_kind="outage",
                                 element_id=s.outage_id, year=s.year, value=round(value, 1),
                                 context={"verdict": s.verdict, "work": s.work, "cases": list(s.cases),
-                                         "with_ids": list(s.with_ids)}))
+                                         "with_ids": list(s.with_ids)}, fp=fingerprint(*work_id(s.outage_id, s.year))))
     return out
 
 
@@ -163,7 +209,7 @@ def _queue(ctx: _Ctx) -> list[Finding]:
                                 element_id=q.request_id, case=r.case, value=r.value, limit=r.limit,
                                 context={"reason_type": r.type, "binding_element_id": r.element_id,
                                          "grid": r.type in GRID_REASON_TYPES},
-                                fp=fingerprint("deferred", "project", q.request_id)))
+                                fp=fingerprint(*project_id("deferred", q.request_id))))
         elif q.status == "Rejected":
             why = r.message if r is not None else "did not pass intake"
             out.append(_finding("rejected", "info", f"{q.request_id} rejected: {why}", element_kind="project",
@@ -185,7 +231,7 @@ def _schedule(ctx: _Ctx) -> list[Finding]:
         else:
             text = f"{q.request_id} is scheduled for {scheduled}, earlier than the {q.recommended_year} the grid supports"
         out.append(_finding("against_recommendation", "warn", text, element_kind="project", element_id=q.request_id,
-                            value=scheduled, limit=q.recommended_year))
+                            value=scheduled, limit=q.recommended_year, fp=fingerprint(*project_id("against_recommendation", q.request_id))))
     return out
 
 
@@ -193,7 +239,8 @@ def _non_convergent(ctx: _Ctx) -> list[Finding]:
     """Years whose intact power flow did not converge: their figures cannot be trusted."""
     return [
         _finding("non_convergent", "breach",
-                 f"the power flow did not converge in {y.year}: that year's figures are not trustworthy", year=y.year)
+                 f"the power flow did not converge in {y.year}: that year's figures are not trustworthy", year=y.year,
+                 fp=fingerprint(*year_id("non_convergent", y.year)))
         for y in ctx.years() if not y.converged
     ]
 

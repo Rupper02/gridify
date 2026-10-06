@@ -10,15 +10,15 @@ import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Mi
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { type ModelIndex, lineName, nameElements, parentName, trafoName } from "../lib/derive";
+import { type ModelIndex, lineName, nameElements, trafoName } from "../lib/derive";
 import { type GateState, type GateView, gateText, gateTitle } from "../lib/gate";
 import {
   type Namers,
   type Tone,
-  VERDICT,
   flaggedYears,
   mergeChangeCount,
   outageTitle,
+  reinforcementLabel,
   verdictOnBranch,
   verdictOnMain,
   workTitle,
@@ -26,6 +26,7 @@ import {
   worksInOrder,
   yearEffect,
 } from "../lib/diff";
+import { VERDICTS } from "../lib/maintenance";
 import type { Plan } from "../lib/plan";
 import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
 import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
@@ -33,17 +34,16 @@ import { RebaseCard } from "./RebaseCard";
 import { DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "agents" | "branches" | "diff" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
-  "createBranch" | "discardBranch" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "removeReinforcement" | "setYear",
-  "branch" | "gate" | "hue" | "ix" | "mainId" | "onMain" | "reviewStale" | "yearDelta"
+  "agents" | "branches" | "diff" | "diffError" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
+  "createBranch" | "discardBranch" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "refreshDiff" | "refreshMergeCheck" | "removeReinforcement" | "setYear",
+  "branch" | "gate" | "hue" | "ix" | "onMain" | "parent" | "reviewStale" | "yearDelta"
 >;
 
-const statusLabel = (st: Status | null, year?: number | null): string =>
-  st == null ? "not on main" : st === "Phase1" || st === "Phase2" ? `${ST[st].label}${year ? ` · ${year}` : ""}` : ST[st].label;
+const statusLabel = (st: Status | null, parent: string): string => (st == null ? `not on ${parent}` : ST[st].label);
 
 export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const { s, actions, derived } = planner;
-  const { branch, hue, ix, gate } = derived;
+  const { branch, hue, ix, gate, parent } = derived;
   const [confirm, setConfirm] = useState(false); // the warnings step before "Merge anyway"
   if (derived.onMain)
     return (
@@ -59,9 +59,8 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
       </div>
     );
 
-  const main = s.branches.find((b) => b.branch_id === derived.mainId);
-  const parent = parentName(s.branches, branch, derived.mainId); // what it is judged against and merges into
-  const mismatch = main && branch && main.scenario !== branch.scenario;
+  const base = s.branches.find((b) => b.branch_id === branch?.parent_id); // what it is judged against and merges into
+  const mismatch = base && branch && base.scenario !== branch.scenario;
   const { diff: d, plan } = s;
   const open = branch?.status === "open";
   const canMerge = gate.state === "ready" || gate.state === "warnings";
@@ -84,25 +83,32 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         <ArrowRight size={12} color={C.mute2} />
         <span style={{ color: hue, fontWeight: 600 }}>{branch?.name}</span>
       </div>
-      {branch && open && <RebaseCard key={branch.branch_id} branch={branch} parent={parentName(s.branches, branch, derived.mainId)} name={(t) => nameElements(t, ix)} onPreview={actions.previewRebase} onRebase={actions.rebaseBranch} />}
+      {branch && open && <RebaseCard key={branch.branch_id} branch={branch} parent={parent} name={(t) => nameElements(t, ix)} onPreview={actions.previewRebase} onRebase={actions.rebaseBranch} />}
       {mismatch && (
         <div className="notice amber">
-          main is tested on {profileOf(main!.scenario).label} and this branch on {profileOf(branch!.scenario).label}. Part of the difference below comes from demand, not from
+          {parent} is tested on {profileOf(base!.scenario).label} and this branch on {profileOf(branch!.scenario).label}. Part of the difference below comes from demand, not from
           the projects you added.
         </div>
       )}
       {!d || !plan ? (
-        <span className="mute" style={{ fontSize: 12 }}>
-          {s.solving ? `The comparison with ${parent} appears once every year of this run is solved.` : `Comparing with ${parent}…`}
-        </span>
+        s.diffError && !s.solving ? (
+          <span className="notice amber" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="grow">Could not compare with {parent}: {s.diffError}</span>
+            <button className="btn" onClick={() => branch && void actions.refreshDiff(branch.branch_id)}>Retry</button>
+          </span>
+        ) : (
+          <span className="mute" style={{ fontSize: 12 }}>
+            {s.solving ? `The comparison with ${parent} appears once every year of this run is solved.` : `Comparing with ${parent}…`}
+          </span>
+        )
       ) : (
         <>
           {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
           <Tiles d={d} plan={plan} />
           <YearPick years={plan.years} year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />
-          <Works works={d.works ?? []} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} name={(t) => nameElements(t, ix)} onPick={actions.setYear} />
-          <Changed d={d} name={(t) => nameElements(t, ix)} />
+          <Works works={d.works ?? []} parent={parent} year={s.year} title={(w) => workTitle(w, s.outages.find((o) => o.outage_id === w.outage_id), ix)} name={(t) => nameElements(t, ix)} onPick={actions.setYear} />
+          <Changed d={d} parent={parent} name={(t) => nameElements(t, ix)} />
           <MergeChanges m={d.on_merge} hue={hue} parent={parent} title={(o) => outageTitle(o, ix)} />
         </>
       )}
@@ -112,7 +118,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           {s.reinforcements.map((r) => (
             <div key={r.reinforcement_id} className="mrow">
               <GitMerge size={13} color={hue} />
-              <span className="ellipsis" style={{ fontSize: 12 }}>{r.label || `${r.action} ${r.kind} ${r.element_id}`}</span>
+              <span className="ellipsis" style={{ fontSize: 12 }}>{reinforcementLabel(r)}</span>
               <button className="icon-btn sm" onClick={() => void actions.removeReinforcement(r.reinforcement_id)} title="Remove" aria-label="Remove reinforcement" disabled={!open}>
                 <Trash size={12} />
               </button>
@@ -120,16 +126,13 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           ))}
         </div>
       )}
-      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} parent={parent} />
+      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} parent={parent} onRetry={() => branch && void actions.refreshMergeCheck(branch.branch_id)} />
       <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} ix={ix} />
       {confirm && s.mergeCheck && (
         <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merge with these warnings?</span>
           {s.mergeCheck.verdict.warnings.map((w, i) => (
-            <span key={i} className="gate-row warning">
-              <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
-              <span>{gateText(w, ix)}</span>
-            </span>
+            <GateRow key={i} cls="warning" text={gateText(w, ix)} />
           ))}
         </div>
       )}
@@ -153,26 +156,38 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   );
 }
 
-const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: ArrowsClockwise, stale: ArrowsClockwise, blocked: Prohibit, warnings: ShieldWarning, ready: ShieldCheck };
-const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
-
-/** The merge gate: may this branch become the plan of record? Blockers, warnings, and what main already carries. */
-function MergeReadiness({ mc, gate, ix, parent }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null; parent: string }) {
-  const I = GATE_ICON[gate.state];
-  const v = gate.state === "stale" || gate.state === "checking" || gate.state === "closed" ? null : (mc?.verdict ?? null);
-  const row = (f: Parameters<typeof gateText>[0], cls: string, i: number) => (
-    <span key={`${cls}${i}`} className={`gate-row ${cls}`}>
+/** One line of the gate (or the reviewer's restatement of it): a blocker, a warning, with its kind's title. */
+function GateRow({ cls, title, text }: { cls: string; title?: string; text: string }) {
+  return (
+    <span className={`gate-row ${cls}`}>
       <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
       <span>
-        <b>{gateTitle(f.kind)}</b> · {gateText(f, ix)}
+        {title && <b>{title}</b>}
+        {title && " · "}
+        {text}
       </span>
     </span>
   );
+}
+
+const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: ArrowsClockwise, failed: Warning, stale: ArrowsClockwise, blocked: Prohibit, warnings: ShieldWarning, ready: ShieldCheck };
+const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", failed: "warn", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
+
+/** The merge gate: may this branch become the plan of record? Blockers, warnings, and what its parent already carries. */
+function MergeReadiness({ mc, gate, ix, parent, onRetry }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null; parent: string; onRetry: () => void }) {
+  const I = GATE_ICON[gate.state];
+  const v = gate.state === "stale" || gate.state === "checking" || gate.state === "failed" || gate.state === "closed" ? null : (mc?.verdict ?? null);
+  const row = (f: Parameters<typeof gateText>[0], cls: string, i: number) => <GateRow key={`${cls}${i}`} cls={cls} title={gateTitle(f.kind)} text={gateText(f, ix)} />;
   return (
     <div className="gate-card">
       <span className="gate-state" data-tone={GATE_TONE[gate.state]}>
         <I size={14} weight="bold" />
         {gate.headline}
+        {gate.state === "failed" && (
+          <button className="btn" style={{ marginLeft: "auto" }} onClick={onRetry}>
+            Retry
+          </button>
+        )}
       </span>
       {v?.blockers.map((b, i) => row(b, "blocker", i))}
       {v?.warnings.map((w, i) => row(w, "warning", i))}
@@ -201,12 +216,7 @@ function Reviews({ reviews, stale, agents, ix }: { reviews: Review[]; stale: boo
   const rv = reviews.find((r) => r.status === "prepared_for_review") ?? null;
   const starting = !agents || agents.status === "starting";
   const restate = (b: Review["blockers"][number], cls: string, i: number) => (
-    <span key={`${cls}${i}`} className={`gate-row ${cls}`}>
-      <Warning size={12} style={{ flex: "none", marginTop: 2 }} />
-      <span>
-        <b>{gateTitle(b.kind)}</b> · {nameElements(b.restated, ix)}
-      </span>
-    </span>
+    <GateRow key={`${cls}${i}`} cls={cls} title={gateTitle(b.kind)} text={nameElements(b.restated, ix)} />
   );
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -242,8 +252,8 @@ function MergeChanges({ m, hue, parent, title }: { m: OnMerge | undefined; hue: 
   const rows = [
     ...m.works_added.map((o) => ({ key: o.outage_id, add: true, text: `${title(o)} · ${o.season} ${o.year}` })),
     ...m.works_removed.map((o) => ({ key: o.outage_id, add: false, text: `${title(o)} · ${o.season} ${o.year}` })),
-    ...m.reinforcements_added.map((r) => ({ key: r.reinforcement_id, add: true, text: r.label || `${r.action} ${r.kind} ${r.element_id}` })),
-    ...m.reinforcements_removed.map((r) => ({ key: r.reinforcement_id, add: false, text: r.label || `${r.action} ${r.kind} ${r.element_id}` })),
+    ...m.reinforcements_added.map((r) => ({ key: r.reinforcement_id, add: true, text: reinforcementLabel(r) })),
+    ...m.reinforcements_removed.map((r) => ({ key: r.reinforcement_id, add: false, text: reinforcementLabel(r) })),
   ];
   return (
     <div className="merge-changes">
@@ -323,15 +333,15 @@ function NetworkEffect({ yd, year, names }: { yd: YearDelta | null; year: number
 }
 
 /** The branch's planned works: each window's verdict on main's plan and on the branch's, and what that means. */
-function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year: number; title: (w: WorkDelta) => string; name: (t: string) => string; onPick: (y: number) => void }) {
+function Works({ works, parent, year, title, name, onPick }: { works: WorkDelta[]; parent: string; year: number; title: (w: WorkDelta) => string; name: (t: string) => string; onPick: (y: number) => void }) {
   if (!works.length) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <span style={{ fontSize: 12.5, fontWeight: 600 }}>Planned works</span>
       {worksInOrder(works, year).map((w) => {
         const tone = workTone(w);
-        const vm = w.verdict_on_main ? VERDICT[w.verdict_on_main].tone : "neutral";
-        const vb = VERDICT[w.verdict_on_branch]?.tone ?? "neutral";
+        const vm = w.verdict_on_main ? VERDICTS[w.verdict_on_main].tone : "neutral";
+        const vb = VERDICTS[w.verdict_on_branch]?.tone ?? "neutral";
         return (
           <button key={w.outage_id} className={`work-row${w.year === year ? " now" : ""}`} onClick={() => onPick(w.year)} title={w.message}>
             <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, minWidth: 0 }}>
@@ -340,7 +350,7 @@ function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year:
               <span className="mono" style={{ marginLeft: "auto", fontSize: 11, color: C.mute }}>{w.year}</span>
             </span>
             <span className="verdicts">
-              <span style={{ color: C.mute }}>{w.on_base ? "main" : "main · not scheduled, would be"}</span>
+              <span style={{ color: C.mute }}>{w.on_base ? parent : `${parent} · not scheduled, would be`}</span>
               <span className="chip" style={{ background: tint(TONE_INK[vm], "1f"), color: TONE_INK[vm] }}>{verdictOnMain(w)}</span>
               <ArrowRight size={11} color={C.mute2} />
               <span style={{ color: C.mute }}>branch</span>
@@ -357,7 +367,7 @@ function Works({ works, year, title, name, onPick }: { works: WorkDelta[]; year:
   );
 }
 
-function Changed({ d, name }: { d: Diff; name: (t: string) => string }) {
+function Changed({ d, parent, name }: { d: Diff; parent: string; name: (t: string) => string }) {
   const movers = d.projects.filter((p) => p.change !== "unchanged");
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -370,9 +380,9 @@ function Changed({ d, name }: { d: Diff; name: (t: string) => string }) {
           <div key={p.request_id} className="mover">
             <span className="mono" style={{ fontSize: 12.5, fontWeight: 600 }}>{p.request_id}</span>
             <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5, whiteSpace: "nowrap", minWidth: 0 }}>
-              <span style={{ padding: "1px 7px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: C.mute }}>{statusLabel(p.base_status)}</span>
+              <span style={{ padding: "1px 7px", borderRadius: 999, background: "rgba(255,255,255,0.06)", color: C.mute }}>{statusLabel(p.base_status, parent)}</span>
               <ArrowRight size={11} color={C.mute2} />
-              <span style={{ padding: "1px 7px", borderRadius: 999, background: tint(c, "22"), color: c }}>{to ? statusLabel(to) : "dropped"}</span>
+              <span style={{ padding: "1px 7px", borderRadius: 999, background: tint(c, "22"), color: c }}>{to ? statusLabel(to, parent) : "dropped"}</span>
             </span>
             <span className="mono" style={{ fontSize: 11.5, color: C.mute }}>{fmtMw(p.rating_mw)} MW</span>
             <span className="ellipsis" style={{ gridColumn: "2 / -1", fontSize: 11, color: C.mute }}>

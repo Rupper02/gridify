@@ -24,7 +24,6 @@ from .. import ledger
 from ..cache import ResultCache
 from ..store import STEP_COLS, ScenarioStore
 
-INLINE_LIMIT = 8_000  # a step's result is stored inline up to this many characters, else by cache key only
 
 
 class AgentFinding(BaseModel):
@@ -61,10 +60,8 @@ class EvidenceLedger:
                     result: dict | list | None = None, solves: int = 0, started_at: str, finished_at: str,
                     cost_credits: float | None = None, error: str | None = None) -> None:
         """Upsert one tool call (idempotent by step id: a replayed workflow step records nothing new)."""
-        inline = None
-        if result is not None:
-            text = json.dumps(result, default=str)
-            inline = text if len(text) <= INLINE_LIMIT else None
+        # stored whole: the payloads are bounded (TOP_ITEMS, compacted studies), and the answer's figure check reads them
+        inline = json.dumps(result, default=str) if result is not None else None
         row = {"step_id": step_id, "run_id": run_id, "seq": seq, "tool": tool, "args_json": json.dumps(args, default=str),
                "cache_key": cache_key, "result_json": inline, "solves": solves, "started_at": started_at,
                "finished_at": finished_at, "cost_credits": cost_credits, "error": error}

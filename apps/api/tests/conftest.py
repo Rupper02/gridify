@@ -31,8 +31,6 @@ class ScriptedNarrator:
     def narrate_diff(self, summary: str) -> str:
         return "scripted diff narration"
 
-    def narrate_suggestion(self, summary: str) -> str:
-        return "scripted suggestion narration"
 
 
 @pytest.fixture(autouse=True, scope="session")

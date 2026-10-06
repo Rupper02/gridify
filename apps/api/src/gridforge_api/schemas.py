@@ -23,7 +23,12 @@ class NewCandidate(BaseModel):
     commissioning_year: int | None = None  # requested energisation year; derived if omitted
     import_mw: float | None = None  # charging capacity (batteries); defaults to the rating
     control: Control | None = None  # how its connection offer runs it; None: not stated (modelled at unity power factor)
-    branch_id: str = "main"  # which branch to add the project to
+
+
+class CandidateCreate(NewCandidate):
+    """POST /optimize/candidates: a new project and the branch it goes on (a branch's own projects, at create, name none)."""
+
+    branch_id: str
 
 
 class OptimizeRequest(BaseModel):
@@ -50,7 +55,7 @@ class BranchCreate(BaseModel):
     """Open a branch off `from_branch` (default main): a scenario + optional projects to add."""
 
     name: str
-    from_branch: str = "main"
+    from_branch: str  # the branch it is opened from (a project's main, or another branch)
     scenario: str | None = None
     growth_2030: float | None = None
     growth_2035: float | None = None
@@ -61,10 +66,10 @@ class BranchCreate(BaseModel):
 
 
 class MergeRequest(BaseModel):
-    """Merge a branch into `into` (default main). Blockers always refuse the merge; warnings refuse it
-    until `acknowledge` is true (the operator has read them)."""
+    """Merge a branch into `into` (default: its parent, the branch the gate judges it against). Blockers always refuse the
+    merge; warnings refuse it until `acknowledge` is true (the operator has read them)."""
 
-    into: str = "main"
+    into: str | None = None
     acknowledge: bool = False
 
 
@@ -83,12 +88,15 @@ class ScenarioUpdate(BaseModel):
     growth_2035: float
 
 
+class PauseIn(BaseModel):
+    reason: str = ""
+
+
 class EventIn(BaseModel):
     """An event for the project's agents (agents.events.TRIGGERS)."""
 
     type: str
     payload: dict = {}
-    dedup_id: str | None = None
 
 
 class ThreadCreate(BaseModel):
@@ -181,25 +189,8 @@ class OutageCreate(WorkSpec):
     year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
 
 
-class BestWindowRequest(WorkSpec):
-    """Find the best window for a planned work (windows.best_windows): every season of every year in
-    `years` = [from, to] (default the whole plan), or only the `seasons` given."""
-
-    years: tuple[int, int] = (PLAN_START_YEAR, PLAN_END_YEAR)
-    seasons: list[Season] | None = None
-
-    @model_validator(mode="after")
-    def _range(self):
-        lo, hi = self.years
-        if not (PLAN_START_YEAR <= lo <= hi <= PLAN_END_YEAR):
-            raise ValueError(f"years must be [from, to] within {PLAN_START_YEAR}..{PLAN_END_YEAR}")
-        if self.seasons is not None and not self.seasons:
-            raise ValueError("seasons, when given, must not be empty")
-        return self
-
-
 class ReinforcementCreate(BaseModel):
-    """A simulated reinforcement proposed on a branch (a Copilot lever, "Try on <branch>")."""
+    """A simulated reinforcement proposed on a branch (a lever from the suggestions, or the operator's own)."""
 
     kind: Literal["line", "trafo", "gsp"]
     element_id: int

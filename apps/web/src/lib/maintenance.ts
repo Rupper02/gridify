@@ -1,11 +1,12 @@
 // Planned works in words: what a window is (maintenance, repowering, replacement), how it reads on the
 // map and the roadmap, and what the engine's study of it says (verdict, curtailment, demand at risk,
 // N-1 during the window, what the work leaves behind). Pure: every figure restates the engine's study.
-// A new kind of work is one entry in WORK_UI; a new verdict is one entry in VERDICTS.
+// A new kind of work is one entry in WORK_UI; a new verdict is one entry in VERDICTS and HEADLINE.
 
 import { C, caseLabel, fmtMw, techLabel } from "../theme";
+import type { Tone } from "./diff";
 import type { Curtailment, ElementKind, ElementSel, N1During, N1Violation, OptimizeResult, Outage, OutageStudy, QueueItem, Repower, Season, Verdict, Work } from "../types";
-import { busLabel, elementInfo, lineName, nameElements, outageSel, outageStudyOf, trafoName, type ModelIndex } from "./derive";
+import { busLabel, elementInfo, lineName, nameElements, outageSel, outageStudyOf, plural, trafoName, type ModelIndex } from "./derive";
 import { type Plan, lastYear } from "./plan";
 
 // ---- the schedule form -------------------------------------------------------------------------
@@ -69,13 +70,16 @@ interface WorkUi {
   hint: (d: MaintDraft, kind: ElementKind, lastYear: number) => string;
 }
 
+/** A derate window's rating, in percent (mirrors the engine's config.OUTAGE_DERATE_FACTOR, 0.5). */
+export const DERATE_PCT = 50;
+
 export const WORK_UI: Record<Work, WorkUi> = {
   maintenance: {
     label: "Maintenance",
-    tag: (o) => (o.kind === "derate" ? "50%" : "OUT"),
-    chip: (o) => (o.kind === "derate" ? "50%" : "OUT"),
-    describe: (o) => (o.kind === "derate" ? "derate to 50%" : "full outage"),
-    hint: (d) => `${d.kind === "derate" ? "Studied at 50% of its rating" : "Studied out of service"} during the window. Back as it was after it.`,
+    tag: (o) => (o.kind === "derate" ? `${DERATE_PCT}%` : "OUT"),
+    chip: (o) => (o.kind === "derate" ? `${DERATE_PCT}%` : "OUT"),
+    describe: (o) => (o.kind === "derate" ? `derate to ${DERATE_PCT}%` : "full outage"),
+    hint: (d) => `${d.kind === "derate" ? `Studied at ${DERATE_PCT}% of its rating` : "Studied out of service"} during the window. Back as it was after it.`,
   },
   repowering: {
     label: "Repowering",
@@ -97,14 +101,13 @@ export const WORK_UI: Record<Work, WorkUi> = {
 };
 export const WORKS: Work[] = ["maintenance", "repowering", "replacement"];
 
-const workOf = (o: Pick<Outage, "work">): Work => o.work ?? "maintenance";
 
 /** The map tag of a window: "REPOWER · Summer". */
-export const outageTag = (o: Outage): string => `${WORK_UI[workOf(o)].tag(o)} · ${o.season}`;
+export const outageTag = (o: Outage): string => `${WORK_UI[o.work].tag(o)} · ${o.season}`;
 /** The roadmap chip's tag: "OUT", "50%", "RPW" (repowering) or "RPL" (replacement). */
-export const outageChipTag = (o: Outage): string => WORK_UI[workOf(o)].chip(o);
+export const outageChipTag = (o: Outage): string => WORK_UI[o.work].chip(o);
 /** A window in a row: "Summer 2029 · 4 weeks · full outage". */
-export const outageLine = (o: Outage): string => `${o.season} ${o.year} · ${o.weeks} weeks · ${WORK_UI[workOf(o)].describe(o)}`;
+export const outageLine = (o: Outage): string => `${o.season} ${o.year} · ${o.weeks} weeks · ${WORK_UI[o.work].describe(o)}`;
 
 export const seasonHint = (season: Season): string =>
   season === "Winter"
@@ -121,18 +124,19 @@ interface VerdictUi {
   label: string;
   c: string;
   ink: string;
+  tone: Tone | "warn";
   /** The summary phrase for n windows with this verdict ("1 needs curtailment"); null to leave out. */
   count: ((n: number) => string) | null;
 }
 export const VERDICTS: Record<Verdict, VerdictUi> = {
-  feasible: { label: "Feasible", c: C.phase1, ink: C.greenInk, count: null },
-  curtailment: { label: "Curtailment", c: C.amber, ink: C.amberInk, count: (n) => `${n} need${n === 1 ? "s" : ""} curtailment` },
-  demand_at_risk: { label: "Demand at risk", c: C.red, ink: C.redInk, count: (n) => `${n} put${n === 1 ? "s" : ""} demand at risk` },
-  not_feasible: { label: "Not feasible", c: C.red, ink: C.redInk, count: (n) => `${n} not feasible` },
+  unstudied: { label: "Not studied", c: C.mute, ink: C.mute, tone: "neutral", count: (n) => `${n} in a season this grid cannot study` },
+  feasible: { label: "Feasible", c: C.phase1, ink: C.greenInk, tone: "good", count: null },
+  curtailment: { label: "Curtailment", c: C.amber, ink: C.amberInk, tone: "warn", count: (n) => `${n} need${n === 1 ? "s" : ""} curtailment` },
+  demand_at_risk: { label: "Demand at risk", c: C.red, ink: C.redInk, tone: "bad", count: (n) => `${n} put${n === 1 ? "s" : ""} demand at risk` },
+  not_feasible: { label: "Not feasible", c: C.red, ink: C.redInk, tone: "bad", count: (n) => `${n} not feasible` },
 };
 
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
-const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 /** What the planner knows to name things with. */
 export interface NameCtx {
@@ -165,6 +169,7 @@ export function violationText(v: OutageStudy["violations"][number], ix: ModelInd
 
 /** The headline sentence of a study, per verdict. */
 const HEADLINE: Record<Verdict, (s: OutageStudy, ctx: NameCtx) => string> = {
+  unstudied: (s) => s.message || "Not studied: this grid has no study case for the season.",
   feasible: (s) =>
     `Within limits in ${s.cases.map(caseLabel).join(" and ")}. Worst line ${Math.round(s.worst_line_loading_pct)}%, worst transformer ${Math.round(s.worst_trafo_loading_pct)}%.`,
   curtailment: (s, ctx) =>
@@ -178,7 +183,7 @@ function windowName(id: string, ctx: NameCtx): string {
   const o = ctx.outages.find((x) => x.outage_id === id);
   if (!o) return id;
   const name = ctx.ix ? (elementInfo(outageSel(o), ctx.ix, null, o.year)?.name ?? o.element_id) : o.element_id;
-  return `${name} (${WORK_UI[workOf(o)].describe(o)})`;
+  return `${name} (${WORK_UI[o.work].describe(o)})`;
 }
 
 /** Engine text names generators by id ("generator EX-3000"): use the fleet's name. */
@@ -211,7 +216,7 @@ export function windowView(o: Outage, ctx: NameCtx): WindowView {
     lines.push(`A second fault during the window: ${plural(n1.findings, "finding")}${n1.second_fault_at_risk_mw > 0 ? `, ${fmtMw(n1.second_fault_at_risk_mw)} MW at risk` : ""}.`);
     secondFaultLines(n1, ctx.ix).forEach((l) => lines.push(l));
   } else if (n1 && n1.screened > 0) lines.push(`A second fault during the window: ${plural(n1.screened, "fault")} screened, none breaches a limit.`);
-  if (workOf(o) !== "maintenance" && study.after) lines.push(`After the window: ${nameGens(nameElements(study.after, ctx.ix), ctx.ix)}.`);
+  if (o.work !== "maintenance" && study.after) lines.push(`After the window: ${nameGens(nameElements(study.after, ctx.ix), ctx.ix)}.`);
   return { state, verdict: v, chip: { label: VERDICTS[v].label, c: VERDICTS[v].c }, lines, c: VERDICTS[v].ink };
 }
 
@@ -250,10 +255,10 @@ export function windowsByYear(outages: Outage[]): { year: number; rows: Outage[]
 
 /** "3 windows · 1 needs curtailment · 1 puts demand at risk · 1 not studied yet". */
 export function windowSummary(outages: Outage[], r: OptimizeResult | null): string {
-  const counts = new Map<Verdict | "unstudied", number>();
+  const counts = new Map<Verdict | "pending", number>(); // pending: not in the shown run yet (a re-run studies it)
   outages.forEach((o) => {
     const { state, study } = outageStudyOf(o, r);
-    const k = state === "unstudied" ? "unstudied" : study?.verdict;
+    const k = state === "unstudied" ? "pending" : study?.verdict;
     if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
   });
   const parts = [plural(outages.length, "window")];
@@ -262,7 +267,7 @@ export function windowSummary(outages: Outage[], r: OptimizeResult | null): stri
     const say = VERDICTS[v].count;
     if (n && say) parts.push(say(n));
   });
-  const fresh = counts.get("unstudied");
+  const fresh = counts.get("pending");
   if (fresh) parts.push(`${fresh} not studied yet`);
   return parts.join(" · ");
 }
@@ -271,7 +276,7 @@ export function windowSummary(outages: Outage[], r: OptimizeResult | null): stri
 /** Repowerings of an element in years before the viewed one: "Repowered in 2029: back at 1.5x its rating." */
 export function repoweredNotes(sel: ElementSel, outages: Outage[], year: number): string[] {
   return outages
-    .filter((o) => workOf(o) === "repowering" && o.element_kind === sel.kind && o.element_id === String(sel.id) && o.year < year)
+    .filter((o) => o.work === "repowering" && o.element_kind === sel.kind && o.element_id === String(sel.id) && o.year < year)
     .sort((a, b) => a.year - b.year)
     .map((o) => `Repowered in ${o.year}: ${repowerChange(o)} from ${o.year + 1}.`);
 }

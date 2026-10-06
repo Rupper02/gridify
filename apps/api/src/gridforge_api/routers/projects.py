@@ -15,10 +15,11 @@ from fastapi.responses import Response
 from pydantic import ValidationError
 
 from gridforge_optimizer import ImportMeta
-from gridforge_optimizer.sources import inspect_file, source_kind_for
+from gridforge_optimizer.sources import import_formats, inspect_file, source_kind_for
 
 from .. import repository
 from ..agents import events
+from ..config import MAX_IMPORT_BYTES
 from ..deps import agents, cache, plans, projects, scenarios
 from ..schemas import OptimizeRequest
 from .optimize import ran
@@ -32,12 +33,20 @@ def list_projects() -> dict:
     return {"projects": [projects.to_client(r) for r in projects.rows()]}
 
 
+@router.get("/projects/formats")
+def project_formats() -> dict:
+    """What the import form offers: every source kind with its label and extensions (`offered`: a file of it can be
+    imported today), and the upload size limit."""
+    return {"formats": import_formats(), "max_bytes": MAX_IMPORT_BYTES}
+
+
 @router.post("/projects")
 async def import_project(
     file: UploadFile = File(...),
     name: str = Form(""),
     gsp_export_limit_mw: float | None = Form(None),
     gsp_name: str | None = Form(None),
+    gsp_sgt_mw: float | None = Form(None),
     min_demand_factor: float | None = Form(None),
     summer_rating_ratio: float | None = Form(None),
     intermediate_rating_ratio: float | None = Form(None),
@@ -52,7 +61,7 @@ async def import_project(
     413 over the size limit, 422 (with the validation report) when the engine cannot plan on it."""
     data = await file.read()
     filename = file.filename or "upload"
-    entered = {"gsp_export_limit_mw": gsp_export_limit_mw, "gsp_name": gsp_name, "min_demand_factor": min_demand_factor,
+    entered = {"gsp_export_limit_mw": gsp_export_limit_mw, "gsp_name": gsp_name, "gsp_sgt_mw": gsp_sgt_mw, "min_demand_factor": min_demand_factor,
                "summer_rating_ratio": summer_rating_ratio, "intermediate_rating_ratio": intermediate_rating_ratio,
                "forecast_source": forecast_source, "n1_min_kv": n1_min_kv}
     try:  # the forecast and the bands are tables, sent as JSON fields of the form
@@ -67,7 +76,7 @@ async def import_project(
 
     def create() -> dict:  # the importer and its validation power flow: off the event loop
         out = projects.create(name.strip() or Path(filename).stem, filename, data, meta)
-        plans.invalidate("plan")
+        plans.edited()
         events.emit(agents, "project.imported", {"project_id": out["project_id"], "snapshot_id": out["snapshot_id"]})
         return out
     return await asyncio.to_thread(create)
@@ -104,7 +113,7 @@ def get_project(pid: str) -> dict:
 def delete_project(pid: str) -> dict:
     """Remove an imported project with its branches, records, cached results and file (409 for the built-in one)."""
     out = projects.delete(pid)
-    plans.invalidate("plan")
+    plans.edited()
     return out
 
 
@@ -156,4 +165,4 @@ def project_branches(pid: str) -> dict:
 def optimize_project(pid: str, body: OptimizeRequest) -> dict:
     """Run the project's main (its plan of record) and return the enriched queue, phases and years."""
     main_id = projects.main_id(pid)
-    return ran(main_id, plans.optimize_payload(body, main_id))
+    return ran(main_id, plans.optimize_payload(body, main_id), is_main=True)

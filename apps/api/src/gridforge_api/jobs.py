@@ -9,7 +9,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import HTTPException
+from .errors import NotFound
 
 from .config import log, now
 
@@ -138,7 +138,7 @@ class JobRunner:
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:
-                raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
+                raise NotFound(f"job '{job_id}' not found")
             if rec["status"] in ("queued", "running"):
                 rec["cancel"] = True
             return self._view(rec)
@@ -149,5 +149,5 @@ class JobRunner:
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:
-                raise HTTPException(status_code=404, detail=f"job '{job_id}' not found")
+                raise NotFound(f"job '{job_id}' not found")
             return self._view(rec, with_result=with_result, with_partial=with_partial)

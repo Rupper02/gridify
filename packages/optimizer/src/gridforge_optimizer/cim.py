@@ -11,8 +11,9 @@ Advisory Group; Squid's canonical model is CIM/CGMES). This module serialises an
   SSH  steady-state hypothesis: load p/q, machine p/q, tap steps, terminal connected flags
   GL   geographical location: a WGS84 position per substation
 
-Identifiers are deterministic (uuid5 of stable keys), so exporting the same network twice gives the
-same bytes: the files are diffable, and `network@<snapshot_id>` is written into each model header.
+Identifiers are deterministic (uuid5 of stable keys), so exporting the same network twice gives the same
+content apart from each header's creation time: the files are diffable, and `network@<snapshot_id>` is written into each
+model header.
 Pure: no I/O except through `write_cgmes_zip`. Verified by re-importing with pandapower's own CGMES
 importer (tests/test_cim.py).
 """
@@ -26,6 +27,8 @@ import zipfile
 from datetime import datetime, timezone
 from typing import NamedTuple
 from xml.etree import ElementTree as ET
+
+from .config import CIM_FIXED_PF_Q_SHARE
 
 CIM = "http://iec.ch/TC57/2013/CIM-schema-cim16#"
 RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
@@ -331,8 +334,8 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
             eq.ref(e, "RotatingMachine.GeneratingUnit", uid)
             eq.attr(e, "RotatingMachine.ratedS", max(p_rated, 0.01))
             eq.attr(e, "RotatingMachine.ratedU", float(net.bus.at[b, "vn_kv"]))
-            eq.attr(e, "SynchronousMachine.maxQ", float(t.at[i, "max_q_mvar"]) if regulating else p_rated * 0.33)
-            eq.attr(e, "SynchronousMachine.minQ", float(t.at[i, "min_q_mvar"]) if regulating else -p_rated * 0.33)
+            eq.attr(e, "SynchronousMachine.maxQ", float(t.at[i, "max_q_mvar"]) if regulating else p_rated * CIM_FIXED_PF_Q_SHARE)
+            eq.attr(e, "SynchronousMachine.minQ", float(t.at[i, "min_q_mvar"]) if regulating else -p_rated * CIM_FIXED_PF_Q_SHARE)
             eq.enum(e, "SynchronousMachine.type", "SynchronousMachineKind.generator")
             term = terminal(mid, b, 1, f"machine{key}")
             if regulating:

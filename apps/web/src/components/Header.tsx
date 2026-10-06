@@ -16,7 +16,7 @@ import { ProfileGlyph } from "./ui";
 export type HeaderPlanner = PlannerSlice<
   "activeBranch" | "agents" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects" | "running",
   "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "setTab" | "toggleDiff" | "toggleMenu",
-  "branch" | "gate" | "hue" | "mainId" | "onMain" | "prelim" | "profile" | "project" | "stale"
+  "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "stale"
 >;
 
 export function Header({ planner, layout }: { planner: HeaderPlanner; layout: Layout }) {
@@ -66,7 +66,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
           <button
             className="btn"
             onClick={actions.toggleDiff}
-            title="Diff vs main"
+            title={`Diff vs ${derived.parent}`}
             style={s.diffMode ? { borderColor: hue, background: tint(hue, "24"), color: hue } : undefined}
           >
             <GitDiff size={14} />

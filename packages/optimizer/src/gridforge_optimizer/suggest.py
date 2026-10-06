@@ -20,18 +20,17 @@ from typing import Callable, NamedTuple
 from .config import MAX_REINFORCE_STEPS, MAX_SUGGESTIONS, VOLTAGE_ABSORB_PF_STEPS
 from .greedy import NetFactory, optimize
 from .network import (
-    apply_reinforcement,
+    plan_net,
     build_base_net,
 
     feasibility,
-    grow_for,
     drop_project,
     inject_project,
     upstream_path_lines,
 )
-from .types import Candidate, Control, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
+from .types import REASON_SPECS, Candidate, Control, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
 
-_THERMAL_TYPES = ("line", "trafo")  # reasons fixed by adding a parallel circuit to the binding element
+_THERMAL_TYPES = tuple(k for k, s in REASON_SPECS.items() if s.thermal)  # fixed by a parallel circuit on the binding element
 _HARDEST_PHASE = "2035"  # max demand growth -> the binding set that gates the whole horizon
 
 
@@ -47,15 +46,8 @@ class _Candidates(dict):
 def _phase_net(cand_by_id, params, base, phase_key, reinf, exclude: str | None = None):
     """A phase net grown + reinforced, with everything the base run already connected replayed in
     (except `exclude`, a project about to be probed on its own)."""
-    net = cand_by_id.net_factory()
-    grow_for(net, params, getattr(params, f"growth_{phase_key}"), int(phase_key))
-    for r in reinf:
-        apply_reinforcement(net, r)
-    for rid in base.phases[phase_key].accepted:
-        c = cand_by_id.get(rid)
-        if c is not None and rid != exclude:
-            inject_project(net, c)
-    return net
+    projects = [c for rid in base.phases[phase_key].accepted if rid != exclude and (c := cand_by_id.get(rid)) is not None]
+    return plan_net(cand_by_id.net_factory, params, getattr(params, f"growth_{phase_key}"), int(phase_key), reinf, projects)
 
 
 def phase_net(candidates, params, base, phase_key, *, net_factory: NetFactory = build_base_net, exclude: str | None = None):
@@ -140,7 +132,7 @@ def _reinforcement_suggestion(cand_by_id, deferred_ids, params, base, target_rid
     reinf, connected, last_reason, s0 = _discover_chain(cand_by_id, params, base, target_rid)
     # the chain ran into a voltage wall -> hand off to the voltage lever
     if not connected and last_reason is not None and last_reason.type == "voltage" and last_reason.element_id is not None:
-        sug = _voltage_suggestion(cand_by_id, deferred_ids, params, base, int(last_reason.element_id), blocked)
+        sug = _voltage_suggestion(cand_by_id, deferred_ids, params, base, int(last_reason.element_id), blocked, pre=reinf)
         sug.extra_solves += s0
         return sug
     f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=reinf)
@@ -164,20 +156,25 @@ def _reinforcement_suggestion(cand_by_id, deferred_ids, params, base, target_rid
     )
 
 
-def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked):
-    """Voltage binding: try reactive absorption first (cheapest), else one upstream reinforcement."""
-    solves = 0
+def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked, pre: list[Reinforcement] = ()):
+    """Voltage binding: try reactive absorption first (cheapest), else one upstream reinforcement. `pre` are the
+    parallel circuits a thermal chain already added before it hit this voltage wall: every trial keeps them, and the
+    suggestion carries them."""
+    solves, pre = 0, list(pre)
+    noun = {"line": "line", "trafo": "transformer"}
+    after = f" (with parallel circuits on {', '.join(f'{noun[r.kind]} {r.element_id}' for r in pre)})" if pre else ""
     for pf in VOLTAGE_ABSORB_PF_STEPS:
         control = Control(mode="pf", pf=pf, absorbing=True)
-        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", control=control)
-        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", control=control)
+        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=pre, control=control)
+        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=pre, control=control)
         solves += s30 + s35
         if n30 or n35:
             return Suggestion(
                 target_type="voltage",
                 target_element_id=bus_id,
-                action=f"Connect new DER at bus {bus_id} absorbing reactive power (~{pf:.2f} pf)",
-                connects_target=True,
+                action=f"Connect new DER at bus {bus_id} absorbing reactive power (~{pf:.2f} pf){after}",
+                reinforcements=pre,
+                connects_target=bool(set(blocked) & (set(n30) | set(n35))),
                 freed_mw_2030=f30,
                 freed_mw_2035=f35,
                 newly_connected_project_ids=sorted(set(n30) | set(n35)),
@@ -199,15 +196,15 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
             key=lambda i: float(probe.line.at[i, "x_ohm_per_km"]) * float(probe.line.at[i, "length_km"]),
         )
         r = Reinforcement(kind="line", element_id=lid, action="add_parallel")
-        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=[r])
-        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=[r])
+        f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=pre + [r])
+        f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=pre + [r])
         solves += s30 + s35
         return Suggestion(
             target_type="voltage",
             target_element_id=bus_id,
-            action=f"Add a parallel circuit to line {lid} feeding bus {bus_id}",
-            reinforcements=[r],
-            connects_target=bool(n30 or n35),
+            action=f"Add a parallel circuit to line {lid} feeding bus {bus_id}{after}",
+            reinforcements=pre + [r],
+            connects_target=bool(set(blocked) & (set(n30) | set(n35))),
             freed_mw_2030=f30,
             freed_mw_2035=f35,
             newly_connected_project_ids=sorted(set(n30) | set(n35)),
@@ -221,7 +218,8 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
     return Suggestion(
         target_type="voltage",
         target_element_id=bus_id,
-        action=f"Reinforce the feeder supplying bus {bus_id}",
+        action=f"Reinforce the feeder supplying bus {bus_id}{after}",
+        reinforcements=pre,
         connects_target=False,
         blocked_project_ids=blocked,
         extra_solves=solves,
@@ -231,8 +229,11 @@ def _voltage_suggestion(cand_by_id, deferred_ids, params, base, bus_id, blocked)
 
 def _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked):
     """GSP-boundary binding: no distribution-side reinforcement helps — the export limit is the
-    supergrid transformers above the GSP. Model one more SGT and measure what it frees."""
+    supergrid transformers above the GSP. Model one more SGT and measure what it frees. None when the grid
+    states no SGT rating (an import may not): the lever's size is never invented."""
     sgt_mw = float(cand_by_id.net_factory().get("gsp_sgt_mw") or 0.0)
+    if sgt_mw <= 0:
+        return None
     reinf = [Reinforcement(kind="gsp", element_id=0)]
     f30, n30, s30 = _trial_phase(cand_by_id, deferred_ids, params, base, "2030", reinf=reinf)
     f35, n35, s35 = _trial_phase(cand_by_id, deferred_ids, params, base, "2035", reinf=reinf)
@@ -249,8 +250,8 @@ def _gsp_suggestion(cand_by_id, deferred_ids, params, base, blocked):
         blocked_project_ids=blocked,
         extra_solves=s30 + s35,
         caveat=(
-            "Transmission works by National Grid Electricity Transmission, coordinated by NESO — "
-            "outside the DNO's control and typically years away; wider transmission reinforcement "
+            "Transmission works by the transmission owner and system operator, outside the distribution "
+            "network operator's control and typically years away; wider transmission reinforcement "
             "out of the area may also be needed. Nearer-term levers: flexible (curtailable) "
             "connections or co-located storage that shifts export away from the peak."
         ),
@@ -333,8 +334,8 @@ def suggest_unblock(
         if not lever.wide:
             continue
         blocked = [q.request_id for q in bound if q.reason.type == reason_type]
-        if blocked:
-            out.append(lever.suggest(cand_by_id, deferred_ids, params, base, blocked, None))
+        if blocked and (s := lever.suggest(cand_by_id, deferred_ids, params, base, blocked, None)) is not None:
+            out.append(s)
             max_suggestions -= 1
     per_project = [q for q in bound if not LEVERS[q.reason.type].wide and q.reason.element_id is not None]
     for q in per_project[:max(max_suggestions, 0)]:

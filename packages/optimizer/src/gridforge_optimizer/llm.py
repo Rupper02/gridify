@@ -3,7 +3,6 @@
 The LLM only phrases results the engine has already computed; it decides nothing:
   - justify             -> narrates the finished queue
   - narrate_diff        -> phrases a consequence diff between two runs
-  - narrate_suggestion  -> phrases a "what would it take" unblock suggestion
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from .config import (
     JUSTIFY_TEMPERATURE,
     NARRATE_DIFF_SYSTEM_PROMPT,
     OPENROUTER_BASE_URL,
-    SUGGEST_SYSTEM_PROMPT,
 )
 
 
@@ -56,20 +54,3 @@ def narrate_diff(diff_summary: str) -> str:
     )
     return resp.choices[0].message.content
 
-
-def narrate_suggestion(suggestion_summary: str) -> str:
-    """Phrase a pre-computed unblock suggestion into one or two plain-text sentences.
-
-    `suggestion_summary` restates the deterministic figures (the action, MW freed by 2030/2035, the
-    projects connected). The model phrases them only — it computes nothing and must not imply the
-    action is the cheapest or only fix.
-    """
-    resp = _client().chat.completions.create(
-        model=JUSTIFY_MODEL,
-        temperature=JUSTIFY_TEMPERATURE,
-        messages=[
-            {"role": "system", "content": SUGGEST_SYSTEM_PROMPT},
-            {"role": "user", "content": suggestion_summary},
-        ],
-    )
-    return resp.choices[0].message.content

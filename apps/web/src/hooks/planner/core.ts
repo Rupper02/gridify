@@ -9,7 +9,7 @@ import type { MutableRefObject } from "react";
 import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { Plan } from "../../lib/plan";
-import { DEFAULT_PROJECT_ID } from "../../lib/projects";
+import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import type {
   AgentsStatus,
   Assumption,
@@ -18,7 +18,6 @@ import type {
   BranchReinforcement,
   Diff,
   Finding,
-  FindingCounts,
   Forecast,
   MapLayer,
   MergeCheck,
@@ -29,9 +28,7 @@ import type {
   RegistryItem,
   Review,
   Sel,
-  Status,
   StepEvidence,
-  Suggestion,
   Tab,
   Thread,
   ThreadView,
@@ -66,15 +63,14 @@ export interface PlannerState {
   modelError: string | null; // why it could not load (the stamp says so, with a Retry)
   warehouseStale: boolean; // the last warehouse read was its previous version: the pipeline was writing a new one
   forecasts: Forecast[];
+  defaultScenario: string; // the pathway a branch is planned on unless it says otherwise (engine DEFAULT_SCENARIO)
   plan: Plan | null; // the plan's years and phases (GET /forecasts); null until the boot has read them
-  maxMw: number;
   boundary: Boundary | null;
   registry: RegistryItem[];
   registryLoaded: boolean;
   // branches
   branches: Branch[];
-  branchesLoaded: boolean;
-  activeBranch: string;
+  activeBranch: string; // "" until the project's branches are in (then its main)
   menuOpen: boolean;
   // the branch's own proposals beyond projects
   outages: Outage[];
@@ -86,22 +82,20 @@ export interface PlannerState {
   // the run
   result: OptimizeResult | null;
   resultAt: string; // when the shown result was solved (HH:MM)
-  prevStatus: Record<string, Status>;
   running: boolean; // the overlay: until the queue and the viewed year are in
   solving: boolean; // the job is still solving the remaining years in the background
   refreshing: boolean; // an automatic refresh after a cheap edit is pending or running (no overlay)
   stage: string;
   fraction: number;
-  runId: number;
   // review
   diff: Diff | null;
   diffMode: boolean;
-  suggestions: Suggestion[] | null;
+  diffError: string | null; // why the comparison with the parent could not load (Review offers a Retry)
   mergeCheck: MergeCheck | null; // the gate's verdict for the active branch (null until checked)
+  gateError: string | null; // why the gate's verdict could not load (Review offers a Retry)
   findings: Finding[]; // the active branch's findings ledger
-  findingCounts: FindingCounts | null;
   // the agents
-  agents: AgentsStatus | null; // the project's agents: off (no key), idle, running or paused; polled
+  agents: AgentsStatus | null; // the project's agents: starting, idle, running or paused; polled
   threads: Thread[]; // the project's conversations (Ask the model, the health thread)
   thread: ThreadView | null; // the open conversation
   trace: TraceEvent[]; // the reply being streamed, as events
@@ -126,13 +120,19 @@ export interface PlannerState {
 
 export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
+/** What belongs to one branch's view: reset on every switch (select, open, merge, discard, a project switch). */
+export const BRANCH_FRESH: Partial<PlannerState> = {
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], reviews: [], thread: null, trace: [], study: null, sel: null,
+  outages: [], reinforcements: [], candidates: [], chat: EMPTY_CHAT,
+};
+
 export const INITIAL: PlannerState = {
   projects: [], projectId: DEFAULT_PROJECT_ID, projectsOpen: false, assumptions: null, showAssumptions: false,
-  model: null, modelLoading: true, modelError: null, warehouseStale: false, forecasts: [], plan: null, maxMw: 300, boundary: null, registry: [], registryLoaded: false,
-  branches: [], branchesLoaded: false, activeBranch: "main", menuOpen: false,
+  model: null, modelLoading: true, modelError: null, warehouseStale: false, forecasts: [], defaultScenario: "", plan: null, boundary: null, registry: [], registryLoaded: false,
+  branches: [], activeBranch: "", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
-  result: null, resultAt: "", prevStatus: {}, running: false, solving: false, refreshing: false, stage: "", fraction: 0, runId: 0,
-  diff: null, diffMode: false, suggestions: null, mergeCheck: null, findings: [], findingCounts: null,
+  result: null, resultAt: "", running: false, solving: false, refreshing: false, stage: "", fraction: 0,
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [],
   agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
   tab: "ask", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
@@ -150,6 +150,14 @@ export interface Core {
   ref: MutableRefObject<PlannerState>;
   mapApi: MutableRefObject<MapApi | null>;
   toastMsg: (t: string, tone?: "ok" | "warn") => void;
+}
+
+/** The branch (the active one unless named) when it can be edited; on main (the plan of record, read-only) a toast says so and null. */
+export function editableBranch({ ref, toastMsg }: Pick<Core, "ref" | "toastMsg">, what: string, bid = ref.current.activeBranch): string | null {
+  const st = ref.current;
+  if (bid && bid !== mainIdOf(st.projects, st.projectId)) return bid;
+  toastMsg(`main is read-only. Open a branch to ${what}.`, "warn");
+  return null;
 }
 
 /** Create the planner state and its core. */

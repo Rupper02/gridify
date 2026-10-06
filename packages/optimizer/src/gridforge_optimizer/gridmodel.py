@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import math
 
+from .dispatch import FLEET_TABLES
 from .naming import name_model
+from .network import voltage_limits
 from .types import GridModel, ModelBus, ModelGenerator, ModelLine, ModelLoad, ModelTransformer
 
 
@@ -18,7 +20,7 @@ def fleet_of(net) -> list[dict]:
     `gen` alike), one entry per fleet id (a site split across busbars sums its shares), shaped as the model's
     `generators`."""
     out: dict[str, dict] = {}
-    for t in (net.sgen, net.gen):
+    for t in (net[name] for name in FLEET_TABLES):
         if not len(t) or "fleet_id" not in t.columns:
             continue
         for i in t.index:
@@ -38,17 +40,19 @@ def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict]
     """Buses, lines, transformers, loads and the existing fleet with their positions, plus the demand
     groups when the net carries them (`demand.regions_of`). `existing` is the fleet as the source
     describes it (NGED's builder keeps its own list; `fleet_of` derives one from any net)."""
-    buses =[ModelBus(bus_id=int(i), name=_name(net.bus.at[i, "name"], f"bus {i}"), vn_kv=float(net.bus.at[i, "vn_kv"]),
-                      lon=xy[int(i)][0], lat=xy[int(i)][1]) for i in net.bus.index]
+    vmin, vmax = voltage_limits(net)
+    buses = [ModelBus(bus_id=int(i), name=_name(net.bus.at[i, "name"], f"bus {i}"), vn_kv=float(net.bus.at[i, "vn_kv"]),
+                      lon=xy[int(i)][0], lat=xy[int(i)][1], vmin_pu=float(vmin[i]), vmax_pu=float(vmax[i])) for i in net.bus.index]
     lines = []
     for i in net.line.index:
         f, t = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
         imax = float(net.line.at[i, "max_i_ka"])
         lines.append(ModelLine(line_id=int(i), line_name=_name(net.line.at[i, "name"], f"L{i}"),
-                               rating_a=None if imax != imax else round(imax * 1000, 0),
+                               rating_a=round(imax * 1000, 0),  # an unrated line is refused at import, NGED's are all rated
                                voltage_kv=float(net.bus.at[f, "vn_kv"]), from_bus=f, to_bus=t,
                                length_km=round(float(net.line.at[i, "length_km"]), 3),
-                               from_lon=xy[f][0], from_lat=xy[f][1], to_lon=xy[t][0], to_lat=xy[t][1]))
+                               from_lon=xy[f][0], from_lat=xy[f][1], to_lon=xy[t][0], to_lat=xy[t][1],
+                               in_service=bool(net.line.at[i, "in_service"])))
     transformers = []
     for i in net.trafo.index:
         hv, lv = int(net.trafo.at[i, "hv_bus"]), int(net.trafo.at[i, "lv_bus"])

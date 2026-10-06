@@ -11,7 +11,6 @@ export interface Layout {
   /** vw < 1100: the left cards collapse into one pill. */
   narrow: boolean;
   /** vh < 820: the maintenance draft grid collapses into a row of pills. */
-  compactH: boolean;
   /** vh >= 760: the readings card shows. */
   showReadings: boolean;
   /** vh >= 560: the roadmap dock shows. */
@@ -37,7 +36,6 @@ export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
   return {
     wide,
     narrow,
-    compactH: vh < 820,
     showReadings: vh >= 760,
     showDock,
     dockPx,

@@ -9,9 +9,8 @@ could verify.
 
 from __future__ import annotations
 
-from datetime import date
-
 from .config import (
+    PLAN_START_YEAR,
     READINESS_COMMISSIONING_FAR_CREDIT,
     READINESS_COMMISSIONING_MID_CREDIT,
     READINESS_COMMISSIONING_MID_YEARS,
@@ -56,7 +55,7 @@ def score_from_checklist(checklist: dict, reference_year: int | None = None) -> 
     records, per milestone, the level read, the credit it earned, its weight, and the points
     contributed -- so the score is fully auditable.
     """
-    reference_year = reference_year or date.today().year
+    reference_year = reference_year or PLAN_START_YEAR  # the plan's first year, never the wall clock: a score must not move on 1 January
     breakdown: dict[str, dict] = {}
 
     for crit, levels in _LEVELS.items():

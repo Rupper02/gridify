@@ -7,13 +7,6 @@
 
 import type { RawReason, Reason } from "../types";
 
-// intake cap used in reason text until /forecasts tells us the engine's real value
-let maxMw = 300;
-export const getMaxMw = () => maxMw;
-export const setMaxMw = (mw: number) => {
-  maxMw = mw;
-};
-
 // Which planning study case a grid limit bites in, so the operator knows WHEN it's a problem.
 const CASE_WHY: Record<string, string> = {
   summer_min:
@@ -72,21 +65,22 @@ const trafo: Normaliser = ({ eid, pct, base }) => ({
   kind: "grid",
   element: null,
   short: `Overloads transformer ${eid}${pct != null ? ` to ${pct}%` : ""}`,
-  why: `Connecting this would overload transformer ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""} The substation can't pass this much power.`,
+  why: `Connecting this would overload transformer ${eid}${pct != null ? ` to ${pct}% (limit 100%)` : ""}. The substation can't pass this much power.`,
   action: `Uprate or reinforce transformer ${eid}, size the project to what the substation takes or move it, or hold it to a later year. Ask the agents how it could connect.`,
 });
 
-const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
-  const high = type === "voltage_high" || (type === "voltage" && val != null && val > 1.0);
-  // the statutory limit the engine reports for that bus (±10 % at 132 kV, ±6 % below)
-  const lim = typeof reason.limit === "number" ? reason.limit.toFixed(2) : high ? "1.06" : "0.94";
+const voltage: Normaliser = ({ reason, val, eid, base }) => {
+  const high = val != null && val > 1.0;
+  // the limit the engine judged that bus against (the grid's own band at its level); it always sends it
+  const lim = typeof reason.limit === "number" ? reason.limit.toFixed(2) : null;
+  const limShort = lim ? ` (limit ${lim})` : "";
   if (high) {
     return {
       ...base,
       kind: "grid",
       element: { bus_id: eid ?? undefined },
-      short: `Too much export: bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
-      why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above its ${lim} pu statutory limit. The local network is too weak for this much export.`,
+      short: `Too much export: bus ${eid} rises to ${val != null ? val.toFixed(3) : "?"} pu${limShort}`,
+      why: `This much generation can't be absorbed here: it would push the voltage at bus ${eid}${val != null ? ` to ${val.toFixed(3)} pu` : ""}, above its ${lim ? `${lim} pu ` : ""}limit. The local network is too weak for this much export.`,
       action: `Reinforce the feeder or add reactive support at bus ${eid}, or site a smaller project at this bus. Ask the agents how it could connect.`,
     };
   }
@@ -94,48 +88,39 @@ const voltage: Normaliser = ({ reason, type, val, eid, base }) => {
     ...base,
     kind: "grid",
     element: { bus_id: eid ?? undefined },
-    short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu (limit ${lim})`,
-    why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below its ${lim} pu statutory limit. The network is too weak here under this demand.`,
+    short: `Bus ${eid} sags to ${val != null ? val.toFixed(3) : "?"} pu${limShort}`,
+    why: `Voltage at bus ${eid}${val != null ? ` drops to ${val.toFixed(3)} pu` : ""}, below its ${lim ? `${lim} pu ` : ""}limit. The network is too weak here under this demand.`,
     action: `Reinforce the feeder to bus ${eid}, or hold this project to a later year. Ask the agents how it could connect.`,
   };
 };
 
-const readiness: Normaliser = ({ msg, base }) => ({
+/** The power flow has no solution in that state: the grid cannot carry it at all, before any limit is judged. */
+const nonConvergent: Normaliser = ({ msg, base }) => ({
   ...base,
-  kind: "readiness",
+  kind: "grid",
   element: null,
-  short: "Not developed enough yet",
-  why:
-    msg ||
-    "The project isn't developed enough yet (land rights, planning consent, grid-connection agreement or financing).",
-  action: "Resubmit once land, planning and financing progress. The grid can take it; the project isn't ready.",
+  short: "The power flow has no solution: the network cannot carry this state",
+  why: `${msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}. ` : ""}No operating point satisfies the network with this connected, so no limit can even be judged: the grid is too weak for it here.`,
+  action: "Size the project down, move it to a stronger busbar, or hold it to a later year. Ask the agents how it could connect: they measure each option.",
 });
 
-const phased: Normaliser = ({ msg, prior, base }) => ({
-  ...base,
-  kind: "phased",
-  element: prior,
-  short: msg,
-  why: msg,
-  action: "No action needed. It connects in Phase 2 as demand grows and headroom opens.",
-});
-
-/** rejected / intake / non_convergent: read the message to say what to fix. */
+/** rejected / intake: read the message (the API's triage, the engine's intake) to say what to fix. */
 const intake: Normaliser = ({ msg, item, base }) => {
   const m = msg.toLowerCase();
-  const cap = maxMw;
+  const cap = /(\d+(?:\.\d+)?) mw connection cap/.exec(m)?.[1]; // the API's triage names the network's cap
   let short: string;
   let why: string;
   let action: string;
-  if (m.includes("not in") || m.includes("does not exist") || (m.includes("bus") && !m.includes("busbar"))) {
+  if (m.includes("not in")) {
     short = "Connection point not in the network model";
     why = `The point of connection${item.bus_id != null ? ` (bus ${item.bus_id})` : ""} isn't in this network model, so it can't be assessed.`;
     action = "Pick a real connection point: a busbar in the model. Ask the agents where a project of this size could connect; they propose the change for you to approve.";
-  } else if (m.includes("rating") && (m.includes("exceed") || m.includes("range") || m.includes("cap"))) {
-    short = `Capacity over the ${cap} MW connection cap`;
-    why = `The requested capacity${item.rating_mw != null ? ` (${item.rating_mw} MW)` : ""} is above the ${cap} MW connection cap for this network.`;
-    action = `Reduce the capacity to ≤ ${cap} MW, split it across sites, or connect at a higher-voltage point.`;
-  } else if (m.includes("missing") || m.includes("capacity")) {
+  } else if (m.includes("connection cap") || m.includes("out of range")) {
+    const what = m.includes("import") ? "import capacity" : "capacity";
+    short = `${what === "capacity" ? "Capacity" : "Import capacity"} over the ${cap ? `${cap} MW ` : ""}connection cap`;
+    why = `The requested ${what}${what === "capacity" && item.rating_mw != null ? ` (${item.rating_mw} MW)` : ""} is above ${cap ? `the ${cap} MW` : "this network's"} connection cap.`;
+    action = `Reduce it${cap ? ` to ≤ ${cap} MW` : " under the cap"}, split it across sites, or connect at a higher-voltage point.`;
+  } else if (m.includes("missing") || m.includes("no point of connection") || m.includes("above 0") || m.includes("capacity")) {
     short = "Incomplete application";
     why = msg ? `${msg.charAt(0).toUpperCase()}${msg.slice(1)}.` : "The application is missing required details.";
     action = "Ask the agents to complete it: give them the missing figure and they propose the change for you to approve. The next run assesses it.";
@@ -148,14 +133,7 @@ const intake: Normaliser = ({ msg, item, base }) => {
 };
 
 /** Engine reason type -> normaliser. */
-const NORMALISERS: Record<string, Normaliser> = { gsp, line, trafo, voltage, readiness, phased };
-/** Spellings older clients/engines used for the same reason. */
-const ALIASES: Record<string, string> = {
-  line_overload: "line",
-  trafo_overload: "trafo",
-  voltage_high: "voltage",
-  voltage_low: "voltage",
-};
+const NORMALISERS: Record<string, Normaliser> = { gsp, line, trafo, voltage, non_convergent: nonConvergent };
 
 function facts(reason: RawReason | Reason, item: ReasonContext): Facts {
   const val = typeof reason.value === "number" ? reason.value : null;
@@ -183,11 +161,8 @@ function facts(reason: RawReason | Reason, item: ReasonContext): Facts {
 export function normReason(reason: RawReason | Reason | null | undefined, item?: ReasonContext): Reason | null {
   if (!reason) return null;
   const f = facts(reason, item ?? {});
-  const out = (NORMALISERS[ALIASES[reason.type] ?? reason.type] ?? intake)(f);
+  const out = (NORMALISERS[reason.type] ?? intake)(f);
   // (a GSP reason already names its case in the message, and explains it itself)
-  if (out.kind === "grid" && reason.type !== "gsp" && reason.case && CASE_WHY[reason.case]) {
-    out.why = `${out.why}${CASE_WHY[reason.case]}`;
-    out.caseLabel = reason.case === "summer_min" ? "summer minimum" : "winter peak";
-  }
+  if (out.kind === "grid" && reason.type !== "gsp" && reason.case && CASE_WHY[reason.case]) out.why = `${out.why}${CASE_WHY[reason.case]}`;
   return out;
 }

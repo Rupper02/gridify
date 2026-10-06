@@ -33,10 +33,11 @@ def _keys(assumptions: list[ModelAssumption]) -> set[str]:
 
 def _basis(net, **limits) -> ImportMeta:
     """The study basis an import must state, for any grid: a flat Standard forecast, the N-1 screen from the top
-    level, the GB bands at each of its levels (read from the net, never hardcoded)."""
+    level, the GB bands at each of its levels (read from the net, never hardcoded), and its summer data."""
     levels = levels_of(net)
-    return ImportMeta(forecasts={"ht": {y: 1.0 for y in range(2027, 2036)}}, n1_min_kv=levels[0],
-                      voltage_bands=[{"kv": v, "vmin_pu": 0.90 if v >= 132 else 0.94, "vmax_pu": 1.10 if v >= 132 else 1.06} for v in levels], **limits)
+    return ImportMeta(**{"forecasts": {"ht": {y: 1.0 for y in range(2027, 2036)}}, "n1_min_kv": levels[0],
+                         "voltage_bands": [{"kv": v, "vmin_pu": 0.90 if v >= 132 else 0.94, "vmax_pu": 1.10 if v >= 132 else 1.06} for v in levels],
+                         "min_demand_factor": 0.5, "summer_rating_ratio": 0.9, **limits})
 
 
 # --- the registry and NGED behind the seam -----------------------------------------------------------------------
@@ -78,12 +79,12 @@ def test_the_nged_cgmes_export_imports_as_a_grid_with_the_same_elements(nged_zip
     assert (len(net.bus), len(net.line), len(net.trafo), len(net.load), len(net.sgen), len(net.ext_grid)) == (
         len(base.bus), len(base.line), len(base.trafo), len(base.load), len(base.sgen), len(base.ext_grid))
     report = src.validate()
-    assert report.ok and report.converged and report.cases == ["winter_peak"], report
+    assert report.ok and report.converged and report.cases == ["winter_peak", "summer_min"], report
     keys = _keys(src.assumptions())
-    assert {"no_seasonal_ratings", "no_min_demand", "no_gsp_limit", "forecast_entered", "n1_scope_entered", "bands_entered"} <= keys
+    assert {"min_demand_entered", "summer_ratio_entered", "no_gsp_limit", "forecast_entered", "n1_scope_entered", "bands_entered"} <= keys
     assert "unrated_lines" not in keys and src.candidates() == [] and src.boundary() is None
     caps = src.capabilities()
-    assert caps["summer_case"] is False and caps["boundary"] is False and caps["registry"] is False and caps["crs"] == "wgs84"
+    assert caps["summer_case"] is True and caps["boundary"] is False and caps["registry"] is False and caps["crs"] == "wgs84"
     # the technology tag round-trips through our own export
     assert sorted(set(net.sgen["type"])) == sorted(set(base.sgen["type"]))
     # positions come from the GL profile: the model sits where NGED's does
@@ -100,7 +101,7 @@ def test_operator_entered_limits_enable_the_summer_case_and_the_boundary(nged_zi
     assert report.ok and report.cases == ["winter_peak", "summer_min"]
     entered = {a.key: a for a in src.assumptions() if a.source == "operator-entered"}
     assert {"gsp_limit_entered", "min_demand_entered", "summer_ratio_entered"} <= set(entered)
-    assert "no_gsp_limit" not in _keys(src.assumptions()) and "no_min_demand" not in _keys(src.assumptions())
+    assert "no_gsp_limit" not in _keys(src.assumptions())
     b = src.boundary()
     assert b and b["export_limit_mw"] == 527.0 and b["export_today_mw"] > 0
     assert src.capabilities()["summer_case"] and src.capabilities()["boundary"]
@@ -144,7 +145,7 @@ def test_validation_reports_a_network_nobody_can_feed():
     pp.create_line_from_parameters(net, b1, b2, 1.0, 0.1, 0.1, 0.0, 0.4)
     pp.create_load(net, b2, 5.0)
     report = validate_net(net)  # not normalised: no slack was placed
-    assert not report.ok and any("slack" in e for e in report.errors) and report.converged is False
+    assert not report.ok and any("infeed" in e for e in report.errors) and report.converged is False
 
 
 def test_matpower_case_imports_when_scipy_is_available():

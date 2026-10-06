@@ -1,7 +1,7 @@
 """Merit-order dispatch of an imported grid's power stations, per study case.
 
 Real power stations are dispatched to balance demand: the cheapest run first, each between its minimum and maximum
-output. A grid imported from a file (`sources`, which sets `net["dispatch"] = "merit_order"`) is studied that way:
+output. Every grid is dispatched by `merit_order`; on one without power stations (NGED's) it is simply the case factors:
 
 * embedded generation (`sgen`: fixed power factor, the distribution side) follows the study case as on any grid
   (`network.dispatch_for_case`: a DNO does not dispatch it; the weather, the season and its owner's schedule do);
@@ -25,7 +25,21 @@ from typing import NamedTuple
 
 import pandas as pd
 
-VARIABLE_TECHS = frozenset({"solar", "wind", "battery", "hybrid", "electrolyser", "demand"})
+from .config import VARIABLE_TECHS
+
+# the generator tables: `sgen` (fixed power factor: embedded generation, new connections) and `gen` (voltage-controlled
+# power stations of an imported grid, holding their setpoint within their reactive limits)
+FLEET_TABLES = ("sgen", "gen")
+
+
+def _ensure_fleet_columns(net) -> None:
+    for table in FLEET_TABLES:
+        t = net[table]
+        for col in ("import_mw", "p_rated_mw"):
+            if col not in t.columns:
+                t[col] = pd.Series(dtype=float)
+
+
 _LAMBDA_ITERATIONS = 60  # bisection on the marginal cost: far below a kW of mismatch on any grid
 
 
@@ -112,11 +126,12 @@ def _external_grid_units(net) -> list[Unit]:
 
 
 def merit_order(net, case: str) -> None:
-    """Set every generator's output for `case` in place (and switch off the solar or wind units under voltage control
-    that produce nothing). The caller restores `p_mw` and `in_service` afterwards."""
+    """The dispatch of every grid in a study case: set every generator's output for `case` in place (and switch off the
+    solar or wind units under voltage control that produce nothing). Without power stations (`market_units`) it is the
+    case factors alone (`network.dispatch_for_case`). The caller restores `p_mw` and `in_service` afterwards."""
     from .network import dispatch_for_case
 
-    for table in ("sgen", "gen"):  # embedded and variable generation, storage and new connections: the case decides
+    for table in FLEET_TABLES:  # embedded and variable generation, storage and new connections: the case decides
         if len(net[table]):
             net[table]["p_mw"] = dispatch_for_case(net, case, table)
     stations = market_units(net)
@@ -124,8 +139,11 @@ def merit_order(net, case: str) -> None:
         units = [Unit(("gen", int(i)), float(net.gen.at[i, "min_p_mw"]), float(net.gen.at[i, "p_rated_mw"]), *_cost(net, "gen", i))
                  for i in stations]  # the import refuses a power station without its limits and cost
         demand = float((net.load["p_mw"] * net.load["scaling"])[net.load["in_service"].astype(bool)].sum())
-        # what the case already fixes: everything but the power stations (storage charging counts as demand)
-        fixed = float(net.sgen["p_mw"].sum()) + float(net.gen.loc[net.gen.index.difference(stations), "p_mw"].sum())
+        # what the case already fixes: everything in service but the power stations (storage charging counts as demand);
+        # a unit out for works supplies nothing, whatever output the case gave it
+        on = lambda t: net[t]["in_service"].astype(bool)  # noqa: E731
+        others = net.gen.index.difference(stations)
+        fixed = float(net.sgen.loc[on("sgen"), "p_mw"].sum()) + float(net.gen.loc[others, "p_mw"][on("gen").loc[others]].sum())
         for (table, i), p in economic_dispatch(units + _external_grid_units(net), demand - fixed).items():
             if table == "gen":  # the external grid is the slack: it supplies its share and balances the rest
                 net.gen.at[i, "p_mw"] = p

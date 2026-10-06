@@ -88,15 +88,16 @@ def set_message(con: Cursor, message_id: str, **fields) -> dict | None:
 
 
 def history(con: Cursor, thread_id: str, before_seq: int | None = None) -> list:
-    """The model-side message history of a thread (what the answerer continues from): the stored
-    model messages of every finished assistant turn, in order."""
+    """The model-side message history of a thread (what the answerer continues from): the stored model messages of the
+    latest finished assistant turn. Each turn stores its run's whole conversation (`all_messages()`: the history it was
+    given plus its own), so the latest one already holds every earlier turn; concatenating them would repeat each."""
     out: list = []
     for m in messages(con, thread_id):
         if before_seq is not None and m["seq"] >= before_seq:
             break
         if m["role"] == "assistant" and m.get("model_messages"):
-            out.extend(m["model_messages"])
-    return out
+            out = m["model_messages"]
+    return list(out)
 
 
 def history_runs(con: Cursor, thread_id: str, before_seq: int) -> list[str]:

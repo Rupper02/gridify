@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 
-import { api } from "../../api";
+import { api, failureText } from "../../api";
 import type { FindingStatus } from "../../types";
 import type { Core } from "./core";
 
@@ -12,12 +12,12 @@ export function useFindings({ patch, ref, toastMsg }: Core) {
     async (bid: string) => {
       try {
         const r = await api.listFindings(bid);
-        if (ref.current.activeBranch === bid) patch({ findings: r.findings, findingCounts: r.counts });
-      } catch {
-        /* the Findings tab shows none */
+        if (ref.current.activeBranch === bid) patch({ findings: r.findings });
+      } catch (e) {
+        if (ref.current.activeBranch === bid) toastMsg(`Could not load the findings: ${failureText(e)}`, "warn");
       }
     },
-    [patch, ref],
+    [patch, ref, toastMsg],
   );
 
   /** Acknowledge, resolve or reopen a finding: optimistic, rolled back with a toast on failure. */
@@ -30,7 +30,7 @@ export function useFindings({ patch, ref, toastMsg }: Core) {
         patch((st) => ({ findings: st.findings.map((f) => (f.finding_id === id ? row : f)) }));
       } catch (e) {
         patch({ findings: before });
-        toastMsg(`Could not update the finding: ${e instanceof Error ? e.message : "check the API is running"}`, "warn");
+        toastMsg(`Could not update the finding: ${failureText(e)}`, "warn");
       }
     },
     [patch, ref, toastMsg],

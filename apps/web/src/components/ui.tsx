@@ -32,6 +32,7 @@ const TECH_ICON: Record<Tech, Icon> = {
   biomass: Plant,
   electrolyser: Drop,
   demand: Buildings,
+  other: Lightning,
 };
 
 export function TechIcon({ tech, size = 15, color, weight = "regular" }: { tech: string | null | undefined; size?: number; color?: string; weight?: "regular" | "bold" | "fill" }) {

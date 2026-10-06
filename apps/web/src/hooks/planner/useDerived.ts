@@ -10,11 +10,13 @@ import {
   preliminaryOf,
   staleness,
   yearResultFor,
+  parentName,
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { gateState, openCounts } from "../../lib/gate";
 import { lineTiers } from "../../lib/mapFeatures";
 import { ALL_CAPABILITIES, mainIdOf, projectOf } from "../../lib/projects";
+import { runStatus } from "../../lib/runStages";
 import { isSuperseded } from "../../lib/trace";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
@@ -31,9 +33,9 @@ export function useDerived(s: PlannerState) {
     const caps = project?.capabilities ?? ALL_CAPABILITIES;
     const synthetic = s.model?.crs === "synthetic";
     const onMain = !s.activeBranch || s.activeBranch === mainId;
-    const branch = s.branches.find((b) => b.branch_id === (s.activeBranch || mainId)) ?? null;
+    const branch = s.branches.find((b) => b.branch_id === s.activeBranch) ?? null;
     const hue = branchHue(s.branches, s.activeBranch, mainId);
-    const profile = profileOf(branch?.scenario ?? "ht");
+    const profile = profileOf(branch?.scenario ?? s.defaultScenario);
     const resultProfile = s.result ? profileOf(s.result.params.scenario) : profile;
     const q: QueueItem[] = s.result ? s.result.queue : [];
     const qById: Record<string, QueueItem> = Object.fromEntries(q.map((x) => [x.request_id, x]));
@@ -43,21 +45,25 @@ export function useDerived(s: PlannerState) {
     const yearsSolved = s.result ? Object.keys(s.result.years ?? {}).length : 0;
     // years the engine ran but whose power flow did not converge: they have no figures to show
     const yearsFailed = s.result ? Object.values(s.result.years ?? {}).filter((y) => y.converged === false).length : 0;
-    const yearsTotal = s.result?.years_total ?? 10;
+    const yearsTotal = s.result?.years_total ?? s.plan?.years.length ?? 0;
+    // where the run stands, in words: the result stamp, the readings' note and the roadmap read it
+    const run = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
     // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
     const branchOnly = new Set<string>(prelim.map((p) => p.request_id));
     if (!onMain && s.diff) s.diff.projects.forEach((p) => p.base_status == null && branchOnly.add(p.request_id));
     const bindLines = new Set<number>();
     q.forEach((x) => x.status === "Deferred" && x.reason?.element?.line_id != null && bindLines.add(x.reason.element.line_id));
     // the merge gate as the buttons show it, and the ledger's open counts for the tab's badge
-    const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running);
+    const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running, s.gateError);
+    // what the branch is judged against and merges into: its parent (main, or the branch it was opened from)
+    const parent = parentName(s.branches, branch, mainId);
     const openFindings = openCounts(s.findings);
     // the reviewer's current comment, and whether it is of an earlier run than the one shown (a run still solving
     // replaces the result it reviewed, before its own run key is known); the proposals waiting in the open conversation
     const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
     const reviewStale = reviewCurrent ? s.solving || isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
-    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewCurrent, reviewStale, pendingApprovals };
+    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewStale, pendingApprovals, parent, run };
   }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
 
   const year = useMemo(() => {

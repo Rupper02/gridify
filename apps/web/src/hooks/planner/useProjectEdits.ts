@@ -2,13 +2,14 @@
 
 import { useCallback } from "react";
 
-import { api } from "../../api";
-import { mainIdOf } from "../../lib/projects";
+import { api, failureText } from "../../api";
 import type { Control } from "../../types";
+import { editableBranch } from "./core";
 import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 
-export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn) {
+export function useProjectEdits(core: Core, edited: EditedFn) {
+  const { patch, ref, toastMsg } = core;
   /**
    * Set/override a project's energisation year, a plan year (null = back to the optimizer's recommendation).
    * Persisted on the branch; applied optimistically, rolled back if the save fails. It doesn't change
@@ -16,13 +17,8 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
    */
   const setSchedule = useCallback(
     async (rid: string, year: number | null) => {
-      const st = ref.current;
-      const mainId = mainIdOf(st.projects, st.projectId);
-      const bid = st.activeBranch || mainId;
-      if (bid === mainId) {
-        toastMsg("main is read-only. Open a branch to change an energisation year.", "warn");
-        return;
-      }
+      const bid = editableBranch(core, "change an energisation year");
+      if (!bid) return;
       const applyYear = (val: number | null) =>
         patch((st) =>
           st.result
@@ -36,10 +32,10 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
         edited("schedule");
       } catch (e) {
         applyYear(prev);
-        toastMsg(`Couldn't save the year for ${rid}: ${e instanceof Error ? e.message : "unknown error"}`, "warn");
+        toastMsg(`Couldn't save the year for ${rid}: ${failureText(e)}`, "warn");
       }
     },
-    [edited, patch, ref, toastMsg],
+    [core, edited, patch, ref, toastMsg],
   );
 
   /**
@@ -48,24 +44,19 @@ export function useProjectEdits({ patch, ref, toastMsg }: Core, edited: EditedFn
    */
   const setControl = useCallback(
     async (rid: string, control: Control): Promise<boolean> => {
-      const st = ref.current;
-      const mainId = mainIdOf(st.projects, st.projectId);
-      const bid = st.activeBranch || mainId;
-      if (bid === mainId) {
-        toastMsg("main is read-only. Open a branch to state a project's control mode.", "warn");
-        return false;
-      }
+      const bid = editableBranch(core, "state a project's control mode");
+      if (!bid) return false;
       try {
         const row = await api.changeCandidate(bid, rid, { control });
         patch((s) => ({ candidates: s.candidates.map((c) => (c.request_id === rid ? row : c)) }));
         edited("project");
         return true;
       } catch (e) {
-        toastMsg(`Couldn't save the control mode for ${rid}: ${e instanceof Error ? e.message : "unknown error"}`, "warn");
+        toastMsg(`Couldn't save the control mode for ${rid}: ${failureText(e)}`, "warn");
         return false;
       }
     },
-    [edited, patch, ref, toastMsg],
+    [core, edited, patch, toastMsg],
   );
 
   return { setSchedule, setControl };

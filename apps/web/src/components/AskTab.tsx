@@ -21,7 +21,7 @@ import type { Approval, ThreadMessage } from "../types";
 export type AskTabPlanner = PlannerSlice<
   "activeBranch" | "agents" | "chat" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
   "ask" | "askAbout" | "cancelReply" | "closeThread" | "decideApproval" | "loadThreads" | "openEvidence" | "openThread" | "setAgentsPaused" | "setInput" | "startAsk",
-  "branch" | "caps" | "hue" | "ix" | "onMain" | "pendingApprovals" | "q" | "tiers"
+  "branch" | "caps" | "hue" | "ix" | "onMain" | "q" | "tiers"
 >;
 
 /** Citations become small numbered chips; any other link opens in a new tab. */
@@ -74,7 +74,7 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
             ? "The agents are starting with the API; the conversation opens as soon as they are up."
             : "A question in plain words. The agents run the engine's studies and answer with every figure traced to the step that produced it; what they propose waits for your approval."}
         </span>
-        <span style={{ gridColumn: "2 / -1", fontSize: 11.5, color: C.mute, fontStyle: "italic" }}>"How could CR-2061 connect, and what would it take?"</span>
+        <span style={{ gridColumn: "2 / -1", fontSize: 11.5, color: C.mute, fontStyle: "italic" }}>"{questions[0] ?? "What limits this grid, where, and what would it take?"}"</span>
       </button>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <span style={{ fontSize: 12.5, fontWeight: 600 }}>About what is in view</span>
@@ -210,7 +210,7 @@ function AskChat({ planner, layout }: { planner: AskTabPlanner; layout: Layout }
             disabled={locked}
           />
           {streaming ? (
-            <button type="button" aria-label="Stop" title="Stop this reply" data-stop onClick={() => void actions.cancelReply()} disabled={s.chat.busy && !streaming}>
+            <button type="button" aria-label="Stop" title="Stop this reply" data-stop onClick={() => void actions.cancelReply()}>
               <Stop size={14} weight="fill" />
             </button>
           ) : (

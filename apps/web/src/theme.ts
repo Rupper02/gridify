@@ -3,12 +3,11 @@
 // cyan), planning-state colours, and a hue per branch.
 
 import type { Lens } from "./lib/plan";
-import type { Change, Status, Tech } from "./types";
+import type { Status, Tech } from "./types";
 
 export const C = {
   night: "#0b111a",
   substation: "#152031",
-  ambient: "#2b3d57",
   ink: "#eaf0f7",
   ink2: "#c9d6e8",
   ink3: "#dbe4ef",
@@ -58,15 +57,6 @@ export const LENS: Record<Lens, { label: string; c: string }> = {
 
 export const ORDER: Record<Status, number> = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
 
-export const CHG: Record<Change, { label: string; c: string }> = {
-  accelerated: { label: "Accelerated", c: C.phase1 },
-  slipped: { label: "Slipped", c: C.amber },
-  moved_up: { label: "Moved up", c: C.phase2 },
-  moved_down: { label: "Moved down", c: C.mute },
-  added: { label: "Added", c: C.accent },
-  dropped: { label: "Dropped", c: C.mute },
-  unchanged: { label: "No change", c: C.mute2 },
-};
 
 // ---- technologies -------------------------------------------------------------------------------
 export interface TechMeta {
@@ -78,6 +68,8 @@ export interface TechMeta {
   /** It draws power at winter peak (batteries charging), so the intake asks for its import. */
   imports: boolean;
 }
+// `treatment` restates the engine's dispatch per study case (config.GENERATION_FACTORS, GENERATION_FACTOR_DEFAULT for the
+// firm kinds, DEMAND_PROJECT_MIN_FACTOR): a mirror for the legend; change both together.
 export const TECH: Record<Tech, TechMeta> = {
   solar: { label: "Solar PV", treatment: "Nil at winter peak, full at summer min", importOnly: false, imports: false },
   wind: { label: "Onshore wind", treatment: "Nil at winter peak, full at summer min", importOnly: false, imports: false },
@@ -88,20 +80,15 @@ export const TECH: Record<Tech, TechMeta> = {
   biomass: { label: "Biomass / EfW", treatment: "Firm in both cases", importOnly: false, imports: false },
   electrolyser: { label: "Hydrogen electrolyser", treatment: "Import at winter peak, half of it at summer min", importOnly: true, imports: true },
   demand: { label: "Demand connection", treatment: "Import at winter peak, half of it at summer min", importOnly: true, imports: true },
+  // a unit whose fuel the source does not name (the engine's "other"): dispatched as firm
+  other: { label: "Other generation", treatment: "Firm in both cases", importOnly: false, imports: false },
 };
 export const isTech = (t: string | null | undefined): t is Tech => !!t && t in TECH;
 export const techLabel = (t: string | null | undefined): string => (isTech(t) ? TECH[t].label : t ? t : "Unknown");
 
-/** Readiness evidence an applicant can show; the weights sum with the 0.1 floor to 1.0. */
-export const EVID = [
-  { k: "land", label: "Land rights", w: 0.3 },
-  { k: "planning", label: "Planning consent", w: 0.35 },
-  { k: "finance", label: "Financing", w: 0.25 },
-] as const;
-export const READINESS_FLOOR = 0.1;
-
 // ---- demand profiles ----------------------------------------------------------------------------
-/** The three demand profiles the engine offers (FES pathways), with their bar glyph. */
+/** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's IMPORT_PATHWAYS and the
+ * labels mirror config.FORECASTS[*].short (served on /forecasts and the file inspection): change both together. */
 export const PROFILES: { id: string; label: string; short: string; bars: 1 | 2 | 3 }[] = [
   { id: "fb", label: "Low", short: "L", bars: 1 },
   { id: "ht", label: "Standard", short: "S", bars: 2 },
@@ -127,7 +114,6 @@ export const loadColor = (v: number | null | undefined): string =>
 export const voltColor = (v: number | null | undefined, lo: number, hi: number): string =>
   v == null ? C.mute2 : v < lo || v > hi ? C.red : v < lo + 0.02 ? C.phase2 : v > hi - 0.03 ? C.amber : C.ink2;
 
-export const ADDED_ID_BASE = 2056; // manual projects are numbered CR-2056, CR-2057, … (mirrors the API)
 
 /** A study case as the planner names it; a case it does not know passes through. */
 export const CASE_LABEL: Record<string, string> = { summer_min: "summer min", winter_peak: "winter peak" };

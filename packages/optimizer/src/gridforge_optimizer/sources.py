@@ -36,7 +36,8 @@ import pandapower as pp
 import pandapower.topology as top
 import pandas as pd
 
-from .config import FORECASTS, IMPORT_PATHWAYS, MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR, VOLTAGE_BAND_PRESETS
+from .config import DEFAULT_SCENARIO, FORECASTS, IMPORT_FORECAST_FACTOR_MAX, IMPORT_PATHWAYS, MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR, VOLTAGE_BAND_PRESETS
+from .dispatch import FLEET_TABLES
 from .geometry import SYNTHETIC_CENTER, interpolate_positions, synthetic_positions
 from .gridmodel import fleet_of, model_from_net
 from .types import GridModel, ImportMeta, ModelAssumption, ValidationReport
@@ -67,12 +68,11 @@ class SourceSpec(NamedTuple):
     label: str
     extensions: tuple[str, ...]  # file extensions this kind imports ("" for the bundled source)
     factory: Callable[..., GridSource]
+    offered: bool = True  # offered by the import form (`import_formats`); False: read, but no file of it can pass today
 
 
 # --- the planning assumptions every imported grid is judged under (listed, never hidden) ---------------------------
 _GENERIC = {
-    "no_seasonal_ratings": "No seasonal line ratings in the file: the summer-minimum case is not studied unless a summer rating ratio is entered",
-    "no_min_demand": "No minimum-demand factor in the file: the summer-minimum case is not studied unless one is entered",
     "no_gsp_limit": "No export limit to the external grid in the file: the slack's export is reported, never limited",
     "no_demand_groups": "No demand groups (firm capacities) in the file: no security-of-supply alerts for customers",
     "slack_from_generator": "The file's slack generator is the external-grid infeed, at its voltage setpoint",
@@ -82,6 +82,7 @@ _GENERIC = {
                             "the external grid balances the rest and the losses",
     "inverter_rating": "Units the file rates only by their nominal (apparent) power are rated at it: an inverter's AC rating caps its export",
     "gsp_limit_entered": "Export limit to the external grid entered by the operator at import",
+    "gsp_sgt_entered": "One supergrid transformer's rating entered by the operator at import: the size of the 'add a transformer' lever",
     "min_demand_entered": "Minimum-demand factor entered by the operator at import, applied to every load",
     "summer_ratio_entered": "Summer rating ratio entered by the operator at import, applied to every line",
     "intermediate_ratio_entered": "Intermediate-season rating ratio entered by the operator at import, applied to every line",
@@ -174,8 +175,14 @@ def _ensure_slack(net, rec: _Records, gaps: _Gaps) -> None:
     if not len(slack):
         gaps.add("no infeed: mark the bus that connects to the upstream grid (an external grid) with its voltage setpoint", "the network")
         return
-    for i in slack.index:
-        pp.create_ext_grid(net, int(net.gen.at[i, "bus"]), vm_pu=float(net.gen.at[i, "vm_pu"]), name=str(net.gen.at[i, "name"] or "slack"))
+    for i in slack.index:  # the file's price and limits go with it: the merit order prices the external grid by them
+        limits = {k: float(net.gen.at[i, k]) for k in ("max_p_mw", "min_p_mw") if _value(net.gen, i, k) is not None}
+        eg = pp.create_ext_grid(net, int(net.gen.at[i, "bus"]), vm_pu=float(net.gen.at[i, "vm_pu"]),
+                                name=str(net.gen.at[i, "name"] or "slack"), **limits)
+        pc = net.get("poly_cost")
+        if pc is not None and len(pc):
+            own = (pc["et"] == "gen") & (pc["element"].astype(int) == int(i))
+            pc.loc[own, "et"], pc.loc[own, "element"] = "ext_grid", int(eg)
     rec.add("slack_from_generator", source="file", element_kind="gen", element_ids=slack.index)
     net.gen.drop(slack.index, inplace=True)
 
@@ -185,8 +192,8 @@ def _normalise_fleet(net, rec: _Records, gaps: _Gaps) -> None:
     units (`gen`, kept so: they hold their setpoint within their reactive limits). Each needs its technology and
     rating; a voltage-controlled one its setpoint and reactive limits; a power station (voltage-controlled, not solar,
     wind or storage) its minimum output and its cost for the merit order. A unit missing any of them is a gap."""
-    from .dispatch import VARIABLE_TECHS, _cost
-    from .network import _ensure_fleet_columns
+    from .config import IMPORT_ONLY_TECHS
+    from .dispatch import _cost, _ensure_fleet_columns, market_units
     _ensure_fleet_columns(net)
     from_nominal = []
     for table, noun, prefix in (("sgen", "generator", "EX-"), ("gen", "voltage-controlled generator", "EX-G")):
@@ -215,22 +222,23 @@ def _normalise_fleet(net, rec: _Records, gaps: _Gaps) -> None:
                 t.at[i, "import_mw"] = float(stated)
             if tech == "battery" and _isnan(t.at[i, "import_mw"]):
                 gaps.add("batteries without their charging capacity (import_mw)", label)
-            elif _isnan(t.at[i, "import_mw"]) and not _isnan(t.at[i, "p_rated_mw"]):
-                t.at[i, "import_mw"] = t.at[i, "p_rated_mw"]  # read only for storage and demand-type units
+            elif tech in IMPORT_ONLY_TECHS and _isnan(t.at[i, "import_mw"]):
+                gaps.add("demand or electrolyser units without the power they draw (import_mw)", label)
             if table == "gen":
                 for col, what in (("vm_pu", "a voltage setpoint (vm_pu)"), ("min_q_mvar", "reactive limits (min_q_mvar, max_q_mvar)"),
                                   ("max_q_mvar", "reactive limits (min_q_mvar, max_q_mvar)")):
                     if _value(t, i, col) is None:
                         gaps.add(f"voltage-controlled generators without {what}", label)
-            if table == "gen" and known and tech not in VARIABLE_TECHS and bool(t.at[i, "in_service"]):  # a power station
-                if _value(t, i, "min_p_mw") is None:
-                    gaps.add("power stations without their minimum output (min_p_mw)", label)
-                if _cost(net, table, i) is None:
-                    gaps.add("power stations without a cost for the merit order (poly_cost)", label)
     if from_nominal:
         rec.add("inverter_rating", source="file", element_kind="gen", element_ids=from_nominal)
-    stations = any(str(net.gen.at[i, "type"]) not in VARIABLE_TECHS and bool(net.gen.at[i, "in_service"]) for i in net.gen.index)
-    if stations:
+    stations = market_units(net)  # the units the merit order dispatches: the one definition of a power station
+    for i in stations:
+        label = _label(net.gen, i, "voltage-controlled generator")
+        if _value(net.gen, i, "min_p_mw") is None:
+            gaps.add("power stations without their minimum output (min_p_mw)", label)
+        if _cost(net, "gen", i) is None:
+            gaps.add("power stations without a cost for the merit order (poly_cost)", label)
+    if len(stations):
         for i in net.ext_grid.index:
             if _cost(net, "ext_grid", i) is None or _value(net.ext_grid, i, "max_p_mw") is None:
                 gaps.add("an external grid without the price and limit of its supply (poly_cost, max_p_mw), which the merit order "
@@ -254,6 +262,9 @@ def _normalise_trafos(net, gaps: _Gaps) -> None:
                      "(regulated), or remove the range to keep it fixed at its position", _label(net.trafo, i, "transformer"))
         if has_range and _value(net.trafo, i, "tap_pos") is None:
             gaps.add("transformers with a tap range but no tap position", _label(net.trafo, i, "transformer"))
+        if (_value(net.trafo, i, "tap_pos") is not None and _value(net.trafo, i, "tap_neutral") is None
+                and (_value(net.trafo, i, "tap_step_percent") or 0) > 0):  # its ratio is the position against neutral
+            gaps.add("transformers with a tap position but no neutral position (tap_neutral)", _label(net.trafo, i, "transformer"))
     for col in ("tap_min", "tap_max", "tap_neutral", "tap_pos"):
         net.trafo[col] = pd.to_numeric(net.trafo[col], errors="coerce").fillna(0).astype(int)
     net.trafo["tap_step_percent"] = pd.to_numeric(net.trafo["tap_step_percent"], errors="coerce").fillna(0.0)
@@ -293,7 +304,6 @@ def normalise_net(net, source_id: str = "import") -> list[ModelAssumption]:
         live = set(net.bus.index[net.bus["in_service"].astype(bool)])
         for b in sorted(int(b) for b in top.unsupplied_buses(net) if int(b) in live):
             gaps.add("in-service buses the infeed cannot reach (connect them, or set them out of service)", _label(net.bus, b, "bus"))
-    net["dispatch"] = "merit_order"  # its power stations follow the market in every study case (dispatch.py)
     rec.add("merit_order_dispatch")
     net["gaps"] = gaps.errors()
     if "name" not in net or not net.name:
@@ -357,8 +367,10 @@ def apply_import_meta(net, meta: ImportMeta | None) -> list[ModelAssumption]:
     if meta.gsp_export_limit_mw is not None:
         net["gsp_name"] = meta.gsp_name or "the external grid"
         net["gsp_export_limit_mw"] = float(meta.gsp_export_limit_mw)
-        net["gsp_sgt_mw"] = float(meta.gsp_export_limit_mw)
         rec.add("gsp_limit_entered", source="operator-entered")
+    if meta.gsp_sgt_mw is not None:  # without it the GSP lever is not offered: its size is never invented
+        net["gsp_sgt_mw"] = float(meta.gsp_sgt_mw)
+        rec.add("gsp_sgt_entered", source="operator-entered")
     if meta.min_demand_factor is not None and len(net.load):
         net.load["min_scale"] = float(meta.min_demand_factor)
         rec.add("min_demand_entered", source="operator-entered", element_kind="load", element_ids=net.load.index)
@@ -368,6 +380,13 @@ def apply_import_meta(net, meta: ImportMeta | None) -> list[ModelAssumption]:
     if meta.intermediate_rating_ratio is not None and len(net.line):
         net.line["intermediate_ratio"] = float(meta.intermediate_rating_ratio)
         rec.add("intermediate_ratio_entered", source="operator-entered", element_kind="line", element_ids=net.line.index)
+    # both study cases run on every grid: the summer minimum (where reverse flow, voltage rise and export peak) needs the
+    # file's or the operator's minimum demand and summer ratings, never a stand-in
+    has = lambda table, col: col in table.columns and table[col].notna().any()  # noqa: E731
+    if len(net.load) and not has(net.load, "min_scale"):
+        net["gaps"].append("no minimum demand for the summer-minimum case: enter the minimum demand as a share of the maximum")
+    if len(net.line) and not has(net.line, "summer_ratio"):
+        net["gaps"].append("no summer line ratings for the summer-minimum case: enter the summer / winter line rating ratio")
     for r in rec.by_key.values():
         net["assumptions"][r["key"]] = dict(r)
     return rec.list()
@@ -377,10 +396,6 @@ def inspect_net(net) -> list[ModelAssumption]:
     """What the net does not carry, stated: the cases it cannot be studied in, the limits it has none of."""
     rec = _Records()
     has = lambda table, col: col in table.columns and table[col].notna().any()  # noqa: E731
-    if not has(net.line, "summer_ratio"):
-        rec.add("no_seasonal_ratings", source="file")
-    if not has(net.load, "min_scale"):
-        rec.add("no_min_demand", source="file")
     if net.get("gsp_export_limit_mw") is None:
         rec.add("no_gsp_limit", source="file")
     if not has(net.load, "region_id"):
@@ -395,7 +410,7 @@ def _generation_shortfall(net) -> tuple[float, float] | None:
         return None
     demand = float((net.load["p_mw"] * net.load["scaling"])[net.load["in_service"].astype(bool)].sum())
     supply = float(net.ext_grid["max_p_mw"].sum())
-    for t in (net.sgen, net.gen):
+    for t in (net[name] for name in FLEET_TABLES):
         if len(t):
             supply += float(t.loc[t["in_service"].astype(bool), "p_rated_mw"].fillna(0).sum())
     return (demand, supply) if demand > supply else None
@@ -406,10 +421,14 @@ def _non_convergence(net, message: str) -> str:
     described has no steady state), or it does and the case as studied (merit-order dispatch, the case's demand) is
     more than the grid can carry."""
     given = copy.deepcopy(net)
+    from .network import _no_solution
+
     try:
         pp.runpp(given, enforce_q_lims=bool(len(given.gen)))
         solves = bool(given.converged)
-    except Exception:
+    except Exception as e:
+        if not _no_solution(e):
+            raise
         solves = False
     if solves:
         return (f"the file solves at its own operating point, but the base case as studied does not ({message}): with its power "
@@ -424,8 +443,8 @@ def validate_net(net) -> ValidationReport:
     warnings: list[str] = []
     if not len(net.bus):
         errors.append("the file has no buses")
-    if not len(net.ext_grid):
-        errors.append("no external-grid infeed (slack) could be placed")
+    if not len(net.ext_grid) and not net.get("gaps"):  # an import says so in its gaps (`_ensure_slack`)
+        errors.append("no infeed: the network has no external grid")
     bad_kv = [int(b) for b in net.bus.index if not float(net.bus.at[b, "vn_kv"]) > 0]
     if bad_kv:
         errors.append(f"{len(bad_kv)} buses have no nominal voltage")
@@ -441,7 +460,7 @@ def validate_net(net) -> ValidationReport:
         g = top.create_nxgraph(net, respect_switches=False)
         islands = nx.number_connected_components(g)
         if islands > 1:
-            warnings.append(f"the network has {islands} separate parts; those without an infeed were dropped")
+            warnings.append(f"the network has {islands} separate parts, each with its own infeed or out of service")
     errors.extend(net.get("gaps") or [])  # what the file lacks for a real simulation: refused, never filled
     converged, feasible, reason, cases = False, None, None, []
     if not errors:  # only a complete grid is simulated
@@ -508,11 +527,11 @@ class NgedSource:
     id = "nged-bickerfen"
     name = "NGED Bicker Fen 132 kV GSP"
 
-    def __init__(self, tables=None, edition: str | None = None):
+    def __init__(self, tables=None):
         from . import nged
         self._nged = nged
         self.tables = tables
-        self.edition = edition or nged.EDITION_CURRENT
+        self.edition = nged.EDITION_CURRENT
 
     def build_net(self):
         return self._nged.build_nged_net(self.tables, self.edition)
@@ -587,8 +606,10 @@ class NetBackedSource:
         return list(self._assumptions)
 
     def capabilities(self) -> dict:
+        from .network import _study_cases
+
         return {"boundary": self._net.get("gsp_export_limit_mw") is not None, "regions": "region_id" in self._net.load.columns and self._net.load["region_id"].notna().any(),
-                "registry": False, "editions": False, "summer_case": "min_scale" in self._net.load.columns, "crs": self.model().crs}
+                "registry": False, "editions": False, "summer_case": any(c.name == "summer_min" for c in _study_cases(self._net)), "crs": self.model().crs}
 
     def validate(self) -> ValidationReport:
         """The import report (computed once on a fresh copy, so the pristine net keeps no results)."""
@@ -634,7 +655,9 @@ def inspect_file(filename: str, data: bytes) -> dict:
     presets = [{"id": k, "label": p["label"], "note": p["note"],
                 "bands": [{"min_kv": lo_kv, "max_kv": hi_kv, "vmin_pu": lo, "vmax_pu": hi} for lo_kv, hi_kv, lo, hi in p["bands"]]}
                for k, p in VOLTAGE_BAND_PRESETS.items()]
-    return {"levels": study_levels(net), "presets": presets, "pathways": list(IMPORT_PATHWAYS)}
+    # the pathways a forecast stands in for, named as the demand picker names them; the default one is required
+    pathways = [{"id": p, "label": FORECASTS[p]["short"], "required": p == DEFAULT_SCENARIO} for p in IMPORT_PATHWAYS]
+    return {"levels": study_levels(net), "presets": presets, "pathways": pathways, "factor_max": IMPORT_FORECAST_FACTOR_MAX}
 
 
 def _cgmes_version(xml_heads: list[bytes]) -> str:
@@ -680,8 +703,15 @@ SOURCES: dict[str, SourceSpec] = {
     "nged": SourceSpec("NGED LTDS open data (bundled)", (), NgedSource),
     "cgmes": SourceSpec("CIM/CGMES exchange (zip of EQ/TP/SSH/GL profiles)", (".zip",), cgmes_source),
     "pandapower_json": SourceSpec("pandapower network (JSON)", (".json",), pandapower_json_source),
-    "matpower": SourceSpec("MATPOWER case (.mat)", (".mat",), matpower_source),
+    # a MATPOWER case carries no generator technology, so its import is always refused until it can say one (findings #23)
+    "matpower": SourceSpec("MATPOWER case (.mat)", (".mat",), matpower_source, offered=False),
 }
+
+
+def import_formats() -> list[dict]:
+    """Every source kind as the planner names it, and the extensions the import form offers (`SourceSpec.offered`)."""
+    return [{"kind": k, "label": s.label, "extensions": list(s.extensions), "offered": s.offered and bool(s.extensions)}
+            for k, s in SOURCES.items()]
 
 
 def source_kind_for(filename: str) -> str:
@@ -706,4 +736,4 @@ def default_source() -> NgedSource:
 __all__ = ["GridSource", "SourceSpec", "SOURCES", "NgedSource", "NetBackedSource", "normalise_net", "apply_import_meta", "inspect_net",
            "inspect_file", "study_levels", "levels_of",
            "validate_net", "positions", "from_pandapower_net", "cgmes_source", "pandapower_json_source", "matpower_source",
-           "source_kind_for", "source_from_file", "default_source", "SYNTHETIC_CENTER"]
+           "source_kind_for", "source_from_file", "default_source", "import_formats", "SYNTHETIC_CENTER"]

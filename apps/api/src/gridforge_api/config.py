@@ -43,10 +43,12 @@ MANUAL_READINESS_DEFAULT = 0.5
 MANUAL_STRATEGIC_DEFAULT = 0.5
 ADDED_CANDIDATE_ID_BASE = 2056  # user-added projects are numbered CR-2056, CR-2057, …
 
-# --- the agent harness (agents/) ---------------------------------------------------------------------------
+# --- projects --------------------------------------------------------------------------------------------
 NGED_PROJECT_ID = "nged-bickerfen"  # the built-in project; imports get their own ids (projects.py)
 PROJECTS_DIR = Path(os.getenv("GRIDFORGE_PROJECTS_DIR") or (SCENARIOS.parent / "projects"))  # the files imported projects were built from
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
+
+# --- the agent harness (agents/) ---------------------------------------------------------------------------
 # OpenRouter model ids per role (AGENTS.md rule 2: they plan studies and phrase; the engine computes)
 AGENT_MODELS = {
     "steward": "anthropic/claude-sonnet-5.5",
@@ -55,6 +57,7 @@ AGENT_MODELS = {
     "specialist": "anthropic/claude-sonnet-5.5",
 }
 # per agent run: tool calls, solves and wall time before it is cut short
+NGED_MAIN_ID = "main"  # the built-in project's main (an import's is `<project id>-main`)
 AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600}
 # an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer
 AGENT_ANSWER_RESERVE_S = 60.0

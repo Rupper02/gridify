@@ -36,7 +36,7 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
         <div className="empty" style={{ margin: "4px 4px 0" }}>
           <b>{derived.onMain ? "main has no queued projects" : "Nothing queued on this branch yet"}</b>
           <span>
-            main is the network as it exists today. {derived.caps.registry ? "Pull projects from the registry below, or start" : "Start"} a New project in the Ask tab.
+            main is the network as it exists today. {derived.caps.registry ? "Pull projects from the registry below, or ask" : "Ask"} the agents to propose one in the Ask tab.
             {derived.caps.registry ? " Both land" : " It lands"} in Preliminary until the next run.
           </span>
         </div>

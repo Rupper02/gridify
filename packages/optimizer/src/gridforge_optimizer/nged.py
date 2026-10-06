@@ -33,7 +33,7 @@ import pandapower as pp
 import pandas as pd
 
 from .cim import CgmesMeta
-from .config import N1_MIN_KV, OLTC_TAP_STEP_PERCENT
+from .config import GSP_INFEED_VM_PU, N1_MIN_KV, PLAN_END_YEAR, PLAN_START_YEAR, OLTC_DEADBAND_PU, OLTC_SETPOINT_PU, OLTC_TAP_STEP_PERCENT
 from .geometry import h01 as _h01
 from .geometry import interpolate_positions
 from .gridmodel import model_from_net
@@ -241,6 +241,8 @@ def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[
     return busid, bus_code
 
 
+_PF_DEFAULT = 0.95  # LTDS left a demand group's power factor blank: lagging, assumed (registered: pf_default)
+
 # what the builder had to assume, by key: one record per kind of fallback, with the elements it touched.
 # Stated, never hidden: studies.data_quality reports them and the Sources register cites each.
 _ASSUMPTION_TEXT = {
@@ -248,9 +250,9 @@ _ASSUMPTION_TEXT = {
     "length_default": "LTDS gave no usable circuit length: 1 km assumed (impedance comes from %Z, so only the per-km split changes)",
     "summer_ratio_median": "LTDS left the summer rating blank: this network's median summer/winter ratio was used",
     "intermediate_ratio_median": "LTDS left the intermediate-warm rating blank: this network's median ratio was used",
-    "tap_step_assumed": "LTDS gives the tap range but not the step: 1.25% per tap assumed, regulated towards 1.02 pu (config.OLTC_*)",
+    "tap_step_assumed": f"LTDS gives the tap range but not the step: {OLTC_TAP_STEP_PERCENT:g}% per tap assumed, regulated towards {OLTC_SETPOINT_PU:g} pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
-    "pf_default": "LTDS left the power factor blank: 0.95 lagging assumed (nged._pf)",
+    "pf_default": f"LTDS left the power factor blank: {_PF_DEFAULT:g} lagging assumed (nged._pf)",
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
     "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
     "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (the N-1 screen reads that as it is; NGED publishes the connectivity, not the running arrangement)",
@@ -423,7 +425,7 @@ class _RegionIds:
 
 
 def _pf(d: dict) -> float:
-    return min(max(_num(d["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
+    return min(max(_num(d["Current Year Power Factor"]) or _PF_DEFAULT, 0.5), 1.0)
 
 
 def _bsp_groups(dem, aggregates: set[str], gb, region_id) -> dict[str, dict]:
@@ -624,7 +626,7 @@ def _add_gsp_infeed(net) -> int:
     deg = _bus_degree(net)
     hv = net.bus[net.bus.vn_kv >= 132].index.tolist() or [net.bus.vn_kv.idxmax()]
     slack = max(hv, key=lambda b: deg.get(b, 0))
-    pp.create_ext_grid(net, slack, vm_pu=1.02, name="GSP infeed")
+    pp.create_ext_grid(net, slack, vm_pu=GSP_INFEED_VM_PU, name="GSP infeed")
     # the transmission boundary, carried on the net so feasibility() can enforce it grid-agnostically
     net["gsp_name"] = GSP_BOUNDARY["gsp_name"]
     net["gsp_export_limit_mw"] = GSP_BOUNDARY["export_limit_mw"]
@@ -746,7 +748,7 @@ def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURR
 # the planning assumptions this network is judged under (the README's register, as records the data-quality
 # study and an import report list alongside the builder's own)
 PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
-    ModelAssumption(key="tap_target", message="Tap changers step 1.25% and regulate towards 1.02 pu with a 0.01 pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),
+    ModelAssumption(key="tap_target", message=f"Tap changers step {OLTC_TAP_STEP_PERCENT:g}% and regulate towards {OLTC_SETPOINT_PU:g} pu with a {OLTC_DEADBAND_PU:g} pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),
     ModelAssumption(key="dispatch_factors", message="Per-case dispatch is assumed: PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum (config.GENERATION_FACTORS)"),
     ModelAssumption(key="demand_coincidence", message="Winter-peak demand is each LTDS maximum scaled by published coincidence (its BSP's maximum, then NESO's GSP peak); the summer minimum uses the LTDS minimum-demand factor, not grown"),
     ModelAssumption(key="gsp_sign", message="The GSP export limit's direction is assumed: 'export' read as distribution to transmission (NGED does not document the sign)"),
@@ -845,30 +847,31 @@ _FUEL_TECH = {"photovoltaic": "solar", "solar": "solar", "solar pv": "solar",
               "wind": "wind", "onshore wind": "wind", "offshore wind": "wind",
               "storage": "battery", "battery": "battery", "battery storage": "battery",
               "energy storage": "battery"}  # anything else (biomass, 'other generation') -> "other": firm in both cases
-_STATUS_READINESS = {"accepted": 0.9, "connected": 0.95, "budget estimates provided": 0.45,
+_STATUS_READINESS = {"accepted": 0.9, "budget estimates provided": 0.45,
                      "quotation": 0.55, "offered": 0.7, "scoping": 0.2}
 
 
 def commission_year(readiness: float, tech: str | None, rating: float | None, seed: str) -> int:
-    """A deterministic requested-energisation year in [2027, 2035] — the timeline axis.
+    """A deterministic requested-energisation year from the plan's second year to its last — the timeline axis.
 
     Readiness pulls it earlier (a shovel-ready project energises soonest); wind and large schemes
     take longer to build; a per-project hash breaks ties so the years spread rather than bunch.
     This is a plausible planning heuristic, not a committed date from the developer.
     """
     r = min(max(readiness, 0.0), 1.0)
-    year = 2027 + round((1.0 - r) * 4)          # 2027 (ready) .. 2031 (speculative)
+    year = PLAN_START_YEAR + 1 + round((1.0 - r) * 4)  # the plan's 2nd year (ready) .. its 6th (speculative)
     year += 1 if (tech or "").lower() == "wind" else 0
     year += (1 if rating and rating > 80 else 0) + (1 if rating and rating > 150 else 0)
     year += int(_h01(seed + "yr") * 3)          # deterministic 0/1/2 jitter, to spread the queue
-    return max(2027, min(2035, year))
+    return max(PLAN_START_YEAR + 1, min(PLAN_END_YEAR, year))
 
 
 def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
     """A connection queue from LTDS Table 5 (generation), mapped to real buses.
 
     Real fuel types, export capacities and connection statuses; bus matched by substation name.
-    Projects over `max_mw` or without a resolvable bus are flagged needs_review (the intake path).
+    Projects over `max_mw` or without a rating are flagged needs_review (the intake path). A site whose substation
+    matches no bus is placed on a 33 kV+ bus in turn (no bundled site needs it).
     """
     ctx = _ctx(tables)
     net = ctx["net"]

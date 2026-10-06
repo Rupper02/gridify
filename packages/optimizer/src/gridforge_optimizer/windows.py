@@ -14,7 +14,7 @@ with the screen; the screen roughly doubles a window's cost): the best window of
 the next best overall. Windows outside the shortlist report `n1_findings = None` (not screened), so
 a window with fewer second-fault findings can exist among them: a stated limit of the bounded search.
 
-Ranking (deterministic): verdict (feasible < curtailment < demand_at_risk < not_feasible), then the
+Ranking (deterministic): verdict (types.VERDICT_SEVERITY: feasible < curtailment < not_feasible < demand_at_risk), then the
 generation curtailed, the demand at risk, the second-fault findings during the window (shortlist
 first, so a screened window ranks above an unscreened one it ties with), the worst line and
 transformer loadings, then the earliest year and the season order. Nothing here schedules the work
@@ -29,11 +29,10 @@ from .config import BEST_WINDOW_N1_SHORTLIST, SEASON_STUDY
 from .greedy import NetFactory, Progress
 from .maintenance import WORKS
 from .network import build_base_net
-from .types import Candidate, OptimizeParams, OptimizeResult, Outage, OutageStudy, Reinforcement, WindowOption
+from .types import VERDICT_SEVERITY, Candidate, OptimizeParams, OptimizeResult, Outage, OutageStudy, Reinforcement, WindowOption
 from .years import PLAN_YEARS, energisation_years, evaluate_year
 
 SEASONS = tuple(SEASON_STUDY)
-VERDICT_RANK = {"feasible": 0, "curtailment": 1, "demand_at_risk": 2, "not_feasible": 3}
 PROBE_ID = "best-window"
 
 
@@ -49,7 +48,7 @@ def _option(year: int, season: str, s: OutageStudy) -> WindowOption:
 def rank_key(o: WindowOption) -> tuple:
     """Lower is better (see the module docstring); an unscreened window counts after any screened one."""
     n1 = o.n1_findings if o.n1_findings is not None else float("inf")
-    return (VERDICT_RANK.get(o.verdict, len(VERDICT_RANK)), o.curtailed_mw, o.demand_at_risk_mw, n1,
+    return (VERDICT_SEVERITY.get(o.verdict, len(VERDICT_SEVERITY)), o.curtailed_mw, o.demand_at_risk_mw, n1,
             o.worst_line_loading_pct, o.worst_trafo_loading_pct, o.year, SEASONS.index(o.season))
 
 
@@ -80,7 +79,7 @@ class _Prober:
         out = []
         for p in probes:
             s = by_id[p.outage_id]
-            if not s.cases:  # maintenance._missing: the element is not in the model
+            if s.verdict == "unstudied":  # maintenance._missing: the element is not in the model
                 raise ValueError(s.message)
             out.append(_option(y, p.season, s))
         return out

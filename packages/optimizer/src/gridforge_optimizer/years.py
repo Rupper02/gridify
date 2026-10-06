@@ -19,28 +19,23 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable, MutableMapping
 
-from .config import PLAN_END_YEAR, PLAN_START_YEAR
+from .config import PLAN_END_YEAR, PLAN_START_YEAR, PLAN_YEARS  # noqa: F401  (PLAN_YEARS re-exported)
 from .demand import assess_demand
 from .greedy import NetFactory, Progress
 from .maintenance import WORKS, apply_works_after, study_windows
 from .network import (
-    apply_reinforcement,
+    plan_net,
+    snapshot,
     build_base_net,
-    bus_voltages,
     demand_multiplier,
     feasibility,
-    grow_for,
     inject_project,
-    line_loadings,
     n1_screen,
     n1_screen_cases,
-    overloaded_line_ids,
     trafo_loadings,
-    voltage_violation_bus_ids,
 )
 from .types import Candidate, OptimizeParams, OptimizeResult, Outage, Reinforcement, YearResult
 
-PLAN_YEARS = tuple(range(PLAN_START_YEAR, PLAN_END_YEAR + 1))
 
 
 def year_order(view_year: int | None, years: Iterable[int] = PLAN_YEARS) -> list[int]:
@@ -90,10 +85,7 @@ def evaluate_year(
     `n1_windows` the screen during that year's works windows (the year's setting when None)."""
     screen_windows = n1 if n1_windows is None else n1_windows
     growth = demand_multiplier(params, year)
-    net = net_factory()
-    grow_for(net, params, growth, _horizon(year))
-    for r in reinforcements:
-        apply_reinforcement(net, r)
+    net = plan_net(net_factory, params, growth, _horizon(year), reinforcements)
     apply_works_after(net, outages, year)  # repowered elements, from the year after their window
     energised = []
     for c in candidates:
@@ -112,18 +104,8 @@ def evaluate_year(
         energised=energised,
         accepted=energised,
         converged=intact_reason is None or intact_reason.type != "non_convergent",
-        worst_line_loading_pct=round(m.get("max_line_pct", 0.0), 1),
-        worst_trafo_loading_pct=round(m.get("max_trafo_pct", 0.0), 1),
-        min_vm_pu=round(m.get("min_vm", 0.0), 4),
-        max_vm_pu=round(m.get("max_vm", 0.0), 4),
-        overloaded_line_ids=overloaded_line_ids(net),
-        line_loading=line_loadings(net),
+        **snapshot(net, m),
         trafo_loading=trafo_loadings(net),
-        bus_vm=bus_voltages(net),
-        voltage_violation_bus_ids=voltage_violation_bus_ids(net),
-        gsp_export_mw=m.get("gsp_export_mw", 0.0),
-        gsp_import_mw=m.get("gsp_import_mw", 0.0),
-        gsp_limit_mw=m.get("gsp_limit_mw"),
         n1_cases=screen["cases"],
         n1_screened=screen["screened"],
         n1_violations=screen["violations"],
@@ -149,7 +131,7 @@ def year_signature(
     result for it, so an edit only re-solves the years whose signature it changes (an outage in 2031
     re-solves 2031, and the later years only if it repowers something)."""
     energised = sorted(
-        (c.request_id, c.bus_id, c.rating_mw, c.import_mw, c.technology)
+        json.dumps(c.signature(), default=str)
         for c in candidates
         if (y := in_service.get(c.request_id)) is not None and y <= year and c.bus_id is not None
     )

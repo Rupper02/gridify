@@ -14,7 +14,7 @@ Per year (`assess_demand`, called by years.evaluate_year on the year's solved ne
   * demand: the group's own peak (LTDS maximum demand grown to the year, plus any plan project that
     draws power at winter peak on the group's buses), and what the power flow carries for it;
   * firm headroom and the P2/8 demand class (by group demand);
-  * N-1: the most demand one 132 kV backbone outage cuts off in the group (from the N-1 screen's
+  * N-1: the most demand one outage in the N-1 scope cuts off in the group (from the N-1 screen's
     islanded buses, winter peak);
   * voltage: the group's load buses outside the statutory band with the network intact;
   * demand room: a first-order (≈) bound on new demand, the smaller of the firm headroom and the
@@ -32,6 +32,7 @@ from typing import NamedTuple
 import pandas as pd
 
 from .config import HEADROOM_WARN_FRACTION, N1_ISLAND_MIN_MW, P2_8_CLASSES
+from .dispatch import FLEET_TABLES
 from .network import dispatch_for_case, solve_case, voltage_limits
 from .types import Alert, RegionYear
 
@@ -142,7 +143,7 @@ def _project_import_by_bus(net) -> pd.Series:
     The existing fleet (generators with a `fleet_id`) is left out: its import is already in LTDS demand. A project
     under voltage control is a `gen`, so both tables are read."""
     parts = []
-    for table in ("sgen", "gen"):
+    for table in FLEET_TABLES:
         t = net[table]
         if not len(t):
             continue
@@ -267,7 +268,7 @@ def _firm_alert(r: RegionYear, year: int) -> Alert | None:
 
 
 def _n1_alert(r: RegionYear, year: int) -> Alert | None:
-    """A single 132 kV backbone outage cuts off demand in a class C or larger group."""
+    """A single outage in the N-1 scope (the grid's own floor: `network.n1_floor`) cuts off demand in a class C or larger group."""
     allowed = p2_loss_allowed(r.p2_class, r.demand_mw)
     if allowed is None or r.n1_at_risk_mw < N1_ISLAND_MIN_MW:
         return None

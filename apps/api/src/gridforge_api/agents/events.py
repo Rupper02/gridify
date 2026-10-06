@@ -1,6 +1,7 @@
 """What wakes the agents: a registry of triggers, each naming the workflows it starts and how its
-events are deduplicated, and `emit`, the one entry point the routers call. A no-op when the agents are
-off or paused; idempotent by deduplication id (a cached re-run never wakes anyone twice)."""
+events are deduplicated, and `emit`, the one entry point the routers call. A no-op while the runtime is
+starting, recorded but not started while paused; idempotent by deduplication id (a cached re-run never wakes
+anyone twice)."""
 
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ TRIGGERS: dict[str, Trigger] = {
     # a run finished on a branch: the reviewer comments like a PR bot, and the steward may send the connections
     # specialist after the projects the run deferred on a grid limit, or the works specialist when the run flags a
     # works window (`works_flagged` in the payload: not simply feasible, or second faults found during it)
-    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}", applies=lambda p: p["branch_id"] != "main"),
+    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}", applies=lambda p: not p.get("is_main")),
     # the plan of record changed: the steward sweeps what a merge can move
     "branch.merged": Trigger(("steward_run",), ("thermal", "voltage", "boundary", "demand_security", "works"), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
     # a new model: everything, data quality first
@@ -35,6 +36,22 @@ TRIGGERS: dict[str, Trigger] = {
     # the operator asked a question
     "operator.asked": Trigger(("answer",), (), lambda p: f"ask:{p['message_id']}"),
 }
+
+
+def works_flagged(out: dict) -> tuple[int, int]:
+    """A run payload's works windows, and how many of them a planner should look at: not simply feasible,
+    or with second faults found during the window."""
+    studies = [s for y in (out.get("years") or {}).values() for s in (y.get("outage_studies") or [])]
+    flagged = sum(1 for s in studies if s.get("verdict") != "feasible" or ((s.get("n1_during") or {}).get("findings") or 0) > 0)
+    return len(studies), flagged
+
+
+def run_finished(branch_id: str, out: dict, *, is_main: bool) -> dict:
+    """The `run.finished` payload of a run, wherever it ran (the router, an agent's approved run): its identity, how many
+    works windows it studied and flagged, and whether it was a main's (a main is not reviewed: it merges nowhere)."""
+    n_works, flagged = works_flagged(out)
+    return {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""),
+            "n_works": n_works, "works_flagged": flagged, "is_main": is_main}
 
 
 def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:

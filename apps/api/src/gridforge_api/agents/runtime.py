@@ -20,13 +20,12 @@ from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID, SetWorkflow
 
 from ..config import AGENT_ANSWER_RESERVE_S, AGENT_MODELS, AGENT_RUN_BUDGET, log
 from . import runs, workflows
+from .workflows import CHAT_QUEUE, STEWARD_QUEUE
 from .spend import SpendMeter
 from .evidence import EvidenceLedger
 from .roster import AGENTS, SPECIALIST_STUDIES, build
 from .tools import AgentDeps, Harness, SolverGate
 
-STEWARD_QUEUE = "steward"  # partitioned by project: one steward activity per project at a time
-CHAT_QUEUE = "chat"  # reviews and answers: a few at once
 
 # a DBOS workflow that ended -> the status its run gets when the workflow never recorded its own finish
 _ENDED = {
@@ -48,7 +47,7 @@ def in_workflow() -> bool:
 
 def durable(name: str, fn: Callable[[], Any]) -> Any:
     """Run `fn` as a checkpointed DBOS step in a workflow, plainly outside one (tests, the sync path)."""
-    return DBOS.run_step(None, fn) if in_workflow() else fn()
+    return DBOS.run_step({"name": name}, fn) if in_workflow() else fn()
 
 
 class AgentRuntime:
@@ -61,11 +60,10 @@ class AgentRuntime:
         self.spend = spend
         self.evidence = evidence
         self.harness = Harness(plans=plans, store=store, warehouse=warehouse, projects=projects, evidence=evidence,
-                               solver_gate=SolverGate(jobs, jobs.solver_lock), project_id=project_id, in_workflow=in_workflow, durable=durable)
+                               solver_gate=SolverGate(jobs, jobs.solver_lock), in_workflow=in_workflow, durable=durable)
         self.agents: dict[str, Any] = {}
         self.launched = False
         self._lock = threading.Lock()
-        self._sinks: dict[str, list] = {}  # run_id -> captured events, outside a workflow (tests)
 
     # --- lifecycle --------------------------------------------------------------------------------------
     def launch(self) -> None:
@@ -113,11 +111,10 @@ class AgentRuntime:
         return "; ".join(f"{k}: {', '.join(v)}" for k, v in SPECIALIST_STUDIES.items())
 
     def emit_for(self, run_id: str) -> Callable[[dict], None]:
-        """The event sink of a run: the workflow's DBOS stream, or a list when there is no workflow."""
+        """The event sink of a run: the workflow's DBOS stream (outside a workflow, in tests, nobody streams: dropped)."""
         if in_workflow():
             return lambda ev: DBOS.write_stream("events", ev)
-        sink = self._sinks.setdefault(run_id, [])
-        return sink.append
+        return lambda ev: None
 
     def deps_for(self, run_id: str, *, project_id: str | None = None, branch_id: str | None = None, thread_id: str | None = None,
                  allowed: tuple[str, ...] | None = None) -> AgentDeps:
@@ -135,27 +132,21 @@ class AgentRuntime:
                          # the run waits for the solver while its own time allows, keeping a minute to write the answer
                          deadline=time.monotonic() + max(0.0, float(AGENT_RUN_BUDGET["timeout_s"]) - AGENT_ANSWER_RESERVE_S))
 
-    def captured(self, run_id: str) -> list:
-        return list(self._sinks.get(run_id, []))
 
     # --- starting work -------------------------------------------------------------------------------------
     def start(self, workflow_name: str, dedup: str, event: dict) -> str:
         """Enqueue one workflow for an event under a deterministic id (the same event never runs twice)."""
-        fn, args_of = workflows.WORKFLOWS[workflow_name]
+        spec = workflows.WORKFLOWS[workflow_name]
         pid = event.get("project_id") or self.project_id
         wid = f"{workflow_name}:{dedup}"
-        queue = STEWARD_QUEUE if workflow_name == "steward_run" else CHAT_QUEUE
-        opts = SetEnqueueOptions(queue_partition_key=pid) if queue == STEWARD_QUEUE else nullcontext()  # one steward activity per project
-        with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"]) * 3), opts:
-            DBOS.enqueue_workflow(queue, fn, *args_of(pid, event))
+        opts = SetEnqueueOptions(queue_partition_key=pid) if spec.queue == STEWARD_QUEUE else nullcontext()  # one steward activity per project
+        with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"]) * spec.timeout_runs), opts:
+            DBOS.enqueue_workflow(spec.queue, spec.fn, *spec.args_of(pid, event))
         return wid
 
     def resume_answer(self, project_id: str, thread_id: str, message_id: str) -> str:
         """Continue the reply `message_id` once every proposal it made is decided (one resume per reply)."""
-        wid = f"answer_resume:{message_id}"
-        with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"])):
-            DBOS.enqueue_workflow(CHAT_QUEUE, workflows.answer_resume, project_id, thread_id, message_id)
-        return wid
+        return self.start("answer_resume", message_id, {"project_id": project_id, "thread_id": thread_id, "message_id": message_id})
 
     # --- status and startup events ----------------------------------------------------------------------------
     def status(self, project_id: str | None = None) -> dict:

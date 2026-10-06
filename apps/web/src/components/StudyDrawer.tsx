@@ -6,7 +6,7 @@ import { Receipt, Warning, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { nameElements } from "../lib/derive";
-import { SEVERITY } from "../lib/gate";
+import { SEVERITY, SEV_ORDER } from "../lib/gate";
 import { argsLine, toolLabel } from "../lib/trace";
 import { C } from "../theme";
 import type { StudyItem } from "../types";
@@ -14,7 +14,6 @@ import type { StudyItem } from "../types";
 export type StudyDrawerPlanner = PlannerSlice<"study", "closeEvidence", "ix">;
 
 const MAX_ITEMS = 40;
-const SEV_ORDER: Record<string, number> = { breach: 0, warn: 1, info: 2 };
 const fmt = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(Math.abs(v) < 10 ? 2 : 1));
 const worstFirst = (a: StudyItem, b: StudyItem) => (SEV_ORDER[a.severity] ?? 3) - (SEV_ORDER[b.severity] ?? 3) || a.index - b.index;
 

@@ -14,13 +14,13 @@ describe("projects", () => {
     const ps = [project({ project_id: "nged-bickerfen", main_id: "main", builtin: true }), project()];
     expect(mainIdOf(ps, "nged-bickerfen")).toBe("main");
     expect(mainIdOf(ps, "prj-1")).toBe("prj-1-main");
-    expect(mainIdOf([], "anything")).toBe("main");
+    expect(mainIdOf([], "anything")).toBe("");
     expect(projectOf(ps, "prj-1")?.name).toBe("IEEE 9-bus");
     expect(projectOf(ps, "nope")).toBeNull();
   });
   it("reads an import report into lines", () => {
     const r: ImportReport = {
-      ok: true, errors: [], warnings: ["the network has 2 separate parts; those without an infeed were dropped", "the base case already breaks a limit: line 3 at 104%"],
+      ok: true, errors: [], warnings: ["the network has 2 separate parts, each with its own infeed or out of service", "the base case already breaks a limit: line 3 at 104%"],
       counts: { buses: 9, lines: 9, transformers: 0, loads: 3, generators: 2, slacks: 1 }, islands: 2, converged: true, feasible: false, reason: "line 3 at 104%", cases: ["winter_peak"], assumptions: [],
     };
     const lines = reportLines(r);

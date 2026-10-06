@@ -11,6 +11,7 @@ and `narration`; `deps` wires them together.
 """
 
 import asyncio
+import math
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,12 +19,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .config import NGED_PROJECT_ID, log
+from .config import NGED_MAIN_ID, NGED_PROJECT_ID, log
+from .errors import DomainError, status_of
 from .deps import agents, jobs, plans, projects, scenarios, warehouse
 from .routers import agents as agents_router
 from .routers import branches, findings, model, optimize, registry, studies
 from .routers import projects as projects_router  # aliased: `projects` here is the deps instance the warm-up uses
-from .warehouse import WarehouseBusy, request_state
+from .warehouse import LOCK_MEMORY_S, WarehouseBusy, request_state
 
 
 @asynccontextmanager
@@ -50,7 +52,7 @@ async def _lifespan(_app: FastAPI):
 
     def _warm_rest() -> None:
         try:
-            plans.warm_profiles("main", idle=jobs.idle)  # the other demand profiles, while nobody is waiting
+            plans.warm_profiles(NGED_MAIN_ID, idle=jobs.idle)  # the other demand profiles, while nobody is waiting
             agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
         except Exception:
             log.exception("warm-up failed")
@@ -60,7 +62,7 @@ async def _lifespan(_app: FastAPI):
     jobs.submit(_warm_reads)
     if warehouse.exists():
         try:
-            optimize.start_branch_run("main", with_justification=True)
+            optimize.start_branch_run(NGED_MAIN_ID, with_justification=True)
         except Exception:
             log.exception("could not queue main's first run")
     jobs.submit(_warm_rest)
@@ -70,6 +72,12 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="GridForge API", lifespan=_lifespan)
+
+
+@app.exception_handler(DomainError)
+async def _domain_error(_request: Request, exc: DomainError) -> JSONResponse:
+    """A domain layer's refusal (errors.py), answered with its status: the one place they meet HTTP."""
+    return JSONResponse({"detail": exc.detail}, status_code=status_of(exc))
 
 
 @app.middleware("http")
@@ -85,7 +93,7 @@ async def _json_errors(request: Request, call_next):
                 response.headers["X-Warehouse-Stale"] = "1"  # one write behind: the pipeline was writing a new version
         return response
     except WarehouseBusy as exc:  # the pipeline is writing and nothing was read before: a moment, not a failure
-        return JSONResponse({"detail": str(exc)}, status_code=503, headers={"Retry-After": "2"})
+        return JSONResponse({"detail": str(exc)}, status_code=503, headers={"Retry-After": str(math.ceil(LOCK_MEMORY_S))})
     except Exception as exc:  # the one place a blind except is right: it's the last line of defence
         log.exception("unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse({"detail": f"{type(exc).__name__}: {exc}"}, status_code=500)

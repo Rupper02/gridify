@@ -43,7 +43,7 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
     assert [b["branch_id"] for b in branches] == ["main"]  # seeded on first use
 
     stiff = max(client.get("/model").json()["buses"], key=lambda b: b["vn_kv"])["bus_id"]
-    b = client.post("/branches", json={"name": "pg branch", "added_projects": [
+    b = client.post("/branches", json={"name": "pg branch", "from_branch": "main", "added_projects": [
         {"applicant": "Acme", "bus_id": stiff, "technology": "battery", "rating_mw": 5.0, "readiness_score": 0.9, "import_mw": 4.0},
     ]}).json()
     bid = b["branch_id"]

@@ -16,13 +16,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from .errors import Conflict, Gone, Invalid, NotFound, TooLarge, UnsupportedFile
 
 from gridforge_optimizer import GridModel, ImportMeta, ModelAssumption
 from gridforge_optimizer.cim import cgmes_zip_bytes, export_cgmes
 from gridforge_optimizer.config import FORECASTS
 from gridforge_optimizer.naming import Names, name_model
-from gridforge_optimizer.network import build_base_net, feasibility
+from gridforge_optimizer.network import band_at, build_base_net, feasibility
 from gridforge_optimizer.nged import NGED_CGMES_META, gsp_boundary
 from gridforge_optimizer.sources import NgedSource, source_from_file, source_kind_for
 
@@ -51,7 +51,11 @@ class WarehouseNgedSource:
         return build_base_net()
 
     def model(self) -> GridModel:
-        return GridModel.model_validate(self._warehouse.baseline_model())
+        """The warehouse's model, each bus with the band the engine judges it against (GB's: the builder enters no bands)."""
+        m = self._warehouse.baseline_model()
+        for b in m["buses"]:
+            b["vmin_pu"], b["vmax_pu"] = band_at(float(b["vn_kv"]))
+        return GridModel.model_validate(m)
 
     def candidates(self) -> list[dict]:
         return self._warehouse.registry_rows()
@@ -90,13 +94,11 @@ class Projects:
         self._locks = {"model": threading.Lock(), "boundary": threading.Lock(), "cgmes": threading.Lock()}
         store.on_reset(self.forget)
 
-    def forget(self) -> None:
-        """Drop every in-process layer (the store was pointed elsewhere, or a project was deleted)."""
-        self._sources.clear()
-        self._models.clear()
-        self._names.clear()
-        self._boundaries.clear()
-        self._cgmes.clear()
+    def forget(self, pid: str | None = None) -> None:
+        """Drop the in-process layers of one project (it was deleted), or of all (the store was pointed elsewhere)."""
+        for layer in (self._sources, self._models, self._names, self._boundaries, self._cgmes):
+            for key in [k for k in layer if pid is None or (k[0] if isinstance(k, tuple) else k) == pid]:
+                del layer[key]
 
     # --- rows -------------------------------------------------------------------------------------------
     def rows(self) -> list[dict]:
@@ -108,20 +110,25 @@ class Projects:
         with self._store.cursor() as con:
             r = con.execute(f"SELECT {', '.join(PROJECT_COLS)} FROM projects WHERE project_id = ?", [pid]).fetchone()
         if r is None:
-            raise HTTPException(status_code=404, detail=f"project '{pid}' not found")
+            raise NotFound(f"project '{pid}' not found")
         return dict(zip(PROJECT_COLS, r))
 
     def main_id(self, pid: str) -> str:
         return self.row(pid)["main_id"]
 
     def to_client(self, row: dict) -> dict:
+        """A project as the planner lists it, from its stored row: an import's identity and capabilities were stored at
+        create, so listing never re-reads (or fails on) its file; only the built-in project asks its source."""
         pid = row["project_id"]
+        builtin = pid == self.nged_id
+        stored_caps = json.loads(row["capabilities_json"]) if row.get("capabilities_json") else None
         return {
-            "project_id": pid, "name": row["name"], "source_kind": row["source_kind"], "snapshot_id": self.baseline(pid),
-            "created_at": row["created_at"], "main_id": row["main_id"], "builtin": pid == self.nged_id,
+            "project_id": pid, "name": row["name"], "source_kind": row["source_kind"],
+            "snapshot_id": self.baseline(pid) if builtin else row["snapshot_id"],
+            "created_at": row["created_at"], "main_id": row["main_id"], "builtin": builtin,
             "file_name": Path(row["source_ref"]).name if row.get("source_ref") else None,
             "meta": json.loads(row["meta_json"]) if row.get("meta_json") else None,
-            "capabilities": json.loads(row["capabilities_json"]) if row.get("capabilities_json") else self.capabilities(pid),
+            "capabilities": stored_caps if stored_caps is not None or not builtin else self.capabilities(pid),
             "report": json.loads(row["report_json"]) if row.get("report_json") else None,
         }
 
@@ -135,7 +142,7 @@ class Projects:
                 row = self.row(pid)
                 path = Path(row["source_ref"])
                 if not path.exists():
-                    raise HTTPException(status_code=410, detail=f"project '{pid}': its file {path.name} is gone from the server; import it again")
+                    raise Gone(f"project '{pid}': its file {path.name} is gone from the server; import it again")
                 meta = ImportMeta.model_validate_json(row["meta_json"]) if row.get("meta_json") else None
                 src = source_from_file(path.name, path.read_bytes(), id=pid, name=row["name"], meta=meta)
             self._sources[pid] = src
@@ -233,17 +240,17 @@ class Projects:
         try:
             kind = source_kind_for(filename)
         except ValueError as e:
-            raise HTTPException(status_code=415, detail=str(e)) from None
+            raise UnsupportedFile(str(e)) from None
         if len(data) > MAX_IMPORT_BYTES:
-            raise HTTPException(status_code=413, detail=f"the file is {len(data) / 1e6:.0f} MB; the limit is {MAX_IMPORT_BYTES // (1024 * 1024)} MB")
+            raise TooLarge(f"the file is {len(data) / 1e6:.0f} MB; the limit is {MAX_IMPORT_BYTES // (1024 * 1024)} MB")
         pid = "prj-" + uuid.uuid4().hex[:8]
         try:
             src = source_from_file(filename, data, id=pid, name=name, meta=meta)
         except Exception as e:  # a file the importer cannot read is the user's problem to see, not a 500
-            raise HTTPException(status_code=422, detail={"code": "unreadable", "message": f"could not read the file as {kind}: {type(e).__name__}: {e}"}) from None
+            raise Invalid({"code": "unreadable", "message": f"could not read the file as {kind}: {type(e).__name__}: {e}"}) from None
         report = src.validate()
         if not report.ok:
-            raise HTTPException(status_code=422, detail={"code": "invalid", "message": "; ".join(report.errors), "report": report.model_dump()})
+            raise Invalid({"code": "invalid", "message": "; ".join(report.errors), "report": report.model_dump()})
         folder = self._files / pid
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / Path(filename).name
@@ -263,7 +270,7 @@ class Projects:
         results and its file. The built-in project stays."""
         row = self.row(pid)
         if pid == self.nged_id:
-            raise HTTPException(status_code=409, detail="the built-in project cannot be deleted")
+            raise Conflict("the built-in project cannot be deleted")
         with self._store.cursor() as con:
             bids = [r[0] for r in con.execute("SELECT branch_id FROM branches WHERE project_id = ?", [pid]).fetchall()]
             for table in BRANCH_TABLES:
@@ -278,5 +285,5 @@ class Projects:
             con.execute("DELETE FROM result_cache WHERE snapshot_id = ?", [row["snapshot_id"]])
             con.execute("DELETE FROM projects WHERE project_id = ?", [pid])
         shutil.rmtree(self._files / pid, ignore_errors=True)
-        self.forget()
+        self.forget(pid)
         return {"project_id": pid, "deleted": True, "branches_removed": len(bids)}

@@ -12,7 +12,7 @@ router = APIRouter()
 
 @router.get("/branches/{branch_id}/findings")
 def branch_findings(branch_id: str, status: str | None = None, year: int | None = None) -> dict:
-    """A branch's findings (the engine's after every run; later the agents'), breaches first, with
+    """A branch's findings (the engine's after every run, and the agents'), breaches first, with
     the counts per status. `status` filters open | acknowledged | resolved; `year` one plan year."""
     if status is not None and status not in ledger.STATUSES:
         raise HTTPException(status_code=422, detail=f"status must be one of {', '.join(ledger.STATUSES)}")

@@ -31,7 +31,7 @@ def _basis(filename: str, data: bytes) -> dict:
     levels = [lv["kv"] for lv in r.json()["levels"]]
     bands = [{"kv": v, "vmin_pu": 0.90 if v >= 132 else 0.94, "vmax_pu": 1.10 if v >= 132 else 1.06} for v in levels]
     return {"forecasts": json.dumps({"ht": {str(y): 1.0 for y in range(PLAN_START_YEAR + 1, PLAN_START_YEAR + 10)}}),
-            "n1_min_kv": levels[0], "voltage_bands": json.dumps(bands)}
+            "n1_min_kv": levels[0], "voltage_bands": json.dumps(bands), "min_demand_factor": "0.5", "summer_rating_ratio": "0.9"}
 
 
 def test_bad_files_are_refused_with_the_reason():
@@ -57,8 +57,8 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     p = _import("case9.json", pp.to_json(c9).encode(), name="IEEE 9-bus", **_basis("case9.json", pp.to_json(c9).encode()))
     pid, main = p["project_id"], p["main_id"]
     assert p["source_kind"] == "pandapower_json" and main == f"{pid}-main" and not p["builtin"]
-    assert p["report"]["ok"] and p["report"]["cases"] == ["winter_peak"] and p["capabilities"]["crs"] == "synthetic"
-    assert not p["capabilities"]["boundary"] and not p["capabilities"]["registry"] and not p["capabilities"]["summer_case"]
+    assert p["report"]["ok"] and p["report"]["cases"] == ["winter_peak", "summer_min"] and p["capabilities"]["crs"] == "synthetic"
+    assert not p["capabilities"]["boundary"] and not p["capabilities"]["registry"] and p["capabilities"]["summer_case"]
     m = client.get(f"/projects/{pid}/model").json()
     assert m["crs"] == "synthetic" and len(m["buses"]) == 9 and m["regions"] == [] and len(m["generators"]) == 2
     assert client.get(f"/projects/{pid}/boundary").status_code == 404

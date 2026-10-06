@@ -5,7 +5,7 @@ The division of labour is deliberate:
   - readiness   -> a deterministic rubric over published facts (readiness.py; the NGED registry
                    supplies them directly)
   - strategic   -> a per-technology prior on the registry (nged.py)
-  - narration   -> an LLM phrases results the engine has already decided (llm.py; optional)
+  - narration   -> an LLM phrases results the engine has already decided (llm.py; the API requires its key)
 """
 
 # --- feasibility constraints ---
@@ -34,6 +34,9 @@ OLTC_SETPOINT_PU = 1.02
 OLTC_DEADBAND_PU = 0.01  # no tap movement while the LV busbar is within setpoint ± this (AVC relay deadband)
 OLTC_MAX_PASSES = 3  # power-flow passes per solve to settle the taps (they persist on the net, so trials usually need one)
 OLTC_TAP_STEP_PERCENT = 1.25  # LTDS gives the tap RANGE but not the step; a typical GB value (assumption)
+# The GSP infeed's voltage on the built-in grid (the slack): LTDS does not publish it; the supergrid side is held at the
+# same level the tap changers regulate to. A planning assumption (README, Sources and assumptions).
+GSP_INFEED_VM_PU = 1.02
 LINE_LOADING_MAX_PCT = 100.0
 TRAFO_LOADING_MAX_PCT = 100.0
 MAX_CONNECTION_MW = 300.0  # intake plausibility cap for a single DISTRIBUTION connection (33–132 kV).
@@ -53,6 +56,10 @@ MAX_CONNECTION_MW = 300.0  # intake plausibility cap for a single DISTRIBUTION c
 # A solar + battery hybrid is solar at nil and the battery charging at winter peak, full export in summer.
 DEMAND_PROJECT_MIN_FACTOR = 0.5
 IMPORT_ONLY_TECHS = ("demand", "electrolyser")
+# technologies whose output follows the weather, the season or a schedule, not the merit order (dispatch.py)
+VARIABLE_TECHS = frozenset({"solar", "wind", "battery", "hybrid", "electrolyser", "demand"})
+# the reactive range a fixed-power-factor unit is given in the CIM export, as a share of its rating (CIM needs one)
+CIM_FIXED_PF_Q_SHARE = 0.33
 GENERATION_FACTORS = {
     "winter_peak": {"solar": 0.0, "wind": 0.0, "battery": -1.0, "hybrid": -1.0,
                     "demand": -1.0, "electrolyser": -1.0},
@@ -67,6 +74,7 @@ GENERATION_FACTOR_DEFAULT = {"winter_peak": 1.0, "summer_min": 1.0}  # gas, gas 
 # 2035 multiplier.
 PLAN_START_YEAR = 2026
 PLAN_END_YEAR = 2035
+PLAN_YEARS = tuple(range(PLAN_START_YEAR, PLAN_END_YEAR + 1))  # every year the plan solves
 # A planned outage is studied in the case(s) its season stresses, with that season's line ratings
 # (net.line column of rating multipliers; LTDS publishes Winter / Intermediate Cool / Intermediate
 # Warm / Summer ratings, so spring and autumn take the intermediate-warm rating, the lower of the two).
@@ -124,9 +132,6 @@ CONTINGENCY_SEVERITY_WEIGHTS = {"islanded_mw": 1.0, "thermal_excess_mva": 1.0, "
 # Tap margin: a regulated transformer within this many steps of a tap stop has (almost) no voltage
 # control left; at the stop it is reported as a breach of margin, one step away as a warning.
 TAP_MARGIN_MIN_STEPS = 1
-# GSP margin by year: export within this share of the limit is a warning (the gate warns at
-# GSP_NEAR_LIMIT_FRACTION, the same point read as a margin).
-GSP_MARGIN_WARN_FRACTION = 0.10
 
 # --- merge guardrails (gate.py) -----------------------------------------------------------------
 # Merging a branch into the plan of record is gated by a pure policy over results the engine has
@@ -154,6 +159,12 @@ GATE_GSP_WORSEN_MW = 1.0
 GATE_VM_WORSEN_PU = 0.005
 # GSP export above this share of its export limit is a warning (the planner's gauge turns amber here too)
 GSP_NEAR_LIMIT_FRACTION = 0.9
+# GSP margin by year: export within this share of the limit is a warning: the gate's point above, read as a margin
+GSP_MARGIN_WARN_FRACTION = round(1.0 - GSP_NEAR_LIMIT_FRACTION, 10)
+# Movements smaller than these are noise, not a change: the gate's GSP-near-limit and alert-worse checks (MW, alert
+# units), and the diff's works windows and loadings (loading points, MW). Planning tolerances, chosen, not sourced.
+GATE_NOISE = 0.05
+DIFF_NOISE = 0.1
 
 # --- demand-side security (demand.py) -----------------------------------------------------------
 # A SIMPLIFIED P2/8-STYLE check, not a P2/8 assessment: restoration times, switching, transfer
@@ -172,7 +183,6 @@ P2_8_CLASSES = (
     ("E", 1500.0, 0.0, 0.0),
     ("F", float("inf"), 0.0, 0.0),
 )
-P2_8_SOURCE = "ENA Engineering Recommendation P2/8, Security of Supply (2019), Table 1"
 # Warn when a group's firm headroom falls below this share of its firm capacity. A planning
 # assumption (an early-warning margin), not a figure from P2/8.
 HEADROOM_WARN_FRACTION = 0.10
@@ -241,6 +251,7 @@ DEFAULT_SCENARIO = "ht"
 # An imported grid's own forecast stands in for these pathways (by id, so the planner's picker works on it):
 # Low, Standard (required at import) and High.
 IMPORT_PATHWAYS = ("fb", "ht", "ee")
+IMPORT_FORECAST_FACTOR_MAX = 2.0  # an entered forecast's year-on-year factor: above 0 and at most this (a sanity bound)
 
 # Policy-anchored planning horizons (GB planning is milestone/snapshot-based, not continuous).
 # 2030 = Clean Power 2030 (DESNZ Action Plan, Dec 2024); 2035 = the strategic-need window the
@@ -325,11 +336,3 @@ MAX_REINFORCE_STEPS = 4        # max parallel circuits chained to connect one pr
 VOLTAGE_ABSORB_PF_STEPS = [0.98, 0.95, 0.90]
 
 # Phrases a pre-computed unblock recommendation. Like the diff narrator, it only restates figures.
-SUGGEST_SYSTEM_PROMPT = (
-    "You are a grid connections planner. You are given a pre-computed unblock recommendation for a "
-    "project the optimizer had to defer: the binding network element, a concrete reinforcement or "
-    "operating action, the MW it would free by 2030 and 2035, and which projects then connect. State "
-    "it in ONE or TWO plain sentences: the action, the capacity it frees, and the project(s) it "
-    "connects. Use only the figures provided; invent nothing; never claim it is the cheapest or only "
-    "fix. Plain text, no markdown."
-)

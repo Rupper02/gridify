@@ -1,30 +1,45 @@
 // The projects screen (a glass sheet over the map): the grids the planner can plan on, with Open and
-// Delete, and the import form: a file (a CIM/CGMES zip, a pandapower JSON or a MATPOWER case), a name
+// Delete, and the import form: a file of a kind the API offers (`GET /projects/formats`), a name
 // and the limits the operator knows, which are recorded as entered. Once a file is chosen its voltage levels
-// are read (nothing stored) and the study basis is asked for: the demand forecast by year (Standard, and
-// optionally Low and High), the lowest level the N-1 screen covers, and the voltage limits by level. The API
+// are read (nothing stored) and the study basis is asked for: the demand forecast by year (the pathways the
+// inspection serves, the default one required), the lowest level the N-1 screen covers, and the voltage limits by level. The API
 // validates it all and answers with a report; what it did not carry is listed before the project is opened.
 
 import { CheckCircle, FileArrowUp, Globe, Trash, Warning, X } from "@phosphor-icons/react";
-import { type CSSProperties, type FormEvent, type ReactNode, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { ApiError, api } from "../api";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import {
-  EMPTY_BASIS, LIMIT_FIELDS, PATHWAYS, type StudyBasisForm, assumptionText, capabilityChips, cumulativeOf, kindLabel, limitsFromForm, n1Covers, presetBands,
+  EMPTY_BASIS, LIMIT_FIELDS, type StudyBasisForm, assumptionText, capabilityChips, cumulativeOf, kindLabel, limitsFromForm, n1Covers, presetBands,
   reportLines,
   studyBasisFields,
 } from "../lib/projects";
 import { C } from "../theme";
-import type { FileInspection, ImportReport, Project } from "../types";
+import type { FileInspection, ImportFormats, ImportPathway, ImportReport, Project } from "../types";
 
 export type ProjectsScreenPlanner = PlannerSlice<"projectId" | "projects" | "plan", "closeProjects" | "deleteProject" | "importProject" | "openProject">;
 
 const TONE_INK = { good: C.greenInk, warn: C.amberInk, bad: C.redInk } as const;
 const MAX_ASSUMPTIONS = 8;
 
+/** The source kinds and the upload limit, as the API serves them (null until they are in, or if the read failed). */
+function useImportFormats(): ImportFormats | null {
+  const [formats, setFormats] = useState<ImportFormats | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.importFormats().then((f) => live && setFormats(f)).catch(() => {}); // the form then names kinds by id and accepts any file the API reads
+    return () => {
+      live = false;
+    };
+  }, []);
+  return formats;
+}
+
 export function ProjectsScreen({ planner }: { planner: ProjectsScreenPlanner }) {
   const { s, actions } = planner;
+  const formats = useImportFormats();
+  const offered = (formats?.formats ?? []).filter((f) => f.offered);
   return (
     <div className="modal-backdrop" onClick={actions.closeProjects}>
       <div className="modal glass" role="dialog" aria-label="Projects" onClick={(e) => e.stopPropagation()}>
@@ -36,25 +51,25 @@ export function ProjectsScreen({ planner }: { planner: ProjectsScreenPlanner }) 
           </button>
         </div>
         <span style={{ fontSize: 12, color: C.mute, lineHeight: 1.45, textWrap: "pretty" }}>
-          A project is a grid with its own plan of record. The built-in one is NGED's Bicker Fen GSP from open data; import any other as a
-          CIM/CGMES zip, a pandapower JSON or a MATPOWER case. The same engine, branches, gate and agents work on every project.
+          A project is a grid with its own plan of record. The built-in one is NGED's Bicker Fen GSP from open data; import any other
+          {offered.length ? ` as ${offered.map((f) => f.label).join(" or ")}` : ""}. The same engine, branches, gate and agents work on every project.
         </span>
         <div className="modal-cols">
           <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
             <span style={{ fontSize: 12.5, fontWeight: 600 }}>Your projects</span>
             {s.projects.map((p) => (
-              <ProjectRow key={p.project_id} p={p} current={p.project_id === s.projectId} onOpen={() => void actions.openProject(p.project_id)} onDelete={() => void actions.deleteProject(p.project_id)} />
+              <ProjectRow key={p.project_id} p={p} kind={kindLabel(p.source_kind, formats?.formats ?? [])} current={p.project_id === s.projectId} onOpen={() => void actions.openProject(p.project_id)} onDelete={() => void actions.deleteProject(p.project_id)} />
             ))}
             {!s.projects.length && <span className="mute" style={{ fontSize: 12 }}>Loading the projects…</span>}
           </div>
-          <ImportForm years={s.plan?.years.slice(1) ?? []} onImport={actions.importProject} onOpen={(pid) => void actions.openProject(pid)} />
+          <ImportForm years={s.plan?.years.slice(1) ?? []} phase1={s.plan?.phase1 ?? null} formats={formats} onImport={actions.importProject} onOpen={(pid) => void actions.openProject(pid)} />
         </div>
       </div>
     </div>
   );
 }
 
-function ProjectRow({ p, current, onOpen, onDelete }: { p: Project; current: boolean; onOpen: () => void; onDelete: () => void }) {
+function ProjectRow({ p, kind, current, onOpen, onDelete }: { p: Project; kind: string; current: boolean; onOpen: () => void; onDelete: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const counts = p.report?.counts;
   return (
@@ -65,7 +80,7 @@ function ProjectRow({ p, current, onOpen, onDelete }: { p: Project; current: boo
         {p.builtin && <span className="chip" style={{ background: "rgba(255,255,255,0.08)", color: C.mute }}>built-in</span>}
       </div>
       <span style={{ fontSize: 11.5, color: C.mute, lineHeight: 1.4 }}>
-        {kindLabel(p.source_kind)}
+        {kind}
         {counts ? ` · ${counts.buses} buses · ${counts.lines} lines · ${counts.transformers} transformers` : ""}
         {p.file_name ? ` · ${p.file_name}` : ""} · {p.created_at.slice(0, 10)}
       </span>
@@ -98,7 +113,8 @@ function ProjectRow({ p, current, onOpen, onDelete }: { p: Project; current: boo
 
 type Outcome = { kind: "done"; project: Project } | { kind: "refused"; message: string; report: ImportReport | null } | null;
 
-function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (file: File, name: string, limits: Record<string, string>) => Promise<Project>; onOpen: (pid: string) => void }) {
+function ImportForm({ years, phase1, formats, onImport, onOpen }: { years: number[]; phase1: number | null; formats: ImportFormats | null; onImport: (file: File, name: string, limits: Record<string, string>) => Promise<Project>; onOpen: (pid: string) => void }) {
+  const offered = (formats?.formats ?? []).filter((f) => f.offered);
   const [file, setFile] = useState<File | null>(null);
   const [inspection, setInspection] = useState<FileInspection | null>(null);
   const [inspectError, setInspectError] = useState<string | null>(null);
@@ -114,7 +130,7 @@ function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (f
     e.preventDefault();
     if (!file || !inspection) return;
     const { limits, error } = limitsFromForm(values);
-    const study = studyBasisFields(basis, years, inspection.levels);
+    const study = studyBasisFields(basis, years, inspection.levels, inspection.pathways, inspection.factor_max);
     if (error || study.error) {
       setFormError(error ?? study.error);
       return;
@@ -156,13 +172,17 @@ function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (f
         <FileArrowUp size={18} color={C.accent} />
         <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
           <span className="ellipsis" style={{ fontSize: 12.5 }}>{file ? file.name : "Choose a file"}</span>
-          <span style={{ fontSize: 11, color: C.mute }}>.zip (CGMES), .json (pandapower), .mat (MATPOWER) · up to 50 MB</span>
+          {formats && (
+            <span style={{ fontSize: 11, color: C.mute }}>
+              {offered.map((f) => `${f.extensions.join(", ")} (${f.label})`).join(", ")} · up to {Math.round(formats.max_bytes / (1024 * 1024))} MB
+            </span>
+          )}
         </span>
-        <input type="file" accept=".zip,.json,.mat" aria-label="Grid file" onChange={(e) => void choose(e.target.files?.[0] ?? null)} style={{ display: "none" }} />
+        <input type="file" accept={offered.flatMap((f) => f.extensions).join(",") || undefined} aria-label="Grid file" onChange={(e) => void choose(e.target.files?.[0] ?? null)} style={{ display: "none" }} />
       </label>
       <input className="search" value={name} onChange={(e) => setName(e.target.value)} placeholder="Project name (defaults to the file name)" aria-label="Project name" />
       <button type="button" className="btn ghost" style={{ alignSelf: "flex-start", height: 26, fontSize: 11.5 }} onClick={() => setShowLimits((v) => !v)} aria-expanded={showLimits}>
-        {showLimits ? "Hide the known limits" : "Known limits (optional)"}
+        {showLimits ? "Hide the known limits" : "Known limits and summer data (summer data required unless the file carries it)"}
       </button>
       {showLimits && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -179,7 +199,7 @@ function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (f
       )}
       {file && !inspection && !inspectError && <span className="mute" style={{ fontSize: 11.5 }}>Reading the file's voltage levels…</span>}
       {inspectError && <span style={{ fontSize: 11.5, color: C.redInk }}>Could not read the file: {inspectError}</span>}
-      {inspection && <StudyBasis years={years} inspection={inspection} basis={basis} onChange={setBasis} />}
+      {inspection && <StudyBasis years={years} phase1={phase1} inspection={inspection} basis={basis} onChange={setBasis} />}
       {formError && <span style={{ fontSize: 11.5, color: C.redInk }}>{formError}</span>}
       <button type="submit" className="btn primary sm" style={{ alignSelf: "flex-start" }} disabled={!file || !inspection || busy}>
         {busy ? "Validating…" : "Import"}
@@ -199,7 +219,7 @@ function ImportForm({ years, onImport, onOpen }: { years: number[]; onImport: (f
 }
 
 /** What the import must state that the file does not: the forecast by year, the N-1 floor, the limits by level. */
-function StudyBasis({ years, inspection, basis, onChange }: { years: number[]; inspection: FileInspection; basis: StudyBasisForm; onChange: (b: StudyBasisForm) => void }) {
+function StudyBasis({ years, phase1, inspection, basis, onChange }: { years: number[]; phase1: number | null; inspection: FileInspection; basis: StudyBasisForm; onChange: (b: StudyBasisForm) => void }) {
   const { levels, presets } = inspection;
   const setCell = (pid: string, y: number, v: string) => onChange({ ...basis, forecast: { ...basis.forecast, [pid]: { ...(basis.forecast[pid] ?? {}), [y]: v } } });
   const setBand = (kv: number, side: "vmin" | "vmax", v: string) => {
@@ -212,14 +232,14 @@ function StudyBasis({ years, inspection, basis, onChange }: { years: number[]; i
       <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>What the plan is judged on that a grid file does not carry. Each is recorded as entered by you.</span>
 
       <span style={{ fontSize: 11.5 }}>
-        Demand forecast <span style={{ color: C.mute2 }}>· peak demand's growth on the year before (1.02 = +2 %); Standard is required, Low and High optional</span>
+        Demand forecast <span style={{ color: C.mute2 }}>· peak demand's growth on the year before (1.02 = +2 %); * required, the rest optional</span>
       </span>
       <div className="forecast-grid" style={{ gridTemplateColumns: `64px repeat(${years.length}, minmax(0, 1fr))` }}>
         <span />
         {years.map((y) => (
           <span key={y} className="fc-year">{y}</span>
         ))}
-        {PATHWAYS.map((p) => (
+        {inspection.pathways.map((p) => (
           <GridRow key={p.id} label={`${p.label}${p.required ? " *" : ""}`}>
             {years.map((y) => (
               <input key={y} className="fc-cell" inputMode="decimal" value={basis.forecast[p.id]?.[y] ?? ""} onChange={(e) => setCell(p.id, y, e.target.value)} aria-label={`${p.label} forecast ${y}`} />
@@ -227,7 +247,7 @@ function StudyBasis({ years, inspection, basis, onChange }: { years: number[]; i
           </GridRow>
         ))}
       </div>
-      <ForecastTotals years={years} basis={basis} />
+      <ForecastTotals years={years} phase1={phase1} pathways={inspection.pathways} basis={basis} />
       <input className="search" value={basis.source} onChange={(e) => onChange({ ...basis, source: e.target.value })} placeholder="Where the forecast comes from (e.g. the DSO's own forecast and its edition)" aria-label="Forecast source" />
 
       <span style={{ fontSize: 11.5 }}>
@@ -271,9 +291,9 @@ function StudyBasis({ years, inspection, basis, onChange }: { years: number[]; i
 }
 
 /** What the typed growth adds up to, per pathway: the multiple of today's peak at each phase's end, as the plan studies it. */
-function ForecastTotals({ years, basis }: { years: number[]; basis: StudyBasisForm }) {
-  const ends = [2030, years[years.length - 1]].filter((y, i, a) => years.includes(y) && a.indexOf(y) === i);
-  const lines = PATHWAYS.flatMap((p) => {
+function ForecastTotals({ years, phase1, pathways, basis }: { years: number[]; phase1: number | null; pathways: ImportPathway[]; basis: StudyBasisForm }) {
+  const ends = [phase1, years[years.length - 1]].filter((y, i, a): y is number => y != null && years.includes(y) && a.indexOf(y) === i);
+  const lines = pathways.flatMap((p) => {
     const c = cumulativeOf(basis.forecast[p.id], years);
     return c ? [`${p.label} ${ends.map((y) => `×${c[y].toFixed(2)} by ${y}`).join(", ")}`] : [];
   });

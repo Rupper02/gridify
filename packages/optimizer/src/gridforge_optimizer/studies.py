@@ -29,8 +29,8 @@ from .config import (
     CONNECTION_OPTION_BUSES,
     CONTINGENCY_MIN_KV,
     CONTINGENCY_SEVERITY_WEIGHTS,
-    GENERATION_FACTOR_DEFAULT,
     GENERATION_FACTORS,
+    GENERATION_FACTOR_DEFAULT,
     GSP_MARGIN_WARN_FRACTION,
     HOSTING_MAX_BUSES,
     HOSTING_MIN_KV,
@@ -40,11 +40,13 @@ from .config import (
     MAX_CONNECTION_MW,
     MAX_REINFORCE_STEPS,
     N1_ISLAND_MIN_MW,
+    OLTC_SETPOINT_PU,
     PLAN_END_YEAR,
     PLAN_START_YEAR,
     TAP_MARGIN_MIN_STEPS,
     TRAFO_LOADING_MAX_PCT,
 )
+from .dispatch import FLEET_TABLES
 from .findings import fingerprint
 from .greedy import NetFactory, Progress, build_base_net
 from .network import (
@@ -65,7 +67,7 @@ from .network import (
     voltage_limits,
 )
 from .suggest import discover_chain, phase_net
-from .types import Candidate, ModelAssumption, OptimizeParams, OptimizeResult, Outage, Reason, StudyItem, StudyResult
+from .types import REASON_SPECS, Candidate, ModelAssumption, OptimizeParams, OptimizeResult, Outage, Reason, StudyItem, StudyResult
 from .windows import SEASONS, best_windows
 
 _NOOP: Progress = lambda _s, _f: None  # noqa: E731
@@ -291,7 +293,7 @@ def _hosting_capacity(ctx: StudyContext, p: HostingParams) -> StudyResult:
                                extra={"direction": p.direction, "binding": binding.model_dump() if binding else None,
                                       "step_mw": p.step_mw}))
     not_studied = ["demand growth and the plan's projects: today's network, as the branch reinforces it",
-                   "fault levels", "the 400 kV network beyond the GSP export limit"]
+                   "fault levels", "the transmission network beyond the export limit"]
     if p.direction == "export":
         not_studied.append("the probe is a firm generator (full output in both cases); PV or wind would host more at winter peak")
     worst = min(items, key=lambda x: x.value or 0.0) if items else None
@@ -415,7 +417,7 @@ def _islanded_by(net, g: nx.Graph, slack: set[int]) -> tuple[float, float, list[
     on = net.load["bus"].isin(lost)
     demand = float((net.load.loc[on, "p_mw"] * net.load.loc[on, "scaling"]).sum())
     gen = 0.0
-    for t in (net.sgen, net.gen):  # fixed-power-factor and voltage-controlled generation alike
+    for t in (net[name] for name in FLEET_TABLES):  # fixed-power-factor and voltage-controlled generation alike
         if len(t):
             on = t[t["bus"].isin(lost)]
             if len(on):
@@ -496,7 +498,7 @@ def _tap_margin(ctx: StudyContext, p: TapMarginParams) -> StudyResult:
                                    extra={"tap_pos": pos, "tap_min": tmin, "tap_max": tmax, "lv_vm_pu": round(vm, 4) if vm == vm else None}))
     finally:
         set_tap_positions(net, taps0)
-    not_studied = ["line-drop compensation and site-specific AVC targets (1.02 pu assumed everywhere)",
+    not_studied = [f"line-drop compensation and site-specific AVC targets ({OLTC_SETPOINT_PU:g} pu assumed everywhere)",
                    "demand growth and the plan's projects: today's network, as the branch reinforces it"]
     summary = f"{len(items)} regulated transformer(s) at or within {TAP_MARGIN_MIN_STEPS} step of a tap stop across {len(cases)} case(s)."
     return StudyResult(kind="tap_margin", params=p.model_dump(), items=items, solves=solves, not_studied=not_studied, summary=summary)
@@ -519,7 +521,7 @@ def _gsp_margin_by_year(ctx: StudyContext, p: GspMarginParams) -> StudyResult:
     summary = (f"{len(items)} plan years; the tightest is {tight.year} with {tight.value:.0f} MW of export margin." if tight
                else "No plan year with a GSP limit.")
     return StudyResult(kind="gsp_margin_by_year", params=p.model_dump(), items=items, solves=0,
-                       not_studied=["the GSP import limit (the network carries no import limit yet)", "the 400 kV network"], summary=summary)
+                       not_studied=["the GSP import limit (the network carries no import limit yet)", "the transmission network beyond the boundary"], summary=summary)
 
 
 # --- data quality ------------------------------------------------------------------------------------------------
@@ -543,7 +545,6 @@ def _data_quality(ctx: StudyContext, p: DataQualityParams) -> StudyResult:
 
 
 # --- connection options ---------------------------------------------------------------------------------------------
-_REASON_UNIT = {"line": "%", "trafo": "%", "voltage": "pu", "gsp": "MW"}
 
 
 def _bisect_solves(step: float) -> int:
@@ -656,7 +657,7 @@ def _chain_item(ctx: StudyContext, c: Candidate, where: str, phase: str, items: 
         msg = f"no parallel-circuit chain applies to {rid} at {where}" + (f": {last.message}" if last else "")
     items.append(_item(len(items), "connection_options", element_kind="project", element_id=rid, element_name=where,
                        case=last.case if last else None, value=last.value if last else None, limit=last.limit if last else None,
-                       unit=_REASON_UNIT.get(last.type, "") if last else "", severity="info" if connected else "warn", message=msg,
+                       unit=REASON_SPECS[last.type].unit if last and last.type in REASON_SPECS else "", severity="info" if connected else "warn", message=msg,
                        fp_extra=("reinforce",),
                        extra={"option": "reinforce", "request_id": rid, "connects": connected, "reinforcements": [r.model_dump() for r in reinf],
                               "binding": last.model_dump() if last else None}))
@@ -740,7 +741,7 @@ def _connection_options(ctx: StudyContext, p: ConnectionOptionsParams) -> StudyR
     not_studied = [where_probed,
                    *[f"{_CASE_LABEL[k]}: {c.technology or 'the project'} dispatches at nil in that case, so any MW fits there" for k in skipped],
                    "the works a new point of connection needs (a bay, a transformer, the circuit to it) and their cost",
-                   "transmission works (NESO) and the wider transmission queue",
+                   "transmission works and the wider transmission queue",
                    "the hours a flexible connection would be curtailed (no time series)",
                    "fault levels"]
     return StudyResult(kind="connection_options", params=p.model_dump(), items=items, solves=solves, not_studied=not_studied, summary="; ".join(bits) + ".")
@@ -767,7 +768,7 @@ def _connection_cost(p: ConnectionOptionsParams) -> int:
 
 
 # --- the best window for a planned work ------------------------------------------------------------------------------
-_VERDICT_SEVERITY = {"feasible": "info", "curtailment": "warn", "demand_at_risk": "breach", "not_feasible": "breach"}
+_VERDICT_SEVERITY = {"feasible": "info", "curtailment": "warn", "demand_at_risk": "breach", "not_feasible": "breach", "unstudied": "warn"}
 _ELEMENT_NOUN = {"line": "line", "trafo": "transformer", "gen": "generator"}
 
 
@@ -794,7 +795,8 @@ def _best_window(ctx: StudyContext, p: BestWindowParams) -> StudyResult:
                    "second faults during the windows outside the N-1 shortlist" if p.n1 else "second faults during the window (N-1 not screened)",
                    "the curtailment as an optimal re-dispatch (a bounded first-order search)",
                    "fault levels"]
-    return StudyResult(kind="best_window", params=p.model_dump(), items=items, solves=0, not_studied=not_studied, summary=summary)
+    return StudyResult(kind="best_window", params=p.model_dump(), items=items, solves=_window_cost(p), not_studied=not_studied,
+                       summary=summary)
 
 
 def _window_chunks(ctx: StudyContext, p: BestWindowParams) -> list[BaseModel]:

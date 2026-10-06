@@ -28,9 +28,9 @@ const alert = (over: Partial<Alert>): Alert => ({
 });
 const year = (regions: RegionYear[], alerts: Alert[]): YearResult => ({ year: 2030, regions, alerts }) as unknown as YearResult;
 const buses = [
-  { bus_id: 1, name: "A", vn_kv: 33, lon: 0, lat: 52 },
-  { bus_id: 2, name: "A11", vn_kv: 11, lon: 0, lat: 52 },
-  { bus_id: 3, name: "B", vn_kv: 33, lon: 1, lat: 53 },
+  { bus_id: 1, name: "A", vn_kv: 33, lon: 0, lat: 52, vmin_pu: 0.94, vmax_pu: 1.06 },
+  { bus_id: 2, name: "A11", vn_kv: 11, lon: 0, lat: 52, vmin_pu: 0.94, vmax_pu: 1.06 },
+  { bus_id: 3, name: "B", vn_kv: 33, lon: 1, lat: 53, vmin_pu: 0.94, vmax_pu: 1.06 },
 ];
 const model = (regions: Region[]): Model => ({ buses, lines: [], transformers: [], loads: [], generators: [], regions });
 

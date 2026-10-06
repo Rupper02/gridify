@@ -2,24 +2,19 @@
 // can do (its capabilities), how a source kind and an import report read, and the import form's
 // known-limit fields. Pure; the API validates, imports and stores.
 
-import type { Assumption, BandPreset, Capabilities, Control, FileLevel, ImportReport, Project } from "../types";
+import type { Assumption, BandPreset, Capabilities, Control, FileLevel, ImportFormat, ImportPathway, ImportReport, Project } from "../types";
 
 export const DEFAULT_PROJECT_ID = "nged-bickerfen";
 
 /** Every capability on, as the built-in project has them (what the planner assumes before the projects load). */
 export const ALL_CAPABILITIES: Capabilities = { boundary: true, regions: true, registry: true, editions: true, summer_case: true, crs: "wgs84" };
 
-export const KIND_LABEL: Record<string, string> = {
-  nged: "NGED LTDS open data",
-  cgmes: "CIM/CGMES exchange",
-  pandapower_json: "pandapower JSON",
-  matpower: "MATPOWER case",
-};
-export const kindLabel = (kind: string): string => KIND_LABEL[kind] ?? kind;
+/** A source kind by the label the API serves (`GET /projects/formats`); the kind itself until they are in. */
+export const kindLabel = (kind: string, formats: ImportFormat[]): string => formats.find((f) => f.kind === kind)?.label ?? kind;
 
-/** The plan-of-record branch of a project (`main` for the built-in one, `<id>-main` for an import). */
+/** The plan-of-record branch of a project, as the API serves it (`main_id`); "" until the projects are in. */
 export function mainIdOf(projects: Project[], projectId: string): string {
-  return projects.find((p) => p.project_id === projectId)?.main_id ?? "main";
+  return projects.find((p) => p.project_id === projectId)?.main_id ?? "";
 }
 
 export function projectOf(projects: Project[], projectId: string): Project | null {
@@ -54,7 +49,7 @@ export function reportLines(r: ImportReport | null): ReportLine[] {
   if (r.converged) lines.push({ tone: r.feasible ? "good" : "warn", text: r.feasible ? "The base case solves within every limit." : `The base case solves but breaks a limit: ${r.reason ?? "see the warnings"}.` });
   else if (r.ok) lines.push({ tone: "bad", text: `The base case does not converge: ${r.reason ?? "see the warnings"}.` });
   if (r.cases.length) lines.push({ tone: r.cases.includes("summer_min") ? "good" : "warn", text: r.cases.includes("summer_min") ? "Studied at winter peak and summer minimum." : "Studied at winter peak only: no seasonal ratings or minimum-demand factor." });
-  if (r.islands > 1) lines.push({ tone: "warn", text: `${r.islands} separate parts; those without an infeed were dropped.` });
+  if (r.islands > 1) lines.push({ tone: "warn", text: `${r.islands} separate parts, each with its own infeed or out of service.` });
   lines.push(...r.errors.map((e) => ({ tone: "bad" as const, text: e })));
   lines.push(...r.warnings.filter((w) => !w.startsWith("the network has")).map((w) => ({ tone: "warn" as const, text: w })));
   return lines;
@@ -87,8 +82,9 @@ export interface LimitField {
 export const LIMIT_FIELDS: LimitField[] = [
   { key: "gsp_export_limit_mw", label: "Export limit to the external grid (MW)", hint: "the transmission boundary the plan is checked against" },
   { key: "gsp_name", label: "Boundary name", hint: "how the limit is called in reasons" },
-  { key: "min_demand_factor", label: "Minimum demand as a share of maximum (0–1)", hint: "enables the summer-minimum case" },
-  { key: "summer_rating_ratio", label: "Summer / winter line rating ratio (0–1.5)", hint: "applied to every line" },
+  { key: "gsp_sgt_mw", label: "One supergrid transformer's rating (MVA)", hint: "sizes the 'add a transformer' lever; without it the lever is not offered" },
+  { key: "min_demand_factor", label: "Minimum demand as a share of maximum (0–1)", hint: "required for the summer-minimum case unless the file carries it" },
+  { key: "summer_rating_ratio", label: "Summer / winter line rating ratio (0–1.5)", hint: "required for the summer-minimum case unless the file carries it" },
   { key: "intermediate_rating_ratio", label: "Spring and autumn / winter rating ratio (0–1.5)", hint: "for planned works in those seasons" },
 ];
 
@@ -122,7 +118,8 @@ export interface ControlForm {
 }
 export const EMPTY_CONTROL: ControlForm = { mode: "pf", pf: "", absorbing: true, vm: "", range: "" };
 
-/** The typed control mode as the API takes it, or what is missing or out of range. */
+/** The typed control mode as the API takes it, or what is missing or out of range. The ranges mirror the engine's
+ * `types.Control` (it validates them again): pre-validation, so the form says what is wrong before posting. */
 export function controlFromForm(f: ControlForm): { control: Control | null; error: string | null } {
   if (f.mode === "pf") {
     const pf = Number(f.pf);
@@ -136,13 +133,6 @@ export function controlFromForm(f: ControlForm): { control: Control | null; erro
 }
 
 // ---- the study basis: what the import must state that a grid file does not carry ------------------------------
-
-/** The demand pathways an import's forecast stands in for, by the FES pathway ids the picker uses; Standard is required. */
-export const PATHWAYS = [
-  { id: "fb", label: "Low", required: false },
-  { id: "ht", label: "Standard", required: true },
-  { id: "ee", label: "High", required: false },
-] as const;
 
 /** The study basis as typed: the forecast by pathway and year, its source, the N-1 floor and the limits by level (kV as text). */
 export interface StudyBasisForm {
@@ -158,7 +148,8 @@ const kvText = (kv: number): string => `${kv}`;
 
 /**
  * A preset's limits for each of the file's levels: the band with the highest threshold the level reaches, within that
- * band's top (EN 50160 stops at 36 kV). A level the preset sets nothing for keeps what was typed there.
+ * band's top (EN 50160 stops at 36 kV). A level the preset sets nothing for keeps what was typed there. The presets are
+ * served (engine `config.VOLTAGE_BAND_PRESETS`); this rule mirrors how the engine reads bands by level (`network.band_at`).
  */
 export function presetBands(preset: BandPreset, levels: FileLevel[], typed: StudyBasisForm["bands"]): StudyBasisForm["bands"] {
   const out: StudyBasisForm["bands"] = { ...typed };
@@ -181,17 +172,23 @@ const num = (v: string | undefined): number | null => {
  * The study basis as the import form's fields (the forecast and the limits as JSON tables), or the first thing
  * missing or wrong. `years` are the plan years after the first (today is ×1.00). The API checks it all again.
  */
-export function studyBasisFields(f: StudyBasisForm, years: number[], levels: FileLevel[]): { fields: Record<string, string>; error: string | null } {
+export function studyBasisFields(
+  f: StudyBasisForm,
+  years: number[],
+  levels: FileLevel[],
+  pathways: ImportPathway[],
+  factorMax: number,
+): { fields: Record<string, string>; error: string | null } {
   const forecasts: Record<string, Record<string, number>> = {};
-  for (const p of PATHWAYS) {
+  for (const p of pathways) {
     const row = f.forecast[p.id] ?? {};
     const vals = years.map((y) => num(row[y]));
     if (vals.every((v) => v === null)) {
       if (p.required) return { fields: {}, error: `Enter the ${p.label} forecast for every year, ${years[0]} to ${years[years.length - 1]}` };
       continue;
     }
-    const bad = years.find((_, i) => vals[i] === null || !((vals[i] as number) > 0 && (vals[i] as number) <= 2));
-    if (bad !== undefined) return { fields: {}, error: `The ${p.label} forecast needs a growth factor between 0 and 2 for every year, 1.02 being +2 % (${bad} is missing or out of range)` };
+    const bad = years.find((_, i) => vals[i] === null || !((vals[i] as number) > 0 && (vals[i] as number) <= factorMax));
+    if (bad !== undefined) return { fields: {}, error: `The ${p.label} forecast needs a growth factor between 0 and ${factorMax} for every year, 1.02 being +2 % (${bad} is missing or out of range)` };
     forecasts[p.id] = Object.fromEntries(years.map((y, i) => [`${y}`, vals[i] as number]));
   }
   const n1 = num(f.n1MinKv);

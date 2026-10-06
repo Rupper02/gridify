@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding, GateFinding, MergeCheck, Model, Outage } from "../types";
-import { findingSel, findingsByYear, firstBlocker, gateState, needsConfirm, openCounts, refusedCheck } from "./gate";
+import { findingSel, findingsByYear, gateState, openCounts, refusedCheck } from "./gate";
 
 const gf = (over: Partial<GateFinding> = {}): GateFinding => ({
   kind: "new_overload", level: "blocker", year: 2031, case: null, element_kind: "line", element_id: "12", value: 104, base_value: 90,
@@ -39,16 +39,6 @@ describe("gateState", () => {
   });
 });
 
-describe("blockers, confirmation and titles", () => {
-  it("picks the first blocker and knows when warnings need a confirmation", () => {
-    const blocked = check({}, { ok: false, blockers: [gf({ element_id: "7" }), gf()] });
-    expect(firstBlocker(blocked)?.element_id).toBe("7");
-    expect(firstBlocker(check())).toBeNull();
-    expect(needsConfirm(check({}, { warnings: [gf({ level: "warning" })] }))).toBe(true);
-    expect(needsConfirm(blocked)).toBe(false);
-    expect(needsConfirm(null)).toBe(false);
-  });
-});
 
 const finding = (over: Partial<Finding> = {}): Finding => ({
   finding_id: "f-1", branch_id: "br-1", fingerprint: "fp", source: "engine", kind: "overload", severity: "breach", year: 2031, case: null,
@@ -91,13 +81,13 @@ describe("findings", () => {
 describe("refusedCheck", () => {
   it("turns a refused merge's body into a check, and ignores anything else", () => {
     const verdict = { ok: false, blockers: [gf({ kind: "stale", message: "Re-run it." })], warnings: [], context: [], years_compared: [], summary: "" };
-    const stale = refusedCheck({ code: "blocked", fresh: false, verdict }, null, "br-1");
+    const stale = refusedCheck({ code: "blocked", fresh: false, verdict }, null, "br-1", "br-0");
     expect(stale?.fresh).toBe(false);
     expect(stale?.stale_reasons).toEqual(["Re-run it."]);
-    const warned = refusedCheck({ code: "warnings_unacknowledged", fresh: true, verdict: { ...verdict, ok: true, blockers: [] } }, check(), "br-1");
+    const warned = refusedCheck({ code: "warnings_unacknowledged", fresh: true, verdict: { ...verdict, ok: true, blockers: [] } }, check(), "br-1", "br-0");
     expect(warned?.requires_acknowledgement).toBe(true);
     expect(warned?.into).toBe("main");
-    expect(refusedCheck("branch is 'merged', not open", null, "br-1")).toBeNull();
-    expect(refusedCheck({ code: "blocked" }, null, "br-1")).toBeNull();
+    expect(refusedCheck("branch is 'merged', not open", null, "br-1", "br-0")).toBeNull();
+    expect(refusedCheck({ code: "blocked" }, null, "br-1", "br-0")).toBeNull();
   });
 });

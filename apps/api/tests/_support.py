@@ -52,7 +52,7 @@ def add_project(branch_id: str, body: dict) -> dict:
 
 
 def create_branch(name: str, **kw) -> dict:
-    r = client.post("/branches", json={"name": name, **kw})
+    r = client.post("/branches", json={"name": name, "from_branch": "main", **kw})
     assert r.status_code == 200, r.text
     return r.json()
 

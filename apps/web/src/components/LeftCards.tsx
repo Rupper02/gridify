@@ -7,17 +7,16 @@ import { Info, X } from "@phosphor-icons/react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
-import { gspTicks, n1Counts, worstElement } from "../lib/derive";
+import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
-import { runStatus } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "solving" | "stage" | "warehouseStale" | "year",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
   "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
-  "exact" | "ix" | "profile" | "resultProfile" | "stale" | "yearsFailed" | "yearsSolved" | "yearsTotal" | "yr" | "caps" | "synthetic"
+  "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
 >;
 
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
@@ -25,7 +24,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const { yr, stale, resultProfile, profile } = derived;
   const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
   const gsp = yr?.converged === false ? null : (yr?.gsp_export_mw ?? null); // a year that did not solve has no figures
-  const gspHot = gsp != null && limit ? gsp / limit > 0.9 : false;
+  const gspHot = gsp != null && limit ? gsp / limit > GSP_NEAR_LIMIT : false;
   const runLabel = `${stale.stale ? "Re-run" : "Run"} on ${profile.label}`;
   const showStale = stale.stale && !s.refreshing; // an automatic refresh is already on its way
 
@@ -59,14 +58,11 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
 
 function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabel: string }) {
   const { s, actions, derived } = planner;
-  const { stale, resultProfile, yearsSolved, yearsFailed, yearsTotal, caps, synthetic } = derived;
+  const { stale, resultProfile, run: st, caps, synthetic } = derived;
   const n = s.outages.length;
   const sub =
     gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
-    (() => {
-      const st = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
-      return st.phase === "done" ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label;
-    })();
+    (st.phase === "done" ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label);
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -122,14 +118,15 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
 
 function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean }) {
   const { s, actions, derived } = planner;
-  const { yr, ix, exact, yearsSolved, yearsFailed, yearsTotal } = derived;
+  const { yr, ix, exact } = derived;
   const n1 = n1Counts(yr);
-  const { note } = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
+  const { note } = derived.run;
   const worst = worstElement(yr, ix);
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
   return (
     <div className="card glass" style={{ gap: 14 }}>
+      {derived.caps.boundary && ( // a grid with no boundary has no export reading to show
       <button className="gsp-btn" onClick={actions.toggleBoundary} title="Beyond the GSP: limits and transmission projects">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <span style={{ fontSize: 11.5, color: C.mute }}>GSP export</span>
@@ -143,6 +140,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
         </span>
       </button>
+      )}
       {yr?.converged === false ? (
         <div className="notice red" role="status">
           <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
@@ -152,7 +150,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
       <div className="readings">
         <button
           className="reading reading-btn"
-          onClick={() => worst && actions.focusSel(worst.sel, 2.4)}
+          onClick={() => worst && actions.focusSel(worst.sel, ZOOM_ELEMENT)}
           disabled={!worst}
           title={worst ? `Show the ${worst.name} on the map` : undefined}
         >
@@ -197,7 +195,7 @@ function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
   const { breach, warn, worst } = alertSummary(derived.yr);
   const open = () => {
     actions.setLayer("demand");
-    if (worst) actions.focusSel({ kind: "region", id: worst }, 1.6);
+    if (worst) actions.focusSel({ kind: "region", id: worst }, ZOOM_REGION);
   };
   return (
     <button className="cust-alerts" onClick={open} title={worst ? "Show the worst demand region on the map" : "Show the demand regions on the map"}>

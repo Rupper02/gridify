@@ -5,9 +5,9 @@ from contextlib import nullcontext
 import hashlib
 import json
 from collections.abc import Callable
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 
-from fastapi import HTTPException
+from .errors import Invalid
 from gridforge_optimizer import (
     PLAN_YEARS,
     STUDIES,
@@ -25,7 +25,6 @@ from gridforge_optimizer import (
     YearResult,
     against_recommendation,
     apply_reinforcement,
-    best_windows,
     diff_results,
     energisation_years,
     evaluate_year,
@@ -41,10 +40,10 @@ from gridforge_optimizer import (
 from gridforge_optimizer.config import FORECASTS
 
 from . import ledger, narration, proposals, repository
-from .cache import ResultCache, cand_key
+from .cache import MAX_PAYLOAD_ENTRIES, ResultCache, cand_key, remember
 from .config import now
 from .projects import Projects
-from .schemas import BestWindowRequest, OptimizeRequest
+from .schemas import OptimizeRequest
 from .store import ScenarioStore
 
 
@@ -59,7 +58,7 @@ def resolve_params(body: OptimizeRequest, forecasts: dict[str, dict[int, float]]
     }
     if forecasts is not None:
         if body.scenario not in forecasts:
-            raise HTTPException(status_code=422, detail=f"this grid's forecast has no '{body.scenario}' pathway; it has {', '.join(forecasts)}")
+            raise Invalid(f"this grid's forecast has no '{body.scenario}' pathway; it has {', '.join(forecasts)}")
         curve = forecasts[body.scenario]
         return OptimizeParams(growth_2030=curve[2030], growth_2035=curve[2035], scenario=body.scenario, curve=curve, **weights)
     if body.scenario in FORECASTS:
@@ -85,6 +84,7 @@ class BranchInputs(NamedTuple):
     baseline: str  # the project's content identity (its snapshot or file fingerprint): part of every key
     net_factory: Callable  # the project's network WITH the branch's simulated reinforcements applied: studies, suggestions, the boundary
     base_factory: Callable  # the project's network as it is: for the engine calls that take `reinforcements` and apply them themselves
+    rows: list[dict]  # the stored project rows `cands` came from (applicant, schedule, control: what the payload adds)
 
 
 class Freshness(NamedTuple):
@@ -141,10 +141,9 @@ class PlanService:
         """A request's engine parameters on its project (an imported grid plans on its own forecast)."""
         return resolve_params(req, self.projects.forecasts(project_id))
 
-    def candidates(self, branch_id: str = "main") -> list[Candidate]:
-        """The optimizer's candidate list for a branch (the projects added to it)."""
-        with self.store.cursor() as con:
-            rows = repository.candidate_rows(con, branch_id)
+    @staticmethod
+    def candidates(rows: list[dict]) -> list[Candidate]:
+        """The optimizer's candidate list from a branch's stored project rows."""
         return [
             Candidate(
                 request_id=r["request_id"],
@@ -171,21 +170,18 @@ class PlanService:
             reinf = repository.reinforcements(con, branch_id)
             outages = repository.outages(con, branch_id)
             rows = repository.candidate_rows(con, branch_id)
-        cands = self.candidates(branch_id)
+        cands = self.candidates(rows)
         schedule = {r["request_id"]: int(r["scheduled_year"]) for r in rows if r.get("scheduled_year") is not None}
         pid = row["project_id"]
         base = self.projects.source(pid).build_net
         return BranchInputs(repository.branch_request(row), cands, cand_key(cands), reinf, outages, schedule, pid,
-                            self.projects.baseline(pid), reinforced_factory(reinf, base), base)
+                            self.projects.baseline(pid), reinforced_factory(reinf, base), base, rows)
 
-    def invalidate(self, scope: Literal["plan", "payload"]) -> None:
-        """Drop the in-process result layers after an edit: "plan" when the candidate set changed
-        (every result for it is stale), "payload" when only what the payload adds to the engine
-        result changed (an energisation year). The durable cache is keyed by inputs and never needs it."""
-        if scope == "plan":
-            self.cache.clear()
-        else:
-            self.cache.payload.clear()
+    def edited(self) -> None:
+        """A branch's plan changed. Every engine result is keyed by its inputs and needs nothing; the run payload is
+        dropped because a payload hit skips the findings-ledger write, so a branch edited back to an earlier state
+        would keep the ledger of the state in between. (It also carries rows no key covers: the applicant.)"""
+        self.cache.payload.clear()
 
     # --- the keys every result is stored under -------------------------------------------------------
     def _optimize_key(self, b: BranchInputs, params: OptimizeParams) -> str:
@@ -361,32 +357,6 @@ class PlanService:
             dump=lambda sugs: json.dumps([x.model_dump() for x in sugs]),
         )
 
-    def best_windows(self, branch_id: str, body: BestWindowRequest, progress=None) -> list[dict]:
-        """The ranked windows for a planned work on a branch (windows.best_windows), studied against
-        the branch's plan year by year: its queue (cached run), schedule, reinforcements and other
-        planned windows. Cached through the same two layers; the key adds everything the years
-        depend on (years_key) and the request itself."""
-        report = progress or (lambda _s, _f: None)
-        b = self.inputs(branch_id)
-        params = self.params(b.req, b.project_id)
-
-        def search() -> list[dict]:
-            result = self.compute(b, progress=lambda s, f: report("queue decided" if s == "done" else s, 0.3 * f))
-            lo, hi = body.years
-            kw = {"seasons": body.seasons} if body.seasons else {}
-            options = best_windows(
-                result, b.cands, params, (body.element_kind, body.element_id), range(lo, hi + 1),
-                work=body.work, kind=body.kind, repower=body.repower, factor=body.factor, weeks=body.weeks,
-                scheduled=b.schedule, reinforcements=b.reinforcements, outages=b.outages, net_factory=b.base_factory,
-                progress=lambda s, f: report(s, 0.3 + 0.7 * f), **kw,
-            )
-            return [o.model_dump() for o in options]
-
-        return self.cache.through(
-            self.cache.key("windows", params, b.ckey, b.baseline, extra=f"{years_key(b)}|{body.model_dump_json()}"), "windows",
-            baseline=b.baseline, parse=json.loads, compute=search, dump=json.dumps,
-        )
-
     # --- studies (the agents' tools and POST /branches/{id}/studies/{kind}) --------------------------------------------
     def study_key(self, branch_id: str, kind: str, p) -> str:
         """The cache key of a study on a branch: the branch's inputs, the study's parameters, and the plan
@@ -395,43 +365,51 @@ class PlanService:
         extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if STUDIES[kind].needs_plan else "")
         return self.cache.key(f"study:{kind}", self.params(b.req, b.project_id), b.ckey, b.baseline, extra=extra)
 
-    def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False, hold=nullcontext) -> StudyResult:
+    def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False, hold=nullcontext,
+              context: StudyContext | None = None) -> StudyResult:
         """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
         the plan years for the studies that read them. Cached like everything else, under the branch's inputs
         and the study's parameters, so an agent asking twice costs one solve. `chunked` runs the study's
         independent parts one by one (each a study with its own parameters, cached on its own, so a retry
         after a crash recomputes only the parts that are not in the cache) and stores the merged result
         under the whole study's key. `hold` wraps every solve (the agents pass `SolverGate.hold`, so an
-        operator's job gets the solver between chunks, not after the whole study)."""
+        operator's job gets the solver between chunks, not after the whole study): the plan the study reads is solved
+        once, inside it, and handed to every chunk (`context`)."""
         spec = STUDIES[kind]
         p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
         b = self.inputs(branch_id)
         engine_params = self.params(b.req, b.project_id)
 
-        def context() -> StudyContext:
-            result = self.result_with_years(b) if spec.needs_plan else None
-            return StudyContext(net_factory=b.net_factory, params=engine_params, candidates=b.cands,
-                                result=result, progress=progress or (lambda _s, _f: None), schedule=b.schedule, outages=b.outages)
-
+        gated = hold is not nullcontext  # an agent's study: every solve through its gate (operators first, its deadline)
         report = progress or (lambda _s, _f: None)
 
+        def plan_context() -> StudyContext:
+            """The plan the study reads, solved (when not cached) inside the gate like every other solve."""
+            if context is not None:
+                return context
+            with hold():
+                result = self.result_with_years(b) if spec.needs_plan else None
+            return StudyContext(net_factory=b.net_factory, params=engine_params, candidates=b.cands,
+                                result=result, progress=report, schedule=b.schedule, outages=b.outages)
+
         def compute() -> StudyResult:
+            ctx = plan_context()
             if chunked:
-                parts = chunk_study(kind, context(), p)
+                parts = chunk_study(kind, ctx, p)
                 if len(parts) > 1:
                     results = []
                     for i, part in enumerate(parts):  # each chunk lands as a progress report, so a long study is never silent
                         report(f"{kind}: part {i + 1} of {len(parts)}", i / len(parts))
-                        results.append(self.study(branch_id, kind, part, progress, hold=hold))
+                        results.append(self.study(branch_id, kind, part, progress, hold=hold, context=ctx))
                     report(f"{kind}: {len(parts)} parts done", 1.0)
                     return merge_chunks(kind, p, results)
             with hold():
-                return run_study(kind, context(), p)
+                return run_study(kind, ctx, p)
 
         # a gated study takes the solver through its gate, per solve: the cache must not hold it while the gate waits
         return self.cache.through(self.study_key(branch_id, kind, p), f"study:{kind}", baseline=b.baseline,
                                   parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json(),
-                                  locked=hold is nullcontext)
+                                  locked=not gated)
 
     # --- the payload the planner renders -------------------------------------------------------------------
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:
@@ -439,8 +417,7 @@ class PlanService:
         against the recommendation, each phase's generators, and what the run studied."""
         out = result.model_dump()
         coords = self.projects.bus_coords(b.project_id)
-        with self.store.cursor() as con:
-            rows_by_id = {r["request_id"]: r for r in repository.candidate_rows(con, branch_id)}
+        rows_by_id = {r["request_id"]: r for r in b.rows}
         for q in out["queue"]:
             bid = q["bus_id"]
             q["lon"], q["lat"] = coords.get(int(bid), (None, None)) if bid is not None else (None, None)
@@ -491,7 +468,7 @@ class PlanService:
         two runs with the same key compute the same thing, so a job for one can serve both."""
         return self._payload_key(self.inputs(branch_id)._replace(req=body), body, branch_id)
 
-    def warm_profiles(self, branch_id: str = "main", idle=lambda: True) -> None:
+    def warm_profiles(self, branch_id: str, idle=lambda: True) -> None:
         """Pre-compute a branch's plan on every selectable demand profile other than its own (its own is a
         real job the planner joins), so switching the profile finds the run in the cache. Best-effort, on
         the job worker: before each profile it checks `idle()` and stops as soon as a real job is waiting."""
@@ -503,7 +480,7 @@ class PlanService:
             if fid != own.scenario:
                 self.optimize_payload(own.model_copy(update={"scenario": fid, "with_justification": False}), branch_id)
 
-    def optimize_payload(self, body: OptimizeRequest, branch_id: str = "main", progress=None,
+    def optimize_payload(self, body: OptimizeRequest, branch_id: str, progress=None,
                          publish=None, view_year: int | None = None) -> dict:
         """Run a branch and enrich the result for the map, then solve every year of the plan.
 
@@ -540,5 +517,4 @@ class PlanService:
             report("narration", 0.95)
             out["justification"] = narration.safely(self.narrator.justify, narration.summarize_queue(result, self.projects.names(b.project_id)))
 
-        self.cache.payload[key] = out
-        return out
+        return remember(self.cache.payload, key, out, MAX_PAYLOAD_ENTRIES)

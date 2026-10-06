@@ -1,5 +1,5 @@
 // Canvas-drawn map icons for the dark map: transformer (two circles), load (triangle) and open point
-// (square). Projects are HTML markers (components/map/ProjectMarkers.tsx), not map icons.
+// (square). Projects are HTML markers (components/MapMarkers.tsx), not map icons.
 
 import type { Map as MLMap } from "maplibre-gl";
 

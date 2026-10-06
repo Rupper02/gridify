@@ -3,8 +3,9 @@
 // Pure: given the API's diff (engine: diff.diff_results), no React.
 
 import { C } from "../theme";
-import type { Diff, LoadingDelta, OnMerge, Outage, WorkChange, WorkDelta, WorkVerdict, YearDelta } from "../types";
-import { type ModelIndex, lineName, trafoName } from "./derive";
+import type { BranchReinforcement, Diff, LoadingDelta, OnMerge, Outage, WorkChange, WorkDelta, WorkVerdict, YearDelta } from "../types";
+import { type ModelIndex, lineName, plural, trafoName } from "./derive";
+import { VERDICTS, WORK_UI } from "./maintenance";
 
 /** A loading change (percentage points) below this is not drawn on the map (its tag would read 0%). */
 export const MAP_DELTA_MIN = 1;
@@ -50,7 +51,6 @@ export interface Namers {
 }
 
 const pct = (x: number | null): string => `${Math.round(x ?? 0)}%`;
-const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 function elementItems(y: number, ids: { over: number[]; cleared: number[]; top: LoadingDelta[] }, name: (id: number) => string): EffectItem[] {
   const out: EffectItem[] = [];
@@ -113,13 +113,6 @@ export function flaggedYears(d: Diff | null): Set<number> {
 }
 
 // ---- planned works --------------------------------------------------------------------------------
-export const VERDICT: Record<WorkVerdict, { label: string; tone: Tone | "warn" }> = {
-  feasible: { label: "Feasible", tone: "good" },
-  curtailment: { label: "Curtailment", tone: "warn" },
-  demand_at_risk: { label: "Demand at risk", tone: "bad" },
-  not_feasible: { label: "Not feasible", tone: "bad" },
-};
-
 export const WORK_CHANGE: Record<WorkChange, { label: string; tone: Tone }> = {
   worse: { label: "Harder on this branch", tone: "bad" },
   better: { label: "Easier on this branch", tone: "good" },
@@ -130,7 +123,7 @@ export const WORK_CHANGE: Record<WorkChange, { label: string; tone: Tone }> = {
 /** A verdict with its MW: "Curtailment 40 MW", "Demand at risk 12 MW", "Feasible". */
 export function verdictText(v: WorkVerdict | null, curtailed: number | null, atRisk: number | null): string {
   if (v == null) return "Not studied";
-  const label = VERDICT[v]?.label ?? v;
+  const label = VERDICTS[v]?.label ?? v;
   if (v === "curtailment" && curtailed) return `${label} ${Math.round(curtailed * 10) / 10} MW`;
   if (v === "demand_at_risk" && atRisk) return `${label} ${Math.round(atRisk * 10) / 10} MW`;
   return label;
@@ -147,16 +140,20 @@ export const workTone = (w: WorkDelta): Tone => (isNewWorkRisk(w) ? "bad" : WORK
 export const verdictOnMain = (w: WorkDelta): string => verdictText(w.verdict_on_main, w.curtailed_mw_main, w.demand_at_risk_mw_main);
 export const verdictOnBranch = (w: WorkDelta): string => verdictText(w.verdict_on_branch, w.curtailed_mw_branch, w.demand_at_risk_mw_branch);
 
-const WORK_LABEL: Record<string, string> = { maintenance: "Maintenance", repowering: "Repowering", replacement: "Replacement" };
+const workLabel = (w: string): string => (WORK_UI as Record<string, { label: string } | undefined>)[w]?.label ?? w;
+
+/** A simulated reinforcement as a line of text: its label, or what it does to which element. */
+export const reinforcementLabel = (r: Pick<BranchReinforcement, "label" | "action" | "kind" | "element_id">): string =>
+  r.label || `${r.action} ${r.kind} ${r.element_id}`;
 
 /** A window's title: the work and the element it takes out, by name ("Maintenance · Boston to Spalding 132 kV"). */
 export function workTitle(w: WorkDelta, o: Outage | undefined, ix: ModelIndex | null): string {
-  return o ? outageTitle(o, ix, w.work) : `${WORK_LABEL[w.work] ?? w.work} · ${w.outage_id}`;
+  return o ? outageTitle(o, ix, w.work) : `${workLabel(w.work)} · ${w.outage_id}`;
 }
 
 /** A planned window's title from the window itself (`work`: the work to name, the window's own by default). */
 export function outageTitle(o: Outage, ix: ModelIndex | null, w: string = o.work): string {
-  const work = WORK_LABEL[w] ?? w;
+  const work = workLabel(w);
   const id = o.element_id;
   const g = ix?.gen.get(id);
   const element = !ix

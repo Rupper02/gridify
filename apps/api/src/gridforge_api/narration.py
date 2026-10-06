@@ -10,11 +10,12 @@ from typing import Protocol
 from gridforge_optimizer import llm as opt_llm
 from gridforge_optimizer.naming import Names, name_text
 
+from .config import log
+
 
 class Narrator(Protocol):
     def justify(self, summary: str) -> str: ...
     def narrate_diff(self, summary: str) -> str: ...
-    def narrate_suggestion(self, summary: str) -> str: ...
 
 
 class OpenRouterNarrator:
@@ -26,16 +27,15 @@ class OpenRouterNarrator:
     def narrate_diff(self, summary: str) -> str:
         return opt_llm.narrate_diff(summary)
 
-    def narrate_suggestion(self, summary: str) -> str:
-        return opt_llm.narrate_suggestion(summary)
 
 
 def safely(fn, summary: str) -> str:
-    """Narration is garnish on an engine result: a failed call (network, quota) yields an empty
-    string rather than failing the run whose figures are already decided."""
+    """Narration is garnish on an engine result: a failed call (network, quota, a revoked key) yields an empty
+    string rather than failing the run whose figures are already decided, and says so in the log."""
     try:
         return fn(summary)
     except Exception:
+        log.warning("narration failed; the result is shown without it", exc_info=True)
         return ""
 
 
@@ -91,20 +91,3 @@ def summarize_diff(d, names: Names | None = None) -> str:
             lines.append(f"Planned work {w.outage_id} ({w.year}): {w.consequence}")
     return _named("\n".join(lines), names)
 
-
-def summarize_suggestion(s, base, names: Names | None = None) -> str:
-    """Plain-text summary of a deterministic suggestion for the narration prompt (figures only)."""
-    rating = {q.request_id: q.rating_mw for q in base.queue}
-    connects = ", ".join(
-        f"{rid} ({rating.get(rid, '?')} MW)" for rid in s.newly_connected_project_ids
-    ) or "no additional projects"
-    return _named(
-        f"Deferred project(s): {', '.join(s.blocked_project_ids)}.\n"
-        f"Binding constraint: {s.target_type} {s.target_element_id}.\n"
-        f"Action: {s.action}.\n"
-        f"Connects the blocked project: "
-        f"{'yes' if s.connects_target else 'no — further reinforcement needed'}.\n"
-        f"Frees ~{s.freed_mw_2030} MW by 2030 and ~{s.freed_mw_2035} MW by 2035.\n"
-        f"Projects that connect under it: {connects}.",
-        names,
-    )

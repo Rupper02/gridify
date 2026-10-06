@@ -8,14 +8,14 @@
 
 import { useCallback, useMemo, useRef } from "react";
 
-import { clampYear } from "../lib/plan";
-import type { ElementSel, Tab } from "../types";
+import type { ElementSel } from "../types";
 import { useCore } from "./planner/core";
 import { useAgents } from "./planner/useAgents";
 import { useAsk } from "./planner/useAsk";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
 import { useDerived } from "./planner/useDerived";
+import { useView } from "./planner/useView";
 import { useFindings } from "./planner/useFindings";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
@@ -30,7 +30,7 @@ export type { MapApi, PlannerState } from "./planner/core";
 
 export function usePlanner() {
   const { s, core } = useCore();
-  const { patch, ref, mapApi } = core;
+  const { mapApi } = core;
 
   // the run and the branch flows need each other (a run refreshes the diff; a branch switch runs):
   // the run reaches the flows through this ref, filled once they exist
@@ -45,7 +45,7 @@ export function usePlanner() {
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const findings = useFindings(core);
   const agents = useAgents(core, s.projectId);
-  const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited);
+  const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited, flows.afterRebase);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
     void findings.loadFindings(bid);
@@ -60,6 +60,7 @@ export function usePlanner() {
   const { setSchedule, setControl } = useProjectEdits(core, edited);
   const mapView = useMapFeatures(core, s.visible);
   const derived = useDerived(s);
+  const view = useView(core);
 
   const actions = useMemo(
     () => ({
@@ -71,39 +72,22 @@ export function usePlanner() {
       ...agents,
       ...ask,
       ...projects,
-      setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
-      setYear: (year: number) => patch((st) => (st.plan ? { year: clampYear(st.plan, year) } : {})),
-      toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
-      toggleMenu: () => patch((st) => ({ menuOpen: !st.menuOpen })),
-      toggleDeferred: () => patch((st) => ({ showDeferred: !st.showDeferred })),
-      toggleLegend: () => patch((st) => ({ legendOpen: !st.legendOpen })),
-      toggleBoundary: () => patch((st) => ({ showBoundary: !st.showBoundary })),
-      zoomIn: () => mapApi.current?.zoomBy(1),
-      zoomOut: () => mapApi.current?.zoomBy(-1),
-      zoomFit: () => mapApi.current?.fit(true),
-      /** Schedule maintenance on the selected element; on main this opens a branch for it first. */
+      ...view,
+      /** Schedule maintenance (it composes two hooks: a branch to edit, then the window on it) on the selected element; on main this opens a branch for it first. */
       scheduleOutage: async (sel: ElementSel) => {
         const bid = await flows.ensureEditableBranch();
         if (!bid) return;
         await maint.addOutage(sel, bid);
         await maint.loadExtras(bid); // a new branch loads its (empty) list too: settle on the API's view
       },
-      /** Review the branch: open the Review tab (Merge lives there). A run still solving asks for both itself
-       * when it is done, so nothing is asked of a result that is not there yet. */
-      goReview: () => {
-        patch({ tab: "review", sideOpen: true });
-        if (ref.current.solving) return;
-        if (!ref.current.diff) void flows.refreshDiff(ref.current.activeBranch);
-        if (!ref.current.mergeCheck) void flows.refreshMergeCheck(ref.current.activeBranch);
-      },
     }),
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, mapApi, patch, ref, run, select, selectProject, setSchedule, setControl,
+    [addRegistryProject, core.toastMsg, focusSel, loadRegistry, run, select, selectProject, setSchedule, setControl, view,
       ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 
-  return { s, patch, actions, derived, mapApi };
+  return { s, actions, derived, mapApi };
 }
 
 export type Planner = ReturnType<typeof usePlanner>;

@@ -26,7 +26,7 @@ from .config import log
 # how long a read waits for the pipeline's writer (it holds the file about a second per run) before it falls back, and
 # how long after seeing the lock later reads try once and fall back at once instead of each waiting again
 _LOCK_RETRY_S = (0.25, 0.5, 0.75)
-_LOCK_MEMORY_S = 3.0
+LOCK_MEMORY_S = 3.0
 
 
 class WarehouseBusy(Exception):
@@ -95,7 +95,7 @@ class Warehouse:
     @contextmanager
     def _connection(self):
         """One read-only connection, opened as soon as the pipeline's writer lets go (`_LOCK_RETRY_S`); right after a
-        lock was seen (`_LOCK_MEMORY_S`), one attempt only, so a burst of reads during a write does not each wait."""
+        lock was seen (`LOCK_MEMORY_S`), one attempt only, so a burst of reads during a write does not each wait."""
         waits = () if time.monotonic() < self._locked_until else _LOCK_RETRY_S
         for wait in (*waits, None):
             try:
@@ -105,7 +105,7 @@ class Warehouse:
                 if not _locked(e):
                     raise
                 if wait is None:
-                    self._locked_until = time.monotonic() + _LOCK_MEMORY_S
+                    self._locked_until = time.monotonic() + LOCK_MEMORY_S
                     raise
                 time.sleep(wait)
         try:
@@ -145,9 +145,6 @@ class Warehouse:
     def query(self, sql: str, params: list | None = None) -> list[dict]:
         """Run a read-only SQL query and return rows as dicts."""
         return self.read(f"query:{sql}:{params}", lambda con: rows(con, sql, params))
-
-    def table_exists(self, name: str) -> bool:
-        return self.read(f"table:{name}", lambda con: has_table(con, name))
 
     def baseline_id(self) -> str:
         """The latest model snapshot's content-hash id (used to key the result caches)."""
@@ -204,33 +201,6 @@ class Warehouse:
         return [{**{k: nan_to_none(v) for k, v in r.items()},
                  "buses": [int(b) for b in str(r.get("buses") or "").split(",") if b.strip()]}
                 for r in rows(con, "SELECT * FROM regions ORDER BY region_id")]
-
-    def regions(self) -> list[dict]:
-        """The demand groups (LTDS Table 3 primaries, and each BSP over its primaries), each with the
-        buses the engine places it at. Empty for a warehouse that predates them (re-materialise the
-        pipeline)."""
-        return self.read("regions", self._regions)
-
-    def bus_coords(self) -> dict[int, tuple[float, float]]:
-        """Map every geolocated bus id to its (lon, lat), for attaching coords to queue items."""
-        return {
-            int(b["bus_id"]): (b["lon"], b["lat"])
-            for b in self.query("SELECT bus_id, lon, lat FROM buses WHERE lon IS NOT NULL")
-        }
-
-    def line_ids(self) -> set[str]:
-        return {str(r["line_id"]) for r in self.query("SELECT line_id FROM lines")}
-
-    def trafo_ids(self) -> set[str]:
-        return {str(r["trafo_id"]) for r in self.query("SELECT trafo_id FROM transformers")}
-
-    def generator_ids(self) -> set[str]:
-        """The existing fleet's ids (EX-…), the targets of a generator maintenance window."""
-        return self.read("generator_ids", lambda con: {str(r["request_id"]) for r in rows(con, "SELECT request_id FROM generators")}
-                          if has_table(con, "generators") else set())  # older: no existing-fleet table
-
-    def valid_bus_ids(self) -> set[int]:
-        return {int(b["bus_id"]) for b in self.query("SELECT bus_id FROM buses")}
 
     def registry_rows(self) -> list[dict]:
         """The REGISTRY: the pool of projected connection projects, available to add to a branch.

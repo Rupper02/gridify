@@ -13,7 +13,7 @@ import type { MapLayer, Tech } from "../types";
 import { Switch, TechIcon } from "./ui";
 
 export type LayerTogglePlanner = PlannerSlice<
-  "layer" | "showDeferred" | "showMenuOpen" | "sideOpen" | "visible",
+  "layer" | "showDeferred" | "showMenuOpen" | "visible",
   "setLayer" | "showAll" | "showOnly" | "toggleDeferred" | "toggleFeatureShown" | "toggleShowMenu",
   "caps" | "tiers"
 >;
@@ -173,17 +173,17 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
   );
 }
 
-export type DiffBannerPlanner = PlannerSlice<"diff" | "sideOpen" | "year", "toggleDiff", "branch" | "branchOnly" | "hue">;
+export type DiffBannerPlanner = PlannerSlice<"diff" | "year", "toggleDiff", "branch" | "branchOnly" | "hue" | "parent">;
 
 export function DiffBanner({ planner, layout }: { planner: DiffBannerPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
-  const nAdded = (s.diff?.projects ?? []).filter((p) => p.change === "added").length || derived.branchOnly.size;
+  const nAdded = s.diff ? s.diff.projects.filter((p) => p.change === "added").length : derived.branchOnly.size; // the diff's count once it is in, even 0
   return (
     <div className="diff-banner" style={{ top: layout.narrow ? 110 : 68, left: layout.narrow ? 10 : 270, right: layout.cardRight }}>
       <div className="glass" style={{ borderColor: "var(--hue-bd)" }}>
         <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
           <GitDiff size={14} color={derived.hue} />
-          <span style={{ color: C.mute }}>main</span>
+          <span style={{ color: C.mute }}>{derived.parent}</span>
           <ArrowRight size={11} color={C.mute2} />
           <b style={{ color: derived.hue, fontWeight: 600 }}>{derived.branch?.name}</b>
         </span>

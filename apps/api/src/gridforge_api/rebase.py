@@ -223,7 +223,7 @@ def _projects(p: Plan, known: bool) -> None:
                 continue
             if f is not None and _fields(other) == _fields(f):  # removed on the other side, left as it was here: removed
                 continue
-            side, where = ("main", "this branch") if a is not None else ("this branch", "main")
+            side, where = ("the parent", "this branch") if a is not None else ("this branch", "the parent")
             why = (f"{rid} is on {side} but not on {where}" if not known
                    else f"{rid} was removed on {where} and changed on {side}")
             p.conflicts.append(Conflict(f"project:{rid}", "project", rid, why,
@@ -254,7 +254,7 @@ def _items(p: Plan, area: str, known: bool) -> None:
         p.state[area][i] = pa[i]
     if not known:  # no common ancestor: each one on one side only is the operator's call
         for i, r in sorted({**{i: pa[i] for i in pa.keys() - hd.keys()}, **{i: hd[i] for i in hd.keys() - pa.keys()}}.items()):
-            on = "main" if i in pa else "this branch"
+            on = "the parent" if i in pa else "this branch"
             p.conflicts.append(Conflict(f"{area}:{i}", _KIND[area], i, f"{_item_text(area, r)} is on {on} only",
                                         "kept" if i in pa else "not there", "kept" if i in hd else "not there", ["parent", "branch"]))
         return
@@ -283,7 +283,7 @@ def _profile(p: Plan) -> None:
     else:  # changed on both sides, or not recorded at the fork: the operator's call
         p.state["profile"] = a
         p.conflicts.append(Conflict("profile", None, None, "the demand profile differs" + (" on both sides" if f is not None else
-                                    " and main's at the time this branch was opened is not recorded"),
+                                    " and the parent's at the time this branch was opened is not recorded"),
                                     _profile_text(a), _profile_text(h), ["parent", "branch"]))
 
 

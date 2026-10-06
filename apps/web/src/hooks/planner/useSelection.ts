@@ -4,6 +4,7 @@
 import { useCallback } from "react";
 
 import { regionCentroid } from "../../lib/demand";
+import { midpoint } from "../../lib/placement";
 import type { Sel } from "../../types";
 import type { Core } from "./core";
 
@@ -15,7 +16,7 @@ export function useSelection({ patch, ref, mapApi }: Core) {
       if (!m) return null;
       if (t.kind === "line") {
         const l = m.lines.find((x) => x.line_id === t.id);
-        return l ? [(l.from_lon + l.to_lon) / 2, (l.from_lat + l.to_lat) / 2] : null;
+        return l ? midpoint(l) : null;
       }
       if (t.kind === "trafo") {
         const x = m.transformers.find((y) => y.trafo_id === t.id);

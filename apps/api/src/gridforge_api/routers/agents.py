@@ -11,9 +11,9 @@ from starlette.responses import StreamingResponse
 
 from .. import repository
 from ..agents import events, runs, threads
-from ..config import now
+from ..config import log, now
 from ..deps import agents, evidence, projects, scenarios
-from ..schemas import ApprovalDecision, EventIn, MessageIn, ThreadCreate
+from ..schemas import ApprovalDecision, EventIn, MessageIn, PauseIn, ThreadCreate
 
 router = APIRouter()
 
@@ -38,10 +38,10 @@ def agents_status(pid: str) -> dict:
 
 
 @router.post("/projects/{pid}/agents/pause")
-def pause_agents(pid: str, body: dict | None = None) -> dict:
+def pause_agents(pid: str, body: PauseIn | None = None) -> dict:
     _project(pid)
     _on()
-    agents.spend.set_paused(pid, True, (body or {}).get("reason") or "operator")
+    agents.spend.set_paused(pid, True, (body.reason if body else "") or "operator")
     return agents.status(pid)
 
 
@@ -56,13 +56,13 @@ def resume_agents(pid: str) -> dict:
 @router.post("/projects/{pid}/events")
 def post_event(pid: str, body: EventIn) -> dict:
     """An event for the project's agents (what the API emits itself after runs and merges; a pipeline
-    can post `project.imported` / `edition.changed`). Deduplicated by its id."""
+    can post `project.imported` / `edition.changed`). Deduplicated by its trigger's identity (`events.TRIGGERS`)."""
     _project(pid)
     _on()
     if body.type not in events.TRIGGERS:
         raise HTTPException(status_code=422, detail=f"unknown event type; one of {', '.join(events.TRIGGERS)}")
     try:
-        r = events.emit(agents, body.type, {**body.payload, "project_id": pid, **({"dedup_id": body.dedup_id} if body.dedup_id else {})})
+        r = events.emit(agents, body.type, {**body.payload, "project_id": pid})
     except KeyError as e:
         raise HTTPException(status_code=422, detail=f"the event payload lacks {e}") from None
     return r or {"event_id": None, "workflow_ids": [], "deduplicated": False, "paused": False}
@@ -112,9 +112,12 @@ def post_message(pid: str, tid: str, body: MessageIn) -> dict:
             raise HTTPException(status_code=409, detail={"code": "streaming", "message": "a reply is already on its way in this thread"})
         user = threads.add_message(con, tid, "user", body.content)
         reply = threads.add_message(con, tid, "assistant", "", status="queued")
-        threads.set_message(con, reply["message_id"], workflow_id=f"answer:ask:{reply['message_id']}")  # = the answer workflow's id (events.TRIGGERS)
-    r = events.emit(agents, "operator.asked", {"project_id": pid, "thread_id": tid, "message_id": reply["message_id"]})
-    return {"message_id": user["message_id"], "reply_id": reply["message_id"], "workflow_id": (r or {}).get("workflow_ids", [None])[0], "paused": bool((r or {}).get("paused"))}
+    r = events.emit(agents, "operator.asked", {"project_id": pid, "thread_id": tid, "message_id": reply["message_id"]}) or {}
+    wid = (r.get("workflow_ids") or [None])[0]
+    if wid:  # what the cancel route stops
+        with scenarios.cursor() as con:
+            threads.set_message(con, reply["message_id"], workflow_id=wid)
+    return {"message_id": user["message_id"], "reply_id": reply["message_id"], "workflow_id": wid, "paused": bool(r.get("paused"))}
 
 
 @router.post("/projects/{pid}/threads/{tid}/cancel")
@@ -135,7 +138,7 @@ def cancel_reply(pid: str, tid: str) -> dict:
         try:
             agents.cancel(live["workflow_id"])
         except Exception:  # it may have just finished: the message above is what the operator sees either way
-            pass
+            log.warning("cancelling workflow %s failed; it may still be running", live["workflow_id"], exc_info=True)
     return {"thread_id": tid, "message_id": live["message_id"], "status": "cancelled", "cancelled_at": now()}
 
 
@@ -231,6 +234,7 @@ def run_steps(pid: str, rid: str) -> dict:
                            "child_workflow_id": s.get("child_workflow_id"), "started_at_epoch_ms": s.get("started_at_epoch_ms"), "completed_at_epoch_ms": s.get("completed_at_epoch_ms")}
                           for s in DBOS.list_workflow_steps(run["workflow_id"], load_output=False)]
         except Exception:  # the audit view must not fail on a runtime hiccup
+            log.warning("could not read the DBOS steps of %s", run["workflow_id"], exc_info=True)
             dbos_steps = []
     return {"run": run, "steps": steps, "dbos_steps": dbos_steps}
 
