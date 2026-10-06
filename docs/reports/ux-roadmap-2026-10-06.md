@@ -1,0 +1,108 @@
+# GridForge as a planning engineer would use it: findings and a UX-driven roadmap
+
+**Date:** 2026-10-06 · **Grid:** NGED Bicker Fen 132 kV GSP, `main` → branch `skegness-solar-qa` · **Method:** the dev API (:8000) and planner (:3000) run from this session with their logs captured; every screen driven in the owner's Chrome; API reads timed in parallel the way the browser issues them, idle and during a solve; four read-only code audits (API blocking, N-1/ledger/gate signal, planner UX, agent harness) whose file:line evidence is folded in below.
+
+**State left behind:** branch `skegness-solar-qa` (ECR-B28D2 24.8 MW solar at Skegness 33 kV, ECR-83EF2 battery resized by an approved agent proposal from 248 to 55 MW, ECR-5812F 240 MW solar deferred; a summer-2035 maintenance window on Sleaford 132/33 kV transformer 2). The agents are **paused** (`POST /agents/pause`, 07:16) after today's spend reached **$8.01**, $6.85 of it two reviewer runs that were discarded. Resume from the Ask tab when the reviewer fix (B1) is in.
+
+---
+
+## 1. What already works for an engineer
+
+Say this first, because the roadmap below is long and the core is sound:
+
+- **The answers are engineering answers.** Deferral reasons name the binding element, the loading and the case, and say "a grid limit, not the project". The agent's reply to *How could ECR-83EF2 connect?* measured the busbar per case (≈70 MW at winter peak before Billingborough T1 hits 100%; ≈55 MW at summer minimum before Sleaford 132 kV circuit 1 hits 101%), tried the parallel-circuit chain (still 126%), probed higher-voltage busbars (none), and proposed 55 MW with footnoted evidence chips. Approving the two proposals resized the project (rating **and** import to 55 MW), ran the branch, and the project connected in 2027. That is the product.
+- **Planned works verdicts are the best screen in the app**: *Curtailment: holds the limits if the battery is constrained by 55 MW and Sleaford PV by 28.3 MW at summer minimum; circuit 1 reaches 120%; 23 second-fault findings during the window* — with the quiet "updating the years your edit touches" refresh.
+- **Honesty is visible**: *What the model assumes* lists every data gap with counts; the Review tab warns that main runs on High and the branch on Standard; the demand layer says "no firm figure"; the stamp says what is stale and why.
+- **Branching is cheap and legible**: orange frame, "from main · 3 added · 3 preliminary", Diff view with per-element deltas, a merge gate that explains itself.
+
+## 2. Measurements
+
+| What | Idle | During the branch's re-run (~2.5 min) |
+|---|---|---|
+| `GET /health` | 40–140 ms (9–30 ms via `127.0.0.1`, ~220 ms via `localhost`) | 413 ms |
+| tiny reads (`/outages`, `/threads`, `/branches`) | 70–260 ms | 470–1 300 ms |
+| `GET /branches/{id}/findings` | **1.17–1.18 MB**, 90–330 ms | 917 ms |
+| `GET /branches/{id}/merge-check` | **357 kB** (754 blockers + 283 warnings), 340–770 ms | 1 080 ms |
+| `GET /branches/{id}/diff` | 45 kB, 250–640 ms | **180 s → timeout** (waits on the solver lock) |
+| Job stages | ~8 s per plan year; `years done` at 0.95 for **30+ s** (ledger write under the store lock, then narration) | |
+| A new branch identical to main | 14 s job + steward + reviewer ($0.12) → "no change" | |
+| Reviewer on the 3-project run | **$4.09**, 12 min, 1.45 M in / 119 k out, 4 model calls, then `skipped: superseded` | second one $2.76, same fate |
+| Findings ledger | main 2 breaches / **553 warnings**; branch 3 / **1 279–1 382** | |
+| Page errors | none (only the Chrome extension's own) | |
+
+## 3. Confirmed bugs (evidence → cause → fix)
+
+Severity: **B** blocks or misleads an engineer / burns money; **U** usability; **P** performance. Effort S/M/L.
+
+| # | Sev | Symptom (seen) | Cause (file:line) | Fix | Eff |
+|---|---|---|---|---|---|
+| B1 | **B** | Reviewer burns $2.8–4.1 per run restating ~750 gate blockers, 3–4 model calls, 12 min; result discarded as superseded; Review tab says "waits a few seconds" throughout | `tools.py:50-57` passes the whole gate; `workflows.py:200` dumps it in the prompt, the `merge_check` tool repeats it, `roster.py:86` dumps it again in every `ModelRetry`; validator wants a 1:1 restatement (`roster.py:74-90`); no spend/token budget (`workflows.py:46-50`) | Reviewer sees per-kind counts + ≤5 worst examples; validator checks those; retry names only what is missing; cancel the review when its run is superseded (`workflows.py:206` checks only at store time); hard token budget per run | S |
+| B2 | **B** | One 24.8 MW PV creates 752 "new N-1 findings"; 603 come from one outage whose post-fault state sits at **0.31 pu** on 132 kV buses / 315% loadings — a collapse enumerated as 60 breaches; merge **blocked** by it | `network.py:706-727` passes every converged state to `case_breaches` with no plausibility floor; `_regulate_taps` (305-308) never flags an unsettled OLTC; constant-P sgen, closed 33 kV mesh (README) | One `collapse` finding per (outage, case) below a registered floor (`N1_COLLAPSE_VM_PU` ≈ 0.8, README register), gate kind `n1_new_collapse`; don't list the symptoms | M |
+| B3 | **B** | 553 / 1 382 warnings; 754 blockers; `summer_min` rows identical in all ten years; "overloaded at 100%" for 100.3% | `findings.py:162-173`, `gate.py:297-327` one row per (outage, case, element) per year; summer min is ungrown (`network.py:427`) so every new row ×9; `n1_key` value-independent; `:.0f` | Group gate items per (outage, case) with the year span (`_years_text`, `gate.py:116`); one decimal; web groups identical identities across years; ledger keeps per-year fingerprints | S |
+| B4 | **B** | "Horncastle (T1): 12.4 MW is 12.4 MW above its **0.0 MW** firm capacity" filed as a breach while the map says "no firm figure" | `nged.py:521` `or 0.0`, `demand.py:96 fillna(0.0)`; `_firm_alert` (`demand.py:251`) skips 0 only for classes A/B | Skip firm/headroom alerts when `firm_mw <= 0` for every class; record a `firm_capacity_unpublished` assumption | S |
+| B5 | **B** | `GET /diff` hangs 180 s during a run; merge-check can solve inside a GET | `routers/branches.py:127,145` → `service.py:266-269` → `cache.through` blocks on the solver lock (`cache.py:118`), held job-wide (`jobs.py:81`) | Non-solving read (`ResultCache.peek`); 202 `{code:"not_solved"}` when years aren't cached; planner shows "comparing…" and re-asks after the run | S/M |
+| B6 | **B** | Gate compares branch (Standard) with main (High): 5 "new" winter rows and 3 alerts are demand, not projects (the UI warns, the physics doesn't) | `service.py:263-269` solves base on its own params; `gate.py:396-400` only warns | Solve the parent on the branch's profile for gate/diff, or make `profile_differs` a blocker | S/M |
+| B7 | **B** | Specialists filed **0 findings** in all 7 runs today (incl. a tap-stop breach they were told to file); every agent figure is free text | `prompts.py:65` vs `studies.py:629` disagree on severity; empty `findings` always passes `roster.py:56-67` | Retry once when study steps hold warn/breach items and `findings` is empty | S |
+| B8 | **B** | Identical physics swept twice: new branch = main → 14 s job + steward + reviewer; steward re-solves parent years for 107 s under the gate | dedup `run:{branch_id}:{run_key}` (`events.py:29`); payload key includes `branch_id` (`service.py:464`); `steward_brief` has read tools (`roster.py:44`) | `applies` skips when `run_key == parent years_key`; dedup steward by `run:{project}:{run_key}`; inherit a stored review for the same (run_key, base key); `steward_brief.tools = ()` | S |
+| B9 | **P** | All reads 3–5× slower during a solve; tiny GETs 100–250 ms idle | one process, numba kernels without `nogil` hold the GIL; planner default `BASE=localhost` + uvicorn on `127.0.0.1` only → IPv6 fallback on every new connection (`api.ts:39`, `apps/api/package.json:5`); `warehouse.baseline_id()` opens a DuckDB connection per call (`warehouse.py:102,116-143`, ~5× per merge-check) | Default `127.0.0.1` (or bind dual-stack); memoise `baseline_id` by file mtime; pass `BranchInputs` once; worker process for solves (L, later) | S / L |
+| B10 | **P** | `years done` at 0.95 for 30+ s; UI never says "drafting the briefing"; every store read blocks meanwhile | `record_findings` (`service.py:514-515`) → `ledger.py:57` executemany of 555–1 384 autocommit rows **under `store._lock`**; then narration under the solver lock; `runStages.ts:70-75` needs a `narration` stage that comes too late | One transaction; stages "writing findings" 0.96 / "narration" 0.98; cache the justification by optimize key; don't hold the solver lock job-wide | S |
+| B11 | **P** | Job poll every 600 ms re-serialises the whole partial result (queue + every year's loadings, voltages, N-1 dicts); client discards it unless the year count changed | `api.ts:106,223`, `jobs.py:122`, `service.py:506-509` | `partial_version` / `?since=`; poll at 1 s; `years_solved` on the job view | S |
+| B12 | **U** | Approved resize applied in the API (55 MW) but the Queue tab showed 248 MW until the continued answer finished minutes later; no "out of date" hint meanwhile | refresh waits for the whole reply to settle (`useAsk`, `PROPOSAL_EFFECT`) | Apply `PROPOSAL_EFFECT` per approval (re-read candidates, mark stale) | S |
+| B13 | **U** | Clicking the **N-1 findings 12/27** stat does nothing; the worst-element stat flies to the element | `LeftCards.tsx:173-183` is a div | Button → Findings tab, N-1 group open | S |
+| B14 | **U** | Indices leak: "(line 13)" in suggested questions, "bus 16", "line 126" in gate/ledger rows, "OUT Sleaford T30" on the roadmap tile, "L1" outage names, raw 409 message in the merge toast | `lib/ask.ts:35`; `derive.ts:449` regex guard rejects `bus 16 (132 kV)`; ledger/gate never go through `naming.name_text`; `network.py:725` | Name at write time in ledger and gate; fix the guard; `outage_name` from `naming` | S |
+| B15 | **U** | Review tab: hundreds of red cards titled "New N-1 finding · New N-1 finding in 2027: …" | `gate.py:307,316` + `ReviewTab.tsx:180` both add the title | Message without the title; group by kind+year with counts, expand on demand | S |
+| B16 | **U** | Boot shows "Custom demand · Loading the grid…" and "Run on Custom" before the branch's profile is known | `core.ts:131`, `useDerived.ts:38`, `theme.ts:97-98` | `profileOf("") → null`; plain "Run" while unknown | S |
+| B17 | **U** | Run overlay covers the map centre for the whole solve; clicks under it die; the dimmed "3 preliminary projects… Re-run" box stays under it while that very run is in progress | `styles.css:384` full-map overlay; `LeftCards.tsx:79` condition | Dock the overlay bottom-centre with `pointer-events:none` around the card; hide the stale box while `run.phase` is queue/years | S |
+| B18 | **U** | Registry list re-orders after each **Add**, so the second click adds a different project (happened: got B28D2 instead of 3D6F6) | `QueueTab.tsx:29-31` removes the added row | Keep the row, button becomes "Added" | S |
+| B19 | **U** | Agent prose leaks: raw tool JSON (`propose_candidate_change {"branch_id": …}`), 70-char step ids in brackets, "Only the first 25 items were returned", 15–30-bullet "Not studied" lists, evidence line "queried main @ · 0 steps" | `prompts.py:9-15` show a fake id format and demand a prose section; `markdown.ts:3` only chips `[step <id>]`; `ReviewTab.tsx:238` skips `citeSteps`; `tools.py:349` truncates silently; the steward joins everything with ";" (`workflows.py:129-130`) | Normalise citations server-side before storing; render reviews through the same path; compute `not_studied` (remit − studies run) with `max_length=3`; `_compact` says "25 of 54, worst first"; proposal cards in words ("Resize ECR-83EF2 to 55 MW; import follows") | S |
+| B20 | **U** | Map labels show through the translucent header; "Phase 1 · Clean Power lens / Phase 2 · Strategic lens"; *What the model assumes* crammed into a 260 px scroll box; the Findings badge reads "1382" | `MapMarkers.tsx:57` `inView` ignores the header; `theme.ts:54-55`; `styles.css:515`; `SidePanel.tsx:45` | Header bottom into `inView`; "Phase 1 · by 2030" (served horizon label); assumptions grouped in `<details>`; badge = breaches | S |
+| B21 | **P** | `log.info` is dropped (no handler, `config.py:26`); the API log is access lines only; the pydantic-ai banner prints per agent build | | `logging.basicConfig(INFO)`; log job lifecycle, lock waits > 1 s, cache misses with `compute_ms`, agent run cost/tokens; `BANNER_ENABLED = False` | S |
+| B22 | **U** | A 735 px-tall viewport loses the whole readings card (worst element, voltage, N-1, alerts) with no hint; at 1280 px year columns truncate ids; a long branch name pushes Run off the header | `layout.ts:39` (760 px cut), `styles.css:268-276`, `Header.tsx:51` | Compact two-row readings down to ~700 px; ellipsis on the branch name | S |
+
+Also noted: the uncommitted `repository.py` one-window-per-season guard answers correctly at the API (409 in 70 ms: *"trafo 30 already has a maintenance window in summer 2035 (mw-67e432dc): one window per element per season…"* — readable, but "trafo 30" should be the named transformer, see B14; the card form hides itself once a window exists, so the UI rarely reaches it); the first-run stamp said "All years solved" while the job was still at "years done" (narration) — harmless but inconsistent.
+
+## 4. Clearness, as read by an engineer
+
+What an engineer reaches for and does not find yet:
+
+1. **The case.** Every headline figure (worst element 93%, voltage 0.963, GSP 301/527, the card's "Loading in 2030 93%") omits *which* case produced it. Winter peak vs summer minimum is the first question a planner asks; it should be on every number and selectable on the map.
+2. **Flows, not just loadings.** The element card gives rating and a percentage. A planner wants MW/MVAr at each end, direction, the ten-year trend (all of it is already in `years[*].line_loading`), and the N-1 story *for this element* (what it carries when its pair trips; what trips when it is out).
+3. **An outage explorer.** N-1 is the engine's richest output and today it is a counter (12/27) and a wall of rows. Make the outage the unit: pick an outage → see the post-fault picture on the map (loadings, voltages, islanded demand), per case and year → "what would it take" for that outage. B2/B3 are prerequisites.
+4. **"What would it take" on elements, not only on projects.** Project cards have *Ask the agents*; the circuit card has none. The engine already has `suggest.LEVERS`; surface the first-order lever on the element card and let the agents price it.
+5. **Readiness that is honest.** Every ECR project scores 0.3 (nothing published), so the readiness axis of "first ready and needed" separates nothing (the steward's own brief says so). Show "not published" instead of a score, or let the operator enter what the ECR lacks.
+6. **One vocabulary.** "Clean Power lens", "grid_need 0.0", "readiness 0.3", "T30", "L1", "line 13" are the model's words; the planner's words should be places, circuits, cases and years.
+
+## 5. Roadmap (UX-driven; order of attack)
+
+### Phase 0 — stop the bleeding (days) — **done 2026-10-06, same day (uncommitted on `feat/guardrails-agents-import`)**
+- **B1** reviewer bounded and cancellable: the gate reaches the model grouped (`tools.merge_summary`: one item per kind and element across years, ≈750 rows → a dozen items), the validator's retry names only what is off, a 400k-token budget per run (`AGENT_RUN_BUDGET.max_tokens`), and the next run's review cancels a review still being written for the run it supersedes. **B8** a branch whose `run_key` equals its parent's wakes nobody; the steward skips a run with nothing deferred on a grid limit and no works window flagged; the brief agent has no tools. Also fixed: `answer_resume` emitted `run.finished` from inside a DBOS step (assertion), so an agent's approved run never reached the reviewer.
+- **B5** `GET /diff` and `/merge-check` never solve the branch's plan and never queue behind a run (409 `not_solved`, `retry` when the engine was merely busy; `?solve=1` for scripts): a never-run branch's diff went from a multi-minute solve inside the GET to a 30 ms refusal. **B10** the ledger write is one transaction of multi-row INSERTs (the new log showed the old one-statement-per-row write held the store lock for **20 s** per run, during which every store-reading GET — agents, findings, outages, threads, branches, diff, merge-check — waited the full 20 s while `/health` took 1 s: this, not the GIL, was the "UI takes the hit" stall; after the batch, main's warm-up run went from 7.8–11 s to 0.3 s and reads during a run stay at 95–310 ms), the job reports "writing findings" (0.96) and "narration" (0.98), the briefing is cached by the queue it narrates. **B11** `GET /jobs/{id}?partial=true&since=<partial_version>` sends a partial only when newer; the planner polls at 1 s. **B9(S)** the planner's default API origin is `127.0.0.1`, `Warehouse.baseline_id` is read once per file version.
+- **B21** the `gridforge_api` logger has a handler (jobs start/finish with duration, every cache compute with its time, solver waits over 1 s, every agent run's status/cost/tokens/solves, requests over 0.5 s); the pydantic-ai banner is off (`PYDANTIC_AI_NO_BANNER`).
+
+### Phase 1 — make the screen trustworthy (1–2 weeks)
+- **B2** collapse classification, **B3** grouped N-1 in gate and ledger, **B4** unpublished firm capacity, **B6** same-profile comparison, **B14/B15** names and titles everywhere.
+- The case on every figure (one-pass shape change `types.py` → `service.py` → `types.ts` → `derive.elementInfo`); element card with trend + N-1 role + *Ask the agents*; **B13** N-1 stat → Findings.
+- **B12, B16, B17, B18, B20, B22**: approval refresh, boot copy, docked overlay, stable registry list, header/labels/jargon, laptop layout.
+
+### Phase 2 — an AI layer that earns its cost (2–4 weeks)
+- **B7** specialists must file what they measured (evidence-bound findings are the point of the harness); **B19** citations normalised, `not_studied` computed, proposals in words, truncation stated.
+- Review inheritance by physics key; a small **runs list** under the agents pill (agent, elapsed, $, solves → steps), the Review tab reading the live review run instead of "a few seconds".
+- `next_checks` → suggested questions in the health thread; ledger tool with severity/source filters; per-step cost filled (`tools.py:157`).
+- Agent-driven import (parked idea): the import form is the one screen no sample file in the repo can exercise; ship a tiny synthetic pandapower JSON + a CGMES zip under `docs/samples/` so the import path is demoable and testable.
+
+### Phase 3 — developer tools (parallel, small)
+- Structured logs with a slow-request line (> 500 ms) in the existing middleware; `GET /jobs` (list, with key, stage, elapsed, who waits on the solver); `/cache` already exists — add a planner-side dev panel (jobs, cache hits, agent runs, lock waits) behind a query flag.
+- `py-spy` and DBOS read-only recipes are in `apps/api/AGENTS.md` — add the "watch the stage timeline" and "time the planner's reads" one-liners used here (see Appendix).
+- The structural one: solves in a worker process so the API keeps its GIL (**B9(L)**). Everything else above is possible without it.
+
+### Phase 4 — understanding the grid (product)
+- The outage explorer (§4.3) and case-aware map layers; element-level "what would it take"; honest readiness; the open-point question for the 33 kV mesh stated as an assumption the operator can see on the map (the N-1 story depends on it).
+
+## 6. Appendix
+
+**Recipes used (Windows, Git Bash):**
+- Servers with logs: `Start-Process cmd -ArgumentList "/c","pnpm --filter @gridforge/api dev" -WorkingDirectory <repo> -RedirectStandardOutput api.out.log -RedirectStandardError api.err.log` (same for `web`); `taskkill /F /T /PID` to stop.
+- Stage timeline: poll `GET /jobs/{id}` every 5 s and print `stage`, `fraction`.
+- Latency: 13 planner reads in parallel threads (`/health`, `/projects`, branches, model, agents, threads, candidates, findings, merge-check, diff, reviews, outages, reinforcements), rounds of 4 s, idle vs during a run. Always use `http://127.0.0.1:8000` from Git Bash (leading-slash paths get mangled; `localhost` pays the IPv6 fallback).
+- Agent state: `GET /projects/{pid}/agents/runs` (+ `/runs/{id}/steps` for recorded vs DBOS steps); DBOS read-only `sqlite3 "file:apps/api/data/dbos.sqlite?mode=ro"` table `workflow_status` (`PENDING` = executing, not queued).
+- Browser: `claude-in-chrome` — screenshot a fresh tab before the first click; refs shift after re-renders (find again before clicking); batch clicks with waits and screenshots.
