@@ -50,6 +50,9 @@ export interface ChatState {
 
 export type { MaintDraft };
 
+/** What the Findings tab opens on when another card sends the operator there (read once, then cleared). */
+export type FindingsFocus = "n1";
+
 export interface PlannerState {
   // projects: the grids planned on; the active one owns the model, the branches and the result below
   projects: Project[];
@@ -104,6 +107,7 @@ export interface PlannerState {
   // view
   tab: Tab;
   sideOpen: boolean;
+  findingsFocus: FindingsFocus | null; // the group the Findings tab expands on opening (the readings' N-1 stat sets it)
   layer: MapLayer;
   /** The kinds of element the map shows (lib/mapFeatures.ts). */
   visible: FeatureKey[];
@@ -134,7 +138,7 @@ export const INITIAL: PlannerState = {
   result: null, resultAt: "", running: false, solving: false, refreshing: false, stage: "", fraction: 0,
   diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [],
   agents: null, threads: [], thread: null, trace: [], reviews: [], study: null,
-  tab: "ask", sideOpen: true, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
+  tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,

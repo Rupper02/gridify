@@ -28,7 +28,7 @@ import {
 } from "../lib/diff";
 import { VERDICTS } from "../lib/maintenance";
 import type { Plan } from "../lib/plan";
-import { C, ST, fmtMw, profileOf, signed, tint } from "../theme";
+import { C, ST, fmtMw, profileLabel, signed, tint } from "../theme";
 import type { AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
 import { RebaseCard } from "./RebaseCard";
 import { DiffTile } from "./ui";
@@ -86,7 +86,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
       {branch && open && <RebaseCard key={branch.branch_id} branch={branch} parent={parent} name={(t) => nameElements(t, ix)} onPreview={actions.previewRebase} onRebase={actions.rebaseBranch} />}
       {mismatch && (
         <div className="notice amber">
-          {parent} is tested on {profileOf(base!.scenario).label} and this branch on {profileOf(branch!.scenario).label}. Part of the difference below comes from demand, not from
+          {parent} is tested on {profileLabel(base!.scenario)} and this branch on {profileLabel(branch!.scenario)}. Part of the difference below comes from demand, not from
           the projects you added.
         </div>
       )}

@@ -8,7 +8,8 @@ import { type Box, ID_CHAR_PX, type Project, overlaps } from "../lib/placement";
 
 export type RegionLabelsPlanner = PlannerSlice<"model" | "sel", "select", "yr">;
 
-export function RegionLabels({ planner, project, tick, width, height }: { planner: RegionLabelsPlanner; project: Project; tick: number; width: number; height: number }) {
+/** `top`: the header's bottom edge; a label that would sit under the header is not drawn. */
+export function RegionLabels({ planner, project, tick, width, height, top }: { planner: RegionLabelsPlanner; project: Project; tick: number; width: number; height: number; top: number }) {
   const { s, actions, derived } = planner;
   void tick; // re-render on map moves
   if (!s.model) return null;
@@ -22,7 +23,7 @@ export function RegionLabels({ planner, project, tick, width, height }: { planne
     const w = Math.max(r.name.length * ID_CHAR_PX, fig.length * 5.9) + 8;
     const right = pt[0] - 12;
     const box: Box = [right - w, pt[1] - 14, right, pt[1] + 14];
-    if (box[2] < -20 || box[0] > width + 20 || box[3] < 0 || box[1] > height) return null;
+    if (box[2] < -20 || box[0] > width + 20 || box[1] < top || box[1] > height) return null;
     const isSel = s.sel?.kind === "region" && s.sel.id === r.region_id;
     if (!isSel && placed.some((o) => overlaps(box, o))) return null;
     placed.push(box);

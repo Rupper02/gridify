@@ -111,6 +111,11 @@ N1_ISLAND_MIN_MW = 1.0  # an outage that islands less demand than this (a genera
 # winter peak). Islanded demand is reported on the FIRST case only, the demand case the P2/8-style check
 # reads: an island is topology, the same in every case, and its MW is the peak's.
 N1_CASES = ("winter_peak", "summer_min")
+# A post-fault state the power flow settles into with any bus below this voltage is no credible steady state (an
+# OLTC / constant-power collapse, which the closed 33 kV mesh makes easy to reach): the screen reports it as ONE
+# "collapse" finding for the outage, never as one breach per element the collapsed voltages drag over their limits
+# (one such outage read as 59 voltage breaches at 0.31 pu and eight loadings over 250%). A planning floor, chosen.
+N1_COLLAPSE_VM_PU = 0.80
 
 # --- studies (studies.py): deterministic analyses the agents and the API run on a plan ----------------
 # Hosting capacity: per bus, the MW of new export (or import) before the first limit breaks, found by
@@ -146,7 +151,7 @@ MERGE_GATE_LEVELS = {
     "new_overload": "blocker", "overload_worse": "blocker",
     "new_voltage_violation": "blocker", "voltage_worse": "warning",
     "gsp_over_limit": "blocker", "gsp_worse": "blocker", "gsp_near_limit": "warning",
-    "n1_new_islanded": "blocker", "n1_new_limit": "blocker", "n1_worse": "warning",
+    "n1_new_islanded": "blocker", "n1_new_limit": "blocker", "n1_new_collapse": "blocker", "n1_worse": "warning",
     "alert_new_breach": "blocker", "alert_new_warn": "warning", "alert_worse": "warning",
     "work_worse_severe": "blocker", "work_worse": "warning", "work_infeasible": "warning", "work_new": "warning",
     "against_recommendation": "warning", "profile_differs": "warning", "proposals_removed": "warning",

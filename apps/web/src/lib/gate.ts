@@ -49,7 +49,7 @@ export const GATE_KIND: Record<string, string> = {
   behind_base: "Behind its parent", fork_unknown: "Fork point unknown", new_overload: "New overload", overload_worse: "Overload worse",
   new_voltage_violation: "New voltage breach", voltage_worse: "Voltage worse", gsp_over_limit: "GSP over its limit",
   gsp_worse: "GSP export worse", gsp_near_limit: "GSP near its limit", n1_new_islanded: "New N-1: demand cut off",
-  n1_new_limit: "New N-1 finding", n1_worse: "N-1 finding worse", alert_new_breach: "New customer breach",
+  n1_new_limit: "New N-1 finding", n1_new_collapse: "New N-1: no post-fault steady state", n1_worse: "N-1 finding worse", alert_new_breach: "New customer breach",
   alert_new_warn: "New customer warning", alert_worse: "Customer alert worse", work_worse_severe: "Planned work infeasible",
   work_worse: "Planned work harder", work_infeasible: "Planned work infeasible on both", work_new: "New planned work with a cost", against_recommendation: "Against the recommendation",
   profile_differs: "Demand profile changes", proposals_removed: "Removes proposals", preexisting: "Already on its parent",
@@ -80,29 +80,6 @@ export function findingTitle(f: Finding): string {
   }
   if (f.kind === "deferred" && f.context.grid === false) return "Deferred at intake";
   return FINDING_KIND[f.kind] ?? f.kind.replace(/_/g, " ");
-}
-
-/** Findings grouped for the tab: plan-wide ones first (no year), then year by year, breaches first within each. */
-export function findingsByYear(fs: Finding[]): { year: number | null; rows: Finding[] }[] {
-  const by = new Map<number | null, Finding[]>();
-  fs.forEach((f) => by.set(f.year, [...(by.get(f.year) ?? []), f]));
-  const years = [...by.keys()].sort((a, b) => (a == null ? -1 : b == null ? 1 : a - b));
-  return years.map((year) => ({
-    year,
-    rows: [...by.get(year)!].sort((a, b) => (SEV_ORDER[a.severity] ?? 9) - (SEV_ORDER[b.severity] ?? 9) || a.kind.localeCompare(b.kind)),
-  }));
-}
-
-/** Findings by criticality (breaches, then warnings, then notes), each split by plan year as `findingsByYear` does;
- * a criticality with nothing in it is left out. */
-export function findingsBySeverity(fs: Finding[]): { severity: FindingSeverity; count: number; years: ReturnType<typeof findingsByYear> }[] {
-  return (Object.keys(SEVERITY) as FindingSeverity[])
-    .sort((a, b) => SEV_ORDER[a] - SEV_ORDER[b])
-    .map((severity) => {
-      const rows = fs.filter((f) => (f.severity in SEVERITY ? f.severity : "info") === severity);
-      return { severity, count: rows.length, years: findingsByYear(rows) };
-    })
-    .filter((g) => g.count > 0);
 }
 
 /** Where a finding points on the map: the element, the project, the region, or the region a bus sits in. */

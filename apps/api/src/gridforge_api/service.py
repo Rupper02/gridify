@@ -38,6 +38,7 @@ from gridforge_optimizer import (
     suggest_unblock,
 )
 from gridforge_optimizer.config import FORECASTS
+from gridforge_optimizer.naming import name_text
 
 from . import ledger, narration, proposals, repository
 from .cache import MAX_PAYLOAD_ENTRIES, ResultCache, cand_key, remember
@@ -269,6 +270,23 @@ class PlanService:
         works_on_base = self.works_on_plan(base_in, base, head_in.outages, wait=wait)
         return head, base, diff_results(base, head, works_on_base=works_on_base)
 
+    def _base_inputs(self, head_in: BranchInputs, base_id: str) -> tuple[BranchInputs, str | None]:
+        """The base's inputs on the branch's demand profile, and the base's own profile. The comparison is like for
+        like (merging adopts the branch's profile), so a difference between the two plans is the branch's projects,
+        works and reinforcements, never demand; the gate still says the profile changes (`base_profile`)."""
+        base_in = self.inputs(base_id)
+        req = base_in.req.model_copy(update={"scenario": head_in.req.scenario, "growth_2030": head_in.req.growth_2030,
+                                             "growth_2035": head_in.req.growth_2035})
+        return base_in._replace(req=req), base_in.req.scenario
+
+    def _named(self, verdict: MergeVerdict, project_id: str) -> MergeVerdict:
+        """The gate's findings with their elements named by place (the engine writes "line 1", "bus 16"): what the
+        planner, a merge refusal and the agents read."""
+        names = self.projects.names(project_id)
+        name = lambda fs: [f.model_copy(update={"message": name_text(f.message, names)}) for f in fs]  # noqa: E731
+        return verdict.model_copy(update={"blockers": name(verdict.blockers), "warnings": name(verdict.warnings),
+                                          "context": name(verdict.context), "summary": name_text(verdict.summary, names)})
+
     def _require_run(self, head_id: str) -> None:
         """A read that must not solve the branch's own plan: `NotSolved` (run it first) unless its result is current."""
         fresh = self.freshness(head_id)
@@ -282,7 +300,8 @@ class PlanService:
         windows on it are computed only while the engine is free, else `NotSolved` (409) at once."""
         if not blocking:
             self._require_run(head_id)
-        return self._solved_pair(self.inputs(head_id), self.inputs(base_id), wait=blocking)[2]
+        head_in = self.inputs(head_id)
+        return self._solved_pair(head_in, self._base_inputs(head_in, base_id)[0], wait=blocking)[2]
 
     def diff_narration(self, head_id: str, base_id: str, d: ConsequenceDiff) -> str:
         """The diff's plain-English summary, cached by the two plans it compares: the planner asks for it every
@@ -340,20 +359,23 @@ class PlanService:
                     "head_years_key": fresh.years_key, "snapshot_id": head_in.baseline,
                     "engine": self.cache.engine}
         if not fresh.fresh:
-            return merge_verdict(None, None, fresh=False, stale_reasons=fresh.reasons, base_label=base_id,
-                                 parent_moved=undoes["parent_moved"], fork_unknown=undoes["fork_unknown"]), evidence
-        base_in = self.inputs(base_id)
+            verdict = merge_verdict(None, None, fresh=False, stale_reasons=fresh.reasons, base_label=base_id,
+                                    parent_moved=undoes["parent_moved"], fork_unknown=undoes["fork_unknown"])
+            return self._named(verdict, head_in.project_id), evidence
+        base_in, base_profile = self._base_inputs(head_in, base_id)
         head, base, d = self._solved_pair(head_in, base_in, wait=blocking)
         evidence["base_years_key"] = self._years_key(base_in, self.params(base_in.req, base_in.project_id))
-        verdict = merge_verdict(head, base, d, scheduled=head_in.schedule, base_label=base_id, **undoes)
-        return verdict, evidence
+        verdict = merge_verdict(head, base, d, scheduled=head_in.schedule, base_label=base_id, base_profile=base_profile, **undoes)
+        return self._named(verdict, head_in.project_id), evidence
 
     # --- the findings ledger --------------------------------------------------------------------------
     def record_findings(self, branch_id: str, b: BranchInputs, result: OptimizeResult, years: dict[str, YearResult]) -> None:
         """Write what a run found to the ledger: upsert what is still there (same fingerprint, same
         row), resolve what the run no longer reports. The evidence points at the exact cached study."""
         params = self.params(b.req, b.project_id)
-        found = extract_findings(result.model_copy(update={"years": years}), scheduled=b.schedule)
+        names = self.projects.names(b.project_id)  # the ledger reads by place ("Bicker Fen to Boston 132 kV, circuit 2 (line 1)"), never "line 1"
+        found = [f.model_copy(update={"message": name_text(f.message, names)})
+                 for f in extract_findings(result.model_copy(update={"years": years}), scheduled=b.schedule)]
         evidence = {"optimize_key": self._optimize_key(b, params),
                     "years_key": self._years_key(b, params), "snapshot_id": b.baseline,
                     "engine": self.cache.engine}

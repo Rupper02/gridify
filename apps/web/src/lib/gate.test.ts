@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding, GateFinding, MergeCheck, Model, Outage } from "../types";
-import { findingSel, findingsByYear, gateState, openCounts, refusedCheck } from "./gate";
+import { findingSel, gateState, openCounts, refusedCheck } from "./gate";
 
 const gf = (over: Partial<GateFinding> = {}): GateFinding => ({
   kind: "new_overload", level: "blocker", year: 2031, case: null, element_kind: "line", element_id: "12", value: 104, base_value: 90,
@@ -48,16 +48,6 @@ const finding = (over: Partial<Finding> = {}): Finding => ({
 });
 
 describe("findings", () => {
-  it("groups plan-wide findings first, then by year, breaches first", () => {
-    const groups = findingsByYear([
-      finding({ finding_id: "a", year: 2032, severity: "warn", kind: "n1" }),
-      finding({ finding_id: "b", year: null, kind: "deferred", severity: "warn" }),
-      finding({ finding_id: "c", year: 2032, severity: "breach" }),
-      finding({ finding_id: "d", year: 2030 }),
-    ]);
-    expect(groups.map((g) => g.year)).toEqual([null, 2030, 2032]);
-    expect(groups[2].rows.map((r) => r.finding_id)).toEqual(["c", "a"]);
-  });
   it("points at the element, the project, the region, or the region a bus sits in", () => {
     const model = {
       regions: [{ region_id: "boston", buses: [5, 6] }],

@@ -51,9 +51,10 @@ def gsp_id(kind: str, year: int) -> tuple:  # gsp_over_limit | gsp_near_limit
 
 def n1_key(v: dict) -> tuple:
     """An N-1 finding's identity within a year: which element was lost, in which case, and which limit broke on what.
-    An island is the outage's alone: its id bus (the lowest one stranded) moves as the island grows."""
+    An island or a collapse is the outage's alone: its id bus (the lowest one stranded, the lowest voltage) moves
+    with the state."""
     return (v.get("outage_type"), str(v.get("outage_id")), v.get("case"), v.get("type"),
-            None if v.get("type") == "islanded" else v.get("element_id"))
+            None if v.get("type") in ("islanded", "collapse") else v.get("element_id"))
 
 
 def n1_id(v: dict, year: int) -> tuple:

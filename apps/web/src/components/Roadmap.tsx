@@ -7,7 +7,7 @@ import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, elementInfo, outageSel, roadmapYears, sumMw } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
-import { firstYear, lastYear, lensOf } from "../lib/plan";
+import { firstYear, lastYear, lensNote, lensOf, lensTitle } from "../lib/plan";
 import { C, LENS, ST, fmtMw, tint } from "../theme";
 import { TechIcon } from "./ui";
 
@@ -28,7 +28,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
   const p1 = byStatus(q, "Phase1");
   const p2 = byStatus(q, "Phase2");
   const df = byStatus(q, "Deferred");
-  const lens = LENS[lensOf(plan, s.year)];
+  const lens = lensOf(plan, s.year);
   const pos = (s.year - firstYear(plan)) / (plan.years.length - 1);
 
   return (
@@ -45,7 +45,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 7, flex: "none" }}>
             {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{derived.run.roadmap}</span>}
             <b className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{s.year}</b>
-            <span style={{ fontSize: 11, fontWeight: 600, color: lens.c }}>{lens.label}</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: LENS[lens].c }} title={lensNote(plan, lens) || undefined}>{lensTitle(plan, lens)}</span>
           </span>
         </div>
         <div className="years">

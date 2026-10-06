@@ -11,7 +11,7 @@ export interface RunStage {
 export function runStages(plan: Plan, profileLabel: string, nOutages: number): RunStage[] {
   return [
     { label: "Ranking the queue", note: "readiness · grid need · fit" },
-    { label: `Phase 1 trials at ${plan.phase1} demand`, note: `${profileLabel} demand, both study cases` },
+    { label: `Phase 1 trials at ${plan.phase1} demand`, note: profileLabel ? `${profileLabel} demand, both study cases` : "both study cases" },
     { label: `Phase 2 trials at ${plan.phase2} demand`, note: "winter peak and summer minimum" },
     { label: `Every year, ${firstYear(plan)} to ${lastYear(plan)}`, note: `N-1 screen${nOutages ? ` · ${nOutages} planned outage${nOutages > 1 ? "s" : ""}` : ""}` },
     { label: "Drafting the briefing", note: "plain-English summary" },
@@ -49,6 +49,9 @@ export function stageReadout(stage: string, plan: Plan): string {
  * never disagree): the years still solving, every year in while the job still writes the findings and the
  * briefing, a run that stopped before its last year, or done. */
 export type RunPhase = "none" | "refreshing" | "queue" | "years" | "finishing" | "stopped" | "done";
+
+/** A run of the branch is under way (deciding the queue, solving years, or finishing): what the shown result lacks is on its way. */
+export const runInProgress = (phase: RunPhase): boolean => phase === "queue" || phase === "years" || phase === "finishing";
 
 export interface RunStatus {
   phase: RunPhase;

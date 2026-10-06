@@ -6,6 +6,7 @@ import { CheckCircle, ChatCircleDots, GitDiff, type Icon, ListNumbers, SidebarSi
 import type { ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
+import { sectionCounts } from "../lib/findings";
 import type { Layout } from "../lib/layout";
 import { C } from "../theme";
 import type { Tab } from "../types";
@@ -15,7 +16,7 @@ import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
 import { ReviewTab, type ReviewTabPlanner } from "./ReviewTab";
 
-export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "openFindings" | "pendingApprovals" | "prelim" | "q"> &
+export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "pendingApprovals" | "prelim" | "q"> &
   AskTabPlanner &
   QueueTabPlanner &
   OutagesTabPlanner &
@@ -42,7 +43,8 @@ const TABS: Record<Tab, TabSpec> = {
   findings: {
     label: "Findings",
     icon: Warning,
-    badge: (p) => String(p.derived.openFindings.breach || p.derived.openFindings.open || ""),
+    // the open breaches, each counted once across the plan years it holds in (never the ledger's row count)
+    badge: (p) => String(sectionCounts(p.derived.findingSections.open).breach || ""),
     render: (p) => <FindingsTab planner={p} />,
   },
   review: { label: "Review", icon: GitDiff, badge: () => "", render: (p) => <ReviewTab planner={p} /> },

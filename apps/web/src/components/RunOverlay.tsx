@@ -1,6 +1,7 @@
-// The run overlay over the map: what is being solved, a progress rail with a travelling pulse, the
-// five stages bound to the job's real stage, and the engine's own readout. It closes as soon as the
-// queue and the viewed year are in; the remaining years carry on in the background.
+// The run card, docked bottom-centre over the map above the roadmap: what is being solved, a progress rail with a
+// travelling pulse, the five stages bound to the job's real stage, and the engine's own readout. No backdrop: the map
+// and its substations stay clickable while the engine works. It closes as soon as the queue and the viewed year are
+// in; the remaining years carry on in the background.
 
 import { Check } from "@phosphor-icons/react";
 
@@ -16,17 +17,18 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
   const { s, derived } = planner;
   const { plan } = s;
   if (!plan) return null;
-  const stages = runStages(plan, derived.profile.label, s.outages.length);
+  const profile = derived.profile?.label ?? "";
+  const stages = runStages(plan, profile, s.outages.length);
   const cur = stageIndex(s.stage, plan);
   const n = derived.q.length + derived.prelim.length;
   return (
-    <div className="run-overlay" style={{ right: layout.sideW + 10 }} role="status" aria-live="polite">
+    <div className="run-overlay" style={{ right: layout.sideW + 10, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
       <div className="run-card">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             <span style={{ fontSize: 15, fontWeight: 600 }}>Solving AC power flow</span>
             <span style={{ fontSize: 12, color: C.mute }}>
-              {derived.profile.label} demand · every year {firstYear(plan)} to {lastYear(plan)} · {n} project{n === 1 ? "" : "s"}
+              {profile ? `${profile} demand · ` : ""}every year {firstYear(plan)} to {lastYear(plan)} · {n} project{n === 1 ? "" : "s"}
             </span>
           </div>
           <span className="mono" style={{ display: "flex", alignItems: "center", height: 26, padding: "0 10px", borderRadius: 999, border: `1px solid ${derived.onMain ? "rgba(255,255,255,0.16)" : derived.hue + "80"}`, fontSize: 11, color: derived.hue, whiteSpace: "nowrap" }}>

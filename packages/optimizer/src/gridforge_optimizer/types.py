@@ -92,7 +92,7 @@ class Candidate(BaseModel):
 class Reason(BaseModel):
     """Why a project was deferred or rejected, with the binding element where applicable."""
 
-    type: str  # a REASON_SPECS key ("voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "islanded"), or "rejected"
+    type: str  # a REASON_SPECS key ("voltage" | "line" | "trafo" | "gsp" | "non_convergent" | "islanded"; "collapse" in N-1 records only), or "rejected"
     element_id: int | None = None
     value: float | None = None
     limit: float | None = None  # the limit breached (pu for voltage, % for thermal, MW for the GSP)
@@ -112,6 +112,7 @@ class ReasonSpec(NamedTuple):
 
 REASON_SPECS: dict[str, ReasonSpec] = {
     "non_convergent": ReasonSpec("", n1_order=0),
+    "collapse": ReasonSpec("pu", n1_order=0),  # the N-1 screen's "no credible post-fault state" (network.N1_COLLAPSE_VM_PU)
     "islanded": ReasonSpec("MW", n1_order=1),
     "line": ReasonSpec("%", thermal=True, n1_order=2),
     "trafo": ReasonSpec("%", thermal=True, n1_order=2),

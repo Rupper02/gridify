@@ -100,6 +100,42 @@ export function DiffTile({ label, base, head, delta, c }: { label: string; base:
   );
 }
 
+/** An element's loading over the plan years as thin bars on a baseline, its rating as a dashed line, the viewed year
+ * brighter; a year not solved shows as a stub. Each bar names its year and figure on hover. Colours are the planner's
+ * loading tokens (`loadColor`), the same the map and the readings use. */
+export function Sparkline({ points, year, color }: { points: { year: number; pct: number | null }[]; year: number; color: (v: number | null) => string }) {
+  const w = 10;
+  const gap = 4;
+  const h = 30;
+  const width = points.length * (w + gap) - gap;
+  const max = Math.max(110, ...points.map((p) => p.pct ?? 0));
+  const yOf = (pct: number) => h - (pct / max) * h;
+  return (
+    <svg className="spark" width={width} height={h + 2} role="img" aria-label="Loading by plan year">
+      <line className="spark-rating" x1={0} x2={width} y1={yOf(100)} y2={yOf(100)} strokeDasharray="2 3" />
+      {points.map((p, i) => {
+        const x = i * (w + gap);
+        const on = p.year === year;
+        if (p.pct == null)
+          return (
+            <g key={p.year}>
+              <title>{`${p.year}: not solved`}</title>
+              <rect x={x} y={h - 2} width={w} height={2} fill="rgba(255,255,255,0.14)" />
+            </g>
+          );
+        const bh = Math.max(2, h - yOf(p.pct));
+        return (
+          <g key={p.year}>
+            <title>{`${p.year}: ${Math.round(p.pct)}%`}</title>
+            <rect x={x} y={h - bh} width={w} height={bh} rx={2} fill={color(p.pct)} opacity={on ? 1 : 0.5} />
+          </g>
+        );
+      })}
+      <line className="spark-base" x1={0} x2={width} y1={h + 0.5} y2={h + 0.5} />
+    </svg>
+  );
+}
+
 export function Gauge({ ticks }: { ticks: string[] }) {
   return (
     <div className="gauge" aria-hidden>

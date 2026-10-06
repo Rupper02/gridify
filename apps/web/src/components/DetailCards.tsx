@@ -7,14 +7,14 @@ import { Intersect, LineSegment, Sparkle, Wrench, X } from "@phosphor-icons/reac
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { busLabel, effYearOf, elementInfo, headlineMw, nameElements } from "../lib/derive";
+import { busLabel, effYearOf, elementInfo, headlineMw, loadingSeries, n1Role, nameElements, plural } from "../lib/derive";
 import { cardSlot, type Layout } from "../lib/layout";
 import { DERATE_PCT, PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
-import { type Plan, clampYear, statusTitle } from "../lib/plan";
+import { type Plan, clampYear, firstYear, lastYear, statusTitle } from "../lib/plan";
 import { type ControlForm, EMPTY_CONTROL, controlFromForm, controlText } from "../lib/projects";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { Control, ElementSel, QueueItem, RegistryItem, Season } from "../types";
-import { Stepper, TechIcon } from "./ui";
+import { Sparkline, Stepper, TechIcon } from "./ui";
 import { RemoveWindow, VerdictChip, WindowDetail } from "./WindowVerdict";
 
 export type DetailCardsPlanner = PlannerSlice<
@@ -219,6 +219,10 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
   const repowered = repoweredNotes(sel, s.outages, s.year);
   const ctx = { result: s.result, ix, outages: s.outages, queue: derived.q };
   const Icon = sel.kind === "line" ? LineSegment : Intersect;
+  const series = loadingSeries(s.result, plan, sel); // its loading in every plan year (none for a generator)
+  const role = n1Role(derived.yr, sel); // its part in the year's N-1 screen
+  const noun = sel.kind === "line" ? "line" : sel.kind === "trafo" ? "transformer" : "generator";
+  const shownYear = derived.yr?.year ?? s.year;
   return (
     <div className="detail glass" style={{ ...cardPos(planner, layout), width: 308, borderColor: "rgba(255,255,255,0.16)" }}>
       <CardHead
@@ -232,6 +236,30 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
         <span>Rating</span><span className="mono">{info.rating}</span>
         <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
       </div>
+      {series.length > 0 && (
+        <div className="spark-box">
+          <span className="k">Loading by plan year · worst case · dashed: its rating</span>
+          <Sparkline points={series} year={s.year} color={loadColor} />
+          <span className="yrs mono" style={{ width: series.length * 14 - 4 }}>
+            <span>{firstYear(plan)}</span>
+            <span>{lastYear(plan)}</span>
+          </span>
+        </div>
+      )}
+      {role && (
+        <div className="box dark" style={{ gap: 3 }}>
+          <span style={{ fontSize: 11, color: C.mute }}>N-1 screen in {shownYear} · reported only</span>
+          <span style={{ fontSize: 12, lineHeight: 1.45, color: role.lost || role.breaches ? C.amberInk : C.ink2 }}>
+            {derived.yr?.n1_screened
+              ? `as the element lost: ${plural(role.lost, "finding")} · as the element that breaches: ${plural(role.breaches, "finding")}`
+              : "no line or transformer is in the N-1 scope: not studied"}
+          </span>
+        </div>
+      )}
+      <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`What limits ${info.name} (${noun} ${sel.id}), and what would it take to relieve it?`)}>
+        <Sparkle size={13} weight="fill" />
+        Ask the agents what limits it
+      </button>
       {repowered.map((t) => (
         <span key={t} className="repowered">{t}</span>
       ))}

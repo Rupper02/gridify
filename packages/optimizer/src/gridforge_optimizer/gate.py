@@ -85,6 +85,7 @@ class GateContext:
     base_label: str = "main"
     parent_moved: tuple[ParentMove, ...] | None = None
     fork_unknown: bool = False
+    base_profile: str | None = None  # the base's OWN demand profile when it was solved on the branch's for the comparison
 
     @property
     def complete(self) -> bool:
@@ -291,39 +292,75 @@ _N1_WORSE: dict[str, tuple[Callable[[float, float], bool], Callable[[float], str
     # further outside its band: further from 1.0 pu, in either direction (as `_voltage`)
     "voltage": (lambda h, b: abs(h - 1.0) - abs(b - 1.0) > GATE_VM_WORSEN_PU, lambda v: f"{v:.3f} pu"),
     "islanded": (lambda h, b: h - b > N1_ISLAND_MIN_MW, lambda v: f"{v:.1f} MW"),
+    # a collapse deeper: its lowest voltage lower (network.N1_COLLAPSE_VM_PU)
+    "collapse": (lambda h, b: b - h > GATE_VM_WORSEN_PU, lambda v: f"{v:.3f} pu"),
 }
+_N1_NEW_KIND = {"islanded": "n1_new_islanded", "collapse": "n1_new_collapse"}  # by the kind of breach; a limit otherwise
+_CASE_TEXT = {"winter_peak": "winter peak", "summer_min": "summer minimum"}  # the study cases as the gate names them
+
+
+def _n1_badness(v: dict) -> float:
+    """Larger is worse, within one outage's findings: a loading or MW figure as it is, a voltage by its distance from 1 pu."""
+    x = v.get("value")
+    if not isinstance(x, (int, float)):
+        return 0.0
+    return abs(1.0 - float(x)) if v.get("type") in ("voltage", "collapse") else float(x)
+
+
+def _n1_detail(v: dict) -> str:
+    """An N-1 record's message without its "<element> out" head: the grouped finding names the outage once."""
+    msg = str(v.get("message") or "")
+    head = f"{v.get('outage_type')} {v.get('outage_id')} out"
+    return msg[len(head):].lstrip(": ").strip() if msg.startswith(head) else msg
 
 
 def _n1(ctx: GateContext) -> list[GateFinding]:
-    """New or worsened N-1 findings. Keyed by `findings.n1_key`, never by the diff's capped lists; worse per kind of breach
-    (`_N1_WORSE`), a smaller move is context."""
+    """New or worsened N-1 findings, each outage once per case: what one outage adds across the plan years is one gate
+    item with its count, its years and the worst of them (the summer-minimum screen is not grown, so it repeats every
+    year: an outage that breaches five elements in nine years is one blocker, not forty-five). Keyed by `findings.n1_key`,
+    never by the diff's capped lists; worse per kind of breach (`_N1_WORSE`), a smaller move is context, per year."""
+    new: dict[tuple, list[tuple[int, dict]]] = {}
+    worse: dict[tuple, list[tuple[int, dict, dict]]] = {}
     out: list[GateFinding] = []
     for y, b, h in ctx.common_years():
         bk = {n1_key(v): v for v in b.n1_violations}
         hk = {n1_key(v): v for v in h.n1_violations}
         for k in sorted(hk.keys() - bk.keys(), key=str):
             v = hk[k]
-            kind = "n1_new_islanded" if v.get("type") == "islanded" else "n1_new_limit"
-            out.append(_finding(kind, f"New N-1 finding in {y}: {v.get('message', '')}", year=y, case=v.get("case"),
-                                element_kind=v.get("outage_type"), element_id=v.get("outage_id"), value=v.get("value"),
-                                ledger=n1_id(v, y)))
+            kind = _N1_NEW_KIND.get(v.get("type"), "n1_new_limit")
+            new.setdefault((v.get("outage_type"), str(v.get("outage_id")), v.get("case"), kind), []).append((y, v))
         same = 0
         for k in sorted(hk.keys() & bk.keys(), key=str):
             hv, bv = hk[k].get("value"), bk[k].get("value")
-            worse, figure = _N1_WORSE.get(hk[k].get("type"), (lambda h, b: False, str))
-            if hv is not None and bv is not None and worse(hv, bv):
+            is_worse, _figure = _N1_WORSE.get(hk[k].get("type"), (lambda h, b: False, str))
+            if hv is not None and bv is not None and is_worse(hv, bv):
                 v = hk[k]
-                out.append(_finding("n1_worse", f"N-1 finding worse in {y}: {v.get('message', '')} (now {figure(hv)}, "
-                                                f"{figure(bv)} on {ctx.base_label}).",
-                                    year=y, case=v.get("case"), element_kind=v.get("outage_type"), element_id=v.get("outage_id"),
-                                    value=hv, base_value=bv,
-                                    ledger=n1_id(v, y)))
+                worse.setdefault((v.get("outage_type"), str(v.get("outage_id")), v.get("case")), []).append((y, v, bk[k]))
             else:
                 same += 1
         if same:
             out.append(_finding("preexisting", f"{same} N-1 finding{'s' if same != 1 else ''} in {y} already on "
                                                f"{ctx.base_label}; this branch leaves {'them' if same != 1 else 'it'} as {'they are' if same != 1 else 'it is'}.",
                                 year=y))
+    for (otype, oid, case, kind), members in new.items():
+        years = sorted({y for y, _ in members})
+        wy, wv = max(members, key=lambda m: (_n1_badness(m[1]), -m[0]))
+        n = len({n1_key(v) for _, v in members})
+        where = f"{otype} {oid} out at {_CASE_TEXT.get(case, case)}, {_years_text(years)}"
+        text = (f"{where}: {n} element{'s' if n != 1 else ''} newly breach{'' if n != 1 else 'es'} a limit; worst: {_n1_detail(wv)}." if kind == "n1_new_limit"
+                else f"{where}: {_n1_detail(wv)}.")
+        out.append(_finding(kind, text, year=years[0], case=case, element_kind=otype, element_id=oid, value=wv.get("value"),
+                            ledger=n1_id(wv, wy)))
+    for (otype, oid, case), members in worse.items():
+        years = sorted({y for y, _, _ in members})
+        wy, wv, wb = max(members, key=lambda m: (_n1_badness(m[1]) - _n1_badness(m[2]), -m[0]))
+        _is_worse, figure = _N1_WORSE[wv.get("type")]
+        n = len({n1_key(v) for _, v, _ in members})
+        out.append(_finding("n1_worse", f"{otype} {oid} out at {_CASE_TEXT.get(case, case)}, {_years_text(years)}: {n} finding{'s' if n != 1 else ''} "
+                                        f"worse than on {ctx.base_label}; worst: {_n1_detail(wv)} (now {figure(wv.get('value'))}, "
+                                        f"{figure(wb.get('value'))} on {ctx.base_label}).",
+                            year=years[0], case=case, element_kind=otype, element_id=oid, value=wv.get("value"), base_value=wb.get("value"),
+                            ledger=n1_id(wv, wy)))
     return out
 
 
@@ -394,10 +431,15 @@ def _schedule(ctx: GateContext) -> list[GateFinding]:
 
 
 def _profile(ctx: GateContext) -> list[GateFinding]:
-    if not ctx.complete or ctx.head.params.scenario == ctx.base.params.scenario:
+    """Merging adopts the branch's demand profile. The comparison itself is like for like (the API solves the base on the
+    branch's profile), so the base's own profile comes in as `base_profile`; the results' labels then agree."""
+    if not ctx.complete:
+        return []
+    base_profile = ctx.base_profile or ctx.base.params.scenario
+    if ctx.head.params.scenario == base_profile:
         return []
     return [_finding("profile_differs", f"Merging changes {ctx.base_label}'s demand profile from "
-                                        f"{ctx.base.params.scenario} to {ctx.head.params.scenario}.")]
+                                        f"{base_profile} to {ctx.head.params.scenario}.")]
 
 
 def _proposals(ctx: GateContext) -> list[GateFinding]:
@@ -456,15 +498,18 @@ def merge_verdict(
     base_label: str = "main",
     parent_moved: Sequence[ParentMove] | None = None,
     fork_unknown: bool = False,
+    base_profile: str | None = None,
 ) -> MergeVerdict:
     """Run every check in MERGE_CHECKS on the branch (`head`) against its parent (`base`) and bucket
-    the findings by level. `diff` is `diff_results(base, head)` when not given. Pure and deterministic."""
+    the findings by level. `diff` is `diff_results(base, head)` when not given; `base_profile` is the base's own
+    demand profile when `base` was solved on the branch's (`_profile`). Pure and deterministic."""
     if diff is None and head is not None and base is not None:
         diff = diff_results(base, head)
     ctx = GateContext(head=head, base=base, diff=diff, fresh=fresh, stale_reasons=tuple(stale_reasons),
                       scheduled=dict(scheduled or {}), removed_works=tuple(removed_works),
                       removed_reinforcements=tuple(removed_reinforcements), base_label=base_label,
-                      parent_moved=None if parent_moved is None else tuple(parent_moved), fork_unknown=fork_unknown)
+                      parent_moved=None if parent_moved is None else tuple(parent_moved), fork_unknown=fork_unknown,
+                      base_profile=base_profile)
     found = [f for check in MERGE_CHECKS for f in check(ctx)]
 
     def order(f: GateFinding):

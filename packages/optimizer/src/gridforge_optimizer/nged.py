@@ -247,6 +247,7 @@ _PF_DEFAULT = 0.95  # LTDS left a demand group's power factor blank: lagging, as
 # Stated, never hidden: studies.data_quality reports them and the Sources register cites each.
 _ASSUMPTION_TEXT = {
     "rating_fallback": "LTDS left the winter rating blank: a conservative typical rating for the voltage was used (nged._RATING_FALLBACK_KA)",
+    "firm_capacity_unpublished": "LTDS Table 3 gives no firm capacity for this substation: its demand group raises no firm-capacity or headroom alert (the map says 'no firm figure'), and nothing is assumed in its place",
     "length_default": "LTDS gave no usable circuit length: 1 km assumed (impedance comes from %Z, so only the per-km split changes)",
     "summer_ratio_median": "LTDS left the summer rating blank: this network's median summer/winter ratio was used",
     "intermediate_ratio_median": "LTDS left the intermediate-warm rating blank: this network's median ratio was used",
@@ -527,6 +528,8 @@ def _add_loads(net, dem, gb) -> None:
             idx = pp.create_load(net, gb(n), p_mw=p, q_mvar=q, name=d.get("Primary Substation", ""))
             if _num(d["Current Year Power Factor"]) is None:
                 _assume(net, "pf_default", "load", int(idx))
+            if firm_mva <= 0:
+                _assume(net, "firm_capacity_unpublished", "load", int(idx))
             min_scale[int(idx)] = (f / 100.0) / k if f else None
             coincidence[int(idx)] = k
             groups[int(idx)] = group

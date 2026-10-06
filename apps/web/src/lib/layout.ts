@@ -4,18 +4,23 @@
 /** The layer menu's fixed width (Flow / Loading / Voltage / Demand + the Deferred switch). */
 export const LAYERS_W = 196;
 const GAP = 10;
+/** The header sits 10px from the top and is 48px tall (styles.css `.header`). */
+const HEADER_BOTTOM = 58;
 
 export interface Layout {
   /** vw >= 1180: full header labels (Low / Standard / High, Diff, Merge, branch sub-line). */
   wide: boolean;
   /** vw < 1100: the left cards collapse into one pill. */
   narrow: boolean;
-  /** vh < 820: the maintenance draft grid collapses into a row of pills. */
-  /** vh >= 760: the readings card shows. */
+  /** vh >= 700: the readings card shows. */
   showReadings: boolean;
+  /** vh < 760: the readings in a tighter two-row grid (a laptop screen). */
+  compactReadings: boolean;
   /** vh >= 560: the roadmap dock shows. */
   showDock: boolean;
   dockPx: number;
+  /** The header's bottom edge in px from the top of the map: labels under it are not drawn. */
+  headerBottom: number;
   /** The side panel's width in px (clamp(320px, 30vw, 420px)), 0 when it is hidden. */
   sideW: number;
   /** The layer menu, top right of the map (below the reopen button when the side panel is hidden). */
@@ -36,9 +41,11 @@ export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
   return {
     wide,
     narrow,
-    showReadings: vh >= 760,
+    showReadings: vh >= 700,
+    compactReadings: vh < 760,
     showDock,
     dockPx,
+    headerBottom: HEADER_BOTTOM,
     sideW,
     layers,
     cardRight: layers.right + LAYERS_W + GAP,

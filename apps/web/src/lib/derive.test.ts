@@ -146,6 +146,8 @@ describe("place names", () => {
     expect(nameElements("Overloads transformer 5 to 102%", ix2)).toBe("Overloads Bicker Fen 132/33 kV transformer to 102%");
     expect(nameElements("Overloads line 10 to 120%", ix2)).toBe("Overloads Boston to Bicker Fen 132 kV to 120%");
     expect(nameElements("bus 3 sags", ix2)).toBe("bus 3 (Kirton) sags");
+    expect(nameElements("bus 3 (33 kV) sags", ix2)).toBe("bus 3 (Kirton, 33 kV) sags");
+    expect(nameElements("bus 3 (Kirton) sags", ix2)).toBe("bus 3 (Kirton) sags");
     expect(nameElements("line 999 is unknown", ix2)).toBe("line 999 is unknown");
   });
 });

@@ -2,7 +2,7 @@
 // "this branch", applicant, tech · bus, MW and when it energises; deferred rows show the binding
 // reason. Below, the registry of not-yet-built projects to pull onto the branch.
 
-import { Plus, WarningDiamond } from "@phosphor-icons/react";
+import { Check, Plus, WarningDiamond } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -26,9 +26,8 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
   const [query, setQuery] = useState("");
   const inPlan = new Set([...derived.q.map((x) => x.request_id), ...derived.prelim.map((x) => x.request_id)]);
   const needle = query.toLowerCase();
-  const reg = s.registry.filter(
-    (r) => !inPlan.has(r.request_id) && (!needle || `${r.request_id} ${r.applicant} ${r.technology}`.toLowerCase().includes(needle)),
-  );
+  // a project already on the branch keeps its row (its button reads "Added"): the list never shifts under the cursor
+  const reg = s.registry.filter((r) => !needle || `${r.request_id} ${r.applicant} ${r.technology}`.toLowerCase().includes(needle));
 
   return (
     <div className="scroll" style={{ padding: "0 10px 14px", gap: 14 }}>
@@ -112,23 +111,31 @@ export function QueueTab({ planner }: { planner: QueueTabPlanner }) {
             </span>
             <input className="search" placeholder="Search id, applicant or technology" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search the registry" />
             {!s.registryLoaded && <span className="mute" style={{ fontSize: 12 }}>Loading the registry…</span>}
-            {s.registryLoaded && !reg.length && <span className="mute" style={{ fontSize: 12 }}>Every registry project is already on this branch.</span>}
-            {reg.map((r) => (
-              <div key={r.request_id} className="reg-row">
-                <TechTile tech={r.technology} c={C.mute} />
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
-                  <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{r.request_id}</span>
-                  <span className="ellipsis" style={{ fontSize: 11.5, color: C.ink2 }}>{projectLabel(r)}</span>
-                  <span style={{ fontSize: 10.5, color: C.mute }}>
-                    {techLabel(r.technology)} · {fmtMw(headlineMw(r))} MW{r.commissioning_year ? ` · asks ${r.commissioning_year}` : ""}
-                  </span>
+            {s.registryLoaded && !reg.length && <span className="mute" style={{ fontSize: 12 }}>{needle ? "Nothing in the registry matches." : "The registry is empty."}</span>}
+            {reg.map((r) => {
+              const added = inPlan.has(r.request_id);
+              return (
+                <div key={r.request_id} className="reg-row">
+                  <TechTile tech={r.technology} c={C.mute} />
+                  <div style={{ minWidth: 0, display: "flex", flexDirection: "column", lineHeight: 1.3 }}>
+                    <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>{r.request_id}</span>
+                    <span className="ellipsis" style={{ fontSize: 11.5, color: C.ink2 }}>{projectLabel(r)}</span>
+                    <span style={{ fontSize: 10.5, color: C.mute }}>
+                      {techLabel(r.technology)} · {fmtMw(headlineMw(r))} MW{r.commissioning_year ? ` · asks ${r.commissioning_year}` : ""}
+                    </span>
+                  </div>
+                  <button
+                    className="btn"
+                    onClick={() => void actions.addRegistryProject(r.request_id)}
+                    disabled={added || r.status !== "valid"}
+                    title={added ? "Already on this branch" : r.status !== "valid" ? r.review_reasons : "Add to Preliminary"}
+                  >
+                    {added ? <Check size={12} /> : <Plus size={12} />}
+                    {added ? "Added" : "Add"}
+                  </button>
                 </div>
-                <button className="btn" onClick={() => void actions.addRegistryProject(r.request_id)} disabled={r.status !== "valid"} title={r.status !== "valid" ? r.review_reasons : "Add to Preliminary"}>
-                  <Plus size={12} />
-                  Add
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
       </div>

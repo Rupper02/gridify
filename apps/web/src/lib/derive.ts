@@ -1,7 +1,7 @@
 // Pure view helpers: everything here is a function of API data + UI state, with no side effects,
 // so it is unit-testable without a browser or a map.
 
-import { BRANCH_HUES, C, LENS, MAIN_HUE, ORDER, ST, fmtMw, profileOf, techLabel } from "../theme";
+import { BRANCH_HUES, C, LENS, MAIN_HUE, ORDER, ST, fmtMw, profileLabel, techLabel } from "../theme";
 import { midpoint } from "./placement";
 import { type Plan, lensOf, statusTitle } from "./plan";
 import type {
@@ -89,8 +89,8 @@ export function staleness(
   changed = 0,
 ): Staleness {
   if (!r || !branch) return { stale: false, text: "" };
-  const was = profileOf(r.params.scenario).label;
-  const now = profileOf(branch.scenario).label;
+  const was = profileLabel(r.params.scenario);
+  const now = profileLabel(branch.scenario);
   if (r.params.scenario !== branch.scenario)
     return { stale: true, text: `This result was solved on ${was} demand. The branch is now set to ${now}, so the numbers below are out of date.` };
   const studied = new Set(r.studied?.outage_ids ?? []);
@@ -321,6 +321,28 @@ export function n1Counts(yr: YearResult | null): { outages: number; breaches: nu
   return { outages: new Set(v.map((x) => `${x.outage_type}:${x.outage_id}`)).size, breaches: v.length };
 }
 
+/** An element's loading in every plan year of a result (the element card's sparkline): null where the year is not
+ * solved yet, did not converge, or carries no figure for it; nothing for a generator. */
+export function loadingSeries(r: OptimizeResult | null, plan: Plan, sel: ElementSel): { year: number; pct: number | null }[] {
+  if (sel.kind === "gen") return [];
+  return plan.years.map((year) => {
+    const yr = r?.years?.[String(year)];
+    const table = sel.kind === "line" ? yr?.line_loading : yr?.trafo_loading;
+    return { year, pct: !yr || yr.converged === false ? null : (table?.[String(sel.id)] ?? null) };
+  });
+}
+
+/** An element's part in the year's N-1 screen: the findings where it is the element lost, and those where it is the
+ * element that breaches a limit once another is lost; null for a generator or before the year is solved. */
+export function n1Role(yr: YearResult | null, sel: ElementSel): { lost: number; breaches: number } | null {
+  if (!yr || sel.kind === "gen") return null;
+  const v = yr.n1_violations ?? [];
+  return {
+    lost: v.filter((x) => x.outage_type === sel.kind && x.outage_id === sel.id).length,
+    breaches: v.filter((x) => x.type === sel.kind && x.element_id === sel.id).length,
+  };
+}
+
 /** The most loaded line or transformer in a year (worst case across the two study cases). */
 export function worstElement(yr: YearResult | null, ix: ModelIndex | null): WorstElement | null {
   if (!yr || !ix) return null;
@@ -445,7 +467,12 @@ export function nameElements(text: string, ix: ModelIndex | null): string {
   if (!ix || !text) return text;
   const lines = nameRefs(text, "line", (id) => (ix.line.has(id) ? lineName(ix, id) : null));
   const trafos = nameRefs(lines, "transformer", (id) => (ix.trafo.has(id) ? trafoName(ix, id) : null));
-  // a bus keeps its number and gains its place, unless it is already named ("(bus 19)") or placed ("bus 19 (Sleaford)")
-  const bus = new RegExp(String.raw`(?<!\()\b([Bb])us (\d+)\b(?! ·| \()` + NOT_A_FIGURE, "g");
-  return trafos.replace(bus, (m, _b, id) => (ix.bus.has(+id) && busPlace(ix, +id) ? `${m} (${busPlace(ix, +id)})` : m));
+  // a bus keeps its number and gains its place, unless it is already named ("(bus 19)") or placed ("bus 19 (Sleaford)");
+  // the engine's own voltage suffix ("bus 16 (132 kV)") is kept and the place joins it: "bus 16 (Sleaford, 132 kV)"
+  const bus = new RegExp(String.raw`(?<!\()\b([Bb])us (\d+)\b(?: \((\d+(?:\.\d+)? ?kV)\)|(?! ·| \()` + NOT_A_FIGURE + ")", "g");
+  return trafos.replace(bus, (m: string, b: string, id: string, kv?: string) => {
+    const place = ix.bus.has(+id) ? busPlace(ix, +id) : "";
+    if (!place) return m;
+    return kv ? `${b}us ${id} (${place}, ${kv})` : `${m} (${place})`;
+  });
 }

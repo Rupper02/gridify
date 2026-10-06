@@ -199,8 +199,8 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
   return (
     <>
       <div ref={elRef} className="map" aria-label="Network map" />
-      {ready && shows(s.visible, "demand") && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
-      {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} />}
+      {ready && shows(s.visible, "demand") && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom} />}
+      {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom} />}
     </>
   );
 }

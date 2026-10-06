@@ -13,7 +13,8 @@ import {
   parentName,
 } from "../../lib/derive";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
-import { gateState, openCounts } from "../../lib/gate";
+import { sectionsByStatus } from "../../lib/findings";
+import { gateState } from "../../lib/gate";
 import { lineTiers } from "../../lib/mapFeatures";
 import { ALL_CAPABILITIES, mainIdOf, projectOf } from "../../lib/projects";
 import { runStatus } from "../../lib/runStages";
@@ -35,6 +36,7 @@ export function useDerived(s: PlannerState) {
     const onMain = !s.activeBranch || s.activeBranch === mainId;
     const branch = s.branches.find((b) => b.branch_id === s.activeBranch) ?? null;
     const hue = branchHue(s.branches, s.activeBranch, mainId);
+    // null until the branch (or the engine's default) is known: nothing claims a profile before then
     const profile = profileOf(branch?.scenario ?? s.defaultScenario);
     const resultProfile = s.result ? profileOf(s.result.params.scenario) : profile;
     const q: QueueItem[] = s.result ? s.result.queue : [];
@@ -57,14 +59,16 @@ export function useDerived(s: PlannerState) {
     const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running, s.gateError);
     // what the branch is judged against and merges into: its parent (main, or the branch it was opened from)
     const parent = parentName(s.branches, branch, mainId);
-    const openFindings = openCounts(s.findings);
     // the reviewer's current comment, and whether it is of an earlier run than the one shown (a run still solving
     // replaces the result it reviewed, before its own run key is known); the proposals waiting in the open conversation
     const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
     const reviewStale = reviewCurrent ? s.solving || isSuperseded(reviewCurrent, s.result?.run_key) : false;
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
-    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, openFindings, reviewStale, pendingApprovals, parent, run };
-  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.findings, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
+    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, reviewStale, pendingApprovals, parent, run };
+  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
+
+  // the ledger folded across plan years, per status: the Findings tab's sections and its badge read it
+  const findingSections = useMemo(() => sectionsByStatus(s.findings), [s.findings]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);
@@ -77,5 +81,5 @@ export function useDerived(s: PlannerState) {
     return { yr, exact, outLines, yearDelta, diffDeltas };
   }, [s.diff, s.diffMode, s.outages, s.result, s.year]);
 
-  return { ix, tiers, ...view, ...year };
+  return { ix, tiers, ...view, ...year, findingSections };
 }

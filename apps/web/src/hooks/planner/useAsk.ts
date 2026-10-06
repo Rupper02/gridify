@@ -219,7 +219,26 @@ export function useAsk(
         toastMsg(`Could not record the decision: ${failureText(e)}`, "warn");
         return;
       }
+      /** Refresh what approved proposals touched: on the branch in view by effect, the run last (it shows what the others
+       * changed); a proposal on a branch not in view changes that branch, not the view, so only the branch list refreshes
+       * for it (and `announce` says where it landed). */
+      const applyEffects = async (approved: Approval[], announce: boolean) => {
+        const active = ref.current.activeBranch;
+        const branchOf = (a: Approval) => (typeof a.args.branch_id === "string" && a.args.branch_id ? a.args.branch_id : bid);
+        const elsewhere = approved.filter((a) => proposalEffect(a.tool) !== "branch" && branchOf(a) !== active);
+        const here = approved.filter((a) => !elsewhere.includes(a));
+        const effects = [...new Set(here.map((a) => proposalEffect(a.tool)).filter((e): e is ProposalEffect => e != null))];
+        for (const effect of effects.sort((a, b) => Number(a === "run") - Number(b === "run"))) await APPLY[effect](active);
+        if (elsewhere.length && announce) {
+          if (!effects.length) await refreshBranches();
+          const names = [...new Set(elsewhere.map((a) => ref.current.branches.find((b) => b.branch_id === branchOf(a))?.name ?? branchOf(a)))];
+          toastMsg(`Applied on ${names.join(" and ")}. Switch to it to see the change.`);
+        }
+      };
       try {
+        // the API applies an approved proposal as soon as it is recorded: refresh what it touched now, not only when the
+        // continued answer settles minutes later (a run is the agent's to start, so it shows once the answer resumes)
+        if (decision === "approve" && mine && proposalEffect(mine.tool) !== "run") await applyEffects([mine], false);
         if (r.waiting_for.length) {
           await reload(tid);
           toastMsg(`Recorded. ${r.waiting_for.length} more proposal${r.waiting_for.length > 1 ? "s" : ""} of this reply wait${r.waiting_for.length > 1 ? "" : "s"} for your decision; the answer continues once all are decided.`);
@@ -231,20 +250,8 @@ export function useAsk(
           const last = [...t.messages].reverse().find((m) => m.role === "assistant");
           if (t.messages.length > before && last && last.status !== "queued" && last.status !== "streaming") break;
         }
-        // what every approved proposal of this reply touched, the run last (it shows what the others changed)
-        const approved = siblings.filter((a) => (a.approval_id === approvalId ? decision === "approve" : a.status === "approved"));
-        const active = ref.current.activeBranch;
-        const branchOf = (a: Approval) => (typeof a.args.branch_id === "string" && a.args.branch_id ? a.args.branch_id : bid);
-        // a proposal on a branch not in view changes that branch, not the view: the branch list is all that refreshes for it
-        const elsewhere = approved.filter((a) => proposalEffect(a.tool) !== "branch" && branchOf(a) !== active);
-        const here = approved.filter((a) => !elsewhere.includes(a));
-        const effects = [...new Set(here.map((a) => proposalEffect(a.tool)).filter((e): e is ProposalEffect => e != null))];
-        for (const effect of effects.sort((a, b) => Number(a === "run") - Number(b === "run"))) await APPLY[effect](active);
-        if (elsewhere.length) {
-          if (!effects.length) await refreshBranches();
-          const names = [...new Set(elsewhere.map((a) => ref.current.branches.find((b) => b.branch_id === branchOf(a))?.name ?? branchOf(a)))];
-          toastMsg(`Applied on ${names.join(" and ")}. Switch to it to see the change.`);
-        }
+        // what every approved proposal of this reply touched, now that the answer has settled
+        await applyEffects(siblings.filter((a) => (a.approval_id === approvalId ? decision === "approve" : a.status === "approved")), true);
       } catch (e) {
         toastMsg(`Recorded; the view could not refresh: ${failureText(e)}`, "warn");
       } finally {

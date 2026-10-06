@@ -10,12 +10,13 @@ import { alertSummary } from "../lib/demand";
 import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
+import { runInProgress } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
   "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
-  "focusSel" | "retryLoad" | "run" | "setLayer" | "toggleBoundary" | "toggleAssumptions",
+  "focusSel" | "retryLoad" | "run" | "setLayer" | "showFindings" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
 >;
 
@@ -25,14 +26,15 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
   const gsp = yr?.converged === false ? null : (yr?.gsp_export_mw ?? null); // a year that did not solve has no figures
   const gspHot = gsp != null && limit ? gsp / limit > GSP_NEAR_LIMIT : false;
-  const runLabel = `${stale.stale ? "Re-run" : "Run"} on ${profile.label}`;
-  const showStale = stale.stale && !s.refreshing; // an automatic refresh is already on its way
+  const runLabel = `${stale.stale ? "Re-run" : "Run"}${profile ? ` on ${profile.label}` : ""}`; // plain until the profile is known
+  // out of date, unless a refresh is already on its way or a run that will include the change is under way
+  const showStale = stale.stale && !s.refreshing && !runInProgress(derived.run.phase);
 
   if (layout.narrow) {
     return (
       <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
-        <ProfileGlyph bars={resultProfile.bars} />
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile.label} result</span>
+        {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
+        <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile ? `${resultProfile.label} result` : (gridLoadText(!!s.model, s.modelLoading, s.modelError) ?? "No run yet")}</span>
         <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
           GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
@@ -49,14 +51,14 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const reserve = layout.showDock ? layout.dockPx + 88 : 88;
   return (
     <div className="left-col" style={{ maxHeight: `calc(100% - ${reserve}px)` }}>
-      <ResultStamp planner={planner} runLabel={runLabel} />
-      {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} />}
+      <ResultStamp planner={planner} runLabel={runLabel} showStale={showStale} />
+      {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
       {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
     </div>
   );
 }
 
-function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabel: string }) {
+function ResultStamp({ planner, runLabel, showStale }: { planner: LeftCardsPlanner; runLabel: string; showStale: boolean }) {
   const { s, actions, derived } = planner;
   const { stale, resultProfile, run: st, caps, synthetic } = derived;
   const n = s.outages.length;
@@ -70,13 +72,20 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
         <span className="mono" style={{ fontSize: 10.5, color: C.mute }}>{!s.plan ? "" : s.resultAt ? `run ${s.resultAt} · ${s.year}` : String(s.year)}</span>
       </div>
       <div className="stamp">
-        <ProfileGlyph bars={resultProfile.bars} big />
+        {resultProfile && <ProfileGlyph bars={resultProfile.bars} big />}
         <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>{resultProfile.label} demand</span>
-          <span style={{ fontSize: 11, color: C.mute }}>{sub}</span>
+          {/* no profile is known before the branch is in: only the loading text, no "Custom" */}
+          {resultProfile ? (
+            <>
+              <span style={{ fontSize: 15, fontWeight: 600 }}>{resultProfile.label} demand</span>
+              <span style={{ fontSize: 11, color: C.mute }}>{sub}</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink2 }}>{sub}</span>
+          )}
         </div>
       </div>
-      {stale.stale && !s.refreshing && (
+      {showStale && (
         <div className="box amber">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
           <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={s.running}>
@@ -102,13 +111,17 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
         <div className="assume-list">
           {!s.assumptions && <span className="mute" style={{ fontSize: 11.5 }}>Loading…</span>}
           {s.assumptions && !s.assumptions.length && <span className="mute" style={{ fontSize: 11.5 }}>Nothing recorded.</span>}
+          {/* one section per source; the file's gaps (what the import could not provide) open first */}
           {s.assumptions && assumptionGroups(s.assumptions).map((g) => (
-            <div key={g.source} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.mute, letterSpacing: "0.02em" }}>{g.label}</span>
+            <details key={g.source} className="assume-group" open={g.source === "file"}>
+              <summary>
+                {g.label}
+                <span className="mono fcount">{g.rows.length}</span>
+              </summary>
               {g.rows.map((a) => (
                 <span key={a.key} style={{ fontSize: 11, color: C.ink2, lineHeight: 1.4, textWrap: "pretty" }}>· {assumptionText(a)}</span>
               ))}
-            </div>
+            </details>
           ))}
         </div>
       )}
@@ -116,7 +129,7 @@ function ResultStamp({ planner, runLabel }: { planner: LeftCardsPlanner; runLabe
   );
 }
 
-function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean }) {
+function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean; compact: boolean }) {
   const { s, actions, derived } = planner;
   const { yr, ix, exact } = derived;
   const n1 = n1Counts(yr);
@@ -147,7 +160,7 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           or N-1 results to read. Check the model (the Findings tab lists each year that fails) before trusting a plan on it.
         </div>
       ) : (
-      <div className="readings">
+      <div className={`readings${compact ? " compact" : ""}`}>
         <button
           className="reading reading-btn"
           onClick={() => worst && actions.focusSel(worst.sel, ZOOM_ELEMENT)}
@@ -170,17 +183,23 @@ function Readings({ planner, gsp, limit, gspHot }: { planner: LeftCardsPlanner; 
           <span className="v">×{yr ? yr.growth.toFixed(2) : "–"}</span>
           <span className="n">vs today, by {yr?.year ?? s.year}</span>
         </div>
-        <div className="reading">
-          <span className="k">N-1 findings</span>
+        {/* "12 of 27 outages": opens the Findings tab on the N-1 group, as the worst element flies to its element */}
+        <button
+          className="reading reading-btn"
+          onClick={() => actions.showFindings("n1")}
+          disabled={!yr?.n1_screened}
+          title={yr?.n1_screened ? "Open the N-1 findings" : undefined}
+        >
+          <span className="k">N-1 screen</span>
           <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
-            {yr ? (yr.n1_screened ? `${n1.outages} / ${yr.n1_screened}` : "none") : "–"}
+            {yr ? (yr.n1_screened ? `${n1.outages} of ${yr.n1_screened}` : "none") : "–"}
           </span>
           <span className="n">
             {yr && !yr.n1_screened
               ? "no line or transformer is in the N-1 scope: not studied"
-              : `single outages that breach a limit${n1.breaches ? ` (${n1.breaches} ${n1.breaches === 1 ? "breach" : "breaches"})` : ""}, screened${yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only`}
+              : `outages breach a limit${n1.breaches ? ` (${n1.breaches} ${n1.breaches === 1 ? "finding" : "findings"})` : ""}, screened${yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only`}
           </span>
-        </div>
+        </button>
       </div>
       )}
       {yr?.alerts && <CustomerAlerts planner={planner} />}

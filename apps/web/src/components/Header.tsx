@@ -10,7 +10,7 @@ import type { PlannerSlice } from "../hooks/planner/slice";
 import { behindLabel, branchHue, parentName } from "../lib/derive";
 import { agentsPill } from "../lib/trace";
 import type { Layout } from "../lib/layout";
-import { PROFILES, profileOf, tint } from "../theme";
+import { PROFILES, profileLabel, tint } from "../theme";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
@@ -26,7 +26,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
   const nAdded = branch?.n_added ?? 0;
   const parent = parentName(s.branches, branch, derived.mainId);
   const sub = onMain ? "plan of record" : `from ${parent} · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
-  const runLabel = wide ? `${stale.stale ? "Re-run" : "Run"} on ${profile.label}` : stale.stale ? "Re-run" : "Run";
+  // plain "Run" until the branch's profile is known (nothing is claimed before then)
+  const runLabel = wide && profile ? `${stale.stale ? "Re-run" : "Run"} on ${profile.label}` : stale.stale ? "Re-run" : "Run";
   const pill = agentsPill(s.agents);
 
   return (
@@ -48,7 +49,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         <button className="capsule" onClick={actions.toggleMenu} aria-haspopup="menu" aria-expanded={s.menuOpen}>
           <span className="chip-ic">{onMain ? <LockSimple size={15} weight="bold" /> : <GitBranch size={15} weight="bold" />}</span>
           <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
-            <span className="nm">{onMain ? "main" : (branch?.name ?? s.activeBranch)}</span>
+            <span className="nm" style={{ maxWidth: wide ? 220 : 120 }}>{onMain ? "main" : (branch?.name ?? s.activeBranch)}</span>
             {wide && (
               <span className="sub">
                 {sub}
@@ -159,7 +160,7 @@ function BranchMenu({ planner }: { planner: HeaderPlanner }) {
                 )}
               </span>
             </span>
-            <span style={{ fontSize: 11, color: "var(--mute)" }}>{profileOf(b.scenario).label}</span>
+            <span style={{ fontSize: 11, color: "var(--mute)" }}>{profileLabel(b.scenario)}</span>
           </button>
         );
       })}

@@ -46,7 +46,8 @@ interface MarkerItem {
   future: boolean;
 }
 
-export function MapMarkers({ planner, project, tick, width, height }: { planner: MapMarkersPlanner; project: Project; tick: number; width: number; height: number }) {
+/** `top`: the header's bottom edge; nothing is drawn under the header (its glass is nearly opaque, so a label there only shows through). */
+export function MapMarkers({ planner, project, tick, width, height, top }: { planner: MapMarkersPlanner; project: Project; tick: number; width: number; height: number; top: number }) {
   const { s, actions, derived } = planner;
   const { q, prelim, ix, branchOnly, hue, diffDeltas, yr } = derived;
   void tick; // re-render on map moves
@@ -54,7 +55,7 @@ export function MapMarkers({ planner, project, tick, width, height }: { planner:
   const diffOn = s.diffMode && !derived.onMain;
   const added = new Set((s.diff?.projects ?? []).filter((p) => p.change === "added").map((p) => p.request_id));
   const sel = s.sel;
-  const inView = (x: number, y: number) => x > -60 && y > -30 && x < width + 60 && y < height + 30;
+  const inView = (x: number, y: number) => x > -60 && y > top + 12 && x < width + 60 && y < height + 30;
   const on = (k: FeatureKey) => shows(s.visible, k);
   const lineOn = (id: number) => {
     const l = ix.line.get(id);

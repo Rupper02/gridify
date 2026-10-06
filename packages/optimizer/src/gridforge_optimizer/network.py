@@ -15,6 +15,7 @@ from pandapower.auxiliary import LoadflowNotConverged
 
 from .config import (
     N1_CASES,
+    N1_COLLAPSE_VM_PU,
     GENERATION_FACTOR_DEFAULT,
     GENERATION_FACTORS,
     OLTC_DEADBAND_PU,
@@ -479,14 +480,14 @@ def _line_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
     """Every line over its rating, most loaded first."""
     rating = _CASE_BY_NAME[case].rating_label
     return [Reason(type="line", element_id=int(i), value=round(float(val), 1), limit=LINE_LOADING_MAX_PCT, case=case,
-                   message=f"line {int(i)} overloaded at {float(val):.0f}% of {rating} at {_CASE_LABEL[case]}")
+                   message=f"line {int(i)} overloaded at {float(val):.1f}% of {rating} at {_CASE_LABEL[case]}")
             for i, val in line_pct[line_pct > LINE_LOADING_MAX_PCT].sort_values(ascending=False, kind="stable").items()]
 
 
 def _trafo_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
     """Every transformer over its rating, most loaded first."""
     return [Reason(type="trafo", element_id=int(i), value=round(float(val), 1), limit=TRAFO_LOADING_MAX_PCT, case=case,
-                   message=f"transformer {int(i)} overloaded at {float(val):.0f}% at {_CASE_LABEL[case]}")
+                   message=f"transformer {int(i)} overloaded at {float(val):.1f}% at {_CASE_LABEL[case]}")
             for i, val in trafo_pct[trafo_pct > TRAFO_LOADING_MAX_PCT].sort_values(ascending=False, kind="stable").items()]
 
 
@@ -730,8 +731,9 @@ def outage_results(net, case: str, load_scale, rating_ratio, elements):
 def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
     """Single-outage screen of the backbone: take each in-service line and transformer at or
     above the grid's N-1 floor (`n1_floor`: N1_MIN_KV, or an import's own) out of service in turn, solve the study case, and report any thermal, voltage or
-    islanding violation, every breached element its own finding. Informational (not a connection gate); roughly P2/8
-    security of supply.
+    islanding violation, every breached element its own finding, except a post-fault state with a bus below
+    `N1_COLLAPSE_VM_PU`: that is no credible steady state and is one "collapse" finding for the outage. Informational
+    (not a connection gate); roughly P2/8 security of supply.
     `rating_ratio` overrides the case's line ratings (a maintenance window's season, maintenance.py)."""
     cases = {c: (ls, rr) for c, ls, rr in _study_cases(net)}
     if case not in cases:
@@ -756,6 +758,16 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
             violations.append({**head, "type": "islanded", "element_id": o.island[0], "value": round(o.lost_mw, 2),
                                "islanded_bus_ids": o.island,  # demand.py attributes it to regions
                                "message": f"{o.kind} {o.eid} out islands {o.lost_mw:.1f} MW of demand at {len(o.island)} bus(es) at {_CASE_LABEL[case]}"})
+            continue
+        # a state the solver settled into with buses far below their band is a collapse, not a list of breaches: the
+        # low voltages drive every loading up with them (current ∝ 1/V), so one finding names the outage and the floor
+        vm = o.res["vm"].dropna()
+        low = vm[vm < N1_COLLAPSE_VM_PU]
+        if len(low):
+            worst = int(low.idxmin())
+            violations.append({**head, "type": "collapse", "element_id": worst, "value": round(float(low.min()), 4), "n_low": int(len(low)),
+                               "message": f"{o.kind} {o.eid} out: no credible post-fault steady state at {_CASE_LABEL[case]}: the power flow "
+                                          f"settles with {len(low)} bus(es) below {N1_COLLAPSE_VM_PU:.2f} pu (lowest {float(low.min()):.3f} pu at bus {worst})"})
             continue
         # every element the outage breaches, each its own finding: a breach behind a worse one is a finding too
         for r in case_breaches(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"]):

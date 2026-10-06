@@ -48,11 +48,11 @@ export const ST: Record<Status | "Prelim", StatusStyle> = {
   Prelim: { label: "Preliminary", c: C.accent, ink: C.accent },
 };
 
-/** Where a year sits in the plan (`lib/plan.lensOf`), as the roadmap names and colours it. */
-export const LENS: Record<Lens, { label: string; c: string }> = {
-  today: { label: "as-is today", c: C.mute },
-  Phase1: { label: "Phase 1 · Clean Power lens", c: C.phase1 },
-  Phase2: { label: "Phase 2 · Strategic lens", c: C.phase2 },
+/** Where a year sits in the plan (`lib/plan.lensOf`), as the roadmap colours it (its title: `lib/plan.lensTitle`). */
+export const LENS: Record<Lens, { c: string }> = {
+  today: { c: C.mute },
+  Phase1: { c: C.phase1 },
+  Phase2: { c: C.phase2 },
 };
 
 export const ORDER: Record<Status, number> = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
@@ -89,13 +89,21 @@ export const techLabel = (t: string | null | undefined): string => (isTech(t) ? 
 // ---- demand profiles ----------------------------------------------------------------------------
 /** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's IMPORT_PATHWAYS and the
  * labels mirror config.FORECASTS[*].short (served on /forecasts and the file inspection): change both together. */
-export const PROFILES: { id: string; label: string; short: string; bars: 1 | 2 | 3 }[] = [
+export interface Profile {
+  id: string;
+  label: string;
+  short: string;
+  bars: 1 | 2 | 3;
+}
+export const PROFILES: Profile[] = [
   { id: "fb", label: "Low", short: "L", bars: 1 },
   { id: "ht", label: "Standard", short: "S", bars: 2 },
   { id: "ee", label: "High", short: "H", bars: 3 },
 ];
-export const profileOf = (id: string | null | undefined) =>
-  PROFILES.find((p) => p.id === id) ?? { id: id ?? "custom", label: "Custom", short: "C", bars: 2 as const };
+/** The profile an id names; null for an empty or unknown id (nothing is known yet, so nothing is claimed). */
+export const profileOf = (id: string | null | undefined): Profile | null => PROFILES.find((p) => p.id === id) ?? null;
+/** A profile's label, or the id itself when the picker has no name for it. */
+export const profileLabel = (id: string | null | undefined): string => profileOf(id)?.label ?? (id || "unknown");
 
 // ---- branch hues --------------------------------------------------------------------------------
 export const MAIN_HUE = "#c9d6e8";

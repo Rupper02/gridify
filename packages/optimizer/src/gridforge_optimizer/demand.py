@@ -248,8 +248,10 @@ def assess_regions(net, n1_violations: list[dict] = ()) -> list[RegionYear]:
 # --- alerts: one function per check -----------------------------------------------------------------
 def _firm_alert(r: RegionYear, year: int) -> Alert | None:
     """Demand above firm capacity: a first circuit outage would interrupt the excess."""
-    if r.firm_mw <= 0 and r.p2_class in ("A", "B"):
-        return None  # no firm capacity published (a single-transformer site or a customer's own connection)
+    if r.firm_mw <= 0:
+        # no firm capacity published (a single-transformer site, a customer's own connection, a blank Table 3 cell): a gap
+        # recorded on the model (`firm_capacity_unpublished`), never a 0 MW limit for demand to be "above"
+        return None
     shortfall = r.demand_mw - r.firm_mw
     if shortfall <= 0:
         return None

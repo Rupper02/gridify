@@ -154,7 +154,7 @@ input { font-family: inherit; }
 .logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; flex: none; background: linear-gradient(160deg, rgba(124, 227, 255, 0.35), rgba(124, 227, 255, 0.08)); border: 1px solid rgba(124, 227, 255, 0.45); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); color: var(--accent); }
 .capsule { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px 0 5px; white-space: nowrap; flex: none; border-radius: 10px; border: 1px solid var(--hue-bd); background: var(--hue-bg); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); }
 .capsule .chip-ic { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: var(--hue-chip); color: var(--hue); }
-.capsule .nm { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.capsule .nm { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .capsule .sub { font-size: 10.5px; color: var(--mute); }
 .behind { color: var(--amber-ink); font-weight: 600; } /* a branch main moved past: rebase before merging */
 .menu { position: absolute; top: 44px; left: 0; width: 340px; padding: 8px; border-radius: 16px; z-index: 40; background: linear-gradient(140deg, rgba(40, 54, 76, 0.97), rgba(22, 32, 48, 0.98)); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 10px 28px rgba(2, 6, 14, 0.4); display: flex; flex-direction: column; gap: 4px; }
@@ -178,6 +178,10 @@ input { font-family: inherit; }
 .reading-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .reading .v { font-family: var(--mono); font-size: 17px; font-weight: 600; }
 .reading .n { font-size: 10.5px; color: var(--mute-2); line-height: 1.3; }
+/* a laptop screen (under 760px tall): the same two rows, tighter, the notes on one line */
+.readings.compact { gap: 8px 10px; }
+.readings.compact .reading .v { font-size: 14px; }
+.readings.compact .reading .n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gauge { display: flex; gap: 2px; }
 .gauge > span { flex: 1; height: 10px; border-radius: 2px; }
 .gsp-btn { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 7px; }
@@ -380,9 +384,10 @@ input { font-family: inherit; }
 .work-row .verdicts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
 .diff-tag { background: #0e1520; }
 
-/* ---- run overlay ------------------------------------------------------------------------------ */
-.run-overlay { position: absolute; left: 0; top: 58px; bottom: 0; z-index: 30; display: grid; place-items: center; background: rgba(6, 10, 18, 0.55); }
-.run-card { width: 440px; max-width: calc(100% - 32px); padding: 20px; border-radius: 22px; background: linear-gradient(150deg, rgba(36, 50, 70, 0.97), rgba(20, 30, 44, 0.97)); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 32px rgba(2, 6, 14, 0.45); display: flex; flex-direction: column; gap: 14px; }
+/* ---- run card: docked bottom-centre above the roadmap (RunOverlay sets `right` and `bottom`); no backdrop, so the map
+   underneath stays clickable: only the card itself takes the pointer ---- */
+.run-overlay { position: absolute; left: 0; z-index: 30; display: flex; justify-content: center; pointer-events: none; }
+.run-card { pointer-events: auto; width: 440px; max-width: calc(100% - 32px); padding: 16px 18px; border-radius: 20px; background: linear-gradient(150deg, rgba(36, 50, 70, 0.97), rgba(20, 30, 44, 0.97)); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 32px rgba(2, 6, 14, 0.45); display: flex; flex-direction: column; gap: 12px; }
 .rail { position: relative; height: 28px; border-radius: 999px; background: rgba(5, 10, 18, 0.45); border: var(--well-bd); overflow: hidden; }
 .rail .wire { position: absolute; left: 14px; right: 14px; top: 13px; height: 2px; background: rgba(220, 230, 242, 0.25); }
 .rail .done { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(124, 227, 255, 0.05), rgba(124, 227, 255, 0.28)); transition: width 400ms var(--ease); }
@@ -460,6 +465,21 @@ input { font-family: inherit; }
 .frow-main:hover .ellipsis { text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); }
 .frow .fmsg { grid-column: 2 / -1; font-size: 11.5px; line-height: 1.4; color: var(--mute); text-wrap: pretty; }
 .sev-dot { width: 8px; height: 8px; border-radius: 999px; margin-top: 5px; flex: none; }
+/* findings: a group per kind inside a criticality; a row is one finding across its plan years (the span and the worst
+   year's figure on the right), opening to its per-year rows */
+.fkind { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; }
+.fkind + .fkind { margin-top: 4px; }
+.fkind > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; font-size: 11.5px; font-weight: 700; color: var(--mute); letter-spacing: 0.02em; }
+.fkind > summary::-webkit-details-marker { display: none; }
+.fkind > summary::before { content: "\25B8"; color: var(--mute-2); font-size: 10px; transition: transform 120ms var(--ease); }
+.fkind[open] > summary::before { transform: rotate(90deg); }
+.frow .fspan { margin-left: auto; flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--mute-2); white-space: nowrap; }
+.frow .facts { display: flex; gap: 4px; }
+.fyrows { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding-left: 10px; border-left: 1px solid rgba(255, 255, 255, 0.1); }
+.fyrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.fyrow .frow-main { align-items: flex-start; }
+.fyrow .yr { flex: none; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.fyrow .fmsg { font-size: 11.5px; line-height: 1.4; color: var(--mute); text-wrap: pretty; }
 .filter-chips { display: flex; gap: 4px; }
 .filter-chips button { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; color: var(--mute); font-size: 11.5px; font-weight: 600; }
 .filter-chips button.on { background: rgba(255, 255, 255, 0.12); color: var(--ink); border-color: rgba(255, 255, 255, 0.22); }
@@ -491,7 +511,6 @@ input { font-family: inherit; }
 
 /* projects: the capsule, the screen, the import form, the assumptions under the result stamp */
 .capsule.project { --hue: #7ce3ff; --hue-bd: rgba(124, 227, 255, 0.4); --hue-bg: rgba(124, 227, 255, 0.1); --hue-chip: rgba(124, 227, 255, 0.18); }
-.capsule.project .nm { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .modal-backdrop { position: absolute; inset: 0; z-index: 50; background: rgba(4, 8, 16, 0.55); display: flex; align-items: flex-start; justify-content: center; padding: 70px 16px 16px; overflow-y: auto; }
 .modal { width: min(920px, 100%); display: flex; flex-direction: column; gap: 12px; padding: 16px 18px 18px; border-radius: 20px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 16px 40px rgba(2, 6, 14, 0.5); }
 .modal-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
@@ -513,4 +532,17 @@ input { font-family: inherit; }
 .assume-btn { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: transparent; color: var(--mute); font-size: 11px; font-weight: 600; }
 .assume-btn:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.24); }
 .assume-list { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; border-radius: 10px; background: rgba(5, 10, 18, 0.3); border: var(--well-bd); max-height: 260px; overflow-y: auto; }
+/* one collapsible section per source of assumption (the file's gaps open by default) */
+.assume-group { display: flex; flex-direction: column; gap: 3px; }
+.assume-group > summary { display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none; font-size: 11px; font-weight: 700; color: var(--mute); letter-spacing: 0.02em; }
+.assume-group > summary::-webkit-details-marker { display: none; }
+.assume-group > summary::before { content: "\25B8"; color: var(--mute-2); font-size: 10px; transition: transform 120ms var(--ease); }
+.assume-group[open] > summary::before { transform: rotate(90deg); }
+/* the element card's loading sparkline */
+.spark-box { display: flex; flex-direction: column; gap: 4px; }
+.spark-box .k { font-size: 11px; color: var(--mute); }
+.spark { display: block; overflow: visible; }
+.spark-base { stroke: rgba(255, 255, 255, 0.2); }
+.spark-rating { stroke: var(--amber); stroke-opacity: 0.6; }
+.spark-box .yrs { display: flex; justify-content: space-between; font-size: 9.5px; color: var(--mute-2); } /* width: the sparkline's (set inline) */
 .synthetic-tag { font-size: 11px; color: var(--amber-ink); line-height: 1.4; text-wrap: pretty; }
