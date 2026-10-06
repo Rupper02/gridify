@@ -118,7 +118,7 @@ After `optimize` has decided the queue, each year in `PLAN_YEARS` (`PLAN_START_Y
 - every accepted project whose energisation year has arrived injected (`energisation_years`: the operator's `scheduled` year, else the recommendation);
 - both study cases, then that year's works windows (`maintenance.study_windows`, with the N-1 screen passed in when the year runs it), then the N-1 screen in each case of `config.N1_CASES` (`n1_screen_cases`).
 
-It returns `{str(year): YearResult}`: a `PhaseResult` plus `year`, `growth`, `energised`, `trafo_loading`, `outage_studies`, and the demand side, `regions` and `alerts` (`demand.assess_demand`, below). It never changes who connects. `year_order(view_year)` solves the year in view first, then 2030 and 2035, then the rest; `on_year` is called as each lands so a caller can publish partial results, and `progress` reports the fraction within this step.
+It returns `{str(year): YearResult}`: a `PhaseResult` plus `year`, `growth`, `energised`, `trafo_loading`, `outage_studies`, and the demand side, `regions` and `alerts` (`demand.assess_demand`, below). Every loading and voltage figure is the worst of the study cases; `envelope_case` says which case set each element's (case → line, transformer and bus ids) and `gsp_case` the export's, so the planner can say "93% at summer minimum" rather than "worst case". It never changes who connects. `year_order(view_year)` solves the year in view first, then 2030 and 2035, then the rest; `on_year` is called as each lands so a caller can publish partial results, and `progress` reports the fraction within this step.
 
 ### The demand side (`demand.py`)
 

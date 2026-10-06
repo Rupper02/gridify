@@ -92,10 +92,18 @@ export function yearEffect(yd: YearDelta, name: Namers): EffectItem[] {
       text: `Peak GSP export ${yd.gsp_export_delta > 0 ? "rises" : "falls"} from ${Math.round(yd.gsp_export_base)} to ${Math.round(yd.gsp_export_head)} MW${limit}.`,
     });
   }
+  // an outage with no credible post-fault steady state is ONE finding however many elements it takes with it, so the
+  // count below understates it: say it first, and never read a lower total as an improvement while it rose
+  const collapses = (yd.n1_collapse_head ?? 0) - (yd.n1_collapse_base ?? 0);
+  if (collapses !== 0)
+    items.push({
+      tone: collapses > 0 ? "bad" : "good",
+      text: `${plural(Math.abs(collapses), "outage")} ${collapses > 0 ? "more" : "fewer"} with no credible post-fault steady state (${yd.n1_collapse_base ?? 0} to ${yd.n1_collapse_head ?? 0}).`,
+    });
   if (yd.n1_findings_delta !== 0)
     items.push({
-      tone: yd.n1_findings_delta > 0 ? "bad" : "good",
-      text: `The N-1 screen finds ${plural(Math.abs(yd.n1_findings_delta), "second-fault problem")} ${yd.n1_findings_delta > 0 ? "more" : "fewer"} (${yd.n1_findings_base} to ${yd.n1_findings_head}).`,
+      tone: yd.n1_findings_delta > 0 || collapses > 0 ? "bad" : "good",
+      text: `The N-1 screen finds ${plural(Math.abs(yd.n1_findings_delta), "second-fault problem")} ${yd.n1_findings_delta > 0 ? "more" : "fewer"} (${yd.n1_findings_base} to ${yd.n1_findings_head})${collapses > 0 ? ", a collapsed outage counting once" : ""}.`,
     });
   if (yd.energised_only_head.length)
     items.push({ tone: "neutral", text: `In service on this branch only: ${yd.energised_only_head.join(", ")}.` });
@@ -106,7 +114,7 @@ export function yearEffect(yd: YearDelta, name: Namers): EffectItem[] {
 export function flaggedYears(d: Diff | null): Set<number> {
   const out = new Set<number>();
   Object.values(d?.years ?? {}).forEach((y) => {
-    if (y.newly_overloaded_line_ids.length || y.newly_overloaded_trafo_ids.length || y.n1_findings_delta > 0) out.add(y.year);
+    if (y.newly_overloaded_line_ids.length || y.newly_overloaded_trafo_ids.length || y.n1_findings_delta > 0 || (y.n1_collapse_head ?? 0) > (y.n1_collapse_base ?? 0)) out.add(y.year);
   });
   (d?.works ?? []).forEach((w) => w.change === "worse" && out.add(w.year));
   return out;

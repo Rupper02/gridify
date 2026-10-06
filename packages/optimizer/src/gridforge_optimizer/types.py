@@ -174,6 +174,10 @@ class PhaseResult(BaseModel):
     n1_cases: list[str] = []  # the study cases the N-1 screen ran in (config.N1_CASES, those the net supports)
     n1_screened: int = 0  # EHV elements outaged one at a time in the N-1 screen (per case)
     n1_violations: list[dict] = []  # {outage_type, outage_id, outage_name, case, type, element_id, value, message}; islands on the first case only
+    # every figure above is the worst of the study cases: which case set each element's, case -> {lines, trafos, buses}
+    # (ids), and the export's (`gsp_case`), so a reading says "93% at summer minimum", never just "worst case"
+    envelope_case: dict[str, dict[str, list[int]]] = {}
+    gsp_case: str | None = None
 
 
 class Outage(BaseModel):

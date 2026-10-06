@@ -7,7 +7,7 @@ import { Info, X } from "@phosphor-icons/react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
-import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, worstElement } from "../lib/derive";
+import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
 import { runInProgress } from "../lib/runStages";
@@ -135,6 +135,7 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
   const n1 = n1Counts(yr);
   const { note } = derived.run;
   const worst = worstElement(yr, ix);
+  const vcase = voltageCase(yr); // the study case the lowest voltage comes from
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
   return (
@@ -149,7 +150,7 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
         </div>
         <Gauge ticks={gspTicks(gsp ?? 0, limit)} />
         <span style={{ fontSize: 10.5, color: C.mute2 }}>
-          Worst case{sgt && sgtMw ? ` · ${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
+          {yr?.gsp_case ? `At ${caseLabel(yr.gsp_case)}` : "Worst case"}{sgt && sgtMw ? ` · ${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
           {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
         </span>
       </button>
@@ -171,12 +172,15 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
             {worst ? `${Math.round(worst.pct)}%` : "–"}
           </span>
-          <span className="n">{worst?.name ?? "not solved yet"}</span>
+          <span className="n">{worst ? `${worst.name}${worst.at ? ` · at ${caseLabel(worst.at)}` : ""}` : "not solved yet"}</span>
         </button>
         <div className="reading">
           <span className="k">Voltage band</span>
           <span className="v">{yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
-          <span className="n">to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "limits by level"}</span>
+          <span className="n">
+            to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "limits by level"}
+            {vcase ? ` · lowest at ${caseLabel(vcase)}` : ""}
+          </span>
         </div>
         <div className="reading">
           <span className="k">Peak demand</span>

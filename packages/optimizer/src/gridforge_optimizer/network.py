@@ -531,15 +531,29 @@ def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
                           f"{_CASE_LABEL.get(case, 'peak export')}, above its {limit:.0f} MW export limit")
 
 
+def _by_case(groups: dict[str, tuple[pd.Series, pd.Series]]) -> dict[str, dict[str, list[int]]]:
+    """Each study case's elements whose envelope figure it set: case -> {lines, trafos, buses} (ids with a figure).
+    What lets a reading say "93% at summer minimum" instead of "93% (worst case)"."""
+    out: dict[str, dict[str, list[int]]] = {}
+    for kind, (case_of, values) in groups.items():
+        for i, c in case_of.items():
+            v = values.get(i)
+            if v == v:  # a figure, not NaN
+                out.setdefault(str(c), {}).setdefault(kind, []).append(int(i))
+    return out
+
+
 def feasibility(net) -> tuple[bool, Reason | None, dict]:
     """Run power flow in every study case; check the statutory voltage band of every bus, line and
     transformer thermal limits, and the GSP export boundary.
 
     Returns (ok, reason_if_not_ok, metrics). Afterwards net.res_line/res_trafo loading and
     net.res_bus voltage hold the worst-case ENVELOPE across cases (highest loading; the voltage
-    furthest from 1.0 pu), so the per-element heat/violation helpers below report the binding case.
+    furthest from 1.0 pu), so the per-element heat/violation helpers below report the binding case;
+    `metrics["envelope_case"]` says which case set each element's figure, `metrics["export_case"]` the export's.
     """
     env_vm = env_line = env_trafo = None
+    case_vm = case_line = case_trafo = None  # which study case set each element's envelope figure
     reason: Reason | None = None
     gsp_export = gsp_import = 0.0
     export_case = binding_case = None
@@ -558,10 +572,14 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
                 binding_case = case
         if env_vm is None:
             env_vm, env_line, env_trafo = vm, line_pct, trafo_pct
+            case_vm, case_line, case_trafo = (pd.Series(case, index=s.index, dtype=object) for s in (vm, line_pct, trafo_pct))
         else:
-            env_vm = env_vm.where((env_vm - 1.0).abs() >= (vm - 1.0).abs(), vm)
-            env_line = pd.concat([env_line, line_pct], axis=1).max(axis=1)  # NaN-safe max
-            env_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1)
+            keep = (env_vm - 1.0).abs() >= (vm - 1.0).abs()
+            env_vm, case_vm = env_vm.where(keep, vm), case_vm.where(keep, case)
+            keep = (env_line >= line_pct) | line_pct.isna()
+            env_line, case_line = pd.concat([env_line, line_pct], axis=1).max(axis=1), case_line.where(keep, case)  # NaN-safe max
+            keep = (env_trafo >= trafo_pct) | trafo_pct.isna()
+            env_trafo, case_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1), case_trafo.where(keep, case)
 
     if reason is None:  # local limits hold — now the boundary, at its worst export case
         reason = _gsp_reason(net, gsp_export, export_case)
@@ -577,6 +595,8 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
         "gsp_import_mw": round(gsp_import, 1),
         "gsp_limit_mw": gsp_export_limit(net),
         "binding_case": binding_case,
+        "export_case": export_case,
+        "envelope_case": _by_case({"lines": (case_line, env_line), "trafos": (case_trafo, env_trafo), "buses": (case_vm, env_vm)}),
     }
     return reason is None, reason, metrics
 
@@ -607,6 +627,8 @@ def snapshot(net, m: dict) -> dict:
         gsp_export_mw=m.get("gsp_export_mw", 0.0),
         gsp_import_mw=m.get("gsp_import_mw", 0.0),
         gsp_limit_mw=m.get("gsp_limit_mw"),
+        gsp_case=m.get("export_case"),
+        envelope_case=m.get("envelope_case", {}),
     )
 
 

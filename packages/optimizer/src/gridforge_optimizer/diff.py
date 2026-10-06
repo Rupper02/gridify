@@ -120,6 +120,10 @@ class YearDelta(BaseModel):
     n1_findings_base: int = 0
     n1_findings_head: int = 0
     n1_findings_delta: int = 0
+    # outages with no credible post-fault steady state (network.N1_COLLAPSE_VM_PU): one finding each, however many
+    # elements the collapsed voltages take with them, so the counts above understate them
+    n1_collapse_base: int = 0
+    n1_collapse_head: int = 0
     n1_new: list[dict] = []  # head's N-1 findings absent on base (capped at _TOP_N1)
     n1_cleared: list[dict] = []  # base's N-1 findings head no longer has (capped at _TOP_N1)
     newly_overloaded_line_ids: list[int] = []
@@ -327,6 +331,8 @@ def diff_year(base: YearResult, head: YearResult) -> YearDelta:
         n1_findings_base=len(base.n1_violations),
         n1_findings_head=len(head.n1_violations),
         n1_findings_delta=len(head.n1_violations) - len(base.n1_violations),
+        n1_collapse_base=sum(1 for v in base.n1_violations if v.get("type") == "collapse"),
+        n1_collapse_head=sum(1 for v in head.n1_violations if v.get("type") == "collapse"),
         n1_new=[h_n1[k] for k in sorted(h_n1.keys() - b_n1.keys(), key=str)][:_TOP_N1],
         n1_cleared=[b_n1[k] for k in sorted(b_n1.keys() - h_n1.keys(), key=str)][:_TOP_N1],
         newly_overloaded_line_ids=sorted(h_over - b_over),

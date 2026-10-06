@@ -1,7 +1,7 @@
 // Pure view helpers: everything here is a function of API data + UI state, with no side effects,
 // so it is unit-testable without a browser or a map.
 
-import { BRANCH_HUES, C, LENS, MAIN_HUE, ORDER, ST, fmtMw, profileLabel, techLabel } from "../theme";
+import { BRANCH_HUES, C, LENS, MAIN_HUE, ORDER, ST, caseLabel, fmtMw, profileLabel, techLabel } from "../theme";
 import { midpoint } from "./placement";
 import { type Plan, lensOf, statusTitle } from "./plan";
 import type {
@@ -313,6 +313,27 @@ export interface WorstElement {
   pct: number;
   name: string;
   sel: ElementSel;
+  at: string | null; // the study case its figure comes from (null when the result does not say)
+}
+
+/** The study case an element's worst-of-cases figure comes from in a year (null when the result does not say). */
+export function caseOf(yr: YearResult | null, kind: "lines" | "trafos" | "buses", id: number): string | null {
+  for (const [c, ids] of Object.entries(yr?.envelope_case ?? {})) if (ids[kind]?.includes(id)) return c;
+  return null;
+}
+
+/** The study case the year's lowest voltage comes from. */
+export function voltageCase(yr: YearResult | null): string | null {
+  if (!yr) return null;
+  let bus: number | null = null;
+  let low = Infinity;
+  for (const [id, v] of Object.entries(yr.bus_vm ?? {})) {
+    if (v < low) {
+      low = v;
+      bus = +id;
+    }
+  }
+  return bus == null ? null : caseOf(yr, "buses", bus);
 }
 /** The year's N-1 screen in two counts: the single outages that breach a limit (in any case), and every breach (the
  * screen lists each element an outage breaches as its own finding). */
@@ -348,9 +369,10 @@ export function worstElement(yr: YearResult | null, ix: ModelIndex | null): Wors
   if (!yr || !ix) return null;
   let best: WorstElement | null = null;
   for (const [id, v] of Object.entries(yr.line_loading ?? {}))
-    if (!best || v > best.pct) best = { pct: v, name: lineName(ix, +id), sel: { kind: "line", id: +id } };
+    if (!best || v > best.pct) best = { pct: v, name: lineName(ix, +id), sel: { kind: "line", id: +id }, at: null };
   for (const [id, v] of Object.entries(yr.trafo_loading ?? {}))
-    if (!best || v > best.pct) best = { pct: v, name: trafoName(ix, +id), sel: { kind: "trafo", id: +id } };
+    if (!best || v > best.pct) best = { pct: v, name: trafoName(ix, +id), sel: { kind: "trafo", id: +id }, at: null };
+  if (best) best.at = caseOf(yr, best.sel.kind === "line" ? "lines" : "trafos", Number(best.sel.id));
   return best;
 }
 
@@ -382,12 +404,13 @@ export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | nu
     const l = ix.line.get(sel.id);
     if (!l) return null;
     const pct = yr?.line_loading?.[sel.id] ?? null;
+    const at = caseOf(yr, "lines", sel.id);
     return {
       name: lineName(ix, sel.id),
       short: lineShort(ix, sel.id),
       kindLabel: `Circuit · ${+l.voltage_kv} kV`,
       rating: `${fmtMw(lineMva(l))} MVA`,
-      loadLabel: `Loading in ${year}`,
+      loadLabel: `Loading in ${year}${at ? ` · ${caseLabel(at)}` : ""}`,
       load: pct == null ? "–" : `${Math.round(pct)}%`,
       loadPct: pct,
       ll: midpoint(l),
@@ -397,12 +420,13 @@ export function elementInfo(sel: ElementSel, ix: ModelIndex, yr: YearResult | nu
     const t = ix.trafo.get(sel.id);
     if (!t) return null;
     const pct = yr?.trafo_loading?.[sel.id] ?? null;
+    const at = caseOf(yr, "trafos", sel.id);
     return {
       name: trafoName(ix, sel.id),
       short: `${trafoSub(t).slice(0, 8)} T${t.trafo_id}`,
       kindLabel: `Transformer · ${trafoRatio(t)}`,
       rating: `${fmtMw(t.sn_mva)} MVA`,
-      loadLabel: `Loading in ${year}`,
+      loadLabel: `Loading in ${year}${at ? ` · ${caseLabel(at)}` : ""}`,
       load: pct == null ? "–" : `${Math.round(pct)}%`,
       loadPct: pct,
       ll: [t.hv_lon, t.hv_lat],

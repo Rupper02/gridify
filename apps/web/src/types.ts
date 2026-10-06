@@ -209,6 +209,9 @@ export interface PhaseResult {
   n1_cases: string[];
   n1_screened: number;
   n1_violations: N1Violation[];
+  /** Every figure above is the worst of the study cases: which case set each element's (case -> ids), and the export's. */
+  envelope_case?: Record<string, { lines?: number[]; trafos?: number[]; buses?: number[] }>;
+  gsp_case?: string | null;
 }
 
 /** What one planned outage does to its year's network (engine: network.study_outage). */
@@ -522,6 +525,9 @@ export interface YearDelta {
   n1_findings_base: number;
   n1_findings_head: number;
   n1_findings_delta: number;
+  /** Outages with no credible post-fault steady state: one finding each, so the counts above understate them. */
+  n1_collapse_base?: number;
+  n1_collapse_head?: number;
   n1_new: N1Finding[];
   n1_cleared: N1Finding[];
   newly_overloaded_line_ids: number[];
