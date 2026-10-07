@@ -47,7 +47,7 @@ def _phase_net(cand_by_id, params, base, phase_key, reinf, exclude: str | None =
     """A phase net grown + reinforced, with everything the base run already connected replayed in
     (except `exclude`, a project about to be probed on its own)."""
     projects = [c for rid in base.phases[phase_key].accepted if rid != exclude and (c := cand_by_id.get(rid)) is not None]
-    return plan_net(cand_by_id.net_factory, params, getattr(params, f"growth_{phase_key}"), int(phase_key), reinf, projects)
+    return plan_net(cand_by_id.net_factory, params, int(phase_key), reinf, projects)
 
 
 def phase_net(candidates, params, base, phase_key, *, net_factory: NetFactory = build_base_net, exclude: str | None = None):

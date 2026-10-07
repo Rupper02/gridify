@@ -11,6 +11,7 @@ import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
 import { GSP_NEAR_LIMIT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
+import { flatSummerNote } from "../lib/limits";
 import { assumptionGroups, assumptionText } from "../lib/projects";
 import { runButton } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
@@ -32,6 +33,7 @@ const HINTS = {
   voltage: "The lowest and highest busbar voltages, in per unit of nominal (1.000 = nominal). Each voltage level has a statutory band it must stay inside (GB: ±10% at 132 kV, ±6% below); outside it, customers' equipment is at risk and a connection that causes it is refused.",
   n1: "The security test: every line and transformer on the 132 kV backbone is taken out one at a time, and the network must still carry its load within limits. The figure counts the single outages, of all those studied, that would overload something or cut off demand. Reported for the engineer; a generation connection is non-firm under an outage by default, so it does not by itself refuse one.",
   alerts: "Demand groups (substations) checked against their firm capacity and security of supply (Engineering Recommendation P2/8): a warning when a group's demand comes close to what it can be supplied with one transformer out, a breach when it is over.",
+  demand: "Firm capacity minus this year's peak demand at the tightest demand group: the demand headroom a DNO publishes per substation. Firm capacity is what the substation can still supply with its largest transformer out (P2/8). Negative means the group's forecast peak already exceeds it.",
 };
 
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
@@ -188,7 +190,7 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           onClick={() => actions.showLimits()}
           disabled={!worst}
         >
-          <span className="k">Binding element <Hint tip={HINTS.binding} note={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}` : ""} /></span>
+          <span className="k">Binding element <Hint tip={HINTS.binding} note={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}${binding && flatSummerNote(binding) ? `. ${flatSummerNote(binding)}` : ""}` : ""} /></span>
           <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
             {!worst ? "–" : room != null ? `${room} MW room` : `${Math.round(worst.pct)}%`}
           </span>
@@ -211,11 +213,33 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           </span>
           <span className="n">{yr && !yr.n1_screened ? "not in scope" : "outages breach a limit"}</span>
         </button>
+        {yr?.regions && <DemandHeadroom planner={planner} />}
         {yr?.alerts && <CustomerAlerts planner={planner} />}
       </div>
       )}
       {note && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
     </>
+  );
+}
+
+/** The year's demand headroom: firm capacity less the year's peak at the tightest demand group with a published firm
+ * capacity (the DNO's demand-headroom reading); opens the Demand layer on that group. */
+function DemandHeadroom({ planner }: { planner: LeftCardsPlanner }) {
+  const { actions, derived } = planner;
+  const groups = (derived.yr?.regions ?? []).filter((r) => r.firm_mw > 0);
+  if (!groups.length) return null;
+  const tight = groups.reduce((a, r) => (r.headroom_mw < a.headroom_mw ? r : a));
+  const share = tight.headroom_mw / tight.firm_mw;
+  const open = () => {
+    actions.setLayer("demand");
+    actions.focusSel({ kind: "region", id: tight.region_id }, ZOOM_REGION);
+  };
+  return (
+    <button className="reading reading-btn" onClick={open}>
+      <span className="k">Demand headroom <Hint tip={HINTS.demand} note={`${tight.name}: firm ${fmtMw(tight.firm_mw)} MW, peak ${fmtMw(tight.demand_mw)} MW in ${derived.yr?.year}. Click: the group on the map`} /></span>
+      <span className="v" style={{ color: tight.headroom_mw < 0 ? C.red : share < 0.1 ? C.amber : C.ink }}>{fmtMw(tight.headroom_mw)} MW</span>
+      <span className="n">{tight.name}</span>
+    </button>
   );
 }
 

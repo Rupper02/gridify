@@ -45,7 +45,10 @@ export function LimitsTab({ planner }: { planner: LimitsTabPlanner }) {
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ fontSize: 13, fontWeight: 600 }}>What limits {where}</span>
         {l ? (
-          <span className="mono" style={{ fontSize: 11.5, color: C.mute, lineHeight: 1.45 }}>{summaryLine(l)}</span>
+          <>
+            <span style={{ fontSize: 12, color: C.ink2, lineHeight: 1.45 }}>{l.character.text}</span>
+            <span className="mono" style={{ fontSize: 11.5, color: C.mute, lineHeight: 1.45 }}>{summaryLine(l)}</span>
+          </>
         ) : (
           <span style={{ fontSize: 12, color: C.mute, lineHeight: 1.45 }}>
             The engine's own reading of the last run: what binds, where, in which case and year, what it holds back, and what it would take.

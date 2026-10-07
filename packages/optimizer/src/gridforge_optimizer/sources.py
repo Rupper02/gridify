@@ -45,6 +45,15 @@ from .types import GridModel, ImportMeta, ModelAssumption, ValidationReport
 IMPORTER_VERSION = "3"  # bump when normalise_net changes what an imported net looks like (it is in the fingerprint)
 
 
+class Pathway(NamedTuple):
+    """One demand pathway a grid plans on: its network-wide multiplier per plan year, its label, where it comes from."""
+
+    curve: dict[int, float]
+    label: str
+    source: str
+    cited: bool  # a published or named source, not a bare operator entry
+
+
 @runtime_checkable
 class GridSource(Protocol):
     """A grid the engine can plan on. Implementations must be substitutable: the engine, the API and
@@ -59,7 +68,7 @@ class GridSource(Protocol):
     def candidates(self) -> list[dict]: ...  # the registry of optional projects (may be empty)
     def boundary(self) -> dict | None: ...  # the GSP boundary card, or None when the source models none
     def fingerprint(self) -> str: ...  # the content identity results are cached under
-    def forecasts(self) -> dict[str, dict[int, float]] | None: ...  # the grid's own demand pathways; None: the FES pathways
+    def forecasts(self) -> dict[str, Pathway] | None: ...  # the grid's demand pathways by FORECASTS id; None: the FES anchors as they stand
     def assumptions(self) -> list[ModelAssumption]: ...
     def capabilities(self) -> dict: ...  # {boundary, regions, registry, editions, summer_case, crs}
 
@@ -568,8 +577,9 @@ class NgedSource:
     def capabilities(self) -> dict:
         return {"boundary": True, "regions": True, "registry": True, "editions": True, "summer_case": True, "crs": "wgs84"}
 
-    def forecasts(self) -> None:
-        return None  # NGED plans on the FES pathways (config.FORECASTS)
+    def forecasts(self) -> dict[str, Pathway] | None:
+        own = {fid: Pathway(curve, FORECASTS[fid]["label"], self._nged.DFES_SOURCE, True) for fid, curve in self._nged.dfes_pathways(self.tables).items()}
+        return own or None  # no DFES rows bundled: the FES anchors as they stand
 
     @property
     def cgmes_meta(self):
@@ -612,8 +622,12 @@ class NetBackedSource:
     def fingerprint(self) -> str:
         return self._fingerprint
 
-    def forecasts(self) -> dict[str, dict[int, float]] | None:
-        return self._net.get("forecasts")  # entered at import (apply_import_meta)
+    def forecasts(self) -> dict[str, Pathway] | None:
+        own = self._net.get("forecasts")  # entered at import (apply_import_meta)
+        if own is None:
+            return None
+        cited = (self.meta.forecast_source or "").strip() if self.meta is not None else ""
+        return {fid: Pathway(curve, f"{FORECASTS[fid]['short']} (entered at import)", cited or "entered at import", bool(cited)) for fid, curve in own.items()}
 
     def assumptions(self) -> list[ModelAssumption]:
         return list(self._assumptions)

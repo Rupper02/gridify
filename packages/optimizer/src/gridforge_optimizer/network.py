@@ -21,14 +21,7 @@ from .config import (
     OLTC_DEADBAND_PU,
     OLTC_MAX_PASSES,
     OLTC_SETPOINT_PU,
-    GROWTH_BETA_INDUSTRIAL,
-    GROWTH_BETA_RESIDENTIAL,
-    GROWTH_EDGE_TILT,
-    GROWTH_HETEROGENEITY,
-    GROWTH_HOTSPOT_MULT,
-    GROWTH_HOTSPOT_QUANTILE,
     LINE_LOADING_MAX_PCT,
-    LOAD_TYPE_RESIDENTIAL,
     N1_ISLAND_MIN_MW,
     N1_MIN_KV,
     OUTAGE_DERATE_FACTOR,
@@ -37,7 +30,6 @@ from .config import (
     VOLTAGE_BANDS,
 )
 from .dispatch import FLEET_TABLES, _ensure_fleet_columns, merit_order  # noqa: F401  (re-exported)
-from .geometry import h01
 from .types import Outage, Reason, Reinforcement
 
 
@@ -62,18 +54,6 @@ def apply_growth(net, factor) -> None:
         net.load["scaling"] = net.load["scaling"] * net.load.index.map(s).astype(float)
 
 
-def _feeder_hops(net) -> tuple[dict[int, int], int]:
-    """Electrical hop-distance of every bus from the nearest feeder head (HV/MV trafo LV side)."""
-    graph = top.create_nxgraph(net)
-    sources = [int(b) for b in net.trafo["lv_bus"].unique() if int(b) in graph]
-    if not sources:
-        return {}, 1
-    # hop count: every branch weighs 1 (networkx has no unweighted multi-source BFS)
-    dist = nx.multi_source_dijkstra_path_length(graph, set(sources), weight=lambda u, v, d: 1)
-    d_max = max(dist.values()) if dist else 1
-    return {int(b): int(d) for b, d in dist.items()}, max(d_max, 1)
-
-
 def interpolate_growth_for_year(year: int, growth_2030: float, growth_2035: float,
                                 base_year: int = PLAN_START_YEAR) -> float:
     """The demand multiplier for one year, linear between the plan's anchors: 1.0 in `base_year`,
@@ -88,58 +68,42 @@ def interpolate_growth_for_year(year: int, growth_2030: float, growth_2035: floa
 
 
 def demand_multiplier(params, year: int) -> float:
-    """The peak-demand multiplier for one plan year: an imported grid's entered forecast as entered, otherwise
-    linear between the pathway's 2030 and 2035 anchors (interpolate_growth_for_year)."""
+    """The uniform peak-demand multiplier for one plan year: an imported grid's entered forecast as entered, otherwise
+    linear between the `custom` anchors (interpolate_growth_for_year). A network with published per-load curves grows
+    on them instead (grow_for)."""
     if params.curve:
         return 1.0 if year <= PLAN_START_YEAR else float(params.curve[min(year, max(params.curve))])
     return interpolate_growth_for_year(year, params.growth_2030, params.growth_2035)
 
 
-def grow_for(net, params, m: float, horizon: int) -> None:
-    """Grow a study net's demand by `m` for a run: uniformly on an entered forecast (a grid's forecast says how much,
-    not where), by the FES pathway's per-bus shape otherwise (grow_demand)."""
-    if params.curve:
+def grow_for(net, params, year: int) -> float:
+    """Grow a study net's demand to `year` for a run and return the effective multiplier (load-weighted), stamped on
+    the net as `net["demand_growth"]`. Per load where the network carries published curves (`net.load["growth_curves"]`:
+    the built-in grid's DFES projection per primary, or its LTDS five-year forecast where no supply area matches);
+    uniformly otherwise, since an entered forecast says how much demand grows, not where, and `custom` is a pair of
+    anchors. Only demand grows: no generation is pre-loaded, anything not connected today enters as a queue project."""
+    if "growth_curves" not in net.load or params.scenario == "custom":
+        m = demand_multiplier(params, year)
         apply_growth(net, m)
-    else:
-        grow_demand(net, m, params.scenario, horizon)
+        net["demand_growth"] = round(m, 4)
+        return m
+    f = per_load_growth(net, params.scenario, year)
+    apply_growth(net, f)
+    p = net.load["p_mw"].astype(float)
+    m = float((p * f.reindex(p.index).fillna(1.0)).sum() / p.sum()) if float(p.sum()) > 0 else 1.0
+    net["demand_growth"] = round(m, 4)
+    return m
 
 
-def grow_demand(net, m: float, scenario: str, horizon: int) -> None:
-    """Apply demand growth: per-bus (DFES pathway) unless scenario is 'custom' (uniform).
-    Only demand grows here; no generation is pre-loaded: anything not connected today enters the
-    study only as a queue project."""
-    if scenario and scenario != "custom":
-        apply_growth(net, per_bus_growth(net, m, scenario, horizon))
-    else:
-        apply_growth(net, m)
-
-
-def per_bus_growth(net, m: float, scenario: str, horizon: int) -> pd.Series:
-    """Per-load growth factors whose load-weighted mean equals the scenario multiplier `m`.
-
-    Shapes demand growth by load type (residential vs industrial), a seeded per-bus
-    heterogeneity, distance to the feeder edge, and ~20% adoption hotspots -- so the
-    feeder TOTAL grows by exactly `m` while individual buses diverge realistically.
-    Fully deterministic in (scenario, horizon, network structure).
-    """
-    load = net.load
-    hops, d_max = _feeder_hops(net)
-
-    weights: dict[int, float] = {}
-    for idx, row in load.iterrows():
-        bus = int(row["bus"])
-        beta = GROWTH_BETA_RESIDENTIAL if str(row.get("type", "")) == LOAD_TYPE_RESIDENTIAL else GROWTH_BETA_INDUSTRIAL
-        h = h01(f"{scenario}:{horizon}:{bus}")
-        d = hops.get(bus, d_max // 2)
-        dist_term = 1.0 + GROWTH_EDGE_TILT * (d / d_max - 0.5)
-        hot = GROWTH_HOTSPOT_MULT if h > GROWTH_HOTSPOT_QUANTILE else 1.0
-        weights[idx] = beta * (1.0 + GROWTH_HETEROGENEITY * (2.0 * h - 1.0)) * dist_term * hot
-
-    w = pd.Series(weights)
-    p = load["p_mw"].reindex(w.index).astype(float)
-    wbar = float((w * p).sum() / p.sum()) if float(p.sum()) > 0 else float(w.mean())
-    g = m - 1.0
-    return 1.0 + g * (w / wbar)
+def per_load_growth(net, scenario: str, year: int) -> pd.Series:
+    """Each load's multiplier for `year` from its published curves: the pathway's own curve when the load has one, its
+    LTDS forecast (`ltds`) otherwise; a year past a curve's end holds its last value, one before its first is 1.0."""
+    out: dict[int, float] = {}
+    for idx, curves in net.load["growth_curves"].items():
+        c = {int(k): float(v) for k, v in ((curves or {}).get(scenario) or (curves or {}).get("ltds") or {}).items()}
+        ys = [y for y in c if y <= year]
+        out[int(idx)] = c[max(ys)] if ys else 1.0
+    return pd.Series(out)
 
 
 # --- voltage limits ------------------------------------------------------------------------------
@@ -601,11 +565,11 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
     return reason is None, reason, metrics
 
 
-def plan_net(net_factory, params, growth: float, horizon: int, reinforcements=(), projects=()):
-    """A plan's network: a fresh base grown to `horizon`, the simulated reinforcements applied, then `projects`
+def plan_net(net_factory, params, year: int, reinforcements=(), projects=()):
+    """A plan's network: a fresh base grown to `year`, the simulated reinforcements applied, then `projects`
     connected as their offers run them. The one way the greedy phases, the levers and the plan years build it."""
     net = net_factory()
-    grow_for(net, params, growth, horizon)
+    grow_for(net, params, year)
     for r in reinforcements:
         apply_reinforcement(net, r)
     for c in projects:

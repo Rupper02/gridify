@@ -29,7 +29,7 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_reg
 - Bundled snapshots live in `packages/optimizer/src/gridforge_optimizer/data/nged/` (LTDS tables, `ecr.json`,
   `coords.csv`) and are the pinned edition the engine runs on.
 - Live fetches are Dagster assets in `defs/registers.py` (ECR via CKAN, OSM via Overpass) that store editions in the
-  warehouse and diff them; `pin_ecr_edition` / `pin_osm_coords` promote the latest edition into the bundled files.
+  warehouse and diff them; `pin_ecr_edition` / `pin_osm_coords` promote the latest edition into the bundled files; `pin_nged_published` fetches the LTDS fault-level table and the DFES projections straight into them.
 - After pinning: re-materialise `ltds_tables*`, review the git diff of the bundled file, commit.
 - Every builder entry point in `gridforge_optimizer.nged` takes `tables=` (and `edition=` current/previous); the pipeline
   passes its bronze tables through so lineage is real.

@@ -33,7 +33,19 @@ import pandapower as pp
 import pandas as pd
 
 from .cim import CgmesMeta
-from .config import GSP_INFEED_VM_PU, N1_MIN_KV, PLAN_END_YEAR, PLAN_START_YEAR, OLTC_DEADBAND_PU, OLTC_SETPOINT_PU, OLTC_TAP_STEP_PERCENT
+from .config import (
+    DFES_BASE_YEAR,
+    FORECASTS,
+    GSP_INFEED_VM_PU,
+    LTDS_FORECAST_FIRST_YEAR,
+    N1_MIN_KV,
+    OLTC_DEADBAND_PU,
+    OLTC_SETPOINT_PU,
+    OLTC_TAP_STEP_PERCENT,
+    PLAN_END_YEAR,
+    PLAN_START_YEAR,
+    PLAN_YEARS,
+)
 from .geometry import h01 as _h01
 from .geometry import interpolate_positions
 from .gridmodel import model_from_net
@@ -41,7 +53,7 @@ from .types import ModelAssumption
 
 _DATA = Path(__file__).resolve().parent / "data" / "nged"
 BUNDLED_DATA_DIR = _DATA  # where the pipeline's "pin" assets write a promoted edition
-TABLE_NAMES = ("circuit", "t2a", "demand", "node", "gen", "ecr")
+TABLE_NAMES = ("circuit", "t2a", "demand", "node", "gen", "ecr", "fault", "dfes")
 # raw rows per table, as fetched/bundled; `coords` (optional) = [{name, latitude, longitude, source}]
 LtdsTables = dict[str, list[dict]]
 EDITION_CURRENT = "current"  # what exists today: every row NGED has not marked Removed
@@ -77,6 +89,11 @@ GSP_BOUNDARY = {
 # flow up through our SGTs, so — like every project that doesn't exist today — they're OPTIONAL
 # registry projects (see tec_candidates), never pre-loaded. The 400 kV ones bypass this network
 # entirely but compete for the same transmission capacity out of Lincolnshire: context only.
+LTDS_GSP_GROUP = "Bicker Fen 132kV"  # the LTDS "GSP Group" of every row in the bundled tables
+# NGED Connected Data Portal resources the pipeline's `pin_nged_published` fetches into the bundled snapshot
+LTDS_FAULT_RESOURCE_ID = "3bd0243c-71dd-4cdd-9ca9-57e6eb79d61f"  # LTDS Table 4 Fault Level (system impedance, make/break currents and ratings per node)
+DFES_POWER_RESOURCE_ID = "7686c0a8-bde8-4a4b-8f26-50a3317882ee"  # DFES 2025 Power Projections: winter peak MW per Electricity Supply Area, scenario, year
+DFES_SOURCE = "NGED Distribution Future Energy Scenarios 2025, winter-peak power projections per Electricity Supply Area (Connected Data Portal)"
 TRANSMISSION_PROJECTS = [
     {"name": "Viking Link (HVDC interconnector to Denmark)", "mw": 1500, "type": "Interconnector",
      "status": "Built", "year": 2023, "at": "400kv", "source": "NESO Interconnector Register"},
@@ -254,6 +271,7 @@ _ASSUMPTION_TEXT = {
     "tap_step_assumed": f"LTDS gives the tap range but not the step: {OLTC_TAP_STEP_PERCENT:g}% per tap assumed, regulated towards {OLTC_SETPOINT_PU:g} pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
     "pf_default": f"LTDS left the power factor blank: {_PF_DEFAULT:g} lagging assumed (nged._pf)",
+    "forecast_ltds_only": f"No DFES supply area matches this connection: its LTDS five-year maximum-demand forecast applies (Forecast Year 1 = {LTDS_FORECAST_FIRST_YEAR}), then holds",
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
     "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
     "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (the N-1 screen reads that as it is; NGED publishes the connectivity, not the running arrangement)",
@@ -481,7 +499,75 @@ def _coincidence(dem, aggregates: set[str], member: dict[str, dict]) -> tuple[di
     return bsp, (GSP_PEAK_DEMAND_MW / total if total > 0 else 1.0)
 
 
-def _add_loads(net, dem, gb) -> None:
+_ESA_SUFFIX = re.compile(r"\s*(33\s*)?11\s*KV\s*S\s*STN\s*$", re.I)  # "SLEAFORD 11kV S STN", "HORNCASTLE 33 11kV S STN"
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (s or "").upper().replace("ST.", "ST"))
+
+
+def dfes_esa(primary: str, esas) -> str | None:
+    """The DFES Electricity Supply Area a Table 3 primary belongs to: the ESA whose name, less its "33 11kV S STN"
+    suffix, equals the primary's (less a "(T1)" or trailing-voltage suffix), else the one that starts with it when
+    that is unique. None for a connection with no supply area (a customer site, a BSP aggregate)."""
+    base = re.sub(r"\s+\d+$", "", re.sub(r"\s*\([^)]*\)", "", primary or "").strip())
+    key = _norm_name(base)
+    if not key:
+        return None
+    names = {e: _norm_name(_ESA_SUFFIX.sub("", e)) for e in esas}
+    exact = [e for e, n in names.items() if n == key]
+    if exact:
+        return exact[0]
+    starts = [e for e, n in names.items() if n.startswith(key)]
+    return starts[0] if len(starts) == 1 else None
+
+
+def _dfes_index(rows) -> dict[str, dict[str, dict[int, float]]]:
+    """DFES power projections as {ESA: {scenario: {year: MW}}}, winter season only (the peak the LTDS maximum is)."""
+    out: dict[str, dict[str, dict[int, float]]] = {}
+    for r in rows:
+        if str(r.get("season", "Winter")).lower() != "winter":
+            continue
+        mw, year = _num(r.get("MW_total")), _num(r.get("year"))
+        if mw is None or year is None or int(year) < DFES_BASE_YEAR:
+            continue
+        out.setdefault(str(r["ESA"]), {}).setdefault(str(r["scenario"]), {})[int(year)] = float(mw)
+    return out
+
+
+def _growth_curves(d: dict, esa: str | None, dfes: dict) -> dict[str, dict[int, float]]:
+    """A Table 3 row's demand curves, as multipliers on its current maximum: one per FORECASTS pathway from its supply
+    area's DFES projection (ratio to the DFES base year), else its own LTDS five-year forecast under "ltds"."""
+    cur = _num(d.get("Current Year Max Demand"))
+    curves: dict[str, dict[int, float]] = {}
+    if esa:
+        for fid, spec in FORECASTS.items():
+            series = dfes.get(esa, {}).get(spec.get("dfes", ""), {})
+            base = series.get(DFES_BASE_YEAR)
+            if base:
+                curves[fid] = {y: round(mw / base, 5) for y, mw in sorted(series.items())}
+    if not curves and cur:
+        ltds = {LTDS_FORECAST_FIRST_YEAR + k - 1: round(v / cur, 5) for k in range(1, 6) if (v := _num(d.get(f"Forecast Year {k}"))) is not None}
+        if ltds:
+            curves["ltds"] = ltds
+    return curves
+
+
+def dfes_pathways(tables: LtdsTables | None = None) -> dict[str, dict[int, float]]:
+    """The network-wide multiplier per plan year for every DFES pathway the loads carry: the load-weighted mean of the
+    per-load curves (`network.per_load_growth`), so the planner's picker shows what the engine applies."""
+    from .network import per_load_growth
+    net = _ctx(tables)["net"]
+    p = net.load["p_mw"].astype(float)
+    out: dict[str, dict[int, float]] = {}
+    for fid in FORECASTS:
+        if not any(fid in (c or {}) for c in net.load["growth_curves"]):
+            continue
+        out[fid] = {y: round(float((p * per_load_growth(net, fid, y).reindex(p.index).fillna(1.0)).sum() / p.sum()), 4) for y in PLAN_YEARS}
+    return out
+
+
+def _add_loads(net, dem, gb, dfes_rows=()) -> None:
     """LTDS Table 3 demand at the GSP's winter peak, with each load's summer-minimum scaling and the demand
     groups it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
     dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
@@ -500,8 +586,10 @@ def _add_loads(net, dem, gb) -> None:
     region_id = _RegionIds()
     member = _bsp_membership(dem, aggregates, _bsp_groups(dem, aggregates, gb, region_id))
     at_bsp, at_gsp = _coincidence(dem, aggregates, member)
+    dfes = _dfes_index(dfes_rows)
     coincidence: dict[int, float] = {}
     min_scale: dict[int, float | None] = {}
+    growth_curves: dict[int, dict] = {}
     groups: dict[int, dict] = {}
     for d in dem:
         p = _num(d["Current Year Max Demand"])
@@ -520,6 +608,8 @@ def _add_loads(net, dem, gb) -> None:
         f = _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%"))
         name = _demand_group(d)
         firm_mva = float(_num(d.get("Firm Capacity of Substation")) or 0.0)
+        esa = dfes_esa(str(d.get("Primary Substation") or ""), dfes)
+        curves = _growth_curves(d, esa, dfes)
         group = {"region_id": region_id(name), "region": name, "bsp": bsp,
                  "primary": str(d.get("Primary Substation") or "").strip(), "firm_mva": firm_mva,
                  "firm_mw": round(firm_mva * pf, 3), "peak_mw": own,
@@ -532,8 +622,12 @@ def _add_loads(net, dem, gb) -> None:
                 _assume(net, "firm_capacity_unpublished", "load", int(idx))
             min_scale[int(idx)] = (f / 100.0) / k if f else None
             coincidence[int(idx)] = k
+            growth_curves[int(idx)] = curves
             groups[int(idx)] = group
+            if not esa:
+                _assume(net, "forecast_ltds_only", "load", int(idx))
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
+    net.load["growth_curves"] = pd.Series([growth_curves.get(int(i), {}) for i in net.load.index], index=net.load.index, dtype=object)
     net.load["coincidence"] = [coincidence.get(int(i)) for i in net.load.index]
     for col in _LOAD_GROUP_COLS + _LOAD_BSP_COLS:
         net.load[col] = pd.Series([groups.get(int(i), {}).get(col) for i in net.load.index],
@@ -705,7 +799,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
 
     _add_lines(net, circ, gb)
     _add_transformers(net, t2a, gb)
-    _add_loads(net, dem, gb)
+    _add_loads(net, dem, gb, tables.get("dfes", []))
     existing = _add_existing_fleet(net, tables)
     existing += _add_small_embedded(net, tables, 4000)  # ids after Table 5's (EX-3000...)
     slack = _add_gsp_infeed(net)
@@ -754,6 +848,7 @@ PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="tap_target", message=f"Tap changers step {OLTC_TAP_STEP_PERCENT:g}% and regulate towards {OLTC_SETPOINT_PU:g} pu with a {OLTC_DEADBAND_PU:g} pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),
     ModelAssumption(key="dispatch_factors", message="Per-case dispatch is assumed: PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum (config.GENERATION_FACTORS)"),
     ModelAssumption(key="demand_coincidence", message="Winter-peak demand is each LTDS maximum scaled by published coincidence (its BSP's maximum, then NESO's GSP peak); the summer minimum uses the LTDS minimum-demand factor, not grown"),
+    ModelAssumption(key="forecast_basis", message=f"Demand grows per primary on NGED's DFES 2025 winter-peak projections for the pathway chosen, as a ratio to their {DFES_BASE_YEAR} value (the LTDS edition's current year), so every plan year is NGED's own figure for that substation; connections with no supply area follow their LTDS five-year forecast, then hold"),
     ModelAssumption(key="gsp_sign", message="The GSP export limit's direction is assumed: 'export' read as distribution to transmission (NGED does not document the sign)"),
     ModelAssumption(key="firm_capacity_units", message="LTDS Table 3 firm capacity is read as MVA and converted to MW at the row's power factor (the table states no unit)"),
     ModelAssumption(key="fault_levels_unchecked", message="Fault levels are not checked: the published units are undocumented and some breaker ratings sit below the calculated fault current"),

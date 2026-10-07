@@ -29,7 +29,16 @@ import duckdb
 
 from grid_simulator.config import DB_PATH
 from gridforge_optimizer.editions import diff_ecr_editions, ecr_site_key
-from gridforge_optimizer.nged import BUNDLED_DATA_DIR, load_bundled_coords, load_bundled_tables, substation_names
+from gridforge_optimizer.nged import (
+    BUNDLED_DATA_DIR,
+    DFES_POWER_RESOURCE_ID,
+    LTDS_FAULT_RESOURCE_ID,
+    LTDS_GSP_GROUP,
+    dfes_esa,
+    load_bundled_coords,
+    load_bundled_tables,
+    substation_names,
+)
 
 # who is asking, honestly: NGED's portal refuses Python's default agent (403) but serves a named one
 UA = "gridforge/0.2 (grid planning research)"
@@ -224,6 +233,40 @@ def pin_ecr_edition(context: dg.AssetExecutionContext, ecr_editions: str) -> dg.
     dst.write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
     context.log.info("pinned ECR edition %s -> %s (%d rows)", ecr_editions, dst, len(rows))
     return dg.MaterializeResult(metadata={"edition_id": ecr_editions, "rows": len(rows), "path": str(dst)})
+
+
+# ---- the published tables beside the LTDS model: fault levels and the DFES projections ----------------------
+_DFES_COLS = ("ESA", "year", "scenario", "season", "MW_total")
+
+
+@dg.asset(group_name="registers", kinds={"ckan"}, retry_policy=_FETCH_RETRY)
+def pin_nged_published(context: dg.AssetExecutionContext) -> dg.MaterializeResult:
+    """MANUAL: fetch the published tables the engine reads beside the LTDS model and write them into the bundled
+    snapshot: LTDS Table 4 fault levels for the GSP group (`data/nged/fault.json`: system impedance, NGED's make and
+    break currents and the switchgear ratings per node) and the DFES power projections for every primary in Table 3
+    (`data/nged/dfes.json`: winter peak MW per supply area, scenario and year). Review the git diff, re-materialise
+    `ltds_tables*`, commit."""
+    fault = _ckan("datastore_search", resource_id=LTDS_FAULT_RESOURCE_ID, limit=5000, filters=json.dumps({"GSP Group": LTDS_GSP_GROUP}))["records"]
+    fault = [{k: v for k, v in r.items() if k not in ("_id", "rank")} for r in fault]
+    primaries = sorted({re.sub(r"\s*\([^)]*\)", "", str(d.get("Primary Substation") or "")).strip() for d in load_bundled_tables()["demand"]
+                        if d.get("Status") != "Removed"} - {"", "-"})
+    rows: dict[tuple, dict] = {}
+    matched: dict[str, str] = {}
+    for name in primaries:
+        recs = _ckan("datastore_search", resource_id=DFES_POWER_RESOURCE_ID, limit=2000, q=name.split()[0])["records"]
+        esa = dfes_esa(name, {r["ESA"] for r in recs})
+        if esa is None:
+            continue
+        matched[name] = esa
+        for r in recs:
+            if r["ESA"] == esa:
+                rows[(r["ESA"], r["year"], r["scenario"], r["season"])] = {c: r.get(c) for c in _DFES_COLS}
+    dfes = sorted(rows.values(), key=lambda r: (r["ESA"], r["scenario"], r["year"]))
+    (BUNDLED_DATA_DIR / "fault.json").write_text(json.dumps(fault, ensure_ascii=False, indent=0), encoding="utf-8")
+    (BUNDLED_DATA_DIR / "dfes.json").write_text(json.dumps(dfes, ensure_ascii=False, indent=0), encoding="utf-8")
+    context.log.info("pinned %d fault-level rows and %d DFES rows (%d of %d primaries matched a supply area)", len(fault), len(dfes), len(matched), len(primaries))
+    return dg.MaterializeResult(metadata={"fault_rows": len(fault), "dfes_rows": len(dfes), "esas": dg.MetadataValue.json(matched),
+                                          "unmatched": [p for p in primaries if p not in matched], "fetched_at": _now()})
 
 
 # ---- OpenStreetMap substation positions ------------------------------------------------------------

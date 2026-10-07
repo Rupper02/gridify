@@ -36,6 +36,16 @@ export const figureText = (value: number, unit: string): string => (unit === "%"
 /** "132.6% at winter peak in 2031": the worst year's envelope figure and the case that set it. */
 export const worstText = (b: ElementBinding): string => `${figureText(b.worst.value, b.unit)}${b.worst.case ? ` at ${caseLabel(b.worst.case)}` : ""} in ${b.worst.year}`;
 
+/** Why a trajectory is flat: every year's figure set at summer minimum, where demand is measured and not grown, so only
+ * new generation moves it. "" when the figure moves or another case sets some year. */
+export function flatSummerNote(b: ElementBinding): string {
+  const pts = b.trajectory;
+  if (pts.length < 2 || !pts.every((p) => p.case === "summer_min")) return "";
+  const vals = pts.map((p) => p.value);
+  if (Math.max(...vals) - Math.min(...vals) > 0.15) return "";
+  return "Set at summer minimum every year, where minimum demand is a measured figure and is not grown: only new generation moves it.";
+}
+
 /** "breaches from 2031", "near from 2028", or "" when it never comes near. */
 export function fromText(b: ElementBinding): string {
   if (b.first_breach_year != null) return `breaches from ${b.first_breach_year}`;

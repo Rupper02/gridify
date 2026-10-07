@@ -53,7 +53,9 @@ DIGEST = """You write the engineer's note on a run of one electricity network's 
 engine's own reduction of the run: what binds, from which year, in which case, by how many MW, which projects it holds
 back and why, which outages breach it, what changed against the parent plan, how the planned works fare, and the gate.
 Write at most 150 words of GitHub-flavoured markdown for a planning engineer: a one-line lead with the verdict (feasible
-or not, and what limits it), then at most five short bullets with **bold** for the thing each is about, then one line on
+or not, and what limits it) that states the grid's character as the digest's `character` gives it (export-bound: the
+limits bind at summer minimum and new generation moves them; demand-bound: they bind at winter peak and demand growth
+moves them; or both), then at most five short bullets with **bold** for the thing each is about, then one line on
 what to try next, as one of the engine's levers in words. Every figure is copied from the digest as it is written there
 (same rounding, same unit); say nothing the digest does not say; never estimate, rank or compute. Name elements and
 projects as the digest names them; write the study cases as "winter peak" and "summer minimum", never their ids.

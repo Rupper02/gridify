@@ -42,6 +42,7 @@ The **`apps/pipeline`** slice of GridForge: a [Dagster](https://dagster.io) asse
  ecr_register_fetch ──► ecr_editions ──► ecr_changes          job ecr_refresh · schedule monthly (2nd, 06:00 London)
  osm_substations_fetch ──► coords_editions                    job osm_refresh · schedule quarterly
  pin_ecr_edition · pin_osm_coords                              MANUAL: promote an edition into the pinned snapshot
+ pin_nged_published                                            MANUAL: fetch LTDS Table 4 fault levels and the DFES projections into data/nged/{fault,dfes}.json
 ```
 
 The two external registers change on their own clock, so they are fetched on a schedule and stored as **append-only editions** in the warehouse (`ecr_editions` / `ecr_edition_rows`, `coords_editions` / `coords_edition_rows`): one row per fetch whose content differs from the last, with the fetch time, the source's own `last_modified` (CKAN), the resource id, the row count and a content hash as the edition id. The bundled snapshot is seeded as the first edition, so the first live fetch has a baseline. `ecr_changes` diffs the latest two editions site by site (added, withdrawn, connected, capacity or target date changed) and is served at `GET /registry/changes`.

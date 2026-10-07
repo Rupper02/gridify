@@ -112,6 +112,7 @@ class Limits(BaseModel):
     view and the answerer's `limits` tool."""
 
     years: list[int]
+    character: Character
     binding: list[ElementBinding]
     chains: list[Chain]
     clusters: list[Cluster]
@@ -138,6 +139,25 @@ class Headline(BaseModel):
     n1_rows: int
     n1_pairs: int
     n1_collapses: int
+    # the two headroom figures a DNO publishes per substation: generation headroom at the GSP (limit less the plan's
+    # peak export) and demand headroom at the tightest demand group (firm capacity less that year's peak), worst year
+    generation_headroom_mw: float | None = None
+    demand_headroom_mw: float | None = None
+    demand_headroom_group: str | None = None
+    demand_headroom_year: int | None = None
+
+
+class Character(BaseModel):
+    """How the grid works: which planning condition sets its limits. Counted from the binding set (the elements near or
+    over a limit, by the case of their worst year) and the GSP's own case; `text` is the one line the Limits tab and
+    the engineer's note lead with."""
+
+    kind: str  # export-bound | demand-bound | mixed | unconstrained
+    summer: int  # elements near or over a limit whose worst year is set at summer minimum
+    winter: int  # ... at winter peak
+    gsp_binds: bool  # the GSP export comes within NEAR_FRACTION of its limit in some plan year
+    gsp_case: str | None = None
+    text: str
 
 
 class Delta(BaseModel):
@@ -162,6 +182,7 @@ class RunDigest(BaseModel):
     branch: str
     years: list[int]
     headline: Headline
+    character: Character
     queue: dict  # {"connected": n, "deferred": n, "rejected": n}
     binding: list[ElementBinding]
     chains: list[Chain]
@@ -391,13 +412,53 @@ def headline(result: OptimizeResult, years: dict[str, YearResult]) -> Headline:
     p1, p2 = result.phases.get("phase1"), result.phases.get("phase2")
     mw = lambda ph: round(sum(q.rating_mw or 0.0 for q in result.queue if ph and q.request_id in ph.accepted), 1)  # noqa: E731
     gsp = max(ys, key=lambda y: y.gsp_export_mw) if ys else None
+    # the tightest demand group over the plan: the least firm headroom among groups with a published firm capacity
+    tight = min(((r.headroom_mw, r.name, y.year) for y in ys for r in y.regions if r.firm_mw > 0), default=None)
     return Headline(mw_2030=mw(p1), mw_2035=mw(p2), n_connected=by_status["Phase1"] + by_status["Phase2"], n_deferred=by_status["Deferred"],
                     n_rejected=by_status["Rejected"], worst_line_pct=round(worst.worst_line_loading_pct, 1) if worst else 0.0,
                     worst_trafo_pct=round(worst.worst_trafo_loading_pct, 1) if worst else 0.0,
                     min_vm_pu=round(min((y.min_vm_pu for y in ys), default=1.0), 3), max_vm_pu=round(max((y.max_vm_pu for y in ys), default=1.0), 3),
                     worst_year=worst.year if worst else PLAN_YEARS[0], gsp_export_max_mw=round(gsp.gsp_export_mw, 1) if gsp else 0.0,
                     gsp_limit_mw=gsp.gsp_limit_mw if gsp else None, gsp_case=gsp.gsp_case if gsp else None,
-                    years_converged=sum(1 for y in ys if y.converged), n1_rows=rows, n1_pairs=len(pairs), n1_collapses=len(collapses))
+                    years_converged=sum(1 for y in ys if y.converged), n1_rows=rows, n1_pairs=len(pairs), n1_collapses=len(collapses),
+                    generation_headroom_mw=round(gsp.gsp_limit_mw - gsp.gsp_export_mw, 1) if gsp and gsp.gsp_limit_mw else None,
+                    demand_headroom_mw=round(tight[0], 1) if tight else None, demand_headroom_group=tight[1] if tight else None,
+                    demand_headroom_year=tight[2] if tight else None)
+
+
+# the two planning conditions, by the case id the engine stamps on every figure (network.CASE_SPECS)
+_EXPORT_CASE, _DEMAND_CASE = "summer_min", "winter_peak"
+
+
+def character(binding: list[ElementBinding], h: Headline) -> Character:
+    """Which planning condition sets the grid's limits: the binding elements counted by the case of their worst year,
+    plus the GSP when its export comes near its limit. Export-bound when the summer-minimum count dominates (every
+    generator at full output, demand at its measured minimum), demand-bound when winter peak does, mixed between."""
+    binds = [b for b in binding if b.severity != "ok"]
+    summer = sum(1 for b in binds if b.worst.case == _EXPORT_CASE)
+    winter = sum(1 for b in binds if b.worst.case == _DEMAND_CASE)
+    gsp_binds = bool(h.gsp_limit_mw) and h.gsp_export_max_mw >= NEAR_FRACTION * h.gsp_limit_mw
+    s = summer + (1 if gsp_binds and h.gsp_case == _EXPORT_CASE else 0)
+    w = winter + (1 if gsp_binds and h.gsp_case == _DEMAND_CASE else 0)
+    n = len(binds)
+    gsp_part = "the GSP export and " if gsp_binds else ""
+    if s + w == 0:
+        kind, text = "unconstrained", f"No element comes near a limit in any plan year, and the GSP export stays under {NEAR_FRACTION:.0%} of its limit."
+    elif w == 0 or s >= 3 * w:
+        kind = "export-bound"
+        text = (f"Export-bound: {gsp_part}{summer} of {n} elements near or over a limit bind at summer minimum, when every generator is at "
+                f"full output and demand is at its measured minimum" + (f"; {winter} bind at winter peak" if winter else "")
+                + ". Demand growth does not move these figures; new generation does.")
+    elif s == 0 or w >= 3 * s:
+        kind = "demand-bound"
+        text = (f"Demand-bound: {gsp_part if h.gsp_case == _DEMAND_CASE else ''}{winter} of {n} elements near or over a limit bind at winter peak, "
+                f"when demand is grown to the year and solar and wind are at nil" + (f"; {summer} bind at summer minimum" if summer else "")
+                + ". Demand growth moves these figures year by year.")
+    else:
+        kind = "mixed"
+        text = (f"Both conditions bind: {summer} of {n} elements near or over a limit at summer minimum (generation at full output, measured "
+                f"minimum demand), {winter} at winter peak (grown demand, no solar or wind)" + ("; the GSP export comes near its limit" if gsp_binds else "") + ".")
+    return Character(kind=kind, summer=summer, winter=winter, gsp_binds=gsp_binds, gsp_case=h.gsp_case, text=text)
 
 
 def delta(diff, gate: MergeVerdict | None) -> Delta | None:
@@ -424,7 +485,8 @@ def limits(result: OptimizeResult, years: dict[str, YearResult], model: GridMode
     names = element_names(model.buses, model.lines, model.transformers)
     binding = binding_set(result, years, model, ratings)
     ys = list(years.values())
-    return Limits(years=sorted(y.year for y in ys), binding=binding, chains=chains(result, binding, names, options), clusters=clusters(years, names),
+    return Limits(years=sorted(y.year for y in ys), character=character(binding, headline(result, years)), binding=binding,
+                  chains=chains(result, binding, names, options), clusters=clusters(years, names),
                   works=works(years, names), n1_rows=sum(len(y.n1_violations) for y in ys),
                   n1_pairs=len({(v.get("outage_type"), v.get("outage_id"), v.get("case")) for y in ys for v in y.n1_violations}))
 
@@ -438,7 +500,8 @@ def run_digest(branch: str, lim: Limits, result: OptimizeResult, years: dict[str
     """The note writer's input: the headline, the top of the binding set, the deferrals' chains, the biggest clusters, the
     worst works and what changed against the parent. About 2 kB; nothing a model could add to."""
     h = headline(result, years)
-    return RunDigest(branch=branch, years=lim.years, headline=h, queue={"connected": h.n_connected, "deferred": h.n_deferred, "rejected": h.n_rejected},
+    return RunDigest(branch=branch, years=lim.years, headline=h, character=lim.character,
+                     queue={"connected": h.n_connected, "deferred": h.n_deferred, "rejected": h.n_rejected},
                      binding=[b.model_copy(update={"trajectory": [b.worst]}) for b in lim.binding[:TOP_DIGEST]],
                      chains=lim.chains[:TOP_DIGEST], clusters=lim.clusters[:TOP_DIGEST], works=lim.works[:TOP_DIGEST], delta=delta(diff, gate),
                      assumptions=assumptions, not_studied=list(NOT_STUDIED))

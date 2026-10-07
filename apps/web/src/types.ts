@@ -777,8 +777,18 @@ export interface WorkVerdict {
   demand_at_risk_mw: number;
   n1_findings: number | null;
 }
+/** Which planning condition sets the grid's limits, counted from the binding set and the GSP; `text` is the line to lead with. */
+export interface Character {
+  kind: "export-bound" | "demand-bound" | "mixed" | "unconstrained";
+  summer: number;
+  winter: number;
+  gsp_binds: boolean;
+  gsp_case: string | null;
+  text: string;
+}
 export interface Limits {
   years: number[];
+  character: Character;
   binding: ElementBinding[];
   chains: Chain[];
   clusters: Cluster[];

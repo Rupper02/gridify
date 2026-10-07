@@ -50,11 +50,6 @@ def year_order(view_year: int | None, years: Iterable[int] = PLAN_YEARS) -> list
     return seen
 
 
-def _horizon(year: int) -> int:
-    """The planning horizon whose per-bus growth shape a year takes (2030 up to it, 2035 after)."""
-    return 2030 if year <= 2030 else 2035
-
-
 def energisation_years(result: OptimizeResult, scheduled: dict[str, int | None] | None = None) -> dict[str, int]:
     """Each accepted project's year in service: the operator's scheduled year if set, else the
     optimizer's recommendation. Deferred and rejected projects never energise."""
@@ -84,8 +79,7 @@ def evaluate_year(
     """Solve one year of the plan (see the module docstring). `n1` runs the year's own N-1 screen;
     `n1_windows` the screen during that year's works windows (the year's setting when None)."""
     screen_windows = n1 if n1_windows is None else n1_windows
-    growth = demand_multiplier(params, year)
-    net = plan_net(net_factory, params, growth, _horizon(year), reinforcements)
+    net = plan_net(net_factory, params, year, reinforcements)
     apply_works_after(net, outages, year)  # repowered elements, from the year after their window
     energised = []
     for c in candidates:
@@ -100,7 +94,7 @@ def evaluate_year(
     _, intact_reason, m = feasibility(net)  # the intact envelope the map and readings show
     yr = YearResult(
         year=year,
-        growth=round(growth, 4),
+        growth=float(net["demand_growth"]),
         energised=energised,
         accepted=energised,
         converged=intact_reason is None or intact_reason.type != "non_convergent",

@@ -11,7 +11,6 @@ from gridforge_optimizer.network import (
     feasibility,
     inject_sgen,
     line_loadings,
-    per_bus_growth,
     voltage_violation_bus_ids,
 )
 from gridforge_optimizer.readiness import score_from_checklist
@@ -32,24 +31,6 @@ def test_cluster_overload_is_infeasible():
     ok, reason, _ = feasibility(net)
     assert not ok
     assert reason.type in ("voltage", "line", "trafo", "non_convergent")
-
-
-def test_per_bus_growth_preserves_feeder_total():
-    """Spatial growth diverges per bus but the load-weighted mean equals the scenario multiplier."""
-    net = build_base_net()
-    p = net.load["p_mw"].astype(float)
-    for m in (1.10, 1.30, 1.36):
-        f = per_bus_growth(net, m, scenario="ht", horizon=2035)
-        realised = float((f * p).sum() / p.sum())
-        assert abs(realised - m) < 1e-6
-        assert f.max() > f.min()  # genuinely heterogeneous, not uniform
-
-
-def test_per_bus_growth_is_deterministic():
-    net = build_base_net()
-    a = per_bus_growth(net, 1.30, "ht", 2035)
-    b = per_bus_growth(net, 1.30, "ht", 2035)
-    assert a.equals(b)
 
 
 def test_bus_voltages_cover_every_bus_and_in_band_at_base():
@@ -133,11 +114,12 @@ def test_gsp_export_limit_binds_and_a_new_sgt_relieves_it():
 def test_growing_to_a_horizon_adds_no_generation():
     # the base is what exists today; anything not built yet enters only as a queue project —
     # bringing the network to 2035 grows demand but never pre-loads generation
-    from gridforge_optimizer.network import grow_demand
+    from gridforge_optimizer.network import grow_for
+    from gridforge_optimizer.types import OptimizeParams
 
     net = build_base_net()
     n0, p0 = len(net.sgen), float(net.sgen.p_mw.sum())
-    grow_demand(net, 1.35, "ht", 2035)
+    assert grow_for(net, OptimizeParams(), 2035) > 1.0
     assert len(net.sgen) == n0 and float(net.sgen.p_mw.sum()) == pytest.approx(p0)
 
 

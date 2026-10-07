@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import NamedTuple
 
 from .errors import Invalid, NotSolved
+from gridforge_optimizer.sources import Pathway
 from gridforge_optimizer import (
     Limits,
     element_ratings,
@@ -52,10 +53,11 @@ from .schemas import OptimizeRequest
 from .store import ScenarioStore
 
 
-def resolve_params(body: OptimizeRequest, forecasts: dict[str, dict[int, float]] | None = None) -> OptimizeParams:
-    """Resolve a request to concrete OptimizeParams: on a grid with its own forecast (`forecasts`, entered at
-    import) the pathway's multiplier for every plan year; otherwise a named FES pathway's anchors, or the
-    request's own figures ("custom")."""
+def resolve_params(body: OptimizeRequest, forecasts: dict[str, Pathway] | None = None) -> OptimizeParams:
+    """Resolve a request to concrete OptimizeParams: on a grid with its own pathways (`forecasts`: the built-in grid's
+    DFES projections, an import's entered forecast) the pathway's network-wide multiplier for every plan year (the
+    engine grows per load where the network carries curves, `network.grow_for`); otherwise a named FES pathway's
+    anchors, or the request's own figures ("custom")."""
     weights = {
         k: v for k, v in {
             "w_readiness": body.w_readiness, "w_need": body.w_need, "w_strategic": body.w_strategic,
@@ -64,7 +66,7 @@ def resolve_params(body: OptimizeRequest, forecasts: dict[str, dict[int, float]]
     if forecasts is not None:
         if body.scenario not in forecasts:
             raise Invalid(f"this grid's forecast has no '{body.scenario}' pathway; it has {', '.join(forecasts)}")
-        curve = forecasts[body.scenario]
+        curve = forecasts[body.scenario].curve
         return OptimizeParams(growth_2030=curve[2030], growth_2035=curve[2035], scenario=body.scenario, curve=curve, **weights)
     if body.scenario in FORECASTS:
         scenario = body.scenario

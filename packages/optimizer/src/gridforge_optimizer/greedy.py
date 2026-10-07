@@ -29,7 +29,7 @@ from .types import (
     Reinforcement,
 )
 
-_PHASES = [(1, "2030", "growth_2030"), (2, "2035", "growth_2035")]
+_PHASES = [(1, "2030"), (2, "2035")]
 _STATUS = {1: "Phase1", 2: "Phase2"}
 # the year window the grid can actually host each phase's projects: Phase 1 lands by 2030, Phase 2
 # across 2031-2035. The optimizer recommends an energisation year inside this window (nudged by the
@@ -92,9 +92,9 @@ class _Run:
         self.last_reason: dict[str, Reason | None] = {}
         self.worst_line_at_accept: dict[str, float | None] = {}
 
-    def _study_net(self, growth: float, horizon: int, projects=()):
-        """A fresh network grown to `horizon` with the simulated reinforcements applied and `projects` connected."""
-        return plan_net(self.net_factory, self.params, growth, horizon, self.reinforcements, projects)
+    def _study_net(self, year: int, projects=()):
+        """A fresh network grown to `year` with the simulated reinforcements applied and `projects` connected."""
+        return plan_net(self.net_factory, self.params, year, self.reinforcements, projects)
 
     def rank_score(self, c: Candidate) -> float:
         """Weighted blend of readiness, grid need, and strategic fit for this candidate."""
@@ -108,7 +108,7 @@ class _Run:
         """Order the rankable candidates; set aside the rest as rejected."""
         # one winter-peak solve under max growth to read 'need' at every candidate bus: the same physics as
         # every verdict (the case's dispatch, the tap changers settled), not a raw solve with frozen taps
-        need_net = self._study_net(self.params.growth_2035, 2035)
+        need_net = self._study_net(2035)
         solved = _run_case(need_net, "winter_peak", None, None, regulate=True) is not None
         # None: a (small, imported) grid that collapses under the plan's growth is full everywhere
         self.net_bus_ids = {int(b) for b in need_net.bus.index}
@@ -153,11 +153,11 @@ class _Run:
             self.trial_cache[tkey] = (ok, reason, max_line, taps_after)
         return ok, reason, max_line, True
 
-    def run_phase(self, phase_i: int, phase_num: int, phase_key: str, growth_attr: str) -> PhaseResult:
+    def run_phase(self, phase_i: int, phase_num: int, phase_key: str) -> PhaseResult:
         """Trial every not-yet-accepted project at this phase's demand; snapshot the resulting grid."""
         n_phases = len(_PHASES)
         # build the net ONCE per phase; keep accepted generators, trial the rest in place
-        net = self._study_net(getattr(self.params, growth_attr), int(phase_key), self.accepted_order)
+        net = self._study_net(int(phase_key), self.accepted_order)
         settled = False  # taps are regulated by the first real solve of the phase
 
         todo = [c for c in self.ranked if c.request_id not in self.accepted_phase]
@@ -280,8 +280,8 @@ def optimize(
     report("ranking", 0.02)
     run.rank()
     phases = {
-        phase_key: run.run_phase(phase_i, phase_num, phase_key, growth_attr)
-        for phase_i, (phase_num, phase_key, growth_attr) in enumerate(_PHASES)
+        phase_key: run.run_phase(phase_i, phase_num, phase_key)
+        for phase_i, (phase_num, phase_key) in enumerate(_PHASES)
     }
     queue = run.build_queue()
     report("done", 1.0)

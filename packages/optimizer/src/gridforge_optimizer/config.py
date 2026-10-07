@@ -191,19 +191,17 @@ P2_8_CLASSES = (
 # assumption (an early-warning margin), not a figure from P2/8.
 HEADROOM_WARN_FRACTION = 0.10
 
-# --- demand growth (fixed, sourced; multiplier on existing load scaling) ---------------------
-# Peak-demand growth multipliers vs a ~2024 baseline of ~60 GW GB peak (NESO Winter Outlook
-# 2024/25: 59.8 GW ACS). These are FIXED, cited figures — not user-tunable sliders. Growth is
-# a function of (pathway, horizon); the optimizer resolves a scenario id to these multipliers
-# and network.per_bus_growth spreads them per-bus so the feeder total still lands on the figure.
-#
-# Anchor: NESO FES 2025 Holistic Transition, UNDERLYING (pre-flexibility) peak — because network
-# assets are sized to the unmanaged peak, not the flexibility-managed one. GB peak ~60 GW (2024)
-# → 65 GW (2030, x1.08) → 81 GW (2035, x1.35). Note the non-linearity: demand is near-flat to
-# 2030 (~+1.3%/yr) then climbs ~+4%/yr to 2035 as EV + heat-pump electrification hits (those two
-# drive ~93% of the 2035 peak rise) — which is exactly why 2030 and 2035 are modelled separately.
-# Only Holistic Transition is a firmly cited anchor; the spread across the other three pathways is
-# DIRECTIONAL (ordered EE > HT > HE > FB) and should be refined from the FES 2025 data workbook.
+# --- demand growth --------------------------------------------------------------------------------
+# The built-in grid grows per primary substation on NGED's DFES 2025 power projections (winter peak MW per Electricity
+# Supply Area, scenario and year, resource nged.DFES_POWER_RESOURCE_ID), as a ratio to their DFES_BASE_YEAR value: the
+# LTDS edition's current year, so today's demand is the LTDS maximum and each later year is NGED's own projection for
+# that primary (nged._add_loads, network.per_load_growth). Loads with no supply area (customer connections, the BSP
+# aggregates) follow their LTDS five-year forecast ("Forecast Year 1" = LTDS_FORECAST_FIRST_YEAR), then hold. An
+# imported grid grows uniformly on the forecast entered at import (OptimizeParams.curve); the `custom` profile on a pair
+# of anchors (GROWTH_2030 / GROWTH_2035, interpolated). The FORECASTS below name the pathways; `dfes` is the DFES scenario
+# each stands for, and the GB-level anchors are FES 2025's, kept as the `custom` defaults.
+DFES_BASE_YEAR = 2025
+LTDS_FORECAST_FIRST_YEAR = 2026
 GROWTH_2030 = 1.08
 GROWTH_2035 = 1.35
 
@@ -213,6 +211,7 @@ FORECASTS = {
     "ht": {
         "label": "Holistic Transition",
         "short": "Standard",
+        "dfes": "Holistic Transition",
         "description": "FES 2025 central pathway, aligned with Clean Power 2030. Peak ~65 GW (2030) / ~81 GW (2035).",
         "growth_2030": 1.08,
         "growth_2035": 1.35,
@@ -223,6 +222,7 @@ FORECASTS = {
     "ee": {
         "label": "Electric Engagement",
         "short": "High",
+        "dfes": "Electric Engagement",
         "description": "Highest electrification of heat and transport; top-end demand.",
         "growth_2030": 1.10,
         "growth_2035": 1.42,
@@ -233,6 +233,7 @@ FORECASTS = {
     "he": {
         "label": "Hydrogen Evolution",
         "short": "Hydrogen",
+        "dfes": "Hydrogen Evolution",
         "description": "Hydrogen leads heat and transport, so less electricity demand.",
         "growth_2030": 1.07,
         "growth_2035": 1.28,
@@ -243,6 +244,7 @@ FORECASTS = {
     "fb": {
         "label": "Falling Behind",
         "short": "Low",
+        "dfes": "Counterfactual",
         "description": "Slow electrification; the only non-net-zero pathway (FES 2025, ex-'Counterfactual').",
         "growth_2030": 1.04,
         "growth_2035": 1.15,
@@ -265,16 +267,6 @@ HORIZONS = [
     {"year": 2035, "key": "2035", "label": "2035 strategic window", "note": "Strategic-need horizon for the connections reform (TMO4+, Ofgem Apr 2025)."},
 ]
 
-# --- per-bus demand-growth shape (network.per_bus_growth) -------------------
-# A scenario sets the feeder-total multiplier; growth is then spread per bus so the total is
-# preserved while individual buses diverge realistically. These are the shape knobs.
-LOAD_TYPE_RESIDENTIAL = "MV/LV Station"  # pandapower load type: LV network behind a secondary substation
-GROWTH_BETA_RESIDENTIAL = 1.00   # residential/LV load grows fast (EVs + heat pumps)
-GROWTH_BETA_INDUSTRIAL = 0.25    # directly-connected MV industrial load grows slowly
-GROWTH_HETEROGENEITY = 0.60      # amplitude of the seeded per-bus growth spread
-GROWTH_EDGE_TILT = 0.30          # tilt growth toward the far (rural) feeder edge
-GROWTH_HOTSPOT_QUANTILE = 0.80   # buses whose seed exceeds this become adoption hotspots (~top 20%)
-GROWTH_HOTSPOT_MULT = 1.80       # extra growth weight applied to a hotspot bus
 
 # --- ranking weights (readiness + grid need + strategic fit) ---
 W_READINESS = 0.5
