@@ -11,7 +11,7 @@ export function useView({ patch, mapApi }: Core) {
     () => ({
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
       /** Open the Limits tab with its findings ledger unfolded on a group (the tab expands it once, then clears the focus). */
-      showLimits: (focus: FindingsFocus) => patch({ tab: "limits", sideOpen: true, findingsFocus: focus }),
+      showLimits: (focus: FindingsFocus | null = null) => patch({ tab: "limits", sideOpen: true, findingsFocus: focus }),  // no focus: the tab as it stands, binding set first
       clearFindingsFocus: () => patch({ findingsFocus: null }),
       setYear: (year: number) => patch((st) => (st.plan ? { year: clampYear(st.plan, year) } : {})),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),

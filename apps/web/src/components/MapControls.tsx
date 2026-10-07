@@ -29,7 +29,7 @@ export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; 
   const { s, actions, derived } = planner;
   const layers = LAYERS.filter(([k]) => k !== "demand" || derived.caps.regions); // no demand groups, no Demand layer
   return (
-    <div className="layers glass" style={{ top: layout.layers.top, right: layout.layers.right, width: LAYERS_W }}>
+    <div className="layers glass" style={{ top: layout.layers.top, right: layout.layers.right, width: LAYERS_W, maxHeight: `calc(100% - ${layout.layers.top + (layout.showDock ? layout.dockPx + 20 : 14)}px)` }}>
       {layers.map(([k, label, I]) => (
         <button key={k} className={s.layer === k ? "on" : ""} onClick={() => actions.setLayer(k)} aria-pressed={s.layer === k}>
           <I size={14} />

@@ -40,7 +40,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
         <div className="dock-head">
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Connection roadmap</span>
           <span className="ellipsis" style={{ fontSize: 11.5, color: C.mute, minWidth: 0 }}>
-            {s.result ? `${fmtMw(sumMw(p1))} MW by ${plan.phase1} · ${fmtMw(sumMw(p1) + sumMw(p2))} MW by ${plan.phase2} · ${df.length} deferred` : "no run yet"}
+            {s.result ? roadmapHeadline(fmtMw(sumMw(p1)), fmtMw(sumMw(p1) + sumMw(p2)), plan, df.length) : "no run yet"}
           </span>
           <span style={{ marginLeft: "auto", display: "flex", alignItems: "baseline", gap: 7, flex: "none" }}>
             {layout.wide && <span style={{ fontSize: 10.5, color: C.mute2 }}>{derived.run.roadmap}</span>}
@@ -111,7 +111,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
                   aria-pressed={on}
                 >
                   <b style={{ color: on ? C.ink : C.mute }}>{y.y}</b>
-                  {layout.wide && <span>{y.mw ? `${y.mw} MW` : ""}</span>}
+                  {layout.wide && <span>{y.mw && y.mw !== years[years.indexOf(y) - 1]?.mw ? `${y.mw} MW` : ""}</span>}
                 </button>
               </div>
             );
@@ -147,4 +147,11 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
       </div>
     </div>
   );
+}
+
+
+/** "224 MW connected by 2030 · 2 deferred": the second horizon only when it adds anything. */
+function roadmapHeadline(mw1: string, mw2: string, plan: { phase1: number; phase2: number }, deferred: number): string {
+  const by = mw1 === mw2 ? `${mw1} MW connected by ${plan.phase1}` : `${mw1} MW connected by ${plan.phase1} · ${mw2} MW by ${plan.phase2}`;
+  return `${by} · ${deferred} deferred`;
 }

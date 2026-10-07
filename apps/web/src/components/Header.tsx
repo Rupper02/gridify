@@ -48,7 +48,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         <span className="chip-ic"><Globe size={15} weight="bold" /></span>
         <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
           <span className="nm ellipsis" style={{ maxWidth: wide ? 220 : 120 }}>{project?.name ?? "Loading…"}</span>
-          {wide && <span className="sub">{project?.builtin ? "built-in · open data" : project ? "imported" : ""}{s.projects.length > 1 ? ` · ${s.projects.length} projects` : ""}</span>}
+          {wide && s.projects.length > 1 && <span className="sub">{s.projects.length} projects</span>}
         </span>
         <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
       </button>

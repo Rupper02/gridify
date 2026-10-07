@@ -66,7 +66,7 @@ export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layo
             const badge = t.badge(planner);
             return (
               <button key={k} role="tab" aria-selected={on} className={on ? "on" : ""} onClick={() => actions.setTab(k)} title={t.label}>
-                <t.icon size={14} />
+                {(on || !layout.wide) && <t.icon size={14} />} {/* wide: the label names an inactive tab, the icon marks the open one */}
                 {(layout.wide || on) && t.label}
                 {badge && <span className="badge">{badge}</span>}
               </button>

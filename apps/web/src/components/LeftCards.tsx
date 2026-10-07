@@ -1,21 +1,24 @@
-// Top-left: the result stamp (which profile the shown result was solved on, how many years are in, whether it is out
-// of date, and a run that failed or stopped, with a Retry) and the readings for the selected year. Below 1100px wide
-// they collapse into one pill.
+// Top-left: one card. A stamp line (when the shown result was solved and on which profile, or where the run stands),
+// the boxes that earn their space only when something is wrong (out of date, a run that failed or stopped, the grid
+// not loaded), then five readings for the selected year, each a figure with one label and a click-through: the GSP
+// export against its limit, the binding element with the MW of room left, the voltage range against the band, the
+// N-1 outages that breach, the customer alerts. Below 1100px wide it collapses into one pill.
 
 import { Info, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
 import { alertSummary } from "../lib/demand";
-import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
+import { GSP_NEAR_LIMIT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
 import { runButton } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
+import type { ElementBinding } from "../types";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "result" | "resultAt" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
+  "assumptions" | "boundary" | "limits" | "model" | "modelError" | "modelLoading" | "plan" | "result" | "resultAt" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
   "focusSel" | "retryLoad" | "run" | "setLayer" | "showLimits" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
 >;
@@ -58,41 +61,40 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const reserve = layout.showDock ? layout.dockPx + 88 : 88;
   return (
     <div className="left-col" style={{ maxHeight: `calc(100% - ${reserve}px)` }}>
-      <ResultStamp planner={planner} runBtn={runBtn} showStale={showStale} />
-      {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
+      <div className="card glass" style={{ gap: 12 }}>
+        <StampLine planner={planner} />
+        <Problems planner={planner} runBtn={runBtn} showStale={showStale} />
+        {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
+        <Assumptions planner={planner} />
+      </div>
       {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
     </div>
   );
 }
 
-function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner; runBtn: RunButton; showStale: boolean }) {
-  const { s, actions, derived } = planner;
-  const { stale, resultProfile, run: st, caps, synthetic } = derived;
-  const n = s.outages.length;
-  const settled = !st.inProgress && !st.problem; // the stamp adds what it knows only to a finished run's line
-  const sub =
-    gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
-    (settled ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label);
+/** One line: "Solved 21:24 · Standard" for a settled result, or where the run stands; the profile glyph beside it. */
+function StampLine({ planner }: { planner: LeftCardsPlanner }) {
+  const { s, derived } = planner;
+  const { resultProfile, run: st } = derived;
+  const loading = gridLoadText(!!s.model, s.modelLoading, s.modelError);
+  const settled = !st.inProgress && !st.problem && s.result;
+  const text = loading ?? (settled ? `Solved ${s.resultAt || ""}` : st.label);
   return (
-    <div className="card glass">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Simulation result</span>
-        <span className="mono" style={{ fontSize: 10.5, color: C.mute }}>{!s.plan ? "" : s.resultAt ? `run ${s.resultAt} · ${s.year}` : String(s.year)}</span>
-      </div>
-      <div className="stamp">
-        {resultProfile && <ProfileGlyph bars={resultProfile.bars} big />}
-        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.25 }}>
-          {/* no profile is known before the branch is in: only the loading text, no "Custom" */}
-          {resultProfile ? (
-            <>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>{resultProfile.label} demand</span>
-              <span style={{ fontSize: 11, color: C.mute }}>{sub}</span>
-            </>
-          ) : (
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink2 }}>{sub}</span>
-          )}
-        </div>
-      </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }} title={settled ? st.label : undefined}>
+      {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
+      <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>{text}</span>
+      {resultProfile && <span className="mono" style={{ marginLeft: "auto", fontSize: 10.5, color: C.mute, flex: "none" }}>{resultProfile.label}</span>}
+    </div>
+  );
+}
+
+/** The boxes that earn their space only when something is wrong: out of date, a run that did not finish, the grid not
+ * loaded; and the two tags a reader must know about the picture (a synthetic layout, a warehouse mid-write). */
+function Problems({ planner, runBtn, showStale }: { planner: LeftCardsPlanner; runBtn: RunButton; showStale: boolean }) {
+  const { s, actions, derived } = planner;
+  const { stale, run: st, synthetic } = derived;
+  return (
+    <>
       {showStale && (
         <div className="box amber">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
@@ -119,6 +121,115 @@ function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner
       )}
       {synthetic && <span className="synthetic-tag">Synthetic layout: the file has no coordinates, so the buses are laid out, not placed.</span>}
       {s.warehouseStale && <span className="synthetic-tag">Read while the pipeline was writing a new warehouse version: what you see is the previous version. Reload the page to read the new one.</span>}
+    </>
+  );
+}
+
+/** The binding element in the Limits reading (`analysis.limits`) that is the viewed year's worst element, if read. */
+function bindingOf(planner: LeftCardsPlanner, kind: "line" | "trafo", id: number): ElementBinding | null {
+  return planner.s.limits?.binding.find((b) => b.kind === kind && b.element_id === id) ?? null;
+}
+
+function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean; compact: boolean }) {
+  const { s, actions, derived } = planner;
+  const { yr, ix, exact } = derived;
+  const n1 = n1Counts(yr);
+  const { note } = derived.run;
+  const worst = worstElement(yr, ix);
+  const binding = worst && (worst.sel.kind === "line" || worst.sel.kind === "trafo") ? bindingOf(planner, worst.sel.kind, Number(worst.sel.id)) : null;
+  const room = binding?.headroom_mw ?? null; // the MW left at the element's worst year, first-order (the Limits tab says more)
+  const since = binding?.first_breach_year ?? binding?.first_near_year ?? null;
+  const vcase = voltageCase(yr);
+  const outside = yr?.voltage_violation_bus_ids.length ?? 0;
+  const sgt = s.boundary?.sgt_count;
+  const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
+  const gspTitle = `Export up through the GSP against its limit${yr?.gsp_case ? `, at ${caseLabel(yr.gsp_case)}` : ""}${sgt && sgtMw ? `; ${sgt} × ${fmtMw(sgtMw)} MW supergrid transformers` : ""}. Beyond the GSP: limits and transmission projects.`;
+  return (
+    <>
+      {derived.caps.boundary && ( // a grid with no boundary has no export reading to show
+      <button className="gsp-btn" onClick={actions.toggleBoundary} title={gspTitle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <span style={{ fontSize: 11.5, color: C.mute }}>GSP export</span>
+          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: gspHot ? C.amber : C.ink, whiteSpace: "nowrap" }}>
+            {gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
+          </span>
+        </div>
+        <Gauge ticks={gspTicks(gsp ?? 0, limit)} />
+        {(yr?.gsp_case || (!exact && yr)) && (
+          <span style={{ fontSize: 10.5, color: C.mute2 }}>
+            {yr?.gsp_case ? `at ${caseLabel(yr.gsp_case)}` : ""}{!exact && yr ? `${yr.gsp_case ? " · " : ""}showing ${yr.year} until ${s.year} is solved` : ""}
+          </span>
+        )}
+      </button>
+      )}
+      {yr?.converged === false ? (
+        <div className="notice red" role="status">
+          <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
+          or N-1 results to read. Check the model (the Limits tab's findings list each year that fails) before trusting a plan on it.
+        </div>
+      ) : (
+      <div className={`readings${compact ? " compact" : ""}`}>
+        <button
+          className="reading reading-btn"
+          onClick={() => actions.showLimits()}
+          disabled={!worst}
+          title={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}${room != null ? `; ${room} MW of room at its worst year, first-order` : ""}. Open the Limits tab.` : undefined}
+        >
+          <span className="k">Binding element</span>
+          <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
+            {!worst ? "–" : room != null ? `${room} MW room` : `${Math.round(worst.pct)}%`}
+          </span>
+          <span className="n">{worst ? `${worst.name}${room != null ? ` · ${Math.round(worst.pct)}%` : ""}${since ? ` · ${binding?.first_breach_year ? "breaches" : "near"} from ${since}` : ""}` : "not solved yet"}</span>
+        </button>
+        <div className="reading" title={`The lowest and highest busbar voltages in ${yr?.year ?? s.year} against the statutory band at each level${vcase ? `; the lowest at ${caseLabel(vcase)}` : ""}.`}>
+          <span className="k">Voltage</span>
+          <span className="v" style={{ color: outside ? C.amber : C.ink }}>{yr ? `${yr.min_vm_pu.toFixed(3)}–${yr.max_vm_pu.toFixed(3)}` : "–"}</span>
+          <span className="n">{yr ? (outside ? `${outside} bus${outside === 1 ? "" : "es"} out of band` : "pu · within band") : ""}</span>
+        </div>
+        {/* "12 of 27 outages": opens the Limits tab's findings on the N-1 group */}
+        <button
+          className="reading reading-btn"
+          onClick={() => actions.showLimits("n1")}
+          disabled={!yr?.n1_screened}
+          title={yr?.n1_screened ? `Single outages whose post-fault state breaches a limit or strands demand${n1.breaches ? ` (${n1.breaches} findings)` : ""}${yr.n1_cases?.length ? `, screened at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}; reported, never a connection gate. Open the N-1 causes.` : "No line or transformer is in the N-1 scope: not studied"}
+        >
+          <span className="k">N-1</span>
+          <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
+            {yr ? (yr.n1_screened ? `${n1.outages} of ${yr.n1_screened}` : "none") : "–"}
+          </span>
+          <span className="n">{yr && !yr.n1_screened ? "not in scope" : "outages breach a limit"}</span>
+        </button>
+        {yr?.alerts && <CustomerAlerts planner={planner} />}
+      </div>
+      )}
+      {note && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
+    </>
+  );
+}
+
+/** The year's demand-side alerts by level, as a reading; opens the Demand layer on the worst region. */
+function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
+  const { actions, derived } = planner;
+  const { breach, warn, worst } = alertSummary(derived.yr);
+  const open = () => {
+    actions.setLayer("demand");
+    if (worst) actions.focusSel({ kind: "region", id: worst }, ZOOM_REGION);
+  };
+  const total = breach + warn;
+  return (
+    <button className="reading reading-btn" onClick={open} title={worst ? "Demand groups whose firm capacity or N-1 cover the plan tests (P2/8). Show the worst on the map." : "Show the demand regions on the map"}>
+      <span className="k">Customer alerts</span>
+      <span className="v" style={{ color: breach ? C.red : warn ? C.amber : C.greenInk }}>{total ? String(total) : "none"}</span>
+      <span className="n">{total ? [breach ? `${breach} breach${breach === 1 ? "" : "es"}` : "", warn ? `${warn} warning${warn === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") : "firm capacity holds"}</span>
+    </button>
+  );
+}
+
+/** What the model assumes, as a small link that opens the list (every project has assumptions, NGED's included). */
+function Assumptions({ planner }: { planner: LeftCardsPlanner }) {
+  const { s, actions } = planner;
+  return (
+    <>
       <button className="assume-btn" onClick={() => void actions.toggleAssumptions()} aria-expanded={s.showAssumptions}>
         <Info size={12} />
         {s.showAssumptions ? "Hide what the model assumes" : "What the model assumes"}
@@ -141,114 +252,7 @@ function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean; compact: boolean }) {
-  const { s, actions, derived } = planner;
-  const { yr, ix, exact } = derived;
-  const n1 = n1Counts(yr);
-  const { note } = derived.run;
-  const worst = worstElement(yr, ix);
-  const vcase = voltageCase(yr); // the study case the lowest voltage comes from
-  const sgt = s.boundary?.sgt_count;
-  const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
-  return (
-    <div className="card glass" style={{ gap: 14 }}>
-      {derived.caps.boundary && ( // a grid with no boundary has no export reading to show
-      <button className="gsp-btn" onClick={actions.toggleBoundary} title="Beyond the GSP: limits and transmission projects">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span style={{ fontSize: 11.5, color: C.mute }}>GSP export</span>
-          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: gspHot ? C.amber : C.ink }}>
-            {gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
-          </span>
-        </div>
-        <Gauge ticks={gspTicks(gsp ?? 0, limit)} />
-        <span style={{ fontSize: 10.5, color: C.mute2 }}>
-          {yr?.gsp_case ? `At ${caseLabel(yr.gsp_case)}` : "Worst case"}{sgt && sgtMw ? ` · ${sgt} × ${fmtMw(sgtMw)} MW SGTs` : ""}
-          {!exact && yr ? ` · showing ${yr.year} until ${s.year} is solved` : ""}
-        </span>
-      </button>
-      )}
-      {yr?.converged === false ? (
-        <div className="notice red" role="status">
-          <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
-          or N-1 results to read. Check the model (the Limits tab's findings list each year that fails) before trusting a plan on it.
-        </div>
-      ) : (
-      <div className={`readings${compact ? " compact" : ""}`}>
-        <button
-          className="reading reading-btn"
-          onClick={() => worst && actions.focusSel(worst.sel, ZOOM_ELEMENT)}
-          disabled={!worst}
-          title={worst ? `Show the ${worst.name} on the map` : undefined}
-        >
-          <span className="k">Worst element</span>
-          <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
-            {worst ? `${Math.round(worst.pct)}%` : "–"}
-          </span>
-          <span className="n">{worst ? `${worst.name}${worst.at ? ` · at ${caseLabel(worst.at)}` : ""}` : "not solved yet"}</span>
-        </button>
-        <div className="reading">
-          <span className="k">Voltage band</span>
-          <span className="v">{yr ? yr.min_vm_pu.toFixed(3) : "–"}</span>
-          <span className="n">
-            to {yr ? yr.max_vm_pu.toFixed(3) : "–"} pu · {yr?.voltage_violation_bus_ids.length ? `${yr.voltage_violation_bus_ids.length} outside band` : "limits by level"}
-            {vcase ? ` · lowest at ${caseLabel(vcase)}` : ""}
-          </span>
-        </div>
-        <div className="reading">
-          <span className="k">Peak demand</span>
-          <span className="v">×{yr ? yr.growth.toFixed(2) : "–"}</span>
-          <span className="n">vs today, by {yr?.year ?? s.year}</span>
-        </div>
-        {/* "12 of 27 outages": opens the Limits tab's findings on the N-1 group, as the worst element flies to its element */}
-        <button
-          className="reading reading-btn"
-          onClick={() => actions.showLimits("n1")}
-          disabled={!yr?.n1_screened}
-          title={yr?.n1_screened ? "Open the N-1 findings" : undefined}
-        >
-          <span className="k">N-1 screen</span>
-          <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
-            {yr ? (yr.n1_screened ? `${n1.outages} of ${yr.n1_screened}` : "none") : "–"}
-          </span>
-          <span className="n">
-            {yr && !yr.n1_screened
-              ? "no line or transformer is in the N-1 scope: not studied"
-              : `outages breach a limit${n1.breaches ? ` (${n1.breaches} ${n1.breaches === 1 ? "finding" : "findings"})` : ""}, screened${yr?.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}, reported only`}
-          </span>
-        </button>
-      </div>
-      )}
-      {yr?.alerts && <CustomerAlerts planner={planner} />}
-      {note && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
-    </div>
-  );
-}
-
-/** One line: the year's demand-side alerts by level; opens the Demand layer on the worst region. */
-function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
-  const { actions, derived } = planner;
-  const { breach, warn, worst } = alertSummary(derived.yr);
-  const open = () => {
-    actions.setLayer("demand");
-    if (worst) actions.focusSel({ kind: "region", id: worst }, ZOOM_REGION);
-  };
-  return (
-    <button className="cust-alerts" onClick={open} title={worst ? "Show the worst demand region on the map" : "Show the demand regions on the map"}>
-      <span className="k">Customer alerts</span>
-      {breach + warn === 0 ? (
-        <span className="mono" style={{ color: C.greenInk }}>none</span>
-      ) : (
-        <span className="mono">
-          {breach > 0 && <span style={{ color: C.red }}>{breach} breach</span>}
-          {breach > 0 && warn > 0 && <span style={{ color: C.mute2 }}> · </span>}
-          {warn > 0 && <span style={{ color: C.amber }}>{warn} warn</span>}
-        </span>
-      )}
-    </button>
+    </>
   );
 }
 
