@@ -3,9 +3,9 @@
 // the new profile) and the Run button ("Re-run" when the shown result is
 // out of date; disabled during a loud run, a click during a quiet refresh shows its card).
 
-import { CaretDown, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
+import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { behindLabel, branchHue, parentName } from "../lib/derive";
@@ -20,7 +20,7 @@ export type HeaderPlanner = PlannerSlice<
   "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "run" | "stale"
 >;
 
-export function Header({ planner, layout }: { planner: HeaderPlanner; layout: Layout }) {
+export function Header({ planner, layout, center }: { planner: HeaderPlanner; layout: Layout; center?: ReactNode }) {
   const { s, actions, derived } = planner;
   const { onMain, branch, hue, profile, stale, prelim, gate, project } = derived;
   const wide = layout.wide;
@@ -32,15 +32,10 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
 
   return (
     <header className="header glass">
-      <div className="logo" title="GridForge">
-        <Lightning size={17} weight="bold" />
-      </div>
-
-      <button className="capsule project" onClick={actions.openProjects} title="Projects: switch or import a grid" aria-haspopup="dialog">
-        <span className="chip-ic"><Globe size={15} weight="bold" /></span>
+      <button className="capsule project" onClick={actions.openProjects} title={`${project?.name ?? "Projects"}: switch or import a grid`} aria-haspopup="dialog">
+        <span className="chip-ic logo-ic"><Lightning size={15} weight="bold" /></span>
         <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
-          <span className="nm ellipsis" style={{ maxWidth: wide ? 220 : 120 }}>{project?.name ?? "Loading…"}</span>
-          {wide && s.projects.length > 1 && <span className="sub">{s.projects.length} projects</span>}
+          <span className="nm ellipsis project-nm">{project?.name ?? "Loading…"}</span>
         </span>
         <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
       </button>
@@ -80,6 +75,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         </div>
       )}
 
+      <div className="grow" />
+      {center}
       <div className="grow" />
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>

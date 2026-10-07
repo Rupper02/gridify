@@ -1,7 +1,8 @@
 // The roadmap dock: a column per plan year (project and maintenance chips, the phase band, cumulative MW),
-// a year slider under them, and the Unscheduled column of deferred projects. Moving the slider only
+// a year slider under them. (Deferred projects are counted in the headline, listed in the Queue tab and drawn by the map's Deferred switch.) Moving the slider only
 // switches between the stored years of the last run; it never starts a run.
 
+import { CaretDown, CaretUp } from "@phosphor-icons/react";
 import type { CSSProperties } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { byStatus, elementInfo, outageSel, roadmapYears, sumMw } from "../lib/derive";
@@ -9,16 +10,16 @@ import type { Layout } from "../lib/layout";
 import { VERDICTS, WORK_UI, outageChipTag, verdictColor } from "../lib/maintenance";
 import { firstYear, lastYear, lensNote, lensOf, lensTitle } from "../lib/plan";
 import { C, LENS, ST, fmtMw, tint } from "../theme";
-import { TechIcon } from "./ui";
 
 export type RoadmapPlanner = PlannerSlice<
-  "outages" | "plan" | "result" | "sel" | "year",
-  "selectProject" | "setYear",
+  "dockFolded" | "outages" | "plan" | "result" | "sel" | "year",
+  "selectProject" | "setYear" | "toggleDock",
   "branchOnly" | "hue" | "ix" | "prelim" | "q" | "run" | "yr"
 >;
 
 export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
+  const folded = s.dockFolded; // folded, the dock is its header line alone: the map gets the room back (layout.dockPx follows)
   const { plan } = s;
   if (!plan) return null;
   const { q, prelim, branchOnly, hue, ix, yr } = derived;
@@ -47,8 +48,11 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
             <b className="mono" style={{ fontSize: 15, fontWeight: 700 }}>{s.year}</b>
             <span style={{ fontSize: 11, fontWeight: 600, color: LENS[lens].c }} title={lensNote(plan, lens) || undefined}>{lensTitle(plan, lens)}</span>
           </span>
+          <button className="icon-btn" onClick={actions.toggleDock} aria-expanded={!folded} aria-label={folded ? "Show the roadmap" : "Hide the roadmap"} title={folded ? "Show the roadmap" : "Hide the roadmap"}>
+            {folded ? <CaretUp size={12} /> : <CaretDown size={12} />}
+          </button>
         </div>
-        <div className="years">
+        {!folded && <div className="years">
           {years.map((y) => {
             const on = y.y === s.year;
             return (
@@ -116,8 +120,8 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
               </div>
             );
           })}
-        </div>
-        <div className="slider">
+        </div>}
+        {!folded && <div className="slider">
           <div className="track" />
           <div className="fill" style={{ width: `calc((100% - (100% - 27px) / ${plan.years.length}) * ${pos})` }} />
           <input
@@ -131,19 +135,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
             aria-label="Study year"
             aria-valuetext={`${s.year}${yr && yr.year !== s.year ? `, showing ${yr.year} until solved` : ""}`}
           />
-        </div>
-      </div>
-      <div className="unsched">
-        <span style={{ fontSize: 12, fontWeight: 600, color: C.amberInk }}>Unscheduled</span>
-        <span style={{ fontSize: 11, color: C.mute }}>{df.length ? "Deferred by a named constraint" : "Nothing deferred"}</span>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 2, overflow: "auto" }}>
-          {df.map((x) => (
-            <button key={x.request_id} className="dchip" onClick={() => actions.selectProject(x.request_id)} title={x.reason?.short ?? "Deferred"}>
-              <TechIcon tech={x.technology} size={10} />
-              {x.request_id}
-            </button>
-          ))}
-        </div>
+        </div>}
       </div>
     </div>
   );

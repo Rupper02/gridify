@@ -14,6 +14,8 @@ export function useView({ patch, mapApi }: Core) {
       showLimits: (focus: FindingsFocus | null = null) => patch({ tab: "limits", sideOpen: true, findingsFocus: focus }),  // no focus: the tab as it stands, binding set first
       clearFindingsFocus: () => patch({ findingsFocus: null }),
       setYear: (year: number) => patch((st) => (st.plan ? { year: clampYear(st.plan, year) } : {})),
+      toggleLeft: () => patch((st) => ({ leftFolded: !st.leftFolded })),
+      toggleDock: () => patch((st) => ({ dockFolded: !st.dockFolded })),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),
       toggleMenu: () => patch((st) => ({ menuOpen: !st.menuOpen })),
       toggleDeferred: () => patch((st) => ({ showDeferred: !st.showDeferred })),

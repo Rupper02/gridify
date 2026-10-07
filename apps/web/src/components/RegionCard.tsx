@@ -32,7 +32,7 @@ export function RegionCard({ planner, layout }: { planner: RegionCardPlanner; la
   const when = yr ? `in ${yr.year}` : "today";
   const cls = P2_CLASS[row.p2_class];
   return (
-    <div className="detail glass region-card" style={{ ...cardPos(planner, layout), width: 304, borderColor: row.state === "breach" || row.state === "warn" ? tint(st.c, "80") : undefined }}>
+    <div className="detail glass region-card" style={{ ...cardPos(planner, layout), borderColor: row.state === "breach" || row.state === "warn" ? tint(st.c, "80") : undefined }}>
       <div className="head">
         <span className="ic" style={{ background: tint(st.c, "22") }}>
           <Users size={18} color={st.c} />

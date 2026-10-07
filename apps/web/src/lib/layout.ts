@@ -2,12 +2,13 @@
 // so the breakpoints are unit-tested; components read the flags and offsets from here.
 
 /** The layer menu's fixed width (Flow / Loading / Voltage / Demand + the Deferred switch). */
-export const LAYERS_W = 196;
 const GAP = 10;
 /** The header sits 10px from the top and is 48px tall (styles.css `.header`). */
 const HEADER_BOTTOM = 58;
 
 export interface Layout {
+  /** Wide enough for the header to name the map layers, not only show their icons. */
+  roomy: boolean;
   /** vw >= 1180: full header labels (Low / Standard / High, Diff, Merge, branch sub-line). */
   wide: boolean;
   /** vw < 1100: the left cards collapse into one pill. */
@@ -25,22 +26,24 @@ export interface Layout {
   leftW: number;
   /** The side panel's width in px (clamp(320px, 30vw, 420px)), 0 when it is hidden. */
   sideW: number;
-  /** The layer menu, top right of the map (below the reopen button when the side panel is hidden). */
-  layers: { top: number; right: number };
-  /** Where the detail cards (project, element, region) and the diff banner stop: left of the layer menu. */
+  /** Where the narrow detail card and the diff banner stop on the right: clear of the side panel. */
   cardRight: number;
   /** Map padding so a fit frames the network between the floating panels. */
   pad: { top: number; bottom: number; left: number; right: number };
 }
 
-export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
+/** The roadmap folded to its header line. */
+export const FOLDED_DOCK_PX = 52;
+
+export function layoutFor(vw: number, vh: number, sideOpen: boolean, dockFolded = false): Layout {
   const wide = vw >= 1180;
+  const roomy = vw >= 1640; // the header has room to name the map layers
   const narrow = vw < 1100;
   const showDock = vh >= 560;
-  const dockPx = vh < 720 ? 132 : 164;
+  const dockPx = dockFolded ? FOLDED_DOCK_PX : vh < 720 ? 132 : 164;
   const sideW = sideOpen ? Math.min(420, Math.max(320, vw * 0.3)) : 0;
-  const layers = { top: sideOpen ? 68 : 114, right: sideOpen ? sideW + 2 * GAP : GAP };
   return {
+    roomy,
     wide,
     narrow,
     showReadings: vh >= 700,
@@ -50,8 +53,7 @@ export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
     headerBottom: HEADER_BOTTOM,
     leftW: narrow ? 0 : 268,
     sideW,
-    layers,
-    cardRight: layers.right + LAYERS_W + GAP,
+    cardRight: sideOpen ? sideW + 2 * GAP : GAP,
     pad: {
       top: narrow ? 110 : 80,
       left: narrow ? 30 : 280,
@@ -61,10 +63,16 @@ export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
   };
 }
 
-/** The detail-card slot: top right of the map, left of the layer menu, clear of the roadmap dock
- * (one place for the project, element and region cards). */
+/** The detail-card slot: a clicked element's card takes the left column's place (the readings step aside), top left
+ * of the map and clear of the roadmap dock (one place for the project, element and region cards). A narrow window,
+ * which has no left column, keeps it top right, left of the layer menu. */
 export function cardSlot(layout: Layout, sideOpen: boolean, diffMode: boolean) {
-  const top = diffMode ? (layout.narrow ? 160 : 118) : layout.narrow ? 110 : sideOpen ? 68 : 114;
   const reserve = layout.showDock ? layout.dockPx + 20 : 14;
-  return { top, right: layout.cardRight, maxHeight: `calc(100% - ${top + reserve}px)` };
+  if (!layout.narrow) return { top: 68, left: 10, width: DOCKED_CARD_W, maxHeight: `calc(100% - ${68 + reserve}px)` };
+  const top = diffMode ? 160 : 110;
+  void sideOpen;
+  return { top, right: layout.cardRight, width: 308, maxHeight: `calc(100% - ${top + reserve}px)` };
 }
+
+/** The docked card's width: the left column's, plus the room its forms need (the diff banner starts right of it). */
+export const DOCKED_CARD_W = 258;

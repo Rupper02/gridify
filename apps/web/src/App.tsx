@@ -6,7 +6,7 @@ import { useEffect, useMemo } from "react";
 import { DetailCards } from "./components/DetailCards";
 import { Header } from "./components/Header";
 import { LeftCards } from "./components/LeftCards";
-import { DiffBanner, LayerToggle, MapCorner } from "./components/MapControls";
+import { DiffBanner, MapCorner, MapLayers } from "./components/MapControls";
 import { MapView } from "./components/MapView";
 import { ProjectsScreen } from "./components/ProjectsScreen";
 import { RegionCard } from "./components/RegionCard";
@@ -25,7 +25,7 @@ export function App() {
   const { s, derived, actions } = planner;
   const vp = useViewport();
   const reducedMotion = useReducedMotion();
-  const layout = useMemo(() => layoutFor(vp.w, vp.h, s.sideOpen), [vp.w, vp.h, s.sideOpen]);
+  const layout = useMemo(() => layoutFor(vp.w, vp.h, s.sideOpen, s.dockFolded), [vp.w, vp.h, s.sideOpen, s.dockFolded]);
 
   // `]` toggles the side panel (not while typing); Escape closes the projects screen, else clears the selection
   const projectsOpen = s.projectsOpen;
@@ -66,10 +66,9 @@ export function App() {
     <div className={`stage${layout.narrow ? " narrow" : ""}${derived.run.overlay ? " solving" : ""}`} style={hueVars(derived.hue, derived.onMain)}>
       <MapView key={s.model?.crs ?? "wgs84"} planner={planner} geo={geo} layout={layout} reducedMotion={reducedMotion} />
       {showFrame && <div className="branch-frame" />}
-      <Header planner={planner} layout={layout} />
+      <Header planner={planner} layout={layout} center={<MapLayers planner={planner} wide={layout.roomy} />} />
       <LeftCards planner={planner} layout={layout} />
       {s.diffMode && !derived.onMain && <DiffBanner planner={planner} layout={layout} />}
-      <LayerToggle planner={planner} layout={layout} />
       <MapCorner planner={planner} layout={layout} />
       <DetailCards planner={planner} layout={layout} />
       {s.sel?.kind === "region" && <RegionCard planner={planner} layout={layout} />}

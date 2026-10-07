@@ -4,7 +4,7 @@
 // export against its limit, the binding element with the MW of room left, the voltage range against the band, the
 // N-1 outages that breach, the customer alerts. Below 1100px wide it collapses into one pill.
 
-import { Info, X } from "@phosphor-icons/react";
+import { CaretDown, CaretUp, Info, X } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
@@ -18,8 +18,8 @@ import type { ElementBinding } from "../types";
 import { Gauge, Hint, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "limits" | "model" | "modelError" | "modelLoading" | "plan" | "result" | "resultAt" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
-  "focusSel" | "retryLoad" | "run" | "setLayer" | "showLimits" | "toggleBoundary" | "toggleAssumptions",
+  "assumptions" | "boundary" | "limits" | "model" | "modelError" | "modelLoading" | "plan" | "leftFolded" | "result" | "resultAt" | "sel" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
+  "focusSel" | "retryLoad" | "run" | "setLayer" | "showLimits" | "toggleBoundary" | "toggleAssumptions" | "toggleLeft",
   "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
 >;
 
@@ -43,6 +43,8 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const runBtn = runButton(run, stale.stale, profile?.label ?? "", !!s.model); // plain until the profile is known
   // out of date, unless a run that will include the change is on its way (or the last one did not finish: Retry covers both)
   const showStale = stale.stale && !run.inProgress && !run.problem;
+
+  if (s.sel && !layout.narrow) return null; // a clicked element's card takes this column (cardSlot)
 
   if (layout.narrow) {
     return (
@@ -73,8 +75,8 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
       <div className="card glass" style={{ gap: 12 }}>
         <StampLine planner={planner} />
         <Problems planner={planner} runBtn={runBtn} showStale={showStale} />
-        {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
-        <Assumptions planner={planner} />
+        {!s.leftFolded && layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
+        {!s.leftFolded && <Assumptions planner={planner} />}
       </div>
       {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
     </div>
@@ -83,7 +85,7 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
 
 /** One line: "Solved 21:24 · Standard" for a settled result, or where the run stands; the profile glyph beside it. */
 function StampLine({ planner }: { planner: LeftCardsPlanner }) {
-  const { s, derived } = planner;
+  const { s, actions, derived } = planner;
   const { resultProfile, run: st } = derived;
   const loading = gridLoadText(!!s.model, s.modelLoading, s.modelError);
   const settled = !st.inProgress && !st.problem && s.result;
@@ -93,6 +95,9 @@ function StampLine({ planner }: { planner: LeftCardsPlanner }) {
       {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
       <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>{text}</span>
       {resultProfile && <span className="mono" style={{ marginLeft: "auto", fontSize: 10.5, color: C.mute, flex: "none" }}>{resultProfile.label}</span>}
+      <button className="icon-btn" style={resultProfile ? undefined : { marginLeft: "auto" }} onClick={actions.toggleLeft} aria-expanded={!s.leftFolded} aria-label={s.leftFolded ? "Show the readings" : "Hide the readings"} title={s.leftFolded ? "Show the readings" : "Hide the readings"}>
+        {s.leftFolded ? <CaretDown size={12} /> : <CaretUp size={12} />}
+      </button>
     </div>
   );
 }

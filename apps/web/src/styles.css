@@ -151,10 +151,10 @@ input { font-family: inherit; }
   position: absolute; top: 10px; left: 10px; right: 10px; height: 48px; z-index: 20;
   display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0 6px 0 8px; border-radius: 14px;
 }
-.logo { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; flex: none; background: linear-gradient(160deg, rgba(124, 227, 255, 0.35), rgba(124, 227, 255, 0.08)); border: 1px solid rgba(124, 227, 255, 0.45); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35); color: var(--accent); }
 .capsule { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px 0 5px; white-space: nowrap; flex: none; border-radius: 10px; border: 1px solid var(--hue-bd); background: var(--hue-bg); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); }
 .capsule .chip-ic { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; background: var(--hue-chip); color: var(--hue); }
 .capsule .nm { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.capsule .nm.project-nm { max-width: 92px; font-size: 11.5px; } /* the project is a label here, the branch is the figure */
 .capsule .sub { font-size: 10.5px; color: var(--mute); }
 .behind { color: var(--amber-ink); font-weight: 600; } /* a branch main moved past: rebase before merging */
 .menu { position: absolute; top: 44px; left: 0; width: 340px; padding: 8px; border-radius: 16px; z-index: 40; background: linear-gradient(140deg, rgba(40, 54, 76, 0.97), rgba(22, 32, 48, 0.98)); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 10px 28px rgba(2, 6, 14, 0.4); display: flex; flex-direction: column; gap: 4px; }
@@ -196,12 +196,6 @@ input { font-family: inherit; }
 .boundary-card .rows { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; }
 
 /* ---- map controls ----------------------------------------------------------------------------- */
-.layers { position: absolute; overflow: hidden; z-index: 11; display: flex; flex-direction: column; gap: 3px; padding: 4px; border-radius: 14px; }
-.layers > button { display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px; border-radius: 10px; border: 1px solid transparent; background: transparent; color: var(--mute); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
-.layers > button.on { border-color: rgba(255, 255, 255, 0.26); background: rgba(255, 255, 255, 0.14); color: var(--ink); }
-.layers .sep { height: 1px; background: rgba(255, 255, 255, 0.1); margin: 2px 4px; }
-.layers > button.def { gap: 8px; padding: 0 9px 0 11px; }
-.layers > button.def.on { border-color: transparent; background: transparent; color: var(--amber-ink); }
 .map-ctrl { position: absolute; z-index: 10; display: flex; align-items: flex-end; gap: 8px; }
 .zoom { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; background: rgba(16, 23, 35, 0.96); border: 1px solid rgba(255, 255, 255, 0.12); }
 .zoom > button { width: 32px; height: 30px; border: none; border-bottom: 1px solid rgba(255, 255, 255, 0.1); background: transparent; color: var(--ink); display: grid; place-items: center; }
@@ -236,11 +230,12 @@ input { font-family: inherit; }
 /* ---- detail cards ----------------------------------------------------------------------------- */
 .detail { position: absolute; overflow-y: auto; z-index: 12; padding: 14px; border-radius: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px rgba(2, 6, 14, 0.4); }
 /* the head (name and Close) stays at the top while a long card (the works form, its verdicts) scrolls under it */
-.detail .head { display: flex; align-items: flex-start; gap: 10px; position: sticky; top: -14px; z-index: 2; margin: -14px -14px 0; padding: 14px 14px 10px; background-color: #1d2a3c; background-image: var(--glass); border-radius: 15px 15px 0 0; }
+.detail .head { display: flex; align-items: flex-start; gap: 10px; position: sticky; top: -14px; z-index: 2; margin: -14px -14px 0; padding: 14px 14px 10px; background: rgb(28, 40, 57); border-radius: 15px 0 0 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18); } /* the head covers the card's own top highlight, so it carries one; its right end meets the scrollbar square */
 /* the scrollbar stops short of the rounded corners instead of running into them */
 .detail::-webkit-scrollbar-track { margin: 14px 0; }
-.detail { scrollbar-gutter: stable; padding-bottom: 18px; }
+.detail { padding-bottom: 18px; background: linear-gradient(180deg, rgb(28, 40, 57), rgb(19, 28, 41)); } /* vertical, so the sticky head (flat, the top colour) joins the card without a seam */
 .detail .head .ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
+.detail .sticky-foot { position: sticky; bottom: -20px; margin: 0 -12px -12px; padding: 8px 12px 12px; background: #172233; border-radius: 0 0 12px 12px; } /* the form's submit stays in view while the options scroll */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px; }
 .kv > :nth-child(odd) { color: var(--mute); }
 .kv > :nth-child(even) { text-align: right; }
@@ -277,7 +272,7 @@ input { font-family: inherit; }
 .repowered {font-size: 11.5px; line-height: 1.45; color: var(--accent); }
 
 /* ---- roadmap dock ----------------------------------------------------------------------------- */
-.dock { position: absolute; left: 10px; bottom: 10px; z-index: 10; display: grid; grid-template-columns: minmax(0, 1fr) 200px; border-radius: 18px; overflow: hidden; }
+.dock { position: absolute; left: 10px; bottom: 10px; z-index: 10; display: grid; grid-template-columns: minmax(0, 1fr); border-radius: 18px; overflow: hidden; }
 .dock-main { display: flex; flex-direction: column; padding: 12px 14px; min-width: 0; }
 .dock-head { display: flex; align-items: baseline; gap: 12px; white-space: nowrap; min-width: 0; }
 .years { flex: 1; display: grid; grid-template-columns: repeat(var(--years, 10), minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr); gap: 3px; margin-top: 8px; min-height: 0; }
@@ -303,8 +298,6 @@ input { font-family: inherit; }
 .gf-range::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); box-shadow: 0 0 0 4px rgba(124, 227, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.5); }
 .gf-range::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--ink); border: 3px solid var(--accent); box-shadow: 0 0 0 4px rgba(124, 227, 255, 0.18); }
 .gf-range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 6px rgba(124, 227, 255, 0.35); }
-.unsched { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-left: 1px solid rgba(255, 255, 255, 0.08); background: rgba(255, 195, 107, 0.04); min-width: 0; }
-.dchip { flex: none; white-space: nowrap; display: flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 999px; border: 1px dashed rgba(255, 195, 107, 0.6); font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--amber-ink); background: transparent; }
 
 /* ---- side panel ------------------------------------------------------------------------------- */
 .side { position: absolute; top: 68px; right: 10px; bottom: 10px; width: var(--side-w); z-index: 15; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); border-radius: 20px; overflow: hidden; background: linear-gradient(160deg, rgba(30, 42, 60, 0.97), rgba(18, 26, 39, 0.97)); border: 1px solid rgba(255, 255, 255, 0.15); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 6px 18px rgba(2, 6, 14, 0.28); transition: transform 320ms var(--ease), opacity 200ms; }
@@ -399,8 +392,8 @@ input { font-family: inherit; }
    underneath stays clickable: only the card itself takes the pointer ---- */
 .run-overlay { position: absolute; inset: 0; z-index: 30; display: flex; justify-content: center; align-items: center; pointer-events: none; }
 /* while a run solves, the panels step aside so its card sits dead centre on the map */
-.stage .left-col, .stage .layers, .stage .side, .stage .dock, .stage .detail { transition: opacity 200ms; }
-.stage.solving .left-col, .stage.solving .layers, .stage.solving .side, .stage.solving .dock, .stage.solving .detail { opacity: 0; pointer-events: none; }
+.stage .left-col, .stage .side, .stage .dock, .stage .detail { transition: opacity 200ms; }
+.stage.solving .left-col, .stage.solving .side, .stage.solving .dock, .stage.solving .detail { opacity: 0; pointer-events: none; }
 .run-card { pointer-events: auto; width: 380px; max-width: calc(100% - 32px); padding: 12px 14px; border-radius: 16px; background: linear-gradient(150deg, rgba(36, 50, 70, 0.97), rgba(20, 30, 44, 0.97)); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 32px rgba(2, 6, 14, 0.45); display: flex; flex-direction: column; gap: 9px; }
 .rail { position: relative; height: 22px; border-radius: 999px; background: rgba(5, 10, 18, 0.45); border: var(--well-bd); overflow: hidden; }
 .rail .wire { position: absolute; left: 14px; right: 14px; top: 10px; height: 2px; background: rgba(220, 230, 242, 0.25); }
@@ -436,9 +429,13 @@ input { font-family: inherit; }
 .legend-demand > span:last-of-type { margin-right: 0; }
 
 /* the Show menu in the layer toggle: which kinds of element the map draws */
-.layers > button.def.on-plain { color: var(--ink); }
 .show-count { margin-left: auto; font-size: 10.5px; color: var(--mute); }
-.show-menu { display: flex; flex-direction: column; gap: 6px; padding: 2px 2px 4px; flex: 0 1 auto; min-height: 0; overflow-y: auto; } /* takes what is left of the menu, which stops above the roadmap dock */
+.capsule .chip-ic.logo-ic { background: linear-gradient(160deg, rgba(124, 227, 255, 0.35), rgba(124, 227, 255, 0.08)); color: var(--accent); } /* GridForge's mark is the project button's icon */
+/* an instant tooltip under the header's icon-only controls (the native title waits a second) */
+.map-layers [data-tip] { position: relative; }
+.map-layers [data-tip]:hover::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); padding: 4px 9px; border-radius: 8px; white-space: nowrap; font-size: 11.5px; font-weight: 600; color: var(--ink); background: rgba(10, 16, 26, 0.96); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 6px 16px rgba(2, 6, 14, 0.45); pointer-events: none; z-index: 60; }
+.map-layers { display: flex; align-items: center; gap: 8px; flex: none; }
+.show-menu { position: absolute; top: calc(100% + 12px); right: 0; width: 232px; z-index: 40; border-radius: 14px; padding: 8px; max-height: min(70vh, 480px); display: flex; flex-direction: column; gap: 6px; flex: 0 1 auto; min-height: 0; overflow-y: auto; } /* takes what is left of the menu, which stops above the roadmap dock */
 .show-group { display: flex; flex-direction: column; gap: 1px; }
 .show-head { font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--mute-2); padding: 4px 8px 2px; }
 .show-row { display: flex; align-items: center; gap: 2px; }

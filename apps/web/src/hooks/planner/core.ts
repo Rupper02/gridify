@@ -121,6 +121,8 @@ export interface PlannerState {
   // view
   tab: Tab;
   sideOpen: boolean;
+  leftFolded: boolean; // the left card is its "Solved" line (and any warning) alone
+  dockFolded: boolean; // the roadmap is its header line alone (layout gives the map the room back)
   findingsFocus: FindingsFocus | null; // the findings group the Limits tab's ledger expands on opening (the readings' N-1 stat sets it)
   layer: MapLayer;
   /** The kinds of element the map shows (lib/mapFeatures.ts). */
@@ -152,7 +154,7 @@ export const INITIAL: PlannerState = {
   result: null, resultAt: "", run: RUN_IDLE, editedAt: 0,
   diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null,
   agents: null, agentRuns: [], threads: [], thread: null, trace: [], note: null, study: null,
-  tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
+  tab: "ask", sideOpen: true, dockFolded: false, leftFolded: false, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,

@@ -2,10 +2,12 @@
 // Show menu (which kinds of element the map draws, lib/mapFeatures.ts), the legend and
 // zoom (+ / − / FIT), and the diff-mode banner.
 
-import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, HourglassMedium, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
+import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
+
+import { useEffect, useRef } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { LAYERS_W, type Layout } from "../lib/layout";
+import type { Layout } from "../lib/layout";
 import { REGION_STATE } from "../lib/demand";
 import { DEFAULT_VISIBLE, FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, featureLabel, shows } from "../lib/mapFeatures";
 import { C, tint } from "../theme";
@@ -25,49 +27,54 @@ const LAYERS: [MapLayer, string, typeof WaveSine][] = [
   ["demand", "Demand", Users],
 ];
 
-export function LayerToggle({ planner, layout }: { planner: LayerTogglePlanner; layout: Layout }) {
+/** The map's layers, in the header: the layer in view and the Show menu (which also holds the Deferred switch). */
+export function MapLayers({ planner, wide }: { planner: LayerTogglePlanner; wide: boolean }) {
   const { s, actions, derived } = planner;
   const layers = LAYERS.filter(([k]) => k !== "demand" || derived.caps.regions); // no demand groups, no Demand layer
   return (
-    <div className="layers glass" style={{ top: layout.layers.top, right: layout.layers.right, width: LAYERS_W, maxHeight: `calc(100% - ${layout.layers.top + (layout.showDock ? layout.dockPx + 20 : 14)}px)` }}>
-      {layers.map(([k, label, I]) => (
-        <button key={k} className={s.layer === k ? "on" : ""} onClick={() => actions.setLayer(k)} aria-pressed={s.layer === k}>
-          <I size={14} />
-          {label}
-        </button>
-      ))}
-      <div className="sep" />
-      <button className={`def${s.showDeferred ? " on" : ""}`} role="switch" aria-checked={s.showDeferred} onClick={actions.toggleDeferred} title="Show deferred projects on the map">
-        <HourglassMedium size={14} />
-        Deferred
-        <span style={{ marginLeft: "auto", display: "flex" }}>
-          <Switch on={s.showDeferred} />
-        </span>
-      </button>
-      <div className="sep" />
-      <ShowMenu planner={planner} />
+    <div className="map-layers">
+      <div className="seg" role="radiogroup" aria-label="Map layer">
+        {layers.map(([k, label, I]) => (
+          <button key={k} role="radio" aria-checked={s.layer === k} className={s.layer === k ? "on" : ""} onClick={() => actions.setLayer(k)} data-tip={label} aria-label={label} style={{ padding: wide ? "0 11px" : "0 9px" }}>
+            <I size={14} />
+            {wide && label}
+          </button>
+        ))}
+      </div>
+      <ShowMenu planner={planner} wide={wide} />
     </div>
   );
 }
 
 /** Which kinds of element the map draws: a switch each, "only" to focus on one, and Show all. Line features are named
  * by the grid's own voltages, and a kind the grid does not have is left out. */
-function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
+function ShowMenu({ planner, wide }: { planner: LayerTogglePlanner; wide: boolean }) {
   const { s, actions, derived } = planner;
+  const box = useRef<HTMLDivElement>(null);
+  const { showMenuOpen, toggleShowMenu } = { showMenuOpen: s.showMenuOpen, toggleShowMenu: actions.toggleShowMenu };
+  // a click anywhere else closes the menu
+  useEffect(() => {
+    if (!showMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) toggleShowMenu();
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showMenuOpen, toggleShowMenu]);
   const keys = FEATURE_KEYS.filter((k) => featureLabel(k, derived.tiers) != null);
   const n = keys.filter((k) => shows(s.visible, k)).length;
   const defaults = DEFAULT_VISIBLE.filter((k) => keys.includes(k));
   const isDefault = n === defaults.length && defaults.every((k) => s.visible.includes(k));
   return (
-    <>
-      <button className={`def${s.showMenuOpen ? " on-plain" : ""}`} onClick={actions.toggleShowMenu} aria-expanded={s.showMenuOpen} title="Choose what the map shows">
+    <div style={{ position: "relative" }} ref={box}>
+      <button className="btn" onClick={actions.toggleShowMenu} aria-expanded={s.showMenuOpen} data-tip={s.showMenuOpen ? undefined : "Choose what the map shows"} aria-label="Choose what the map shows">
         <Eye size={14} />
-        Show
+        {wide && "Show"}
         <span className="mono show-count">{n}/{keys.length}</span>
         {s.showMenuOpen ? <CaretUp size={12} /> : <CaretDown size={12} />}
       </button>
       {s.showMenuOpen && (
-        <div className="show-menu" role="group" aria-label="Elements on the map">
+        <div className="show-menu glass" role="group" aria-label="Elements on the map">
           {FEATURE_GROUPS.map((g) => (
             <div key={g} className="show-group">
               <span className="show-head">{g}</span>
@@ -94,12 +101,21 @@ function ShowMenu({ planner }: { planner: LayerTogglePlanner }) {
               })}
             </div>
           ))}
+          <div className="show-group">
+            <span className="show-head">Projects not connecting</span>
+            <div className="show-row">
+              <button className="show-label" role="switch" aria-checked={s.showDeferred} onClick={actions.toggleDeferred} title="Draw the projects the plan defers, dashed, where they would connect">
+                <span className="ellipsis" style={{ color: s.showDeferred ? C.ink : C.mute2 }}>Deferred projects</span>
+                <Switch on={s.showDeferred} />
+              </button>
+            </div>
+          </div>
           <button className="show-all" onClick={actions.showAll} disabled={isDefault}>
             Show all
           </button>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -179,7 +195,7 @@ export function DiffBanner({ planner, layout }: { planner: DiffBannerPlanner; la
   const { s, actions, derived } = planner;
   const nAdded = s.diff ? s.diff.projects.filter((p) => p.change === "added").length : derived.branchOnly.size; // the diff's count once it is in, even 0
   return (
-    <div className="diff-banner" style={{ top: layout.narrow ? 110 : 68, left: layout.narrow ? 10 : 270, right: layout.cardRight }}>
+    <div className="diff-banner" style={{ top: layout.narrow ? 110 : 68, left: layout.narrow ? 10 : 280, right: layout.cardRight }}>
       <div className="glass" style={{ borderColor: "var(--hue-bd)" }}>
         <span className="mono" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, whiteSpace: "nowrap" }}>
           <GitDiff size={14} color={derived.hue} />

@@ -3,7 +3,7 @@
 // line, transformer or existing generator opens the element card (rating, loading in the year, its
 // maintenance windows and the form to schedule one).
 
-import { Intersect, LineSegment, Sparkle, Wrench, X } from "@phosphor-icons/react";
+import { ArrowLeft, Intersect, LineSegment, Sparkle, Wrench, X } from "@phosphor-icons/react";
 import { type CSSProperties, type ReactNode, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -134,7 +134,7 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
   const ready = Math.round((item.readiness_score ?? 0) * 100);
   const stored = planner.s.candidates.find((c) => c.request_id === id);
   return (
-    <div className="detail glass" style={{ ...cardPos(planner, layout), width: 296, borderColor: onlyHere ? tint(derived.hue, "80") : undefined }}>
+    <div className="detail glass" style={{ ...cardPos(planner, layout), borderColor: onlyHere ? tint(derived.hue, "80") : undefined }}>
       <CardHead
         icon={<TechIcon tech={item.technology} size={18} color={st.c} />}
         iconBg={tint(st.c, "22")}
@@ -211,6 +211,8 @@ const WEEKS = [2, 4, 6, 8];
 
 function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementSel }) {
   const { s, actions, derived } = planner;
+  const [schedKey, setSchedKey] = useState<string | null>(null); // the element whose card shows the schedule form instead of its readings
+  const scheduling = schedKey === `${sel.kind}:${sel.id}`;
   const { ix } = derived;
   if (!ix) return null;
   const info = elementInfo(sel, ix, derived.yr, s.year);
@@ -224,67 +226,21 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
   const role = n1Role(derived.yr, sel); // its part in the year's N-1 screen
   const noun = sel.kind === "line" ? "line" : sel.kind === "trafo" ? "transformer" : "generator";
   const shownYear = derived.yr?.year ?? s.year;
-  return (
-    <div className="detail glass" style={{ ...cardPos(planner, layout), width: 308, borderColor: "rgba(255,255,255,0.16)" }}>
+  if (scheduling) {
+    return (
+      <div className="detail glass" style={{ ...cardPos(planner, layout), borderColor: "rgba(255,255,255,0.16)", gap: 8 }}>
       <CardHead
         icon={sel.kind === "gen" ? <TechIcon tech={ix.gen.get(sel.id)?.technology} size={18} color={C.lineHigh} /> : <Icon size={18} color={C.lineHigh} />}
         iconBg="rgba(255,255,255,0.08)"
-        title={info.name}
-        sub={info.kindLabel}
+        title={"Schedule works"}
+        sub={info.name}
         onClose={() => actions.select(null)}
       />
-      <div className="kv">
-        <span>Rating</span><span className="mono">{info.rating}</span>
-        <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
-      </div>
-      {series.length > 0 && (
-        <div className="spark-box">
-          <span className="k">Loading by plan year · worst case · dashed: its rating</span>
-          <Sparkline points={series} year={s.year} color={loadColor} />
-          <span className="yrs mono" style={{ width: series.length * 14 - 4 }}>
-            <span>{firstYear(plan)}</span>
-            <span>{lastYear(plan)}</span>
-          </span>
-        </div>
-      )}
-      {role && (
-        <div className="box dark" style={{ gap: 3 }}>
-          <span style={{ fontSize: 11, color: C.mute }}>N-1 screen in {shownYear} · reported only</span>
-          <span style={{ fontSize: 12, lineHeight: 1.45, color: role.lost || role.breaches ? C.amberInk : C.ink2 }}>
-            {derived.yr?.n1_screened
-              ? `as the element lost: ${plural(role.lost, "finding")} · as the element that breaches: ${plural(role.breaches, "finding")}`
-              : "no line or transformer is in the N-1 scope: not studied"}
-          </span>
-        </div>
-      )}
-      <button className="btn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`What limits ${info.name} (${noun} ${sel.id}), and what would it take to relieve it?`)}>
-        <Sparkle size={13} weight="fill" />
-        Ask the agents what limits it
+      <button className="btn ghost sm" style={{ alignSelf: "flex-start" }} onClick={() => setSchedKey(null)}>
+        <ArrowLeft size={12} />
+        Back
       </button>
-      {repowered.map((t) => (
-        <span key={t} className="repowered">{t}</span>
-      ))}
-      {windows.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span style={{ fontSize: 12, fontWeight: 600 }}>Scheduled on {derived.onMain ? "main" : derived.branch?.name}</span>
-          {windows.map((o) => {
-            const view = windowView(o, ctx);
-            return (
-              <div key={o.outage_id} className="mrow">
-                <Wrench size={13} color={verdictColor(view.verdict) ?? C.lineHigh} />
-                <span className="ellipsis" style={{ fontSize: 12 }}>{outageLine(o)}</span>
-                <RemoveWindow onMain={derived.onMain} onRemove={() => void actions.removeOutage(o.outage_id)} />
-                <span className="wdetail">
-                  <VerdictChip view={view} />
-                  <WindowDetail view={view} />
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <div className="box dark" style={{ gap: 10, padding: 12 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Schedule works</span>
+      <div className="box dark" style={{ gap: 7, padding: 10 }}>
         <div className="form-row">
           <span className="lbl">Work</span>
           <div className="opts">
@@ -348,11 +304,79 @@ function ElementCard({ planner, layout, plan, sel }: CardProps & { sel: ElementS
         )}
         {d.work === "replacement" && <span className="work-note">Back like-for-like after the window.</span>}
         <span style={{ fontSize: 11, color: C.mute2, lineHeight: 1.4 }}>{draftHint(d, sel.kind, plan)}</span>
-        <button className="btn primary sm" style={{ justifyContent: "center", height: 34 }} onClick={() => void actions.scheduleOutage(sel)}>
-          <Wrench size={13} weight="bold" />
-          {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}
-        </button>
+        <div className="sticky-foot">
+          <button className="btn primary sm" style={{ justifyContent: "center", height: 34, width: "100%" }} onClick={() => { void actions.scheduleOutage(sel); setSchedKey(null); }}>
+            <Wrench size={13} weight="bold" />
+            {derived.onMain ? "Open a branch and schedule" : `Schedule on ${derived.branch?.name}`}
+          </button>
+        </div>
       </div>
+    </div>
+    );
+  }
+  return (
+    <div className="detail glass" style={{ ...cardPos(planner, layout), borderColor: "rgba(255,255,255,0.16)" }}>
+      <CardHead
+        icon={sel.kind === "gen" ? <TechIcon tech={ix.gen.get(sel.id)?.technology} size={18} color={C.lineHigh} /> : <Icon size={18} color={C.lineHigh} />}
+        iconBg="rgba(255,255,255,0.08)"
+        title={info.name}
+        sub={info.kindLabel}
+        onClose={() => actions.select(null)}
+      />
+      <div className="kv">
+        <span>Rating</span><span className="mono">{info.rating}</span>
+        <span>{info.loadLabel}</span><span className="mono" style={{ color: info.loadPct != null ? loadColor(info.loadPct) : C.ink }}>{info.load}</span>
+      </div>
+      {series.length > 0 && (
+        <div className="spark-box">
+          <span className="k">Loading by plan year · worst case · dashed: its rating</span>
+          <Sparkline points={series} year={s.year} color={loadColor} />
+          <span className="yrs mono" style={{ width: series.length * 14 - 4 }}>
+            <span>{firstYear(plan)}</span>
+            <span>{lastYear(plan)}</span>
+          </span>
+        </div>
+      )}
+      {role && (
+        <div className="box dark" style={{ gap: 3 }}>
+          <span style={{ fontSize: 11, color: C.mute }}>N-1 screen in {shownYear} · reported only</span>
+          <span style={{ fontSize: 12, lineHeight: 1.45, color: role.lost || role.breaches ? C.amberInk : C.ink2 }}>
+            {derived.yr?.n1_screened
+              ? `as the element lost: ${plural(role.lost, "finding")} · as the element that breaches: ${plural(role.breaches, "finding")}`
+              : "no line or transformer is in the N-1 scope: not studied"}
+          </span>
+        </div>
+      )}
+      <button className="btn" style={{ justifyContent: "center", height: 36 }} onClick={() => void actions.askAbout(`What limits ${info.name} (${noun} ${sel.id}), and what would it take to relieve it?`)}>
+        <Sparkle size={13} weight="fill" />
+        Ask the agents what limits it
+      </button>
+      <button className="btn primary sm" style={{ justifyContent: "center", height: 36 }} onClick={() => setSchedKey(`${sel.kind}:${sel.id}`)}>
+        <Wrench size={13} weight="bold" />
+        Schedule works
+      </button>
+      {repowered.map((t) => (
+        <span key={t} className="repowered">{t}</span>
+      ))}
+      {windows.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 600 }}>Scheduled on {derived.onMain ? "main" : derived.branch?.name}</span>
+          {windows.map((o) => {
+            const view = windowView(o, ctx);
+            return (
+              <div key={o.outage_id} className="mrow">
+                <Wrench size={13} color={verdictColor(view.verdict) ?? C.lineHigh} />
+                <span className="ellipsis" style={{ fontSize: 12 }}>{outageLine(o)}</span>
+                <RemoveWindow onMain={derived.onMain} onRemove={() => void actions.removeOutage(o.outage_id)} />
+                <span className="wdetail">
+                  <VerdictChip view={view} />
+                  <WindowDetail view={view} />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
