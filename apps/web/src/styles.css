@@ -397,7 +397,10 @@ input { font-family: inherit; }
 
 /* ---- run card: docked bottom-centre above the roadmap (RunOverlay sets `right` and `bottom`); no backdrop, so the map
    underneath stays clickable: only the card itself takes the pointer ---- */
-.run-overlay { position: absolute; left: 0; z-index: 30; display: flex; justify-content: center; pointer-events: none; }
+.run-overlay { position: absolute; inset: 0; z-index: 30; display: flex; justify-content: center; align-items: center; pointer-events: none; }
+/* while a run solves, the panels step aside so its card sits dead centre on the map */
+.stage .left-col, .stage .layers, .stage .side, .stage .dock, .stage .detail { transition: opacity 200ms; }
+.stage.solving .left-col, .stage.solving .layers, .stage.solving .side, .stage.solving .dock, .stage.solving .detail { opacity: 0; pointer-events: none; }
 .run-card { pointer-events: auto; width: 380px; max-width: calc(100% - 32px); padding: 12px 14px; border-radius: 16px; background: linear-gradient(150deg, rgba(36, 50, 70, 0.97), rgba(20, 30, 44, 0.97)); border: 1px solid rgba(255, 255, 255, 0.18); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), 0 12px 32px rgba(2, 6, 14, 0.45); display: flex; flex-direction: column; gap: 9px; }
 .rail { position: relative; height: 22px; border-radius: 999px; background: rgba(5, 10, 18, 0.45); border: var(--well-bd); overflow: hidden; }
 .rail .wire { position: absolute; left: 14px; right: 14px; top: 10px; height: 2px; background: rgba(220, 230, 242, 0.25); }

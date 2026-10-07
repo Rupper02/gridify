@@ -63,7 +63,7 @@ export function App() {
 
   const showFrame = !derived.onMain;
   return (
-    <div className={`stage${layout.narrow ? " narrow" : ""}`} style={hueVars(derived.hue, derived.onMain)}>
+    <div className={`stage${layout.narrow ? " narrow" : ""}${derived.run.overlay ? " solving" : ""}`} style={hueVars(derived.hue, derived.onMain)}>
       <MapView key={s.model?.crs ?? "wgs84"} planner={planner} geo={geo} layout={layout} reducedMotion={reducedMotion} />
       {showFrame && <div className="branch-frame" />}
       <Header planner={planner} layout={layout} />
@@ -77,7 +77,7 @@ export function App() {
       {s.projectsOpen && <ProjectsScreen planner={planner} />}
       {layout.showDock && <Roadmap planner={planner} layout={layout} />}
       <SidePanel planner={planner} layout={layout} />
-      {derived.run.overlay && <RunOverlay planner={planner} layout={layout} />}
+      {derived.run.overlay && <RunOverlay planner={planner} />}
     </div>
   );
 }

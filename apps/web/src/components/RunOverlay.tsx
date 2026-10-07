@@ -6,14 +6,13 @@
 import { Check } from "@phosphor-icons/react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import type { Layout } from "../lib/layout";
 import { firstYear, lastYear } from "../lib/plan";
 import { runStages, stageIndex, stageReadout } from "../lib/runStages";
 import { C } from "../theme";
 
 export type RunOverlayPlanner = PlannerSlice<"outages" | "plan" | "run", never, "branch" | "hue" | "onMain" | "prelim" | "profile" | "q">;
 
-export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; layout: Layout }) {
+export function RunOverlay({ planner }: { planner: RunOverlayPlanner }) {
   const { s, derived } = planner;
   const { plan, run } = s;
   if (!plan || run.kind !== "running") return null;
@@ -22,7 +21,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
   const cur = stageIndex(run.stage, plan);
   const n = derived.q.length + derived.prelim.length || (derived.branch?.n_added ?? 0); // the branch's projects until the queue lands
   return (
-    <div className="run-overlay" style={{ left: layout.leftW, right: layout.cardRight, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
+    <div className="run-overlay" role="status" aria-live="polite">
       <div className="run-card">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
