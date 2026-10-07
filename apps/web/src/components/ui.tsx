@@ -193,9 +193,10 @@ export function AgentText({ text, ix }: { text: string; ix: ModelIndex | null })
 
 
 /** A small (i) beside a label that explains the term in plain words on hover or focus, for a reader who has never met
- * it. The bubble is positioned against the viewport (the columns clip what overflows them), to the right of the icon or
- * to its left when there is no room; it never takes the click. */
-export function Hint({ tip }: { tip: string }) {
+ * it; `note` is this grid's or year's caveat (the case it was read at, the element, what a click does), beneath. The
+ * bubble is positioned against the viewport (the columns clip what overflows them), to the right of the icon or to its
+ * left when there is no room; it never takes the click. The readings carry no native `title`: one bubble, not two. */
+export function Hint({ tip, note }: { tip: string; note?: string }) {
   const [at, setAt] = useState<{ left: number; top: number; flip: boolean } | null>(null);
   const show = (e: React.SyntheticEvent<HTMLElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -209,6 +210,7 @@ export function Hint({ tip }: { tip: string }) {
       {at && (
         <span className="tip" role="tooltip" style={{ left: at.flip ? undefined : at.left, right: at.flip ? window.innerWidth - at.left : undefined, top: at.top }}>
           {tip}
+          {note && <span className="tip-note">{note}</span>}
         </span>
       )}
     </span>

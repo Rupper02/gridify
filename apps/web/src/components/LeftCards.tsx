@@ -152,13 +152,13 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
   const outside = yr?.voltage_violation_bus_ids.length ?? 0;
   const sgt = s.boundary?.sgt_count;
   const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
-  const gspTitle = `Export up through the GSP against its limit${yr?.gsp_case ? `, at ${caseLabel(yr.gsp_case)}` : ""}${sgt && sgtMw ? `; ${sgt} × ${fmtMw(sgtMw)} MW supergrid transformers` : ""}. Beyond the GSP: limits and transmission projects.`;
+  const gspNote = [yr?.gsp_case ? `Read at ${caseLabel(yr.gsp_case)}` : "", sgt && sgtMw ? `${sgt} × ${fmtMw(sgtMw)} MW supergrid transformers` : ""].filter(Boolean).join(" · ");
   return (
     <>
       {derived.caps.boundary && ( // a grid with no boundary has no export reading to show
-      <button className="gsp-btn" onClick={actions.toggleBoundary} title={gspTitle}>
+      <button className="gsp-btn" onClick={actions.toggleBoundary}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span className="k" style={{ fontSize: 11.5, color: C.mute }}>GSP export <Hint tip={HINTS.gsp} /></span>
+          <span className="k" style={{ fontSize: 11.5, color: C.mute }}>GSP export <Hint tip={HINTS.gsp} note={gspNote} /></span>
           <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: gspHot ? C.amber : C.ink, whiteSpace: "nowrap" }}>
             {gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
           </span>
@@ -182,16 +182,15 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           className="reading reading-btn"
           onClick={() => actions.showLimits()}
           disabled={!worst}
-          title={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}${room != null ? `; ${room} MW of room at its worst year, first-order` : ""}. Open the Limits tab.` : undefined}
         >
-          <span className="k">Binding element <Hint tip={HINTS.binding} /></span>
+          <span className="k">Binding element <Hint tip={HINTS.binding} note={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}` : ""} /></span>
           <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
             {!worst ? "–" : room != null ? `${room} MW room` : `${Math.round(worst.pct)}%`}
           </span>
           <span className="n">{worst ? `${worst.name}${room != null ? ` · ${Math.round(worst.pct)}%` : ""}${since ? ` · ${binding?.first_breach_year ? "breaches" : "near"} from ${since}` : ""}` : "not solved yet"}</span>
         </button>
-        <div className="reading" title={`The lowest and highest busbar voltages in ${yr?.year ?? s.year} against the statutory band at each level${vcase ? `; the lowest at ${caseLabel(vcase)}` : ""}.`}>
-          <span className="k">Voltage <Hint tip={HINTS.voltage} /></span>
+        <div className="reading">
+          <span className="k">Voltage <Hint tip={HINTS.voltage} note={vcase ? `The lowest at ${caseLabel(vcase)} in ${yr?.year ?? s.year}` : ""} /></span>
           <span className="v" style={{ color: outside ? C.amber : C.ink }}>{yr ? `${yr.min_vm_pu.toFixed(3)}–${yr.max_vm_pu.toFixed(3)}` : "–"}</span>
           <span className="n">{yr ? (outside ? `${outside} bus${outside === 1 ? "" : "es"} out of band` : "pu · within band") : ""}</span>
         </div>
@@ -200,9 +199,8 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           className="reading reading-btn"
           onClick={() => actions.showLimits("n1")}
           disabled={!yr?.n1_screened}
-          title={yr?.n1_screened ? `Single outages whose post-fault state breaches a limit or strands demand${n1.breaches ? ` (${n1.breaches} findings)` : ""}${yr.n1_cases?.length ? `, screened at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}; reported, never a connection gate. Open the N-1 causes.` : "No line or transformer is in the N-1 scope: not studied"}
         >
-          <span className="k">N-1 <Hint tip={HINTS.n1} /></span>
+          <span className="k">N-1 <Hint tip={HINTS.n1} note={yr?.n1_screened ? `${yr.n1_screened} outages studied${yr.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}${n1.breaches ? ` · ${n1.breaches} findings` : ""}` : "No line or transformer is in the N-1 scope: not studied"} /></span>
           <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
             {yr ? (yr.n1_screened ? `${n1.outages} of ${yr.n1_screened}` : "none") : "–"}
           </span>
@@ -226,8 +224,8 @@ function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
   };
   const total = breach + warn;
   return (
-    <button className="reading reading-btn" onClick={open} title={worst ? "Demand groups whose firm capacity or N-1 cover the plan tests (P2/8). Show the worst on the map." : "Show the demand regions on the map"}>
-      <span className="k">Customer alerts <Hint tip={HINTS.alerts} /></span>
+    <button className="reading reading-btn" onClick={open}>
+      <span className="k">Customer alerts <Hint tip={HINTS.alerts} note={worst ? "Click: the worst group on the map" : "Click: the demand regions on the map"} /></span>
       <span className="v" style={{ color: breach ? C.red : warn ? C.amber : C.greenInk }}>{total ? String(total) : "none"}</span>
       <span className="n">{total ? [breach ? `${breach} breach${breach === 1 ? "" : "es"}` : "", warn ? `${warn} warning${warn === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") : "firm capacity holds"}</span>
     </button>
