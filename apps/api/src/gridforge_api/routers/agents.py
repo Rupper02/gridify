@@ -142,6 +142,9 @@ def cancel_reply(pid: str, tid: str) -> dict:
     return {"thread_id": tid, "message_id": live["message_id"], "status": "cancelled", "cancelled_at": now()}
 
 
+STREAM_POLL_S = 0.1  # DBOS polls its stream table (no LISTEN/NOTIFY on SQLite); its 1 s default made tokens land in one-second bursts
+
+
 def _sse(workflow_id: str, after: int) -> Iterator[bytes]:
     """The workflow's event stream as server-sent events. A plain generator (Starlette iterates it in a
     worker thread) over DBOS's blocking reader, which follows the stream until the workflow closes it.
@@ -151,7 +154,7 @@ def _sse(workflow_id: str, after: int) -> Iterator[bytes]:
 
     yield b": connected\n\n"
     pos = after
-    for ev in DBOS.read_stream(workflow_id, "events", offset=after):
+    for ev in DBOS.read_stream(workflow_id, "events", offset=after, polling_interval_sec=STREAM_POLL_S):
         pos += 1  # the id is the stream position: a client resumes with `after=<last id>`
         kind = ev.get("t", "event") if isinstance(ev, dict) else "event"
         yield f"id: {pos}\nevent: {kind}\ndata: {json.dumps(ev, default=str)}\n\n".encode()

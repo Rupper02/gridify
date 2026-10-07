@@ -99,7 +99,7 @@ input { font-family: inherit; }
 .btn.hue { border-color: var(--hue-bd); background: var(--hue-bg); color: var(--hue); }
 .btn.hue:hover:not(:disabled) { background: var(--hue-bg); filter: brightness(1.12); }
 .btn.warn { height: 28px; padding: 0 11px; border-radius: 999px; font-size: 11.5px; border-color: rgba(255, 195, 107, 0.55); background: rgba(255, 195, 107, 0.16); color: var(--amber-ink); }
-.btn.warn.sq { border-radius: 9px; }
+.btn.warn.sq { border-radius: 9px; height: auto; min-height: 28px; padding: 5px 11px; max-width: 100%; white-space: normal; text-align: left; line-height: 1.3; } /* a long label wraps inside its box instead of touching the edge */
 .btn.danger { height: 38px; padding: 0 14px; border-radius: 12px; font-size: 12.5px; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08); color: var(--red-ink); }
 .btn.solid-hue { height: 38px; border-radius: 12px; font-size: 12.5px; justify-content: center; border: 1px solid rgba(255, 255, 255, 0.25); background: var(--hue); color: #08131c; }
 .btn.solid-hue:hover:not(:disabled) { background: var(--hue); filter: brightness(1.08); }
@@ -231,7 +231,10 @@ input { font-family: inherit; }
 /* ---- detail cards ----------------------------------------------------------------------------- */
 .detail { position: absolute; overflow-y: auto; z-index: 12; padding: 14px; border-radius: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px rgba(2, 6, 14, 0.4); }
 /* the head (name and Close) stays at the top while a long card (the works form, its verdicts) scrolls under it */
-.detail .head { display: flex; align-items: flex-start; gap: 10px; position: sticky; top: -14px; z-index: 2; margin: -14px -14px 0; padding: 14px 14px 10px; background: var(--glass); border-radius: 16px 16px 0 0; }
+.detail .head { display: flex; align-items: flex-start; gap: 10px; position: sticky; top: -14px; z-index: 2; margin: -14px -14px 0; padding: 14px 14px 10px; background-color: #1d2a3c; background-image: var(--glass); border-radius: 15px 15px 0 0; }
+/* the scrollbar stops short of the rounded corners instead of running into them */
+.detail::-webkit-scrollbar-track { margin: 14px 0; }
+.detail { scrollbar-gutter: stable; padding-bottom: 18px; }
 .detail .head .ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px; }
 .kv > :nth-child(odd) { color: var(--mute); }
@@ -518,7 +521,8 @@ input { font-family: inherit; }
 .agents-pill[data-tone="bad"] { color: var(--red-ink); border-color: rgba(255, 107, 107, 0.4); }
 .agents-pill[data-live] svg { animation: gfBreath 1.6s ease-in-out infinite; }
 .trace { display: flex; flex-wrap: wrap; gap: 5px; }
-.tchip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); font-size: 10.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.tchip { display: inline-flex; align-items: center; gap: 5px; height: 22px; max-width: 100%; padding: 0 8px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: rgba(255, 255, 255, 0.05); font-size: 10.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.tchip .tlabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; } /* a long tool label or progress note ends in an ellipsis inside the chip, never past the pane */
 .tchip .tstage { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--mute-2); } /* not `.stage`: that is the map container */
 .tchip[data-status="running"] { border-color: rgba(124, 227, 255, 0.6); color: var(--accent); animation: gfBreath 1.6s ease-in-out infinite; }
 .tchip[data-status="failed"] { border-color: rgba(255, 107, 107, 0.5); color: var(--red-ink); }

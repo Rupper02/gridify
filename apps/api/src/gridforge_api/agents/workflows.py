@@ -24,7 +24,6 @@ from . import events, runs, threads
 from .citations import normalize_citations, strip_citations
 from .evidence import check_numbers
 from .streaming import stage_of
-from .tools import proposal_text
 
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
@@ -215,14 +214,12 @@ def _answered(rt: AgentRuntime, project_id: str, thread_id: str, message_id: str
             for call in out.approvals:
                 approvals.append(runs.add_approval(con, project_id=project_id, thread_id=thread_id, message_id=message_id, run_id=run_id,
                                                    tool_call_id=call.tool_call_id, tool=call.tool_name, args=call.args_as_dict()))
-            # what the model said alongside its proposals (the figures it read, the option it favours), then the proposals
-            # themselves, in words (never a tool call as JSON: that is what the Approve card is for)
+            # the message keeps what the model said alongside its proposals (the figures it read, the option it favours);
+            # the proposals themselves are the approval rows, which the planner phrases as one card to approve or deny
             last = res.all_messages()[-1]
             said = "\n".join(p.content.strip() for p in last.parts if isinstance(p, TextPart) and p.content.strip()) if isinstance(last, ModelResponse) else ""
-            said = normalize_citations(said, cited)
-            proposed = "I propose to " + "; ".join(proposal_text(a["tool"], a["args"], names) for a in approvals) + ". Waiting for your approval."
-            text = f"{said}\n\n{proposed}" if said else proposed
-            flags = _figure_flags(said, step_outputs)  # the model's own words, not the proposals' arguments
+            text = normalize_citations(said, cited)
+            flags = _figure_flags(text, step_outputs)
             threads.set_message(con, message_id, status="awaiting_approval", content=text, tool_trace=trace, model_messages=_dump_messages(res.all_messages()),
                                 usage=_usage(res), cost_credits=_usage(res)["cost_credits"], flags=flags, evidence=evidence)
         return {"status": "awaiting_approval", "approvals": [a["approval_id"] for a in approvals], "text": text, "flags": flags}

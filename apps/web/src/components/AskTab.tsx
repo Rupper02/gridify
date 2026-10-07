@@ -208,6 +208,7 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   const cited = live ? !!live.final : m.status === "done"; // the evidence is attached when the reply has ended, not when its first text starts
   const flags = flagLines(m.flags);
   const evidence = evidenceLine(m);
+  const shown = useRevealed(text, !!live && !live.final);
   return (
     <div className="bubble-bot">
       <span className="av"><Lightning size={12} weight="fill" /></span>
@@ -225,16 +226,16 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
                 disabled={!c.tool.startsWith("study_")}
               >
                 <span className="tstage">{STAGE_LABEL[c.stage]}</span>
-                {toolLabel(c.tool)}
-                {c.status === "running" && c.progress && <span className="mono" style={{ fontWeight: 500, color: C.mute }}>· {c.progress}</span>}
-                {c.solves > 0 && <span className="mono" style={{ fontWeight: 500, color: C.mute }}>{c.solves}</span>}
+                <span className="tlabel">{toolLabel(c.tool)}</span>
+                {c.status === "running" && c.progress && <span className="mono tlabel" style={{ fontWeight: 500, color: C.mute }}>· {c.progress}</span>}
+                {c.solves > 0 && <span className="mono" style={{ fontWeight: 500, color: C.mute }} title={`${c.solves} power-flow solves`}>{c.solves}</span>}
               </button>
             ))}
             {cited && chips.length > 0 && <span className="tchip" data-status="done"><span className="tstage">{STAGE_LABEL.CITE}</span>evidence attached</span>}
           </div>
         )}
         <div className={`txt md${planning ? " loading" : ""}${cancelled ? " mute" : ""}`}>
-          {planning ? "Planning the study…" : <AgentText text={text} ix={derived.ix} />}
+          {planning ? "Planning the study…" : <AgentText text={shown} ix={derived.ix} />}
         </div>
         {failed && <span style={{ fontSize: 11.5, color: C.redInk }}>{live?.error ?? "The answer failed."}</span>}
         {flags.map((f, i) => (
@@ -243,7 +244,7 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
             {f}
           </span>
         ))}
-        {approvals.map((a) => <ApprovalCard key={a.approval_id} a={a} planner={planner} />)}
+        {approvals.length > 0 && <ProposalsCard approvals={approvals} planner={planner} />}
         {evidence && (
           <span className="evidence-line">
             <Receipt size={10} style={{ marginRight: 4, verticalAlign: -1 }} />
@@ -255,35 +256,67 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   );
 }
 
-/** A proposal waiting for the operator: in words when the tool is known (its arguments as given on hover), else as given.
- * Only the card decided on locks (the card goes once its decision is stored); a reply's other proposals stay decidable
- * while the answer settles. */
-function ApprovalCard({ a, planner }: { a: Approval; planner: AskTabPlanner }) {
+/** A streamed text revealed a few characters a frame rather than in the bursts it arrives in (the server's stream is
+ * polled, so tokens land in clumps): what is on screen catches up with what has arrived within a few hundred ms. A
+ * reply that is not streaming shows whole. */
+function useRevealed(text: string, streaming: boolean): string {
+  const [n, setN] = useState(streaming ? 0 : text.length);
+  useEffect(() => {
+    if (!streaming) {
+      setN(text.length);
+      return;
+    }
+    let frame = 0;
+    const tick = () => {
+      setN((k) => {
+        if (k >= text.length) return k;
+        frame = requestAnimationFrame(tick);
+        return Math.min(text.length, k + Math.max(2, Math.ceil((text.length - k) / 10)));
+      });
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [text, streaming]);
+  return streaming ? text.slice(0, Math.min(n, text.length)) : text;
+}
+
+/** A reply's proposals as one card: the steps in words (their arguments as given on hover), one decision for all of
+ * them. The card locks while the decisions are stored and goes once they are; the answer then continues. */
+function ProposalsCard({ approvals, planner }: { approvals: Approval[]; planner: AskTabPlanner }) {
   const { actions, s, derived } = planner;
   const [deciding, setDeciding] = useState(false);
-  const decide = (decision: "approve" | "deny", note?: string) => {
+  const decide = async (decision: "approve" | "deny") => {
     setDeciding(true);
-    void actions.decideApproval(a.approval_id, decision, note).finally(() => setDeciding(false));
+    try {
+      for (const a of approvals) await actions.decideApproval(a.approval_id, decision, decision === "deny" ? "declined in the planner" : undefined);
+    } finally {
+      setDeciding(false);
+    }
   };
-  const words = proposalText(a.tool, a.args, derived.ix, s.branches);
-  const raw = argsLine(a.args) || "no arguments";
+  const several = approvals.length > 1;
   return (
     <div className="approval">
-      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Proposal · {toolLabel(a.tool)}</span>
-      {words ? (
-        <span style={{ fontSize: 12, color: C.ink2, lineHeight: 1.45, textWrap: "pretty" }} title={raw}>{words}</span>
-      ) : (
-        <span className="mono" style={{ fontSize: 11, color: C.ink2, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{raw}</span>
-      )}
-      <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>Nothing happens until you decide. Once every proposal of this reply is decided, the approved ones are applied on the branch and the answer continues; main is never edited.</span>
+      <span style={{ fontSize: 12.5, fontWeight: 600 }}>{several ? `${approvals.length} steps proposed` : "Proposed"}</span>
+      <ol style={{ margin: 0, paddingLeft: several ? 18 : 0, listStyle: several ? "decimal" : "none", display: "flex", flexDirection: "column", gap: 3 }}>
+        {approvals.map((a) => {
+          const words = proposalText(a.tool, a.args, derived.ix, s.branches);
+          const raw = argsLine(a.args) || "no arguments";
+          return (
+            <li key={a.approval_id} style={{ fontSize: 12, color: C.ink2, lineHeight: 1.45, textWrap: "pretty" }} title={`${toolLabel(a.tool)}: ${raw}`}>
+              {words ?? <span className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap" }}>{toolLabel(a.tool)} {raw}</span>}
+            </li>
+          );
+        })}
+      </ol>
+      <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>Nothing happens until you decide; approved steps are applied on the branch and the answer continues. Main is never edited.</span>
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="btn primary sm" onClick={() => decide("approve")} disabled={deciding}>
+        <button className="btn primary sm" onClick={() => void decide("approve")} disabled={deciding}>
           <Check size={12} weight="bold" />
-          Approve
+          {several ? "Approve all" : "Approve"}
         </button>
-        <button className="btn" style={{ height: 32 }} onClick={() => decide("deny", "declined in the planner")} disabled={deciding}>
+        <button className="btn" style={{ height: 32 }} onClick={() => void decide("deny")} disabled={deciding}>
           <Prohibit size={12} />
-          Deny
+          {several ? "Deny all" : "Deny"}
         </button>
       </div>
     </div>

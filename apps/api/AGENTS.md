@@ -68,7 +68,7 @@ to the API and the agent harness. The API table is in the root `README.md`.
 - `tools.py`, the `TOOL_GROUPS` (`read`: `limits` first, then the overview, queue, plan years, findings and the merge
   check; `studies`: one tool per `studies.STUDIES` entry; `proposals`: deferred, operator-approved), every call a recorded
   durable step (a study streams `progress` events as its chunks land, so the planner's chip is never silent),
-  `PROPOSAL_TEXT` (a proposal in words) and `SolverGate` (operators first, then the process lock).
+  and `SolverGate` (operators first, then the process lock).
 - `workflows.py`, the DBOS workflows `digest_run`, `answer` / `answer_resume` and the `WORKFLOWS` registry.
 - `events.py`, the `TRIGGERS` registry and `emit`, the one entry point routers call (`routers/optimize.py` after every run,
   `routers/branches.py` after a merge, the lifespan at startup). Only `run.finished` starts work.
@@ -103,10 +103,10 @@ The contracts between the harness and the models. Change them by proposal, not b
   through `citations.normalize_citations` with the run's step ids: an abbreviated id is completed, a bracket that cites
   nothing recorded is dropped. The planner renders the chips (`lib/markdown.ts`), so never store a raw bracket of another
   shape. Run summaries are stripped of citations (`strip_citations`).
-- A proposal is read in words: `tools.PROPOSAL_TEXT` (a registry by tool) phrases each pending approval ("I propose to
-  resize ECR-83EF2 to 55 MW (its import follows); run the branch now"); a new proposal tool needs its entry. A proposal
-  applies the same engine rule as the study that recommended it: a resize scales a battery's import with
-  `Candidate.import_at`, as `connection_options` probed it.
+- A reply's proposals are its approval rows (tool and arguments); the planner phrases them as one card to approve or deny
+  (`lib/ask.ts` `PROPOSAL_TEXT`), so the message keeps only the model's own words. A proposal applies the same engine
+  rule as the study that recommended it: a resize scales a battery's import with `Candidate.import_at`, as
+  `connection_options` probed it.
 - `agent_runs` is not the final word on a run's status: `AgentRuntime.reconcile` (at startup and on every status poll)
   closes the runs DBOS has ended, and cancels and closes the ones left pending under another application version.
 - No daily cap: whoever runs GridForge pays with their own OpenRouter key, so spend is recorded and shown ("spent $X today
