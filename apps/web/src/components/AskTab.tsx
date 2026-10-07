@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { proposalText, suggestedQuestions } from "../lib/ask";
 import type { Layout } from "../lib/layout";
-import { type FoldedTrace, STAGE_LABEL, type TraceChip, agentsPill, argsLine, evidenceLine, flagLines, foldTrace, toolLabel, traceFromMessage } from "../lib/trace";
+import { type FoldedTrace, STAGE_LABEL, type TraceChip, argsLine, evidenceLine, flagLines, foldTrace, toolLabel, traceFromMessage } from "../lib/trace";
 import { C } from "../theme";
 import type { Approval, ThreadMessage } from "../types";
 import { AgentText } from "./ui";
@@ -35,7 +35,6 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
   }, [actions, s.projectId, s.activeBranch]);
   const target = derived.onMain ? "main" : derived.branch?.name;
   const starting = isStarting(planner);
-  const pill = agentsPill(s.agents);
   const questions = suggestedQuestions({
     q: derived.q, sel: s.sel, outages: s.outages, year: s.year, ix: derived.ix,
     connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary,
@@ -51,7 +50,7 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
           every run is in the Review tab.
         </span>
       </div>
-      <button className="mode-card" onClick={actions.startAsk} disabled={starting} title={starting ? pill.title : "Ask the agents"}>
+      <button className="mode-card" onClick={actions.startAsk} disabled={starting} title={starting ? "The agents are starting: a moment." : "Ask the agents"}>
         <span className="ic" style={{ background: "rgba(124,227,255,0.14)", border: "1px solid rgba(124,227,255,0.4)" }}>
           <Sparkle size={20} color={C.accent} weight="fill" />
         </span>
@@ -91,23 +90,18 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
   );
 }
 
-/** The agents' status and the pause switch (nothing to show while they start). */
+/** What the agents cost and the switch that stops them (nothing to show while they start). */
 function AgentsLine({ planner }: { planner: AskTabPlanner }) {
   const { s, actions } = planner;
   const a = s.agents;
   if (!a || a.status === "starting") return null;
-  const pill = agentsPill(a);
   const paused = a.status === "paused";
   return (
     <div className="well" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", fontSize: 11.5 }}>
-      <span className="agents-pill" data-tone={pill.tone} data-live={a.status === "running" || undefined} title={pill.title}>
-        <Sparkle size={11} weight="fill" />
-        {pill.label}
+      <span className="mono ellipsis" style={{ color: paused ? C.amberInk : C.mute, flex: 1, minWidth: 0 }} title={paused ? a.paused_reason || "Paused by the operator." : "What the agents spent on this project: OpenRouter's billed cost, today and in all"}>
+        {paused ? "Agents paused" : a.spend ? `$${a.spend.credits.toFixed(2)} today · $${a.spend.total_credits.toFixed(2)} total` : "No spend yet"}
       </span>
-      <span className="mono ellipsis" style={{ color: C.mute, flex: 1, minWidth: 0 }} title="What the agents spent on this project: OpenRouter's billed cost, today and in all">
-        {a.spend ? `$${a.spend.credits.toFixed(2)} today · $${a.spend.total_credits.toFixed(2)} total` : ""}
-      </span>
-      <button className="btn" style={{ height: 26, fontSize: 11, padding: "0 9px" }} onClick={() => void actions.setAgentsPaused(!paused)} title={paused ? pill.title : "Pause the agents for this project"}>
+      <button className="btn" style={{ height: 26, fontSize: 11, padding: "0 9px" }} onClick={() => void actions.setAgentsPaused(!paused)} title={paused ? "Let the agents answer and write notes again" : "Pause the agents for this project"}>
         {paused ? <Play size={11} weight="bold" /> : <Pause size={11} weight="bold" />}
         {paused ? "Resume" : "Pause"}
       </button>

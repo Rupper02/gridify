@@ -1,31 +1,24 @@
 // The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu (a branch its parent
-// moved past says "behind main"), Diff / Merge
-// on a branch, the agents pill (its popover: the last runs with their elapsed time, cost and solves, the spend, Pause),
-// the demand profile control (locked while a run is on its way) and the Run button ("Re-run" when the shown result is
+// moved past says "behind main"), Diff / Merge on a branch, the demand profile control (a switch mid-run restarts the run on
+// the new profile) and the Run button ("Re-run" when the shown result is
 // out of date; disabled during a loud run, a click during a quiet refresh shows its card).
 
-import { CaretDown, ChatCircleDots, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Pause, Play, Sparkle, Warning } from "@phosphor-icons/react";
+import { CaretDown, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { useNow } from "../hooks/useNow";
 import { behindLabel, branchHue, parentName } from "../lib/derive";
 import { runButton } from "../lib/runStages";
-import { agentsPill, firstSentence, fmtCost, isLiveRun, runElapsed, runStatusLabel } from "../lib/trace";
 import type { Layout } from "../lib/layout";
 import { PROFILES, profileLabel, tint } from "../theme";
-import type { AgentRun } from "../types";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "agentRuns" | "agents" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects" | "runsOpen",
-  "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setAgentsPaused" | "setProfile" | "setRunsOpen" | "setTab" | "toggleDiff" | "toggleMenu",
+  "activeBranch" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects",
+  "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "toggleDiff" | "toggleMenu",
   "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "run" | "stale"
 >;
-
-/** How many of the project's runs the pill's popover lists (the API keeps 50). */
-const MAX_RUNS = 12;
 
 export function Header({ planner, layout }: { planner: HeaderPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
@@ -36,7 +29,6 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
   const sub = onMain ? "plan of record" : `from ${parent} · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
   // plain "Run" until the branch's profile is known (nothing is claimed before then)
   const runBtn = runButton(derived.run, stale.stale, wide && profile ? profile.label : "", !!s.model);
-  const pill = agentsPill(s.agents);
 
   return (
     <header className="header glass">
@@ -88,23 +80,6 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         </div>
       )}
 
-      <div style={{ position: "relative", flex: "none" }}>
-        <button
-          className="agents-pill"
-          data-tone={pill.tone}
-          data-live={s.agents?.status === "running" || undefined}
-          title={`${pill.title} Click for the last runs.`}
-          aria-label={pill.title}
-          aria-haspopup="dialog"
-          aria-expanded={s.runsOpen}
-          onClick={() => actions.setRunsOpen(!s.runsOpen)}
-        >
-          <Sparkle size={12} weight="fill" />
-          {wide && pill.label}
-        </button>
-        {s.runsOpen && <RunsPopover planner={planner} />}
-      </div>
-
       <div className="grow" />
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
@@ -137,90 +112,6 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         {runBtn.label}
       </button>
     </header>
-  );
-}
-
-/** The agents' last runs: who ran on which branch, for how long (live while it runs), at what cost, with what result;
- * the spend and the pause switch above them. Escape or a click elsewhere closes it. */
-function RunsPopover({ planner }: { planner: HeaderPlanner }) {
-  const { s, actions, derived } = planner;
-  const box = useRef<HTMLDivElement>(null);
-  const onClose = () => actions.setRunsOpen(false);
-  useEffect(() => {
-    const close = () => actions.setRunsOpen(false);
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (box.current && !box.current.contains(t) && !(t as HTMLElement).closest?.(".agents-pill")) close();
-    };
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [actions]);
-  const runs = s.agentRuns.slice(0, MAX_RUNS);
-  const now = useNow(runs.some(isLiveRun));
-  const a = s.agents;
-  const pill = agentsPill(a);
-  const paused = a?.status === "paused";
-  const branchName = (id: string | null): string => (!id ? "" : id === derived.mainId ? "main" : (s.branches.find((b) => b.branch_id === id)?.name ?? id));
-  return (
-    <div className="menu runs-pop" role="dialog" aria-label="Agent runs" ref={box}>
-      <div className="runs-head">
-        <span className="agents-pill" data-tone={pill.tone} data-live={a?.status === "running" || undefined} title={pill.title}>
-          <Sparkle size={11} weight="fill" />
-          {pill.label}
-        </span>
-        <span className="mono ellipsis grow" title="What the agents spent on this project: OpenRouter's billed cost, today and in all">
-          {a?.spend ? `$${a.spend.credits.toFixed(2)} today · $${a.spend.total_credits.toFixed(2)} total` : ""}
-        </span>
-        {a && a.status !== "starting" && (
-          <button className="btn" style={{ height: 26, fontSize: 11, padding: "0 9px" }} onClick={() => void actions.setAgentsPaused(!paused)} title={paused ? pill.title : "Pause the agents for this project"}>
-            {paused ? <Play size={11} weight="bold" /> : <Pause size={11} weight="bold" />}
-            {paused ? "Resume" : "Pause"}
-          </button>
-        )}
-      </div>
-      {runs.length ? runs.map((r) => <RunRow key={r.run_id} r={r} now={now} branch={branchName(r.branch_id)} />) : <span className="mute" style={{ fontSize: 11.5, padding: "6px 8px" }}>No agent runs on this project yet.</span>}
-      <div className="menu-sep" />
-      <button
-        className="menu-new"
-        onClick={() => {
-          onClose();
-          actions.setTab("ask");
-        }}
-      >
-        <ChatCircleDots size={15} />
-        Open the conversation
-      </button>
-    </div>
-  );
-}
-
-function RunRow({ r, now, branch }: { r: AgentRun; now: number; branch: string }) {
-  const live = isLiveRun(r);
-  const elapsed = runElapsed(r, now);
-  const solves = r.solves ?? 0;
-  const note = r.status === "failed" ? r.error || "failed" : firstSentence(r.summary);
-  return (
-    <div className="run-row" data-status={r.status}>
-      <span className="who">
-        <b>{r.agent}</b>
-        {r.kind !== r.agent && <span className="mute"> · {r.kind}</span>}
-      </span>
-      <span className="st mono" data-live={live || undefined}>
-        {runStatusLabel(r.status)}
-        {elapsed ? ` · ${elapsed}` : ""}
-      </span>
-      <span className="meta mono">
-        {branch ? `on ${branch} · ` : ""}
-        {fmtCost(r.cost_credits)}
-        {solves ? ` · ${solves} ${solves === 1 ? "solve" : "solves"}` : ""}
-      </span>
-      {note && <span className={`note${r.status === "failed" ? " bad" : ""}`}>{note}</span>}
-    </div>
   );
 }
 

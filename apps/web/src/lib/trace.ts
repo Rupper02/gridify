@@ -1,9 +1,9 @@
 // The agents as the planner shows them. Pure: the API runs the agents and records every step; this
 // folds a reply's event stream into text and stage chips, names tools and stages, reads a message's
-// evidence line, words the header pill, reads the runs list (elapsed, cost) and tells where the
+// evidence line, reads a run's elapsed time and tells where the
 // engineer's note on a branch stands.
 
-import type { AgentRun, AgentsStatus, RunNote, ThreadMessage, TraceEvent, TraceStage } from "../types";
+import type { AgentRun, RunNote, ThreadMessage, TraceEvent, TraceStage } from "../types";
 
 export const STAGE_LABEL: Record<TraceStage, string> = { PLAN: "Plan", ASSEMBLE: "Assemble", RUN: "Run", CHECK: "Check", PROPOSE: "Propose", CITE: "Cite" };
 
@@ -91,14 +91,11 @@ export const flagFigure = (flag: string): string => /figure\s+(-?\d[\d,.]*)/i.ex
 
 // ---- the runs list ------------------------------------------------------------------------------
 
-/** A run still going: queued for the runtime, or running. */
-export const isLiveRun = (r: Pick<AgentRun, "status">): boolean => r.status === "queued" || r.status === "running";
-
-const RUN_STATUS: Record<string, string> = { queued: "queued", running: "running", done: "done", failed: "failed", skipped: "skipped", skipped_paused: "skipped · paused", cancelled: "cancelled" };
-export const runStatusLabel = (status: string): string => RUN_STATUS[status] ?? status.replace(/_/g, " ");
-
 /** An API timestamp as epoch ms (a naive one is read as UTC, which is what the API writes); NaN when unreadable. */
 const epoch = (iso: string): number => Date.parse(/(Z|[+-]\d\d:?\d\d)$/i.test(iso) ? iso : `${iso}Z`);
+
+/** A run still queued or running (its elapsed time ticks). */
+export const isLiveRun = (r: Pick<AgentRun, "status">): boolean => r.status === "queued" || r.status === "running";
 
 /** "48s", "1m 20s", "1h 05m". */
 export function fmtElapsed(ms: number): string {
@@ -117,16 +114,6 @@ export function runElapsed(r: Pick<AgentRun, "started_at" | "finished_at">, now:
   return Number.isFinite(a) && Number.isFinite(b) ? fmtElapsed(b - a) : null;
 }
 
-/** OpenRouter's billed cost in dollars, two decimals; "–" when the run has none recorded. */
-export const fmtCost = (credits: number | null | undefined): string => (credits == null ? "–" : `$${credits.toFixed(2)}`);
-
-/** The first sentence of a summary (up to the first full stop that ends a clause), trimmed. */
-export function firstSentence(text: string | null | undefined): string {
-  const t = (text ?? "").trim();
-  const m = /^(.+?[.!?])(?:\s|$)/.exec(t);
-  return m ? m[1] : t;
-}
-
 /** Where the engineer's note on a branch stands: being written (a `digest` run is live for the branch), of an earlier
  * run than the result shown (its run key differs), not written yet, or current. No result shown yet: nothing to compare. */
 export type NoteState = { kind: "writing"; run: AgentRun } | { kind: "earlier" } | { kind: "none" } | { kind: "current" };
@@ -138,14 +125,3 @@ export function noteState(note: Pick<RunNote, "run_key"> | null, runKey: string 
   return { kind: "current" };
 }
 
-/** The header pill: starting (the API's runtime is not up yet), idle, running or paused. */
-export function agentsPill(st: AgentsStatus | null): { label: string; tone: "neutral" | "good" | "warn" | "bad"; title: string } {
-  if (!st) return { label: "agents", tone: "neutral", title: "Checking the agents…" };
-  if (st.status === "starting") return { label: "agents starting", tone: "neutral", title: "The agents are starting with the API; they answer and propose as soon as they are up." };
-  if (st.status === "paused") {
-    const why = `by the operator${st.paused_reason && st.paused_reason !== "operator" ? `: ${st.paused_reason}` : ""}`;
-    return { label: "agents paused", tone: "warn", title: `Paused ${why}. Resume from the Ask tab.` };
-  }
-  if (st.status === "running") return { label: `agents · ${st.running} running`, tone: "good", title: `${st.running} agent ${st.running === 1 ? "run" : "runs"} in progress.` };
-  return { label: "agents idle", tone: "good", title: "The agents answer questions and propose; a note is written after every run." };
-}

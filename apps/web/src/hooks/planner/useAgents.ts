@@ -1,5 +1,5 @@
 // The project's agents as the planner sees them: their status (polled), the pause switch, the runs
-// list (read only while the pill's popover or the Review tab shows it), the engineer's note on the
+// list (read only while the Review tab shows it: the note's "writing" line), the engineer's note on the
 // active branch's run, and the evidence drawer behind a step an agent cited.
 
 import { useCallback, useEffect } from "react";
@@ -30,15 +30,6 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
       /* the list keeps its last state */
     }
   }, [patch, ref]);
-
-  /** Open or close the pill's runs popover; opening reads the runs at once (the poll refreshes them while it is open). */
-  const setRunsOpen = useCallback(
-    (runsOpen: boolean) => {
-      patch({ runsOpen });
-      if (runsOpen) void loadAgentRuns();
-    },
-    [loadAgentRuns, patch],
-  );
 
   /** The engineer's note on a branch's run (main's too). Ignored if the planner moved on. */
   const loadNote = useCallback(
@@ -89,10 +80,10 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
       const st = ref.current;
       const review = st.tab === "review" && !!st.activeBranch;
       if (review) void loadNote(st.activeBranch);
-      if (st.runsOpen || review) void loadAgentRuns();
+      if (review) void loadAgentRuns(); // the Review tab's note line reads them ("writing the note…")
     }, POLL_MS);
     return () => window.clearInterval(id);
   }, [loadAgentRuns, loadAgents, loadNote, ref, projectId]);
 
-  return { loadAgents, loadAgentRuns, setRunsOpen, loadNote, setAgentsPaused, openEvidence, closeEvidence };
+  return { loadAgents, loadAgentRuns, loadNote, setAgentsPaused, openEvidence, closeEvidence };
 }

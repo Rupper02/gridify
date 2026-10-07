@@ -22,7 +22,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
   const cur = stageIndex(run.stage, plan);
   const n = derived.q.length + derived.prelim.length || (derived.branch?.n_added ?? 0); // the branch's projects until the queue lands
   return (
-    <div className="run-overlay" style={{ left: layout.leftW, right: layout.sideW + 10, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
+    <div className="run-overlay" style={{ left: layout.leftW, right: layout.cardRight, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
       <div className="run-card">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>

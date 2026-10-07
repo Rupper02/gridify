@@ -112,8 +112,7 @@ export interface PlannerState {
   limitsError: string | null; // why it could not be read (the Limits tab offers a Retry)
   // the agents
   agents: AgentsStatus | null; // the project's agents: starting, idle, running or paused; polled
-  agentRuns: AgentRun[]; // the project's agent runs, newest first (read while the runs popover or the Review tab shows)
-  runsOpen: boolean; // the agents pill's popover
+  agentRuns: AgentRun[]; // the project's agent runs, newest first (read while the Review tab shows: the note's "writing" line)
   threads: Thread[]; // the project's conversations
   thread: ThreadView | null; // the open conversation
   trace: TraceEvent[]; // the reply being streamed, as events
@@ -152,7 +151,7 @@ export const INITIAL: PlannerState = {
   outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", run: RUN_IDLE, editedAt: 0,
   diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null,
-  agents: null, agentRuns: [], runsOpen: false, threads: [], thread: null, trace: [], note: null, study: null,
+  agents: null, agentRuns: [], threads: [], thread: null, trace: [], note: null, study: null,
   tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,

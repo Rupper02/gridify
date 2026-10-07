@@ -25,7 +25,7 @@ import type { RunFn } from "./useRun";
  * (its run too: a job of the old project still polling sees it is no longer the planner's run and stops itself). */
 const FRESH: Partial<PlannerState> = {
   ...BRANCH_FRESH, model: null, boundary: null, modelLoading: true, modelError: null, branches: [], activeBranch: "",
-  result: null, resultAt: "", run: RUN_IDLE, added: {}, agents: null, agentRuns: [], runsOpen: false, registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
+  result: null, resultAt: "", run: RUN_IDLE, added: {}, agents: null, agentRuns: [], registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
 };
 
 export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) {

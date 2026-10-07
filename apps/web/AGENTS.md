@@ -20,11 +20,11 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   year in the planner), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
   buttons, finding titles, grouping and map targets), `limits` (what limits a branch: the badge, the summary line, a
   binding element's figures and sparkline points, map targets), `trace` (a reply's events folded into text and stage
-  chips, each stage as the API tagged it, the evidence line, the agents pill, the note's state), `placement` (where the map's markers, labels and
+  chips, each stage as the API tagged it, the evidence line, the note's state), `placement` (where the map's markers, labels and
   tags go: fan-out, collision boxes, thresholds, `midpoint`), `projects` (`mainIdOf`: the project's plan-of-record
   branch, `DEFAULT_PROJECT_ID`, capability chips, the import report's lines, the known-limit fields), `reasons.ts` (the
   reason normaliser registry).
-- `src/components/` is the UI: `Header` (the project capsule opens `ProjectsScreen`; the agents pill), `ProjectsScreen`
+- `src/components/` is the UI: `Header` (the project capsule opens `ProjectsScreen`), `ProjectsScreen`
   (the projects, Open / Delete, the import form with the known limits, the validation report), `LeftCards` (the result
   stamp carries *What the model assumes* and the synthetic-layout note), `MapView`, `MapMarkers`, `MapControls`,
   `DetailCards`, `Roadmap`, `SidePanel` (a typed `TABS` registry) → `AskTab` (the picker: *Ask anything*, suggested
