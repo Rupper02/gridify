@@ -80,6 +80,8 @@ The demand side matches the observation almost exactly. The export side is the p
 
 ## Decisions taken in this pass
 
+Built the same day (commits `e8b24fa`, `c20ffa3`, `ea3b0fa`): the register, the grid's character line, the demand-headroom reading, the DFES forecasts per primary, the fault-level screen and the observed-flow check in the README. Open: whether Standard should stay the DFES Holistic Transition (demand-bound by the early 2030s) or the Counterfactual, where the old GB-level figures sat.
+
 1. Keep the summer minimum at the LTDS factor, never scaled with peak; say so in the product.
 2. Keep full output as the verdict case; the ESO factors stay an optional view.
 3. Keep N-1 informational for generation (a generation connection is non-firm under an outage by default).
