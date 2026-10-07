@@ -172,7 +172,11 @@ input { font-family: inherit; }
 .stamp { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: rgba(5, 10, 18, 0.35); border: 1px solid rgba(255, 255, 255, 0.08); }
 .readings { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
 .reading { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.reading .k { font-size: 11px; color: var(--mute); }
+.reading .k { font-size: 11px; color: var(--mute); display: inline-flex; align-items: center; gap: 4px; }
+.hint { display: inline-flex; align-items: center; color: var(--mute-2); cursor: help; border-radius: 50%; }
+.hint:hover, .hint:focus-visible { color: var(--accent); outline: none; }
+.tip { position: fixed; z-index: 60; width: 260px; padding: 9px 11px; border-radius: 10px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); text-wrap: pretty;
+  background: linear-gradient(150deg, rgba(40, 54, 76, 0.98), rgba(22, 32, 48, 0.98)); border: 1px solid rgba(255, 255, 255, 0.16); box-shadow: 0 10px 28px rgba(2, 6, 14, 0.45); pointer-events: none; }
 .reading-btn { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px; min-width: 0; border-radius: 8px; }
 .reading-btn:hover .n { color: var(--accent); }
 .reading-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }

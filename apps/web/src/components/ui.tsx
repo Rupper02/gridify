@@ -8,6 +8,7 @@ import {
   Drop,
   Engine,
   Fire,
+  Info,
   Lightning,
   Minus,
   Plant,
@@ -17,6 +18,7 @@ import {
   Wind,
   type Icon,
 } from "@phosphor-icons/react";
+import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -186,5 +188,29 @@ export function AgentText({ text, ix }: { text: string; ix: ModelIndex | null })
     <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
       {citeSteps(nameElements(text, ix))}
     </Markdown>
+  );
+}
+
+
+/** A small (i) beside a label that explains the term in plain words on hover or focus, for a reader who has never met
+ * it. The bubble is positioned against the viewport (the columns clip what overflows them), to the right of the icon or
+ * to its left when there is no room; it never takes the click. */
+export function Hint({ tip }: { tip: string }) {
+  const [at, setAt] = useState<{ left: number; top: number; flip: boolean } | null>(null);
+  const show = (e: React.SyntheticEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const flip = r.right + 272 > window.innerWidth;
+    setAt({ left: flip ? r.left - 8 : r.right + 8, top: Math.max(8, Math.min(r.top - 6, window.innerHeight - 160)), flip });
+  };
+  const hide = () => setAt(null);
+  return (
+    <span className="hint" tabIndex={0} role="img" aria-label={tip} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} onClick={(e) => e.stopPropagation()}>
+      <Info size={12} />
+      {at && (
+        <span className="tip" role="tooltip" style={{ left: at.flip ? undefined : at.left, right: at.flip ? window.innerWidth - at.left : undefined, top: at.top }}>
+          {tip}
+        </span>
+      )}
+    </span>
   );
 }
