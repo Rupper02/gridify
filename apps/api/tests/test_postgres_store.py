@@ -49,11 +49,11 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
     bid = b["branch_id"]
     assert b["n_added"] == 1
 
-    q = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    q = client.post(f"/branches/{bid}/optimize", json={}).json()
     item = next(x for x in q["queue"] if x["status"] in ("Phase1", "Phase2"))
     rid = item["request_id"]
     assert client.post(f"/branches/{bid}/schedule", json={"request_id": rid, "year": item["recommended_year"]}).status_code == 200
-    again = client.post(f"/branches/{bid}/optimize", json={"with_justification": False}).json()
+    again = client.post(f"/branches/{bid}/optimize", json={}).json()
     assert next(x for x in again["queue"] if x["request_id"] == rid)["scheduled_year"] == item["recommended_year"]
 
     # the durable cache lives in Postgres too
@@ -63,7 +63,7 @@ def test_branch_workflow_and_cache_on_postgres(pg_store):
         assert "import_mw" in con.columns("added_candidates")
         assert con.execute("SELECT import_mw FROM added_candidates WHERE request_id = ?", [rid]).fetchone()[0] == 4.0
 
-    client.post("/optimize", json={"with_justification": False})  # main must be solved too: the gate compares both
+    client.post("/optimize", json={})  # main must be solved too: the gate compares both
     merged = client.post(f"/branches/{bid}/merge", json={"into": "main", "acknowledge": True}).json()
     assert merged["branch_id"] == "main" and merged["n_added"] == 1
     with deps.scenarios.cursor() as con:

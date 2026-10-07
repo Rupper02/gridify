@@ -54,7 +54,9 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   fingerprint is in every cache key). The run is one state machine, `s.run` (`lib/runStages.ts`), written only by
   `useRun`: a request for the branch already on its way starts no new job (a loud one shows the card of a quiet one), a
   request for another branch supersedes the run in flight, and a failure stays on the stamp with a Retry, never only
-  as a toast. Keep that pattern for any long call: one owner of the state, no restarts, no silent failures.
+  as a toast; a request made after an edit (`editedAt` later than the run's `requestedAt`) retires the stale job and starts one
+  with the current inputs. Keep that pattern for any long call: one owner of the state, no restart for the same inputs, no
+  silent failures.
 - **Projects in the planner.** `s.projectId` is the active project and `derived.mainId` its plan-of-record branch
   (`lib/projects.mainIdOf`): never write `"main"` for a branch id in a hook or component (the word *main* in copy is fine:
   every project's plan of record is called that). `useProjects` boots the planner (the projects, then the default

@@ -22,6 +22,8 @@ export interface RunOverride {
   activeBranch?: string;
   /** An edit's own refresh: no card, the stamp shows it updating; a burst of them within the debounce is one job. */
   quiet?: boolean;
+  /** The inputs changed since the run on its way was asked for: retire that job and start one with the current inputs. */
+  restart?: boolean;
 }
 
 export type RunFn = (over?: RunOverride) => Promise<void>;
@@ -31,18 +33,19 @@ const hhmm = () => new Date().toTimeString().slice(0, 5);
 export function useRun({ patch, ref }: Core, afterRun: (branchId: string) => void) {
   // the quiet debounce's timer: the one thing about a run that is not in `s.run` (set only while `s.run` is pending)
   const debounce = useRef<number | undefined>(undefined);
+  const seq = useRef(0); // the request token: a restart hands out a new one and the old job's loop sees it is no longer wanted
   useEffect(() => () => window.clearTimeout(debounce.current), []);
 
-  /** Start the job for the branch the state holds pending and follow it to its end. */
+  /** Start the job for the request `token` holds pending and follow it to its end. */
   const solve = useCallback(
-    async (bid: string) => {
+    async (bid: string, token: number) => {
       debounce.current = undefined;
       const st = ref.current;
-      if (!(st.run.kind === "pending" && st.run.branchId === bid)) return; // superseded during the debounce
+      if (!(st.run.kind === "pending" && st.run.token === token)) return; // superseded during the debounce
       let jobId: string | null = null;
-      /** Still the planner's run: pending for this branch, or running this very job. A request for another branch,
-       * a branch or project switch (FRESH) or a newer job of the same branch retires it. */
-      const mine = (r: RunState = ref.current.run) => (r.kind === "pending" && r.branchId === bid) || (r.kind === "running" && r.jobId === jobId);
+      /** Still the planner's run: the state holds this very request. Another request for the branch (a restart after an
+       * edit), a request for another branch or a branch or project switch (FRESH) retires it. */
+      const mine = (r: RunState = ref.current.run) => runInProgress(r) && r.token === token;
       let retired = false;
       /** The job is no longer the planner's run: ask it to stop (what it solved stays cached on the API). */
       const retire = () => {
@@ -54,18 +57,19 @@ export function useRun({ patch, ref }: Core, afterRun: (branchId: string) => voi
       try {
         res = await api.runBranchJob(
           bid,
-          { with_justification: true, view_year: st.year },
+          { view_year: st.year },
           {
             onStart: (id) => {
-              const r = ref.current.run;
               jobId = id;
-              if (r.kind === "pending" && r.branchId === bid)
-                patch((x) => (x.run.kind === "pending" && x.run.branchId === bid ? { run: { kind: "running", branchId: bid, jobId: id, quiet: x.run.quiet, stage: "queued", fraction: 0, startedAt: hhmm() } } : {}));
-              else if (!mine()) retire(); // retired before it had an id (a job another request already runs is simply followed)
+              if (mine())
+                patch((x) => (x.run.kind === "pending" && x.run.token === token
+                  ? { run: { kind: "running", branchId: bid, jobId: id, quiet: x.run.quiet, token, requestedAt: x.run.requestedAt, stage: "queued", fraction: 0, startedAt: hhmm() } }
+                  : {}));
+              else retire(); // retired before it had an id (a job another request already runs is simply followed)
             },
             onProgress: (stage, fraction) => {
               if (!mine()) return retire();
-              patch((x) => (x.run.kind === "running" && x.run.jobId === jobId ? { run: { ...x.run, stage, fraction } } : {}));
+              patch((x) => (x.run.kind === "running" && x.run.token === token ? { run: { ...x.run, stage, fraction } } : {}));
             },
             onPartial: (p) => {
               if (!mine()) return;
@@ -99,35 +103,43 @@ export function useRun({ patch, ref }: Core, afterRun: (branchId: string) => voi
     [afterRun, patch, ref],
   );
 
+  /** Solve after the debounce (a burst of edits is one job). */
+  const later = useCallback((bid: string, token: number, ms: number) => {
+    debounce.current = window.setTimeout(() => void solve(bid, token), ms);
+  }, [solve]);
+
   /**
    * Ask for a run of a branch (the active one unless named). The branch's run already on its way is kept: a loud
-   * request shows its card, a quiet one within the debounce extends it. A run of another branch is superseded.
+   * request shows its card, a quiet one within the debounce extends it. A `restart` (the inputs changed since that run
+   * was asked for) retires it and starts one with the current inputs, as loud as the run it replaces. A run of another
+   * branch is superseded.
    */
   const run: RunFn = useCallback(
     async (over: RunOverride = {}) => {
       const st = ref.current;
       const bid = over.activeBranch || st.activeBranch || mainIdOf(st.projects, st.projectId);
-      const quiet = !!over.quiet;
       const r = st.run;
-      const later = (ms: number) => (debounce.current = window.setTimeout(() => void solve(bid), ms));
-      if (runInProgress(r) && r.branchId === bid) {
+      const same = runInProgress(r) && r.branchId === bid;
+      const quiet = !!over.quiet && (!same || r.quiet);
+      if (same && !over.restart) {
         if (!quiet && r.quiet) patch({ run: { ...r, quiet: false }, menuOpen: false });
         if (r.kind === "pending" && debounce.current !== undefined) {
           window.clearTimeout(debounce.current);
-          if (quiet) later(AUTO_REFRESH_DEBOUNCE_MS); // the burst of edits goes on
-          else void solve(bid); // Run now
+          if (quiet) later(bid, r.token, AUTO_REFRESH_DEBOUNCE_MS); // the burst of edits goes on
+          else void solve(bid, r.token); // Run now
         }
         return;
       }
       window.clearTimeout(debounce.current);
       debounce.current = undefined;
+      const token = ++seq.current;
       // the gate's verdict and the diff belong to the result being replaced: drop them now, so Merge reads "checking"
       // and Review "comparing" until the new result's land (never a stale verdict or comparison)
-      patch({ run: { kind: "pending", branchId: bid, quiet }, mergeCheck: null, diff: null, ...(quiet ? {} : { menuOpen: false }) });
-      if (quiet) later(AUTO_REFRESH_DEBOUNCE_MS);
-      else await solve(bid);
+      patch({ run: { kind: "pending", branchId: bid, quiet, token, requestedAt: Date.now() }, mergeCheck: null, diff: null, ...(quiet ? {} : { menuOpen: false }) });
+      if (quiet) later(bid, token, AUTO_REFRESH_DEBOUNCE_MS);
+      else await solve(bid, token);
     },
-    [patch, ref, solve],
+    [later, patch, ref, solve],
   );
 
   return run;

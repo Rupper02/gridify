@@ -120,8 +120,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
                 aria-checked={on}
                 className={on ? "on" : ""}
                 onClick={() => void actions.setProfile(p.id)}
-                disabled={(branch?.status !== undefined && branch.status !== "open") || derived.run.inProgress}
-                title={derived.run.inProgress ? "A run is on its way: the demand profile can change once it has finished." : undefined}
+                disabled={branch?.status !== undefined && branch.status !== "open"}
+                title={derived.run.inProgress ? "Switching the profile restarts the run on its way with it." : undefined}
                 style={{ padding: wide ? "0 12px" : "0 9px" }}
               >
                 <ProfileGlyph bars={p.bars} on={on} />
@@ -132,7 +132,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         </div>
       </div>
 
-      <button className="btn primary" onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+      <button className="btn primary" onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
         <Play size={13} weight="bold" />
         {runBtn.label}
       </button>

@@ -75,7 +75,7 @@ def _clear_rows(con: Cursor, branch_id: str, areas=tuple(_PLAN_TABLES)) -> None:
 
 def branch_request(row: dict) -> OptimizeRequest:
     """Resolve a branch row to an OptimizeRequest (scenario + growth + weights)."""
-    return OptimizeRequest(with_justification=False, **branch_params(row))
+    return OptimizeRequest(**branch_params(row))
 
 
 def branch_to_client(con: Cursor, row: dict) -> dict:

@@ -42,12 +42,12 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
         </span>
         {run.quiet && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
         {showStale && (
-          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
             Out of date · re-run
           </button>
         )}
         {run.problem && (
-          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={run.problem}>
+          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={run.problem}>
             {run.roadmap} · retry
           </button>
         )}
@@ -96,7 +96,7 @@ function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner
       {showStale && (
         <div className="box amber">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
             {runBtn.label}
           </button>
         </div>
@@ -104,7 +104,7 @@ function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner
       {st.problem && (
         <div className="box amber" role="alert">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{st.problem}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
             Retry
           </button>
         </div>

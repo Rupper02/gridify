@@ -15,7 +15,6 @@ from .agents.models import openrouter_model_factory
 from .agents.runtime import AgentRuntime
 from .cache import ResultCache
 from .jobs import JobRunner
-from .narration import OpenRouterNarrator
 from .projects import Projects
 from .service import PlanService
 from .store import ScenarioStore
@@ -32,8 +31,7 @@ cache = ResultCache(scenarios, engine_fingerprint(), solver_lock)
 # the grids planned on: the built-in NGED project from the warehouse, and every imported file
 projects = Projects(scenarios, warehouse, config.PROJECTS_DIR, config.NGED_PROJECT_ID)
 jobs = JobRunner(solver_lock)
-narrator = OpenRouterNarrator()
-plans = PlanService(projects, scenarios, cache, narrator)
+plans = PlanService(projects, scenarios, cache)
 evidence = EvidenceLedger(scenarios, cache)
 spend = SpendMeter(scenarios)
 agents = AgentRuntime(store=scenarios, cache=cache, plans=plans, jobs=jobs, warehouse=warehouse, projects=projects, evidence=evidence, spend=spend,

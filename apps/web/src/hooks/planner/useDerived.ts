@@ -48,7 +48,7 @@ export function useDerived(s: PlannerState) {
     const yearsFailed = s.result ? Object.values(s.result.years ?? {}).filter((y) => y.converged === false).length : 0;
     const yearsTotal = s.result?.years_total ?? s.plan?.years.length ?? 0;
     // where the run stands: the stamp, the roadmap, the readings, every Run button, the stale box and the gate read it
-    const run = runView(s.run, { hasResult: !!s.result, yearsSolved, yearsFailed, yearsTotal });
+    const run = runView(s.run, { hasResult: !!s.result, yearsSolved, yearsFailed, yearsTotal, editedAt: s.editedAt });
     // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
     const branchOnly = new Set<string>(prelim.map((p) => p.request_id));
     if (!onMain && s.diff) s.diff.projects.forEach((p) => p.base_status == null && branchOnly.add(p.request_id));

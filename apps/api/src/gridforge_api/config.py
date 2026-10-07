@@ -50,13 +50,13 @@ os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")  # the agents' library print
 
 def require_openrouter_key() -> str:
     """The OpenRouter key every model call needs. GridForge does not run without it: the agents and the
-    narration are not optional, so a missing key stops the API at startup with the reason, never a
+    the agents are not optional, so a missing key stops the API at startup with the reason, never a
     degraded mode."""
     key = os.getenv("OPENROUTER_API_KEY")
     if not key:
         raise RuntimeError(
             "OPENROUTER_API_KEY is not set. GridForge needs it (put it in apps/pipeline/.env, which the API loads): "
-            "the agents and the narration are not optional, and nothing runs without a model."
+            "the agents are not optional, and nothing runs without a model."
         )
     return key
 

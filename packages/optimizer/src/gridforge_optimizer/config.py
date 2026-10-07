@@ -1,11 +1,10 @@
-"""Shared config for the GridForge connection-queue optimizer (physics + scoring + narration).
+"""Shared config for the GridForge connection-queue optimizer (physics + scoring).
 
 The division of labour is deliberate:
   - feasibility -> deterministic AC power flow (network.py) — never guessed
   - readiness   -> a deterministic rubric over published facts (readiness.py; the NGED registry
                    supplies them directly)
   - strategic   -> a per-technology prior on the registry (nged.py)
-  - narration   -> an LLM phrases results the engine has already decided (llm.py; the API requires its key)
 """
 
 # --- feasibility constraints ---
@@ -306,31 +305,8 @@ READINESS_COMMISSIONING_NEAR_CREDIT = 1.0
 READINESS_COMMISSIONING_MID_CREDIT = 0.6
 READINESS_COMMISSIONING_FAR_CREDIT = 0.3
 
-# --- LLM narration (OpenRouter) ---------------------------------------------
+# --- OpenRouter (the API's agents call the model through it) -----------------
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-JUSTIFY_MODEL = "anthropic/claude-sonnet-5.5"
-JUSTIFY_TEMPERATURE = 0.3        # a little warmth for the closing narrative
-
-JUSTIFY_SYSTEM_PROMPT = (
-    "You are a grid connections planner. Given an optimizer's ordered connection queue -- each project "
-    "with its phase (2030 / 2035 / Deferred / Rejected), readiness, grid-need, and the binding network "
-    "constraint for any deferral -- write a concise justification: one short paragraph plus brief "
-    "per-decision notes, explaining the ordering and why deferred/rejected projects were held back, in "
-    "the spirit of 'first ready and needed, first connected'. Name the limiting constraints. Plain "
-    "text, no markdown headers."
-)
-
-# --- consequence-diff narrator ----------------------------------------------
-# Re-phrases an already-computed diff between two optimizer runs into one plain-English line.
-# It MUST only restate the numbers it is given -- it computes nothing itself.
-NARRATE_DIFF_SYSTEM_PROMPT = (
-    "You are a grid connections planner comparing two connection-queue scenarios (a baseline and a "
-    "proposed option). You are given a pre-computed diff: MW connected by 2030/2035 in each, which "
-    "projects accelerated / slipped / were added or dropped, and which network lines newly overload or "
-    "clear. Write ONE or TWO sentences stating what the proposed option changes versus the baseline -- "
-    "lead with the capacity delta, then the most important project move and the biggest network effect. "
-    "Use only the figures provided; invent nothing. Plain text, no markdown."
-)
 
 # --- "what would it take" suggestions (suggest.py) --------------------------
 MAX_SUGGESTIONS = 5            # deferred projects to propose an unblock for (highest-ranked first)
@@ -340,4 +316,3 @@ MAX_REINFORCE_STEPS = 4        # max parallel circuits chained to connect one pr
 # output in every case (types.Control, network.inject_project), countering the voltage rise its export causes.
 VOLTAGE_ABSORB_PF_STEPS = [0.98, 0.95, 0.90]
 
-# Phrases a pre-computed unblock recommendation. Like the diff narrator, it only restates figures.

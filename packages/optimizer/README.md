@@ -49,8 +49,7 @@ Nothing in `optimize()`, `evaluate_years()` or `suggest_unblock()` makes a netwo
 | `readiness.py` | `score_from_checklist`: the deterministic, auditable readiness rubric. |
 | `scoring.py` | `grid_need_from_solved`: the "first *needed*" signal. |
 | `types.py` | Pydantic models: `Candidate`, `OptimizeParams` → `QueueItem`, `PhaseResult`, `YearResult` (`.regions`: `RegionYear`, `.alerts`: `Alert`), `OptimizeResult` (`.years`), `Reason`, `Outage`, `OutageStudy` (+ `Curtailment`, `N1During`, `VERDICT_SEVERITY`), `Reinforcement`, `Suggestion`, `Finding`, `GateFinding`, `MergeVerdict` (`SEVERITY_ORDER`), `StudyItem`, `StudyResult`, `ModelAssumption`, `GridModel` (+ `ModelBus` … `ModelGenerator`, `crs`), `ImportMeta`, `ValidationReport`. `YearResult.converged` says whether the year's intact power flow converged. |
-| `config.py` | Every tunable: limits, growth pathways, weights, caps, LLM settings. |
-| `llm.py` | The only module that calls out (OpenRouter): optional narration (`justify`, `narrate_diff`, `narrate_suggestion`) that phrases figures the engine already computed. Empty if no `OPENROUTER_API_KEY`. |
+| `config.py` | Every tunable: limits, growth pathways, weights, caps, the OpenRouter base URL. |
 
 ---
 

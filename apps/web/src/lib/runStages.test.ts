@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type RunState, runView } from "./runStages";
 
 const years = { hasResult: true, yearsSolved: 10, yearsFailed: 0, yearsTotal: 10 };
-const running = (stage: string, quiet = false): RunState => ({ kind: "running", branchId: "b", jobId: "j", quiet, stage, fraction: 0.5, startedAt: "10:00" });
+const running = (stage: string, quiet = false): RunState => ({ kind: "running", branchId: "b", jobId: "j", quiet, token: 1, requestedAt: 0, stage, fraction: 0.5, startedAt: "10:00" });
 
 describe("runView", () => {
   it("says the same thing everywhere while years are still solving, and shows the card only for a loud run", () => {
@@ -15,15 +15,15 @@ describe("runView", () => {
     }
   });
   it("is finishing, not done, once every year is in but the job still runs", () => {
-    const v = runView(running("narration"), years);
-    expect(v.label).toContain("writing the briefing");
+    const v = runView(running("writing findings"), years);
+    expect(v.label).toContain("finishing the run");
     expect(v.roadmap).toBe("finishing…");
   });
   it("keeps a quiet refresh off the card from the debounce to the end", () => {
-    const pending = runView({ kind: "pending", branchId: "b", quiet: true }, years);
+    const pending = runView({ kind: "pending", branchId: "b", quiet: true, token: 1, requestedAt: 0 }, years);
     expect(pending).toMatchObject({ inProgress: true, overlay: false, quiet: true, label: "Updating the years your edit touches…" });
     expect(runView(running("year 2029", true), years).overlay).toBe(false);
-    expect(runView({ kind: "pending", branchId: "b", quiet: false }, years)).toMatchObject({ inProgress: true, overlay: false, quiet: false });
+    expect(runView({ kind: "pending", branchId: "b", quiet: false, token: 1, requestedAt: 0 }, years)).toMatchObject({ inProgress: true, overlay: false, quiet: false });
   });
   it("carries a failed or stopped run as a persistent problem, not in progress", () => {
     const failed = runView({ kind: "failed", branchId: "b", error: "boom", at: "10:02" }, years);

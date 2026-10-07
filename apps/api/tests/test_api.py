@@ -108,7 +108,7 @@ def test_results_are_cached_durably_and_keyed_by_engine(project_branch):
 
 # --- jobs -----------------------------------------------------------------------------------------------------------
 def test_background_job_runs_a_branch_and_reports_progress(project_branch):
-    job = client.post(f"/branches/{project_branch}/optimize/jobs", json={"with_justification": False}).json()
+    job = client.post(f"/branches/{project_branch}/optimize/jobs", json={}).json()
     assert job["status"] in ("queued", "running", "done") and job["job_id"].startswith("job-")
     j = wait_job(job)
     assert j["stage"] == "done" and j["fraction"] == 1.0 and j["elapsed_ms"] >= 0

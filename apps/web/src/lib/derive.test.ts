@@ -27,7 +27,7 @@ const result = (over: Partial<OptimizeResult> = {}): OptimizeResult => ({
   params: { growth_2030: 1.08, growth_2035: 1.35, scenario: "ht", w_readiness: 0.5, w_need: 0.35, w_strategic: 0.15 },
   run_key: "k",
   queue: [], phases: {}, years: {}, years_total: 10, studied: { outage_ids: [], reinforcements: [], schedule: {} },
-  justification: "", snapshot_id: "s", branch_id: "br", ...over,
+ snapshot_id: "s", branch_id: "br", ...over,
 });
 
 const model: Model = {

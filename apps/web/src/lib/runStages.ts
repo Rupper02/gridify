@@ -12,8 +12,9 @@ import { type Plan, firstYear, lastYear } from "./plan";
  */
 export type RunState =
   | { kind: "idle" }
-  | { kind: "pending"; branchId: string; quiet: boolean }
-  | { kind: "running"; branchId: string; jobId: string; quiet: boolean; stage: string; fraction: number; startedAt: string }
+  // `token` names the request (a restart retires the job of the previous one); `requestedAt` is when it was asked for
+  | { kind: "pending"; branchId: string; quiet: boolean; token: number; requestedAt: number }
+  | { kind: "running"; branchId: string; jobId: string; quiet: boolean; token: number; requestedAt: number; stage: string; fraction: number; startedAt: string }
   | { kind: "failed"; branchId: string; error: string; at: string }
   | { kind: "cancelled"; branchId: string; at: string };
 
@@ -33,21 +34,19 @@ export function runStages(plan: Plan, profileLabel: string, nOutages: number): R
     { label: "Ranking the queue", note: "readiness · grid need · fit" },
     { label: `Phase 1 trials at ${plan.phase1} demand`, note: profileLabel ? `${profileLabel} demand, both study cases` : "both study cases" },
     { label: `Phase 2 trials at ${plan.phase2} demand`, note: "winter peak and summer minimum" },
-    { label: `Every year, ${firstYear(plan)} to ${lastYear(plan)}`, note: `N-1 screen${nOutages ? ` · ${nOutages} planned outage${nOutages > 1 ? "s" : ""}` : ""}` },
-    { label: "Drafting the briefing", note: "plain-English summary" },
+    { label: `Every year, ${firstYear(plan)} to ${lastYear(plan)}`, note: `N-1 screen${nOutages ? ` · ${nOutages} planned outage${nOutages > 1 ? "s" : ""}` : ""}, then the findings ledger` },
   ];
 }
 
-// the job's stages after the queue is decided: the plan years, then the findings ledger and the briefing
-const isBriefing = (s: string) => s.startsWith("narration") || s.startsWith("writing") || s === "done";
+// the job's stages after the queue is decided: the plan years, then the findings ledger
+const isFinishing = (s: string) => s.startsWith("writing") || s === "done";
 const isYears = (s: string) => s.startsWith("year") || s === "queue decided";
 
 /** Which stage a job stage string belongs to (queued and starting count as ranking; the engine names a
  * phase by its horizon: "phase 2030: trial 3/12"). */
 export function stageIndex(stage: string, plan: Plan): number {
   const s = stage.toLowerCase();
-  if (isBriefing(s)) return 4;
-  if (isYears(s)) return 3;
+  if (isFinishing(s) || isYears(s)) return 3;
   if (s.startsWith(`phase ${plan.phase2}`)) return 2;
   if (s.startsWith(`phase ${plan.phase1}`)) return 1;
   return 0;
@@ -56,11 +55,14 @@ export function stageIndex(stage: string, plan: Plan): number {
 /** The overlay's readout: the engine's own words for what it is doing. */
 export function stageReadout(stage: string, plan: Plan): string {
   if (!stage || stage === "queued") return "queued on the engine";
+  if (stage.startsWith("queued behind ")) {
+    const n = Number(stage.slice("queued behind ".length)) || 1;
+    return `queued on the engine · ${n} job${n === 1 ? "" : "s"} ahead`;
+  }
   if (stage === "starting") return "building the network";
   if (stage === "waiting for the solver") return "waiting for the solver: an agent's study step is finishing, then this run starts";
   if (stage === "ranking") return `one power flow at ${plan.phase2} demand to read grid need`;
   if (stage === "writing findings") return "recording the findings in the ledger";
-  if (stage === "narration") return "phrasing results, physics already fixed";
   if (stage === "queue decided") return "queue decided, solving each year";
   return stage;
 }
@@ -71,6 +73,8 @@ export function stageReadout(stage: string, plan: Plan): string {
 export interface RunView {
   /** Pending or running: the stale box waits, Merge reads "checking", the profile cannot change. */
   inProgress: boolean;
+  /** The run under way predates the last edit: its inputs are not the branch's any more (Run restarts it). */
+  outdated: boolean;
   /** The run card shows: a loud run, from its start to its end. */
   overlay: boolean;
   /** An edit's own refresh is on its way: no card, the stamp says it is updating. */
@@ -82,10 +86,11 @@ export interface RunView {
   note: string; // the readings card's note under the figures ("" for none)
 }
 
-export function runView(run: RunState, o: { hasResult: boolean; yearsSolved: number; yearsFailed: number; yearsTotal: number }): RunView {
+export function runView(run: RunState, o: { hasResult: boolean; yearsSolved: number; yearsFailed: number; yearsTotal: number; editedAt?: number }): RunView {
   const inProgress = runInProgress(run);
   const quiet = inProgress && run.quiet;
-  const base = { inProgress, overlay: run.kind === "running" && !run.quiet, quiet, problem: null, note: "" };
+  const outdated = inProgress && (o.editedAt ?? 0) > run.requestedAt;
+  const base = { inProgress, outdated, overlay: run.kind === "running" && !run.quiet, quiet, problem: null, note: "" };
   if (run.kind === "failed") return { ...base, problem: `The run failed: ${run.error}`, label: `The run failed at ${run.at}`, roadmap: "run failed" };
   if (run.kind === "cancelled")
     return { ...base, problem: "The run stopped before every year was solved: run it again to finish.", label: `The run stopped at ${run.at}`, roadmap: "run stopped" };
@@ -95,15 +100,7 @@ export function runView(run: RunState, o: { hasResult: boolean; yearsSolved: num
   if (run.kind === "running") {
     // the shown result may still be the previous run's, every year in: the job's stage says where this run is
     const stage = run.stage.toLowerCase();
-    if (isBriefing(stage)) {
-      const briefing = stage.startsWith("narration");
-      return {
-        ...base,
-        label: briefing ? "All years solved · writing the briefing…" : "All years solved · finishing the run…",
-        roadmap: "finishing…",
-        note: briefing ? "Every year is solved; the briefing is being written." : "Every year is solved; the run is recording its findings.",
-      };
-    }
+    if (isFinishing(stage)) return { ...base, label: "All years solved · finishing the run…", roadmap: "finishing…", note: "Every year is solved; the run is recording its findings." };
     if (isYears(stage)) return { ...base, label: `Solving years · ${counted} in`, roadmap: "solving years…", note: "Solving the remaining years in the background." };
     return { ...base, label: "Deciding the queue · then every year", roadmap: "deciding the queue…", note: o.hasResult ? "A new run is deciding the queue; these figures are the previous run's." : "" };
   }
@@ -123,6 +120,7 @@ export function runButton(view: RunView, stale: boolean, profileLabel: string, h
   const verb = stale ? "Re-run" : "Run";
   const label = profileLabel ? `${verb} on ${profileLabel}` : verb;
   if (!hasModel) return { label, disabled: true, title: "The grid is still loading." };
+  if (view.outdated) return { label, disabled: false, title: "The run under way predates your last change: run again with the current inputs." };
   if (view.quiet) return { label, disabled: false, title: "A refresh is under way: show its progress." };
   if (view.inProgress) return { label, disabled: true, title: "A run is under way." };
   return { label, disabled: false, title: stale ? "The shown result is out of date: run the plan again." : "Run the plan: the queue, then every year." };

@@ -217,7 +217,7 @@ export const api = {
    * Run a branch as a background job: the queue first, then every year of the plan with
    * `view_year` first. Partial results are handed over as they land.
    */
-  runBranchJob: async (id: string, opts: { with_justification?: boolean; view_year?: number | null }, p: RunProgress): Promise<OptimizeResult> => {
+  runBranchJob: async (id: string, opts: { view_year?: number | null }, p: RunProgress): Promise<OptimizeResult> => {
     let job = await postJson<Job>(`/branches/${id}/optimize/jobs`, opts);
     p.onStart?.(job.job_id);
     // the partial result (the queue plus every year solved so far) is large and re-serialised per poll: the poll
@@ -239,8 +239,7 @@ export const api = {
   },
   /** Stop a job a newer run supersedes (what it already solved stays cached on the API). */
   cancelJob: (jobId: string) => postJson<Job>(`/jobs/${jobId}/cancel`),
-  diffBranch: async (id: string, opts?: { with_narration?: boolean }) =>
-    applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff${opts?.with_narration ? "?with_narration=1" : ""}`)),
+  diffBranch: async (id: string) => applyDiffReasons(await getJson<Diff>(`/branches/${id}/diff`)),
   /** The merge gate's verdict for a branch against its parent. Read-only. */
   mergeCheck: (id: string) => getJson<MergeCheck>(`/branches/${id}/merge-check`),
   /** Merge through the gate: a 409 ApiError carries `{code, message, verdict}`; warnings need `acknowledge`. */

@@ -2,7 +2,7 @@
 
 * The scenarios DB and the projects directory are throwaway, and the OpenRouter key is a placeholder
   (the app refuses to build without one), all set BEFORE anything imports the app. No test ever sends
-  the key anywhere: the agents run scripted models (test_agents.py) and the narrator is swapped below.
+  the key anywhere: the agents run scripted models (test_agents.py).
 * Keep the suite fast: the per-year N-1 screen (ten years per run) is stubbed here; the greedy run's
   N-1 screen still runs, and the engine suite tests the screen itself. What still costs 25-40 s is a
   full solve of a branch that has not been run: share one through a fixture below instead of
@@ -20,27 +20,6 @@ os.environ.setdefault("GRIDFORGE_PROJECTS_DIR", str(Path(tempfile.mkdtemp()) / "
 import pytest
 
 import gridforge_optimizer.years as years
-
-
-class ScriptedNarrator:
-    """The narration seam in tests: deterministic text, no network."""
-
-    def justify(self, summary: str) -> str:
-        return "scripted justification"
-
-    def narrate_diff(self, summary: str) -> str:
-        return "scripted diff narration"
-
-
-
-@pytest.fixture(autouse=True, scope="session")
-def scripted_narrator():
-    from gridforge_api import deps
-
-    real = deps.plans.narrator
-    deps.plans.narrator = ScriptedNarrator()
-    yield
-    deps.plans.narrator = real
 
 
 @pytest.fixture(autouse=True)

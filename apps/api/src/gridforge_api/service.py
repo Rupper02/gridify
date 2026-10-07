@@ -44,7 +44,7 @@ from gridforge_optimizer import (
 from gridforge_optimizer.config import FORECASTS
 from gridforge_optimizer.naming import name_text
 
-from . import ledger, narration, proposals, repository
+from . import ledger, proposals, repository
 from .cache import MAX_PAYLOAD_ENTRIES, ResultCache, cand_key, remember
 from .config import now
 from .projects import Projects
@@ -132,14 +132,12 @@ def reinforced_factory(reinforcements, base_factory: Callable):
 
 class PlanService:
     """The engine behind the API's optimize / diff / merge-check / suggestion endpoints, with its
-    collaborators (the projects and their grids, scenarios store, result cache, narrator) handed in."""
+    collaborators (the projects and their grids, scenarios store, result cache) handed in."""
 
-    def __init__(self, projects: Projects, store: ScenarioStore, cache: ResultCache,
-                 narrator: narration.Narrator):
+    def __init__(self, projects: Projects, store: ScenarioStore, cache: ResultCache):
         self.projects = projects
         self.store = store
         self.cache = cache
-        self.narrator = narrator
 
     # --- inputs ------------------------------------------------------------------------------------
     def params(self, req: OptimizeRequest, project_id: str) -> OptimizeParams:
@@ -331,15 +329,6 @@ class PlanService:
         head_in = self.inputs(head_id)
         return self._solved_pair(head_in, self._base_inputs(head_in, base_id)[0], wait=blocking)[2]
 
-    def diff_narration(self, head_id: str, base_id: str, d: ConsequenceDiff) -> str:
-        """The diff's plain-English summary, cached by the two plans it compares: the planner asks for it every
-        time Review opens, and the figures it restates do not change until one side's plan does."""
-        b = self.inputs(head_id)
-        key = self.cache.key("narration:diff", self.params(b.req, b.project_id), b.ckey, b.baseline,
-                             extra=f"{self.freshness(head_id).years_key}|{self.freshness(base_id).years_key}")
-        return self.cache.text(key, "narration:diff", baseline=b.baseline,
-                               compute=lambda: narration.safely(self.narrator.narrate_diff, narration.summarize_diff(d, self.projects.names(b.project_id))))
-
     # --- the merge gate -------------------------------------------------------------------------------
     def freshness(self, branch_id: str) -> Freshness:
         """Is the branch solved for its current inputs? True when the queue AND the plan years are in
@@ -526,13 +515,12 @@ class PlanService:
         # the identity of this result's physics (the plan-years cache key): what a review or an agent event
         # refers to, the same for a re-run with the same inputs, different as soon as anything changes
         out["run_key"] = self._years_key(b, self.params(b.req, b.project_id))
-        out["justification"] = ""
         return out
 
     def _payload_key(self, b, body: OptimizeRequest, branch_id: str) -> str:
         # the payload is per branch (it carries the branch id, schedule and ledger write), while the engine
         # results underneath it are shared by every branch with the same inputs
-        return self.cache.key("payload", self.params(body, b.project_id), b.ckey, b.baseline, extra=f"{branch_id}|{body.with_justification}|{years_key(b)}")
+        return self.cache.key("payload", self.params(body, b.project_id), b.ckey, b.baseline, extra=f"{branch_id}|{years_key(b)}")
 
     def payload_key(self, body: OptimizeRequest, branch_id: str) -> str:
         """The identity of `optimize_payload(body, branch_id)`'s result (the view year only orders the work):
@@ -549,18 +537,17 @@ class PlanService:
             if not idle():
                 return
             if fid != own.scenario:
-                self.optimize_payload(own.model_copy(update={"scenario": fid, "with_justification": False}), branch_id)
+                self.optimize_payload(own.model_copy(update={"scenario": fid}), branch_id)
 
     def optimize_payload(self, body: OptimizeRequest, branch_id: str, progress=None,
                          publish=None, view_year: int | None = None) -> dict:
         """Run a branch and enrich the result for the map, then solve every year of the plan.
 
         The greedy run decides the queue (progress 0..0.5); the years follow (0.5..0.95), the viewed
-        year first; then the findings ledger (0.96) and the briefing (0.98). `publish(payload)` receives
+        year first; then the findings ledger (0.96). `publish(payload)` receives
         the partial payload as soon as the queue is known and again as each year lands, so the planner
         shows results while the rest are still solving. A run on the branch's own demand profile (not a
-        warm-up what-if) also writes the findings ledger. The briefing is cached by the queue it narrates,
-        so a re-run or a branch with the same queue does not pay for it again.
+        warm-up what-if) also writes the findings ledger.
         """
         report = progress or (lambda _s, _f: None)
         stored = self.inputs(branch_id)
@@ -587,10 +574,4 @@ class PlanService:
         if params == self.params(stored.req, stored.project_id):
             report("writing findings", 0.96)
             self.record_findings(branch_id, b, result, years)
-        if body.with_justification and result.queue:  # nothing queued (main today): nothing to narrate
-            report("narration", 0.98)
-            out["justification"] = self.cache.text(
-                self.cache.key("narration", params, b.ckey, b.baseline, extra=reinf_key(b.reinforcements)), "narration", baseline=b.baseline,
-                compute=lambda: narration.safely(self.narrator.justify, narration.summarize_queue(result, self.projects.names(b.project_id))))
-
         return remember(self.cache.payload, key, out, MAX_PAYLOAD_ENTRIES)

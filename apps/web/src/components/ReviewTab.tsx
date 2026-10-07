@@ -119,7 +119,6 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         )
       ) : (
         <>
-          {d.narration && <span style={{ fontSize: 12.5, lineHeight: 1.5, color: C.ink3 }}>{d.narration}</span>}
           <Tiles d={d} plan={plan} />
           <YearPick years={plan.years} year={s.year} flagged={flaggedYears(d)} solved={(y) => !!d.years?.[String(y)]} onPick={actions.setYear} />
           <NetworkEffect yd={derived.yearDelta} year={s.year} names={names} />

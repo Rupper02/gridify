@@ -1,4 +1,4 @@
-// The run card, docked bottom-centre over the map above the roadmap: what is being solved, a progress rail with a
+// The run card, docked above the roadmap and centred over the map (right of the left column, left of the side panel): what is being solved, a progress rail with a
 // travelling pulse, the five stages bound to the job's real stage, and the engine's own readout. No backdrop: the map
 // and its substations stay clickable while the engine works. It shows for a loud run from its start to its end (the
 // years land on the map as they are solved, the viewed one first); a quiet refresh never shows it.
@@ -20,13 +20,13 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
   const profile = derived.profile?.label ?? "";
   const stages = runStages(plan, profile, s.outages.length);
   const cur = stageIndex(run.stage, plan);
-  const n = derived.q.length + derived.prelim.length;
+  const n = derived.q.length + derived.prelim.length || (derived.branch?.n_added ?? 0); // the branch's projects until the queue lands
   return (
-    <div className="run-overlay" style={{ right: layout.sideW + 10, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
+    <div className="run-overlay" style={{ left: layout.leftW, right: layout.sideW + 10, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
       <div className="run-card">
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-            <span style={{ fontSize: 15, fontWeight: 600 }}>Solving AC power flow</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Solving AC power flow</span>
             <span style={{ fontSize: 12, color: C.mute }}>
               {profile ? `${profile} demand · ` : ""}every year {firstYear(plan)} to {lastYear(plan)} · {n} project{n === 1 ? "" : "s"}
             </span>

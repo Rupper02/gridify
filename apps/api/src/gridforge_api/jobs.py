@@ -118,11 +118,15 @@ class JobRunner:
         finally:
             self.solver_lock.release()
 
-    @staticmethod
-    def _view(rec: dict, with_result: bool = False, with_partial: bool = False, since: int | None = None) -> dict:
+    def _view(self, rec: dict, with_result: bool = False, with_partial: bool = False, since: int | None = None) -> dict:
         """The job as the planner reads it. The partial result (the queue plus every year solved so far, re-serialised
-        on every poll) travels only when asked for and newer than the version the poll last saw (`since`)."""
+        on every poll) travels only when asked for and newer than the version the poll last saw (`since`)). A queued
+        job says how many jobs hold the worker ahead of it (`stage: "queued behind N"`), so the planner can say why
+        it waits rather than "queued" alone."""
         out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel", "key")}
+        if rec["status"] == "queued":
+            ahead = sum(1 for r in self._jobs.values() if r is not rec and r["status"] in ("queued", "running") and not r["cancel"] and r["created_at"] <= rec["created_at"])
+            out["stage"] = f"queued behind {ahead}" if ahead else "queued"
         out["has_partial"] = rec["partial"] is not None
         if with_result:
             out["result"] = rec["result"]

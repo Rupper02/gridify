@@ -87,13 +87,6 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
           ))}
         </div>
       )}
-      {s.result?.justification && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600 }}>Briefing from the last run</span>
-          <span className="well" style={{ padding: "10px 12px", fontSize: 12, lineHeight: 1.5, color: C.ink2, whiteSpace: "pre-wrap" }}>{s.result.justification}</span>
-          <span style={{ fontSize: 10.5, color: C.mute2 }}>Phrased by an LLM from the engine's figures. The queue and the physics are the engine's.</span>
-        </div>
-      )}
     </div>
   );
 }

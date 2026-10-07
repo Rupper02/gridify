@@ -52,13 +52,13 @@ to the API and the agent harness. The API table is in the root `README.md`.
 - `service.py` (`PlanService`: engine runs, the per-year step, freshness and the merge check, the findings-ledger writes,
   suggestions, `study()`); `repository.py` (branches/projects/outages/reinforcements SQL and the `require_open` guard);
   `ledger.py` (findings and merge-audit SQL); `store.py` (`ScenarioStore`, schema + migrations); `warehouse.py`
-  (`Warehouse`, read-only); `cache.py` (`ResultCache`); `narration.py` (`Narrator` protocol + summaries); `schemas.py`
+  (`Warehouse`, read-only); `cache.py` (`ResultCache`); `schemas.py`
   (request bodies).
 - `jobs.py` (`JobRunner`: one worker, and the process-wide `solver_lock` every power flow, an operator's or an agent's,
   runs under; `busy()` lets agents yield to operators).
 - `deps.py` is the composition root: the one place instances are built. It requires `OPENROUTER_API_KEY`
   (`config.require_openrouter_key`, a startup failure without it) and builds the `AgentRuntime` with
-  `openrouter_model_factory(key)` and the `OpenRouterNarrator`: there is no key-less mode.
+  `openrouter_model_factory(key)`: there is no key-less mode.
 
 ### The agent harness (`agents/`)
 - `runtime.py`, `AgentRuntime`: the DBOS lifecycle, the queues `digest` (partitioned by project: one note at a time) and
@@ -161,19 +161,18 @@ The contracts between the harness and the models. Change them by proposal, not b
     optimize job publishes the queue, then each year as `evaluate_years(on_year=...)` lands, the body's `view_year` first.
   - Keep the sync endpoints too (tests and scripts use them).
   - The engine reports progress through `optimize(progress=...)` and `evaluate_years(progress=...)` (the API maps them to
-    0..0.5 and 0.5..0.95, then "writing findings" at 0.96 and "narration" at 0.98); new long stages should call it (it
+    0..0.5 and 0.5..0.95, then "writing findings" at 0.96); new long stages should call it (it
     is also where cancellation lands: `POST /jobs/{id}/cancel` makes the next progress report raise `JobCancelled`).
     The ledger write is one transaction (`Cursor.transaction`) of multi-row INSERTs (`ledger._BATCH`: DuckDB pays
-    ~15 ms a statement, and 1,400 single-row upserts held the store's lock, and every read of it, for 20 s), the
-    narration is cached by the queue it narrates (`ResultCache.text`), and a poll that names the partial it has
-    (`?since=`) is not sent it again. Never loop `execute`/`executemany` over hundreds of rows under the store's lock.
+    ~15 ms a statement, and 1,400 single-row upserts held the store's lock, and every read of it, for 20 s), and a
+    poll that names the partial it has (`?since=`) is not sent it again. Never loop `execute`/`executemany` over hundreds of rows under the store's lock.
   - Plan years are cached by `years.year_signature` (`ResultCache.year_cache`), so an edit re-solves only the years it
     touches; a new input to a year's result must go into that signature.
 - The agent runtime runs DBOS on `apps/api/data/dbos.sqlite` (`GRIDFORGE_DBOS_URL`; Postgres when the scenarios store is
   Postgres). Recovery after a restart is pinned to `GRIDFORGE_DBOS_APP_VERSION` (default: the engine fingerprint), so set
   it in dev to keep in-flight runs across `--reload` restarts. A run whose workflow was left pending under another version
   is cancelled and closed at launch (`AgentRuntime.reconcile`): nothing shows as running for ever after a restart on new code.
-- The tests set a placeholder key and swap the narrator for a scripted one (`tests/conftest.py`), and
+- The tests set a placeholder key (`tests/conftest.py`), and
   `tests/test_agents.py` runs scripted models (`FunctionModel`) on a temp DBOS database: nothing ever reaches OpenRouter
   from a test.
 

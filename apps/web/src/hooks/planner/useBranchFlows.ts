@@ -87,15 +87,17 @@ export function useBranchFlows(
       try {
         await api.updateScenario(bid, scenario, fc.growth_2030, fc.growth_2035);
         edited("profile");
+        // a run on its way is for the old profile: restart it for this one rather than wait a minute for a stale result
+        if (runInProgress(ref.current.run) && ref.current.run.branchId === bid) void run({ restart: true });
       } catch (e) {
         patch({ branches: before });
         toastMsg(`Could not store the demand profile: ${failureText(e)}`, "warn");
       }
     },
-    [edited, patch, ref, toastMsg],
+    [edited, patch, ref, run, toastMsg],
   );
 
-  /** The consequence diff of the active branch vs its parent (with the optional narration). Only the latest load
+  /** The consequence diff of the active branch vs its parent. Only the latest load
    * applies: a diff asked while a run was still solving must not land on top of the one for its result. A read the
    * API refused because the engine was busy (`not_solved`: an agent's study or a job holding the solver as the run
    * ended) is asked again a few times before it is shown in Review with a Retry; any other failure shows at once. */
@@ -105,7 +107,7 @@ export function useBranchFlows(
       const isLatest = begin("diff");
       patch({ diffError: null });
       try {
-        const diff = await api.diffBranch(bid, { with_narration: true });
+        const diff = await api.diffBranch(bid);
         if (isLatest() && ref.current.activeBranch === bid) patch({ diff });
       } catch (e) {
         if (!isLatest() || ref.current.activeBranch !== bid) return;

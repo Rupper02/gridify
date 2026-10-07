@@ -67,7 +67,7 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     assert {"merit_order_dispatch", "no_gsp_limit", "forecast_entered", "n1_scope_entered", "bands_entered"} <= keys
     assert [f["id"] for f in client.get(f"/projects/{pid}/forecasts").json()["forecasts"]] == ["ht"]  # it plans on its own forecast
     # its main runs (an empty queue), on the same engine
-    r = client.post(f"/projects/{pid}/optimize", json={"with_justification": False}).json()
+    r = client.post(f"/projects/{pid}/optimize", json={}).json()
     assert r["queue"] == [] and r["project_id"] == pid and r["snapshot_id"] == p["snapshot_id"] and len(r["years"]) == 10
     # a branch off its main with a hand-entered project at one of its buses
     bus = max(m["buses"], key=lambda b: b["vn_kv"])["bus_id"]
@@ -76,7 +76,7 @@ def test_a_pandapower_json_becomes_a_project_you_can_branch_and_run():
     assert b["project_id"] == pid and b["parent_id"] == main and b["n_added"] == 1
     assert [x["branch_id"] for x in client.get(f"/projects/{pid}/branches").json()["branches"]][0] == main
     assert all(x["project_id"] == pid for x in client.get(f"/projects/{pid}/branches").json()["branches"])
-    run = client.post(f"/branches/{b['branch_id']}/optimize", json={"with_justification": False}).json()
+    run = client.post(f"/branches/{b['branch_id']}/optimize", json={}).json()
     item = run["queue"][0]
     assert item["lon"] is not None  # a synthetic layout still places the project
     assert run["snapshot_id"] == p["snapshot_id"]

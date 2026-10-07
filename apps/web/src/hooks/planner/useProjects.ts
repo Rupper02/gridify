@@ -13,6 +13,7 @@ import { useCallback, useEffect } from "react";
 
 import { api, failureText, onWarehouse } from "../../api";
 import { retrying, retryable } from "../../lib/boot";
+import { loadLastView, saveLastView } from "../../lib/lastView";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
 import { RUN_IDLE } from "../../lib/runStages";
 import type { Project } from "../../types";
@@ -58,18 +59,22 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
    * A failure is retried, then recorded for the stamp. Ignored if the planner moved to another project meanwhile.
    */
   const loadProject = useCallback(
-    async (pid: string, projects?: Project[]) => {
+    async (pid: string, projects?: Project[], preferredBranch?: string) => {
       const mainId = mainIdOf(projects ?? ref.current.projects, pid);
       const caps = (projects ?? ref.current.projects).find((p) => p.project_id === pid)?.capabilities;
       const current = () => ref.current.projectId === pid;
+      let activeId = mainId;
       patch({ modelLoading: true, modelError: null });
       try {
         const [model, branches, forecasts] = await retrying(() => Promise.all([api.getModel(pid), api.listBranches(pid), api.getProjectForecasts(pid)]), {
           shouldRetry: (e) => current() && retryable(e),
         });
         if (!current()) return;
+        // a reload comes back to the branch it was on, if that branch still exists
+        const bid = preferredBranch && branches.some((b) => b.branch_id === preferredBranch) ? preferredBranch : mainId;
+        activeId = bid;
         patch((st) => ({
-          model, branches, forecasts, activeBranch: mainId, modelLoading: false,
+          model, branches, forecasts, activeBranch: bid, modelLoading: false,
           layer: caps && !caps.regions && st.layer === "demand" ? "flow" : st.layer, // no demand groups, no Demand layer
         }));
       } catch (e) {
@@ -77,7 +82,7 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
         return;
       }
       mapApi.current?.fit(false);
-      void run({ activeBranch: mainId });
+      void run({ activeBranch: activeId });
       void loadBoundary(pid);
     },
     [loadBoundary, mapApi, patch, ref, run],
@@ -154,7 +159,10 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
         const [projects, fc] = await retrying(() => Promise.all([api.listProjects(), api.getForecasts()]), { shouldRetry: (e) => !isCancelled() && retryable(e) });
         if (isCancelled()) return;
         patch({ projects, forecasts: fc.forecasts, defaultScenario: fc.defaultScenario, plan: fc.plan, year: fc.plan.phase1 });
-        await loadProject(ref.current.projectId, projects);
+        const last = loadLastView();
+        const known = !!last && projects.some((p) => p.project_id === last.projectId);
+        if (known) patch({ projectId: last.projectId });
+        await loadProject(known ? last.projectId : ref.current.projectId, projects, known ? last.branchId : undefined);
       } catch (e) {
         if (!isCancelled()) patch({ modelLoading: false, modelError: failureText(e) });
       }
@@ -169,6 +177,12 @@ export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) 
     });
     return () => onWarehouse(null);
   }, [patch, ref]);
+
+  // remember the view; only once the branches are in (activeBranch is "" until then, so boot's restore is not overwritten)
+  const { projectId, activeBranch } = ref.current;
+  useEffect(() => {
+    if (activeBranch) saveLastView({ projectId, branchId: activeBranch });
+  }, [projectId, activeBranch]);
 
   useEffect(() => {
     let cancelled = false;

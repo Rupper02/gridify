@@ -99,6 +99,7 @@ export interface PlannerState {
   result: OptimizeResult | null;
   resultAt: string; // when the shown result's run finished (HH:MM)
   run: RunState; // where the branch's run stands (lib/runStages.ts); useRun is its only writer
+  editedAt: number; // when the branch's inputs last changed (ms): a run requested before it is outdated
 
   // review
   diff: Diff | null;
@@ -149,7 +150,7 @@ export const INITIAL: PlannerState = {
   model: null, modelLoading: true, modelError: null, warehouseStale: false, forecasts: [], defaultScenario: "", plan: null, boundary: null, registry: [], registryLoaded: false,
   branches: [], activeBranch: "", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
-  result: null, resultAt: "", run: RUN_IDLE,
+  result: null, resultAt: "", run: RUN_IDLE, editedAt: 0,
   diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null,
   agents: null, agentRuns: [], runsOpen: false, threads: [], thread: null, trace: [], note: null, study: null,
   tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,

@@ -117,7 +117,7 @@ def _gate(branch_id: str, base_id: str, *, blocking: bool = True) -> tuple[Merge
 
 
 @router.get("/branches/{branch_id}/diff")
-def diff_branch(branch_id: str, with_narration: bool = False, solve: bool = False) -> dict:
+def diff_branch(branch_id: str, solve: bool = False) -> dict:
     """Consequence diff of a branch (head) vs its parent (base, default main): the queue, the
     2030/2035 phases, every plan year, the branch's planned works on the parent's plan vs its own,
     and the planned works and reinforcements a merge would add to or remove from the parent. A read:
@@ -132,7 +132,6 @@ def diff_branch(branch_id: str, with_narration: bool = False, solve: bool = Fals
     out["on_merge"] = merge
     out["base_branch"] = base["branch_id"]
     out["head_branch"] = branch_id
-    out["narration"] = plans.diff_narration(branch_id, base["branch_id"], d) if with_narration else ""
     return out
 
 

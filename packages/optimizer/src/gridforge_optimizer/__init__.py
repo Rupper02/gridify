@@ -2,7 +2,7 @@
 
 `optimize(candidates, params)` ranks projects by readiness + grid need + strategic fit and
 connects them greedily, gated by a pandapower power flow. Scoring helpers (readiness rubric,
-grid need) and the LLM narration wrappers live in the sibling modules; see the package README.
+grid need) live in the sibling modules; see the package README.
 """
 
 import hashlib as _hashlib

@@ -31,7 +31,6 @@ def optimize_branch(branch_id: str, body: BranchOptimizeRequest | None = None) -
     with scenarios.cursor() as con:
         row = repository.require_branch(con, branch_id)
     req = repository.branch_request(row)
-    req.with_justification = bool(body and body.with_justification)
     return ran(branch_id, plans.optimize_payload(req, branch_id, view_year=body.view_year if body else None), is_main=repository.is_main(row))
 
 
@@ -40,16 +39,16 @@ def start_optimize_job(branch_id: str, body: BranchOptimizeRequest | None = None
     """Start a run of this branch in the background: the queue, then every year of the plan with
     `view_year` first. Poll GET /jobs/{job_id}?partial=true to show results as they land; a cached
     run finishes at once. The response is the job record (status, stage, fraction)."""
-    return start_branch_run(branch_id, with_justification=bool(body and body.with_justification), view_year=body.view_year if body else None)
+    return start_branch_run(branch_id, view_year=body.view_year if body else None)
 
 
-def start_branch_run(branch_id: str, *, with_justification: bool, view_year: int | None = None) -> dict:
+def start_branch_run(branch_id: str, *, view_year: int | None = None) -> dict:
     """Queue a run of the branch on its own demand profile as a job keyed by its result: a request for a
     run that is already queued or running (the startup warm-up's run of main, a double click) joins that
     job and shows its progress instead of waiting behind it for a cached copy."""
     with scenarios.cursor() as con:
         row = repository.require_branch(con, branch_id)
-    req = OptimizeRequest(with_justification=with_justification, **repository.branch_params(row))
+    req = OptimizeRequest(**repository.branch_params(row))
     main = repository.is_main(row)
     return jobs.start("optimize", lambda progress, publish: ran(branch_id, plans.optimize_payload(
         req, branch_id, progress=progress, publish=publish, view_year=view_year), is_main=main), key=plans.payload_key(req, branch_id))

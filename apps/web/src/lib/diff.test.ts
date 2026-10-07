@@ -32,7 +32,7 @@ const work = (over: Partial<WorkDelta> = {}): WorkDelta => ({
 
 const diff = (over: Partial<Diff> = {}): Diff => ({
   base_label: "", head_label: "", headline: {}, projects: [], phases: [], years: {}, works: [], base_branch: "main",
-  head_branch: "br-1", narration: "", ...over,
+  head_branch: "br-1", ...over,
 });
 
 const names = { line: (id: number) => `Line ${id}`, trafo: (id: number) => `T${id}` };

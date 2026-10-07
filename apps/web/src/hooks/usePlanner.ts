@@ -40,7 +40,7 @@ export function usePlanner() {
   const { refreshBranches } = useBranchList(core);
   const run = useRun(core, afterRun);
   const projects = useProjects(core, run);
-  const edited = useAutoRefresh(run);
+  const edited = useAutoRefresh(core, run);
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const limits = useLimits(core);

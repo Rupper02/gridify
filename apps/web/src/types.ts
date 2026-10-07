@@ -296,7 +296,6 @@ export interface OptimizeResult {
   /** The identity of this result's physics (the plan-years cache key): what a review or an agent event refers to. */
   run_key: string;
   studied: Studied;
-  justification: string;
   snapshot_id: string;
   branch_id: string;
 }
@@ -591,7 +590,6 @@ export interface Diff {
   on_merge?: OnMerge;
   base_branch: string;
   head_branch: string;
-  narration: string;
 }
 
 export interface OnMerge {

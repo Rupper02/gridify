@@ -41,13 +41,11 @@ class OptimizeRequest(BaseModel):
     w_readiness: float | None = None
     w_need: float | None = None
     w_strategic: float | None = None
-    with_justification: bool = True
 
 
 class BranchOptimizeRequest(BaseModel):
     """Request body for running a branch (its scenario is the branch's own)."""
 
-    with_justification: bool = False
     view_year: int | None = None  # the year the planner is looking at: solved first, published first
 
 

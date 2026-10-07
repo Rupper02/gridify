@@ -7,7 +7,7 @@ never mutated.
 
 This module only assembles the app: the work lives in `routers/` (HTTP), `service` (engine runs),
 `repository` + `ledger` + `store` (scenarios DB), `warehouse` (read-only baseline), `cache`, `jobs`
-and `narration`; `deps` wires them together.
+`deps` wires them together.
 """
 
 import asyncio
@@ -63,7 +63,7 @@ async def _lifespan(_app: FastAPI):
     jobs.submit(_warm_reads)
     if warehouse.exists():
         try:
-            optimize.start_branch_run(NGED_MAIN_ID, with_justification=True)
+            optimize.start_branch_run(NGED_MAIN_ID)
         except Exception:
             log.exception("could not queue main's first run")
     jobs.submit(_warm_rest)

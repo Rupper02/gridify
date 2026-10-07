@@ -412,13 +412,12 @@ class YearResult(PhaseResult):
 
 class OptimizeResult(BaseModel):
     """The full optimizer output: the parameters used, the ordered queue, per-phase results, per-year
-    results (filled by years.evaluate_years), narrative."""
+    results (filled by years.evaluate_years)."""
 
     params: OptimizeParams
     queue: list[QueueItem]
     phases: dict[str, PhaseResult]
     years: dict[str, YearResult] = {}
-    justification: str = ""
 
 
 class Reinforcement(BaseModel):
@@ -453,7 +452,6 @@ class Suggestion(BaseModel):
     blocked_project_ids: list[str] = []  # deferred projects this suggestion is for (the motivation)
     extra_solves: int = 0  # power-flow solves this suggestion cost (observability)
     caveat: str = ""
-    narration: str = ""  # filled by the API via llm.narrate_suggestion (grounded in the figures)
 
 
 # --- the geolocated model of a network (any source), and what an import is judged on -------------------------------

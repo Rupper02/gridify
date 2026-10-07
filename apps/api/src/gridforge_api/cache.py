@@ -153,18 +153,6 @@ class ResultCache:
         finally:
             self._solver.release()
 
-    def text(self, key: str, kind: str, *, baseline: str, compute: Callable[[], str]) -> str:
-        """A cached text (a narration): read like every result, stored only when `compute` gave one, and never under
-        the solver lock (phrasing is not solving)."""
-        value, hit = self._lookup(key, json.loads)
-        if hit:
-            return value
-        value = compute()
-        if value:
-            self.put(key, kind, baseline, 0, json.dumps(value))
-            remember(self.compute, key, value, MAX_RESULT_ENTRIES)
-        return value
-
     def _lookup(self, key: str, parse: Callable[[str], T]) -> tuple[T | None, bool]:
         """The in-process dict, then the durable table (kept in process once read)."""
         if key in self.compute:

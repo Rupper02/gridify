@@ -64,7 +64,7 @@ def branch(branch_id: str) -> dict:
 def run(branch_id: str) -> dict:
     """Run a branch synchronously: the queue and every plan year (what the merge gate judges)."""
     path = "/optimize" if branch_id == "main" else f"/branches/{branch_id}/optimize"
-    r = client.post(path, json={"with_justification": False})
+    r = client.post(path, json={})
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -81,7 +81,7 @@ def wait_job(job: dict, timeout_s: float = 600.0) -> dict:
 
 def run_job(branch_id: str, **body) -> dict:
     """Run a branch as a background job and wait for it (the planner's path); returns the result."""
-    job = client.post(f"/branches/{branch_id}/optimize/jobs", json={"with_justification": False, **body}).json()
+    job = client.post(f"/branches/{branch_id}/optimize/jobs", json=body).json()
     return wait_job(job)["result"]
 
 

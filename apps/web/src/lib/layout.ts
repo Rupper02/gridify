@@ -21,6 +21,8 @@ export interface Layout {
   dockPx: number;
   /** The header's bottom edge in px from the top of the map: labels under it are not drawn. */
   headerBottom: number;
+  /** The left column's right edge in px (the result stamp and the readings), 0 when it is a pill: the run card centres right of it. */
+  leftW: number;
   /** The side panel's width in px (clamp(320px, 30vw, 420px)), 0 when it is hidden. */
   sideW: number;
   /** The layer menu, top right of the map (below the reopen button when the side panel is hidden). */
@@ -46,6 +48,7 @@ export function layoutFor(vw: number, vh: number, sideOpen: boolean): Layout {
     showDock,
     dockPx,
     headerBottom: HEADER_BOTTOM,
+    leftW: narrow ? 0 : 268,
     sideW,
     layers,
     cardRight: layers.right + LAYERS_W + GAP,

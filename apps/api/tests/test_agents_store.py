@@ -37,7 +37,7 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
     again = deps.plans.study(bid, "structural_weak_points", {})
     assert again.model_dump() == r and time.perf_counter() - t0 < 2.0  # the cache, not a second study
     # a plan-reading study runs once the branch has a plan: main's, which the suite has solved already
-    client.post("/optimize", json={"with_justification": False})
+    client.post("/optimize", json={})
     g = wait_job(client.post("/branches/main/studies/gsp_margin_by_year", json={}).json())["result"]
     assert [it["year"] for it in g["items"]] == list(PLAN_YEARS)
 
