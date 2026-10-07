@@ -395,6 +395,24 @@ class WindowOption(BaseModel):
     study: OutageStudy
 
 
+class FaultLevel(BaseModel):
+    """One switchgear busbar's fault level in a year (faults.py): the source's published three-phase break current and
+    rating, the modelled Ik'' today and this year, the published figure scaled by the modelled change, and how much of
+    the rating that takes. Figures in kA; `utilisation_pct` is None without a published rating."""
+
+    bus: int
+    name: str
+    kv: float
+    published_ka: float | None = None  # the DNO's own break current at the busbar today (LTDS Table 4)
+    rating_ka: float | None = None  # the published break rating of the switchgear (the weakest published row)
+    modelled_ka: float  # IEC 60909 Ik'' with this year's network
+    today_ka: float | None = None  # the same on today's network: the anchor
+    projected_ka: float | None = None  # published × modelled / today
+    utilisation_pct: float | None = None  # (projected, else modelled) / rating
+    published_over_rating: bool = False  # the DNO's own published current already exceeds the published rating
+    year: int | None = None  # set when the row stands for an element's worst plan year (analysis.Limits)
+
+
 class YearResult(PhaseResult):
     """The plan as it stands in one year: the projects energised by then (their scheduled or
     recommended year), demand interpolated to the year, solved in both cases, plus that year's
@@ -407,6 +425,7 @@ class YearResult(PhaseResult):
     outage_studies: list[OutageStudy] = []
     regions: list[RegionYear] = []  # the demand side: every demand group this year (demand.py)
     alerts: list[Alert] = []  # demand-side warnings this year (demand.ALERT_CHECKS)
+    fault_levels: list[FaultLevel] = []  # every switchgear busbar's fault level this year (faults.py); [] when not studied
     converged: bool = True  # False when a study case did not converge this year (the figures are then the last solve's)
 
 

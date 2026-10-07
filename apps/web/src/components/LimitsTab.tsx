@@ -10,11 +10,12 @@ import { useEffect, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { connectQuestion } from "../lib/ask";
+import { elementSel } from "../lib/gate";
 import { type ModelIndex, ZOOM_ELEMENT, ZOOM_REGION, nameElements, outageSel, plural } from "../lib/derive";
 import { MAX_BINDING, MAX_CLUSTERS, bindingSel, chainSel, chainStudy, clusterLine, clusterSel, fromText, summaryLine, trajectoryPoints, worstText } from "../lib/limits";
 import { VERDICTS } from "../lib/maintenance";
 import { C, caseLabel, fmtMw, loadColor, techLabel, tint, voltColor } from "../theme";
-import type { Chain, Cluster, ElementBinding, Limits, Model, Outage, Sel, Verdict, WorkVerdict } from "../types";
+import type { Chain, Cluster, ElementBinding, FaultLevel, Limits, Model, Outage, Sel, Verdict, WorkVerdict } from "../types";
 import { FindingsLedger, type FindingsLedgerPlanner } from "./FindingsLedger";
 import { Sparkline, TechIcon } from "./ui";
 
@@ -72,6 +73,7 @@ export function LimitsTab({ planner }: { planner: LimitsTabPlanner }) {
           <DeferredProjects chains={l.chains} ix={ix} model={s.model} onOpen={open} onAsk={(id) => void actions.askAbout(connectQuestion(id))} />
           <Causes clusters={l.clusters} model={s.model} onOpen={open} />
           <PlannedWorks works={l.works} ix={ix} outages={s.outages} onOpen={open} />
+          <FaultLevels faults={l.faults} model={s.model} onOpen={open} />
         </>
       )}
       <details className="ledger-fold" open={ledgerOpen} onToggle={(e) => setLedgerOpen(e.currentTarget.open)}>
@@ -253,6 +255,40 @@ function Causes({ clusters, model, onOpen }: { clusters: Cluster[]; model: Model
 }
 
 // ---- the planned works ----------------------------------------------------------------------------
+/** Fault levels: each switchgear busbar at its worst plan year, the busbars over or near their rating first; the figure is
+ * the DNO's published break current scaled by the modelled change (the modelled current beside it). Informational. */
+function FaultLevels({ faults, model, onOpen }: { faults: FaultLevel[]; model: Model | null; onOpen: Open }) {
+  const [all, setAll] = useState(false);
+  if (!faults.length) return null;
+  const rows = all ? faults : faults.slice(0, MAX_BINDING);
+  return (
+    <section className="lsec">
+      <span className="lsec-title">Fault levels</span>
+      {rows.map((f) => {
+        const pct = f.utilisation_pct;
+        const tone = pct == null ? C.mute2 : pct > 100 ? C.red : pct > 90 ? C.amber : C.mute2;
+        const figure = f.projected_ka ?? f.modelled_ka;
+        return (
+          <div className="lrow" key={f.bus}>
+            <span className="sev-dot" style={{ background: tone }} title={pct == null ? "No rating published" : pct > 100 ? "Over its switchgear rating" : pct > 90 ? "Near its switchgear rating" : "Within its rating"} />
+            <button className="frow-main" onClick={() => onOpen(elementSel("bus", f.bus, model), f.year ?? null)} title={`Show it on the map${f.year ? ` in ${f.year}` : ""}`}>
+              <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{f.name}</span>
+              <span className="chip kind">{f.kv} kV</span>
+            </button>
+            <span className="mono" style={{ fontSize: 12, color: tone, whiteSpace: "nowrap" }}>{pct != null ? `${Math.round(pct)}%` : `${figure.toFixed(1)} kA`}</span>
+            <span className="lfacts">
+              <span>{f.projected_ka != null ? `projected ${f.projected_ka.toFixed(1)} kA` : `modelled ${f.modelled_ka.toFixed(1)} kA`}{f.rating_ka != null ? ` of a ${f.rating_ka.toFixed(1)} kA break rating` : ", no rating published"}{f.year ? ` in ${f.year}` : ""}</span>
+              {f.published_ka != null && <span>NGED publishes {f.published_ka.toFixed(1)} kA today{f.published_over_rating ? ", already over the rating" : ""}</span>}
+              {f.projected_ka != null && <span>modelled {f.modelled_ka.toFixed(1)} kA (today {f.today_ka?.toFixed(1)} kA)</span>}
+            </span>
+          </div>
+        );
+      })}
+      <ShowAll total={faults.length} shown={MAX_BINDING} all={all} onToggle={() => setAll((v) => !v)} />
+    </section>
+  );
+}
+
 function PlannedWorks({ works, ix, outages, onOpen }: { works: WorkVerdict[]; ix: ModelIndex | null; outages: Outage[]; onOpen: Open }) {
   if (!works.length) return null;
   return (

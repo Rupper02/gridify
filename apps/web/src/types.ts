@@ -261,6 +261,22 @@ export interface N1During {
 }
 
 /** The plan as it stands in one year (engine: years.evaluate_year). */
+/** One switchgear busbar's fault level: the DNO's published break current and rating, the modelled Ik'' today and in
+ * the year, the published figure scaled by the modelled change, and how much of the rating that takes (kA, %). */
+export interface FaultLevel {
+  bus: number;
+  name: string;
+  kv: number;
+  published_ka: number | null;
+  rating_ka: number | null;
+  modelled_ka: number;
+  today_ka: number | null;
+  projected_ka: number | null;
+  utilisation_pct: number | null;
+  published_over_rating: boolean;
+  /** The worst plan year, when the row stands for the whole plan (Limits). */
+  year?: number | null;
+}
 export interface YearResult extends PhaseResult {
   converged?: boolean; // false when a study case did not converge that year
   year: number;
@@ -268,6 +284,7 @@ export interface YearResult extends PhaseResult {
   energised: string[];
   trafo_loading: Record<string, number>;
   outage_studies: OutageStudy[];
+  fault_levels?: FaultLevel[];
   /** The demand side: every demand group this year, and its alerts (breaches first). */
   regions?: RegionYear[];
   alerts?: Alert[];
@@ -793,6 +810,7 @@ export interface Limits {
   chains: Chain[];
   clusters: Cluster[];
   works: WorkVerdict[];
+  faults: FaultLevel[];
   n1_rows: number;
   n1_pairs: number;
 }

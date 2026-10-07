@@ -767,7 +767,7 @@ def _connection_chunks(ctx: StudyContext, p: ConnectionOptionsParams) -> list[Ba
         c = _candidate_of(ctx, p.request_id)
     except ValueError:
         return [p]  # the run itself says why
-    net = ctx.net_factory()
+    net, _ = _plan_net(ctx, exclude=p.request_id)  # ranked on the operating point the run itself probes, so the parts come in its order
     buses = p.bus_ids or _ranked(net, [b for b, _ in _higher_buses(net, int(c.bus_id))], _asks(c)[0], p.max_buses)
     return [p.model_copy(update={"part": "site"})] + [p.model_copy(update={"part": "bus", "bus_ids": [b]}) for b in buses]
 

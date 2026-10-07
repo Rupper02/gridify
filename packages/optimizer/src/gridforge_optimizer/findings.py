@@ -49,6 +49,11 @@ def gsp_id(kind: str, year: int) -> tuple:  # gsp_over_limit | gsp_near_limit
     return (kind, "gsp", "gsp", year, None)
 
 
+def fault_id(bus) -> tuple:
+    """A fault-level finding's identity: the busbar, over the plan (its worst year is a value, not an identity)."""
+    return ("fault_level", "bus", bus, None, None)
+
+
 def n1_key(v: dict) -> tuple:
     """An N-1 finding's identity within a year: which element was lost, in which case, and which limit broke on what.
     An island or a collapse is the outage's alone: its id bus (the lowest one stranded, the lowest voltage) moves
@@ -246,9 +251,30 @@ def _non_convergent(ctx: _Ctx) -> list[Finding]:
     ]
 
 
+def _fault_levels(ctx: _Ctx) -> list[Finding]:
+    """Switchgear busbars whose projected fault level exceeds the published rating in some plan year: one finding per
+    busbar at its worst year (a warning: an informational screen on the DNO's published baseline)."""
+    worst: dict[int, tuple] = {}
+    for y in ctx.years():
+        for f in y.fault_levels:
+            if f.utilisation_pct is None or f.utilisation_pct <= 100.0:
+                continue
+            if f.bus not in worst or f.utilisation_pct > worst[f.bus][0]:
+                worst[f.bus] = (f.utilisation_pct, y.year, f)
+    out: list[Finding] = []
+    for bus, (pct, year, f) in sorted(worst.items(), key=lambda kv: -kv[1][0]):
+        figure = f"projected {f.projected_ka:.1f} kA" if f.projected_ka is not None else f"modelled {f.modelled_ka:.1f} kA"
+        tail = f" (NGED's published {f.published_ka:.1f} kA already exceeds it)" if f.published_over_rating and f.published_ka is not None else ""
+        out.append(_finding("fault_level", "warn",
+                            f"{f.name}: {figure} three-phase break current against a {f.rating_ka:.1f} kA switchgear rating in {year} ({pct:.0f}%){tail}",
+                            element_kind="bus", element_id=bus, year=year, value=round(f.projected_ka if f.projected_ka is not None else f.modelled_ka, 2),
+                            limit=f.rating_ka, fp=fingerprint(*fault_id(bus))))
+    return out
+
+
 # the extractors, in the order their findings read best; a new kind of finding is one function + one entry
 EXTRACTORS: tuple[Callable[[_Ctx], list[Finding]], ...] = (
-    _overloads, _voltage, _gsp, _n1, _alerts, _works, _queue, _schedule, _non_convergent,
+    _overloads, _voltage, _gsp, _n1, _alerts, _works, _fault_levels, _queue, _schedule, _non_convergent,
 )
 
 

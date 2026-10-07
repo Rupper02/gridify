@@ -332,6 +332,7 @@ def normalise_net(net, source_id: str = "import") -> list[ModelAssumption]:
         net.name = source_id
     for r in rec.by_key.values():  # the builder-style records studies.data_quality reads
         net["assumptions"][r["key"]] = dict(r)
+    _fault_anchor(net)
     return rec.list()
 
 
@@ -412,6 +413,13 @@ def apply_import_meta(net, meta: ImportMeta | None) -> list[ModelAssumption]:
     for r in rec.by_key.values():
         net["assumptions"][r["key"]] = dict(r)
     return rec.list()
+
+
+def _fault_anchor(net) -> None:
+    """Today's modelled fault levels on an imported grid whose file carries the short-circuit data (faults.can_study);
+    nothing is assumed for one that does not: its plan years report no fault level."""
+    from .faults import today_levels
+    net["fault_today_ka"] = today_levels(net)
 
 
 def inspect_net(net) -> list[ModelAssumption]:

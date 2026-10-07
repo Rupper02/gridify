@@ -131,13 +131,19 @@ def test_a_bsps_own_rows_are_not_counted_twice():
 
 
 def test_new_beacon_road_is_above_its_firm_capacity_today():
-    """NGED's own LTDS row: 14.38 MW maximum demand against a 14 MVA firm capacity (unity power factor)."""
+    """NGED's own LTDS row: 14.38 MW maximum demand against a 14 MVA firm capacity (unity power factor); the first plan
+    year carries NGED's DFES projection for the primary on top, so the group reads above its firm capacity from the start."""
     from gridforge_optimizer import OptimizeParams
+    from gridforge_optimizer.network import build_base_net
     from gridforge_optimizer.years import evaluate_year
 
+    base = build_base_net()
+    row = base.load[base.load["region"] == "New Beacon Road"]
+    assert float(row["peak_mw"].sum()) == pytest.approx(14.38, abs=0.01) and float(row["firm_mw"].iloc[0]) == pytest.approx(14.0)
+    assert all("ht" in c for c in row["growth_curves"])  # its supply area's DFES curves, not the LTDS fallback
     yr = evaluate_year(2026, [], OptimizeParams(), {}, n1=False)
     r = next(x for x in yr.regions if x.name == "New Beacon Road")
-    assert r.demand_mw == pytest.approx(14.38, abs=0.01) and r.firm_mw == pytest.approx(14.0)
+    assert r.demand_mw >= 14.38 - 0.01 and r.firm_mw == pytest.approx(14.0)
     assert r.p2_class == "C" and r.headroom_mw < 0
     assert any(a.region_id == r.region_id and a.kind == "firm_capacity" for a in yr.alerts)
 

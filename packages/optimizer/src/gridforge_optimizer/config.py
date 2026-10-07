@@ -67,6 +67,18 @@ GENERATION_FACTORS = {
 }
 GENERATION_FACTOR_DEFAULT = {"winter_peak": 1.0, "summer_min": 1.0}  # gas, gas engines, biomass/EfW: firm
 
+# --- fault levels (faults.py; informational) --------------------------------------------------------
+# IEC 60909 maximum case. Inverter units (solar, wind, storage) contribute as current sources at this multiple of their
+# rated current (ENA EREC G99 and G74 practice puts an inverter's fault contribution at about 1.1 to 1.2 × rated);
+# every other unit is a synchronous machine with this sub-transient reactance and rated power factor. Planning
+# assumptions, chosen, not sourced per unit: the registers publish no machine data. Buses below FAULT_MIN_KV are not
+# reported when the source publishes no switchgear ratings.
+FAULT_INVERTER_K = 1.1
+FAULT_INVERTER_TECHS = frozenset({"solar", "wind", "battery", "hybrid"})
+FAULT_SYNC_XDSS_PU = 0.20
+FAULT_SYNC_COS_PHI = 0.9
+FAULT_MIN_KV = 11.0
+
 # --- the plan's years and planned maintenance -----------------------------------------------------
 # Every run solves the plan year by year (years.evaluate_years) so the timeline only switches between
 # stored results. Demand is interpolated linearly: 1.0 in PLAN_START_YEAR -> the 2030 multiplier -> the
@@ -152,6 +164,7 @@ MERGE_GATE_LEVELS = {
     "gsp_over_limit": "blocker", "gsp_worse": "blocker", "gsp_near_limit": "warning",
     "n1_new_islanded": "blocker", "n1_new_limit": "blocker", "n1_new_collapse": "blocker", "n1_worse": "warning",
     "alert_new_breach": "blocker", "alert_new_warn": "warning", "alert_worse": "warning",
+    "fault_level_new": "warning", "fault_level_worse": "warning",
     "work_worse_severe": "blocker", "work_worse": "warning", "work_infeasible": "warning", "work_new": "warning",
     "against_recommendation": "warning", "profile_differs": "warning", "proposals_removed": "warning",
     "preexisting": "info", "deferred_on_grid": "info",

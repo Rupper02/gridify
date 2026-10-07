@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from .config import GSP_NEAR_LIMIT_FRACTION, LINE_LOADING_MAX_PCT, N1_COLLAPSE_VM_PU, OLTC_DEADBAND_PU, PLAN_YEARS, TRAFO_LOADING_MAX_PCT
 from .naming import Names, element_names
-from .types import VERDICT_SEVERITY, GridModel, MergeVerdict, OptimizeResult, YearResult
+from .types import VERDICT_SEVERITY, FaultLevel, GridModel, MergeVerdict, OptimizeResult, YearResult
 
 NEAR_FRACTION = GSP_NEAR_LIMIT_FRACTION  # an element within this fraction of its limit is "near" (the GSP's own threshold, reused)
 TOP_BINDING = 8  # what the planner's Limits view and the digest lead with
@@ -117,6 +117,7 @@ class Limits(BaseModel):
     chains: list[Chain]
     clusters: list[Cluster]
     works: list[WorkVerdict]
+    faults: list[FaultLevel]  # each switchgear busbar at its worst plan year, highest utilisation first; [] when not studied
     n1_rows: int
     n1_pairs: int  # distinct (outage, case) pairs with any finding
 
@@ -145,6 +146,9 @@ class Headline(BaseModel):
     demand_headroom_mw: float | None = None
     demand_headroom_group: str | None = None
     demand_headroom_year: int | None = None
+    fault_worst_pct: float | None = None  # the highest fault-level utilisation in any plan year (faults.py)
+    fault_worst_bus: str | None = None
+    fault_worst_year: int | None = None
 
 
 class Character(BaseModel):
@@ -188,6 +192,7 @@ class RunDigest(BaseModel):
     chains: list[Chain]
     clusters: list[Cluster]
     works: list[WorkVerdict]
+    faults: list[FaultLevel] = []
     delta: Delta | None = None
     assumptions: int = 0
     not_studied: list[str]
@@ -400,6 +405,19 @@ def works(years: dict[str, YearResult], names: Names) -> list[WorkVerdict]:
     return out
 
 
+def fault_binding(years: dict[str, YearResult]) -> list[FaultLevel]:
+    """Each switchgear busbar at its worst plan year (the highest utilisation, else the highest modelled current),
+    highest utilisation first."""
+    worst: dict[int, FaultLevel] = {}
+    for y in years.values():
+        for f in y.fault_levels:
+            cur = worst.get(f.bus)
+            key = (f.utilisation_pct if f.utilisation_pct is not None else -1.0, f.modelled_ka)
+            if cur is None or key > (cur.utilisation_pct if cur.utilisation_pct is not None else -1.0, cur.modelled_ka):
+                worst[f.bus] = f.model_copy(update={"year": y.year})
+    return sorted(worst.values(), key=lambda f: (f.utilisation_pct if f.utilisation_pct is not None else -1.0, f.modelled_ka), reverse=True)
+
+
 def headline(result: OptimizeResult, years: dict[str, YearResult]) -> Headline:
     ys = [years[k] for k in sorted(years, key=int)]
     by_status = defaultdict(int)
@@ -414,6 +432,8 @@ def headline(result: OptimizeResult, years: dict[str, YearResult]) -> Headline:
     gsp = max(ys, key=lambda y: y.gsp_export_mw) if ys else None
     # the tightest demand group over the plan: the least firm headroom among groups with a published firm capacity
     tight = min(((r.headroom_mw, r.name, y.year) for y in ys for r in y.regions if r.firm_mw > 0), default=None)
+    fault = next(iter(fault_binding(years)), None)
+    fault = fault if fault and fault.utilisation_pct is not None else None
     return Headline(mw_2030=mw(p1), mw_2035=mw(p2), n_connected=by_status["Phase1"] + by_status["Phase2"], n_deferred=by_status["Deferred"],
                     n_rejected=by_status["Rejected"], worst_line_pct=round(worst.worst_line_loading_pct, 1) if worst else 0.0,
                     worst_trafo_pct=round(worst.worst_trafo_loading_pct, 1) if worst else 0.0,
@@ -423,7 +443,9 @@ def headline(result: OptimizeResult, years: dict[str, YearResult]) -> Headline:
                     years_converged=sum(1 for y in ys if y.converged), n1_rows=rows, n1_pairs=len(pairs), n1_collapses=len(collapses),
                     generation_headroom_mw=round(gsp.gsp_limit_mw - gsp.gsp_export_mw, 1) if gsp and gsp.gsp_limit_mw else None,
                     demand_headroom_mw=round(tight[0], 1) if tight else None, demand_headroom_group=tight[1] if tight else None,
-                    demand_headroom_year=tight[2] if tight else None)
+                    demand_headroom_year=tight[2] if tight else None,
+                    fault_worst_pct=fault.utilisation_pct if fault else None, fault_worst_bus=fault.name if fault else None,
+                    fault_worst_year=fault.year if fault else None)
 
 
 # the two planning conditions, by the case id the engine stamps on every figure (network.CASE_SPECS)
@@ -487,12 +509,14 @@ def limits(result: OptimizeResult, years: dict[str, YearResult], model: GridMode
     ys = list(years.values())
     return Limits(years=sorted(y.year for y in ys), character=character(binding, headline(result, years)), binding=binding,
                   chains=chains(result, binding, names, options), clusters=clusters(years, names),
-                  works=works(years, names), n1_rows=sum(len(y.n1_violations) for y in ys),
+                  works=works(years, names), faults=fault_binding(years), n1_rows=sum(len(y.n1_violations) for y in ys),
                   n1_pairs=len({(v.get("outage_type"), v.get("outage_id"), v.get("case")) for y in ys for v in y.n1_violations}))
 
 
-NOT_STUDIED = ("fault levels", "the 400 kV network beyond the GSP (context only)", "N-1 is reported, never a connection gate",
-               "planned works are studied in their season, their weeks are not placed")
+NOT_STUDIED = ("the 400 kV network beyond the GSP (context only)", "N-1 is reported, never a connection gate",
+               "planned works are studied in their season, their weeks are not placed",
+               "fault levels are an informational IEC 60909 screen on the DNO's published baseline, never a gate")
+NOT_STUDIED_NO_FAULT = "fault levels (the source gives no short-circuit data)"
 
 
 def run_digest(branch: str, lim: Limits, result: OptimizeResult, years: dict[str, YearResult], *, diff=None, gate: MergeVerdict | None = None,
@@ -503,5 +527,6 @@ def run_digest(branch: str, lim: Limits, result: OptimizeResult, years: dict[str
     return RunDigest(branch=branch, years=lim.years, headline=h, character=lim.character,
                      queue={"connected": h.n_connected, "deferred": h.n_deferred, "rejected": h.n_rejected},
                      binding=[b.model_copy(update={"trajectory": [b.worst]}) for b in lim.binding[:TOP_DIGEST]],
-                     chains=lim.chains[:TOP_DIGEST], clusters=lim.clusters[:TOP_DIGEST], works=lim.works[:TOP_DIGEST], delta=delta(diff, gate),
-                     assumptions=assumptions, not_studied=list(NOT_STUDIED))
+                     chains=lim.chains[:TOP_DIGEST], clusters=lim.clusters[:TOP_DIGEST], works=lim.works[:TOP_DIGEST],
+                     faults=[f for f in lim.faults if f.utilisation_pct is not None][:TOP_DIGEST], delta=delta(diff, gate),
+                     assumptions=assumptions, not_studied=list(NOT_STUDIED) if lim.faults else [NOT_STUDIED_NO_FAULT, *NOT_STUDIED[:-1]])

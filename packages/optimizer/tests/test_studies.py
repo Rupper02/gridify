@@ -199,8 +199,8 @@ def test_connection_options_size_the_project_chain_circuits_and_probe_higher_bus
     # the higher-voltage busbars really are higher, nearest first, probed with the project's full MW
     kv0 = float(net.bus.at[c.bus_id, "vn_kv"])
     assert all(it.extra["vn_kv"] > kv0 and it.limit == c.rating_mw and it.unit == "MW" for it in moves)
-    steps = [it.extra["steps"] for it in moves]
-    assert steps == sorted(steps) and len({it.element_id for it in moves}) <= 2
+    # at most `max_buses` busbars, each with its distance in network steps (ranked by first-order headroom, not by distance)
+    assert all(isinstance(it.extra["steps"], int) and it.extra["steps"] >= 1 for it in moves) and len({it.element_id for it in moves}) <= 2
     assert all(it.severity == ("info" if it.extra["fits"] else "warn") and it.extra["fits"] == (it.value >= c.rating_mw) for it in moves)
     assert len({it.fingerprint for it in r.items}) == len(r.items) and r.solves > 0
     assert any("2035" in n for n in r.not_studied) and rid in r.summary

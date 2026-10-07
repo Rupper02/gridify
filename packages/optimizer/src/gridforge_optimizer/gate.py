@@ -46,6 +46,7 @@ from .findings import (
     _pct,
     against_recommendation,
     alert_id,
+    fault_id,
     fingerprint,
     gsp_id,
     n1_id,
@@ -469,10 +470,35 @@ def _deferred(ctx: GateContext) -> list[GateFinding]:
     ]
 
 
+def _fault_levels(ctx: GateContext) -> list[GateFinding]:
+    """A switchgear busbar whose projected fault level the branch pushes over its published rating in a year where the
+    parent's stays under (`fault_level_new`), or further over than the parent's by more than GATE_WORSEN_PTS
+    (`fault_level_worse`); the parent's own exceedances are context. Warnings: the screen is informational."""
+    out: list[GateFinding] = []
+    for y, b, h in ctx.common_years():
+        base = {f.bus: f for f in b.fault_levels}
+        for f in h.fault_levels:
+            if f.utilisation_pct is None or f.utilisation_pct <= 100.0:
+                continue
+            bf = base.get(f.bus)
+            bpct = bf.utilisation_pct if bf and bf.utilisation_pct is not None else None
+            common = dict(year=y, element_kind="bus", element_id=f.bus, value=f.utilisation_pct, base_value=bpct, limit=100.0, ledger=fault_id(f.bus))
+            if bpct is None or bpct <= 100.0:
+                out.append(_finding("fault_level_new", f"{f.name}: the projected fault level reaches {f.utilisation_pct:.0f}% of its switchgear rating in {y} on this "
+                                                       f"branch ({'not studied' if bpct is None else f'{bpct:.0f}%'} on {ctx.base_label}).", **common))
+            elif f.utilisation_pct - bpct > GATE_WORSEN_PTS:
+                out.append(_finding("fault_level_worse", f"{f.name}: the fault level is over its switchgear rating on {ctx.base_label} already ({bpct:.0f}%) and this "
+                                                         f"branch takes it to {f.utilisation_pct:.0f}% in {y}.", **common))
+            else:
+                out.append(_finding("preexisting", f"{f.name}: the fault level is over its switchgear rating on {ctx.base_label} in {y} ({bpct:.0f}%); this branch "
+                                                   f"leaves it at {f.utilisation_pct:.0f}%.", **common))
+    return out
+
+
 # the checks, one per concern; a new rule is one function + one entry here + its kinds in MERGE_GATE_LEVELS
 MERGE_CHECKS: tuple[Callable[[GateContext], list[GateFinding]], ...] = (
     _stale, _no_result, _unstudied_years, _non_convergent, _behind_base, _fork_unknown,
-    _thermal, _voltage, _gsp, _n1, _alerts, _works,
+    _thermal, _voltage, _gsp, _n1, _alerts, _works, _fault_levels,
     _schedule, _profile, _proposals, _deferred,
 )
 

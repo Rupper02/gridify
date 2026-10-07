@@ -21,6 +21,7 @@ from collections.abc import Callable, Iterable, MutableMapping
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR, PLAN_YEARS  # noqa: F401  (PLAN_YEARS re-exported)
 from .demand import assess_demand
+from .faults import fault_levels
 from .greedy import NetFactory, Progress
 from .maintenance import WORKS, apply_works_after, study_windows
 from .network import (
@@ -92,6 +93,7 @@ def evaluate_year(
     studies = study_windows(net, [o for o in outages if o.year == year], screen=n1_screen if screen_windows else None)
     screen = n1_screen_cases(net) if n1 else {"cases": [], "screened": 0, "violations": []}
     _, intact_reason, m = feasibility(net)  # the intact envelope the map and readings show
+    faults = fault_levels(net)  # the intact network's fault levels, every unit in service (IEC 60909 maximum case)
     yr = YearResult(
         year=year,
         growth=float(net["demand_growth"]),
@@ -104,6 +106,7 @@ def evaluate_year(
         n1_screened=screen["screened"],
         n1_violations=screen["violations"],
         outage_studies=studies,
+        fault_levels=faults,
     )
     # the demand side (regions + alerts) reads the intact envelope just solved, so it comes last
     yr.regions, yr.alerts = assess_demand(net, year, screen["violations"])

@@ -35,6 +35,8 @@ import pandas as pd
 from .cim import CgmesMeta
 from .config import (
     DFES_BASE_YEAR,
+    FAULT_INVERTER_K,
+    FAULT_SYNC_XDSS_PU,
     FORECASTS,
     GSP_INFEED_VM_PU,
     LTDS_FORECAST_FIRST_YEAR,
@@ -271,6 +273,10 @@ _ASSUMPTION_TEXT = {
     "tap_step_assumed": f"LTDS gives the tap range but not the step: {OLTC_TAP_STEP_PERCENT:g}% per tap assumed, regulated towards {OLTC_SETPOINT_PU:g} pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
     "pf_default": f"LTDS left the power factor blank: {_PF_DEFAULT:g} lagging assumed (nged._pf)",
+    "fault_impedance_pu": "LTDS Table 4's system impedance is read as per unit on 100 MVA, not the percent the form names: 0.0346 at the GSP gives 12.6 kA against the published 14.3 kA break, a percent reading 290 GVA",
+    "fault_infeed_table4": "The transmission infeed's short-circuit power is the GSP busbar's published system impedance, which already holds today's embedded generation: its contribution is counted a second time, small against the infeed",
+    "fault_published_over_rating": "NGED's own published fault current at this busbar exceeds the published switchgear rating: reported as published, never corrected",
+    "fault_no_rating": "No break rating published for this busbar: its fault level is reported without a utilisation",
     "forecast_ltds_only": f"No DFES supply area matches this connection: its LTDS five-year maximum-demand forecast applies (Forecast Year 1 = {LTDS_FORECAST_FIRST_YEAR}), then holds",
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
     "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
@@ -773,6 +779,50 @@ def _assume_structure(net) -> None:
                 _assume(net, "mv_mesh_closed", "line", i)
 
 
+def _add_fault_data(net, rows, busid, uf, slack_bus: int) -> None:
+    """LTDS Table 4 onto the buses: the published three-phase break current (the highest row at the busbar), the
+    switchgear's break rating (the lowest published), the same for peak make; the transmission infeed's short-circuit
+    power from the GSP busbar's system impedance; and today's modelled Ik'' per bus as the anchor the plan years are
+    scaled from (faults.py)."""
+    from .faults import today_levels
+    for col in ("fault_rating_ka", "fault_published_ka", "fault_make_rating_ka", "fault_published_make_ka"):
+        net.bus[col] = float("nan")
+    gsp_z = None
+    for r in rows:
+        node = str(r.get("Node A") or "")
+        root = uf.find(node) if node in uf.p else None
+        if root is None or root not in busid:
+            continue
+        b = busid[root]
+        if b not in net.bus.index:
+            continue
+        for src, col, pick in (("3ph RMS Break", "fault_published_ka", max), ("3ph RMS Break Rating", "fault_rating_ka", min),
+                               ("3ph Peak Make", "fault_published_make_ka", max), ("3ph Peak Make Rating", "fault_make_rating_ka", min)):
+            v = _num(r.get(src))
+            if v is None or v <= 0:
+                continue
+            cur = net.bus.at[b, col]
+            net.bus.at[b, col] = v if cur != cur else pick(cur, v)
+        if b == slack_bus and gsp_z is None and _num(r.get("X1")):
+            gsp_z = (float(_num(r.get("R1")) or 0.0), float(_num(r.get("X1"))))
+    if gsp_z is not None:
+        r1, x1 = gsp_z
+        z = math.hypot(r1, x1)  # pu on 100 MVA (fault_impedance_pu)
+        net.ext_grid["s_sc_max_mva"] = 100.0 / z
+        net.ext_grid["s_sc_min_mva"] = 100.0 / z
+        net.ext_grid["rx_max"] = r1 / x1
+        net.ext_grid["rx_min"] = r1 / x1
+        _assume(net, "fault_impedance_pu", "bus", slack_bus)
+        _assume(net, "fault_infeed_table4", "bus", slack_bus)
+    for b in net.bus.index:
+        pub, rat = net.bus.at[b, "fault_published_ka"], net.bus.at[b, "fault_rating_ka"]
+        if pub == pub and rat == rat and pub > rat:
+            _assume(net, "fault_published_over_rating", "bus", int(b))
+        elif pub == pub and rat != rat:
+            _assume(net, "fault_no_rating", "bus", int(b))
+    net["fault_today_ka"] = today_levels(net)
+
+
 def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict.
 
@@ -804,6 +854,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     existing += _add_small_embedded(net, tables, 4000)  # ids after Table 5's (EX-3000...)
     slack = _add_gsp_infeed(net)
     _assume_structure(net)  # after the unreachable buses are dropped
+    _add_fault_data(net, [r for r in tables.get("fault", []) if _in_edition(r.get("Status"), edition)], busid, uf, slack)
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
             "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}
@@ -851,7 +902,7 @@ PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="forecast_basis", message=f"Demand grows per primary on NGED's DFES 2025 winter-peak projections for the pathway chosen, as a ratio to their {DFES_BASE_YEAR} value (the LTDS edition's current year), so every plan year is NGED's own figure for that substation; connections with no supply area follow their LTDS five-year forecast, then hold"),
     ModelAssumption(key="gsp_sign", message="The GSP export limit's direction is assumed: 'export' read as distribution to transmission (NGED does not document the sign)"),
     ModelAssumption(key="firm_capacity_units", message="LTDS Table 3 firm capacity is read as MVA and converted to MW at the row's power factor (the table states no unit)"),
-    ModelAssumption(key="fault_levels_unchecked", message="Fault levels are not checked: the published units are undocumented and some breaker ratings sit below the calculated fault current"),
+    ModelAssumption(key="fault_levels_method", message=f"Fault levels are an informational IEC 60909 screen (initial symmetrical current, maximum case): NGED's published Table 4 break current scaled by the modelled change from today's network, against the published switchgear rating; inverter units contribute {FAULT_INVERTER_K:g} × rated current, other units a synchronous machine with x''d {FAULT_SYNC_XDSS_PU:g} pu (config.FAULT_*); the DNO's own decremented currents and the model's differ in the absolute"),
     ModelAssumption(key="transmission_context", message="The 400 kV network and wider transmission boundaries are context only; the GSP export limit is the only transmission constraint"),
 )
 
