@@ -10,8 +10,8 @@ export function useView({ patch, mapApi }: Core) {
   return useMemo(
     () => ({
       setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
-      /** Open the Findings tab on a group (the tab expands it once, then clears the focus). */
-      showFindings: (focus: FindingsFocus) => patch({ tab: "findings", sideOpen: true, findingsFocus: focus }),
+      /** Open the Limits tab with its findings ledger unfolded on a group (the tab expands it once, then clears the focus). */
+      showLimits: (focus: FindingsFocus) => patch({ tab: "limits", sideOpen: true, findingsFocus: focus }),
       clearFindingsFocus: () => patch({ findingsFocus: null }),
       setYear: (year: number) => patch((st) => (st.plan ? { year: clampYear(st.plan, year) } : {})),
       toggleSide: () => patch((st) => ({ sideOpen: !st.sideOpen })),

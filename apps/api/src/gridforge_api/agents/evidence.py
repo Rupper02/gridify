@@ -1,13 +1,8 @@
-"""The evidence ledger: every tool an agent calls is a recorded step, and every figure an agent files
-comes from one of those steps, copied by the server.
-
-An agent never types a number into a finding. It names a step and an item index; `bind_findings`
-loads the study the step produced (from the durable result cache, by key) and copies the item's
-value, limit, element, case and year into the ledger, so a finding is replayable: the step says which
-study, with which parameters, on which snapshot and engine, gave the figure. `check_numbers` is the
-soft guard on free text: digit figures in an answer that appear in no step output are flagged, matched
-by value. It does not check plan years, counts up to 12 or numbers written as words (a "3" would match
-any 3 in the outputs), and a flag never stops the text being shown.
+"""The evidence ledger: every tool an agent calls is a recorded step (its arguments, the cache key of what it
+ran, its compacted result), so an answer's citations replay to the study behind them and a figure in free text is
+checked by value. `check_numbers` is the soft guard: digit figures in a text that appear in no output it read are
+flagged, matched by value. It does not check plan years, counts up to 12 or numbers written as words (a "3" would
+match any 3 in the outputs), and a flag never stops the text being shown.
 """
 
 from __future__ import annotations
@@ -16,7 +11,6 @@ import json
 import re
 from typing import NamedTuple
 
-from pydantic import BaseModel
 
 from gridforge_optimizer import Finding, StudyResult
 
@@ -24,15 +18,6 @@ from .. import ledger
 from ..cache import ResultCache
 from ..store import STEP_COLS, ScenarioStore
 
-
-
-class AgentFinding(BaseModel):
-    """What an agent may say about a study item: which item, and its words. Never the figures."""
-
-    step_id: str
-    item_index: int
-    message: str
-    action: str = ""
 
 
 class StepRecord(NamedTuple):
@@ -82,21 +67,6 @@ class EvidenceLedger:
             r["result"] = json.loads(r.pop("result_json") or "null")
         return rows
 
-    def study_steps(self, run_id: str) -> list[dict]:
-        """This run's study steps (the ones a finding may point at), oldest first, each with its compacted items."""
-        return [s for s in self.steps(run_id) if isinstance(s.get("result"), dict) and "items" in s["result"]]
-
-    @staticmethod
-    def resolve_step(sid: str, steps: list[dict]) -> str | None:
-        """The full step id for what a model wrote: the id itself, or its tool-call id (the part after the last colon,
-        which is what a model copies when the id is 100 characters), or any unique tail of it; None when nothing matches."""
-        ids = [s["step_id"] for s in steps]
-        if sid in ids:
-            return sid
-        tail = sid.rsplit(":", 1)[-1].strip()
-        hits = [i for i in ids if i.rsplit(":", 1)[-1] == tail] or [i for i in ids if tail and i.endswith(tail)]
-        return hits[0] if len(hits) == 1 else None
-
     def load_step(self, step_id: str) -> StepRecord | None:
         """A step with its output: inline, and the study re-fetched from the durable cache by its key when that key holds
         a study (a run step's key holds the plan years: not a study)."""
@@ -113,38 +83,6 @@ class EvidenceLedger:
                 study = StudyResult.model_validate_json(cached[1])
         return StepRecord(step_id, row["run_id"], row["tool"], json.loads(row["args_json"] or "{}"), row["cache_key"], result, study,
                           cached[2] if cached else None)
-
-    def bind_findings(self, run_id: str, branch_id: str, proposals: list[AgentFinding], *, snapshot_id: str, at: str) -> list[str]:
-        """File the agent's findings: for each, the item it names is loaded from the recorded step and
-        its figures are copied; the agent contributes the message and the action only. Returns the
-        fingerprints filed. A step or item that does not exist is a ValueError (the caller retries the
-        model with it)."""
-        findings: list[Finding] = []
-        evidence_by_fp: dict[str, dict] = {}
-        for p in proposals:
-            step = self.load_step(p.step_id)
-            if step is None or step.study is None:
-                raise ValueError(f"step {p.step_id} is not a recorded study of this run")
-            if step.run_id != run_id:
-                raise ValueError(f"step {p.step_id} belongs to another run")
-            if not (0 <= p.item_index < len(step.study.items)):
-                raise ValueError(f"step {p.step_id} has no item {p.item_index} (it has {len(step.study.items)})")
-            item = step.study.items[p.item_index]
-            findings.append(Finding(
-                fingerprint=item.fingerprint, kind=step.study.kind, severity=item.severity, source="agent", year=item.year,
-                case=item.case, element_kind=item.element_kind,
-                element_id=None if item.element_id is None else str(item.element_id), value=item.value, limit=item.limit,
-                message=p.message,
-                context={"engine_message": item.message, "action": p.action, "unit": item.unit, "item_index": p.item_index,
-                         "study_kind": step.study.kind, "extra": item.extra},
-            ))
-            evidence_by_fp[item.fingerprint] = {"step_id": p.step_id, "run_id": run_id, "cache_key": step.cache_key,
-                                                "snapshot_id": snapshot_id, "engine": self._cache.engine,
-                                                "study_kind": step.study.kind, "params": step.study.params, "item_index": p.item_index}
-        with self._store.cursor() as con:
-            for f in findings:  # one row at a time: each carries its own evidence
-                ledger.upsert_findings(con, branch_id, [f], evidence_by_fp[f.fingerprint], at, source="agent", evidence_kind="tool_call")
-        return [f.fingerprint for f in findings]
 
     def replay(self, step_id: str) -> dict | None:
         """The study behind a step, as the UI's evidence link shows it: the step, the study, and

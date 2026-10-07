@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { ThreadMessage, TraceEvent } from "../types";
-import { evidenceLine, flagLines, foldTrace, isSuperseded, progressLabel, traceFromMessage } from "./trace";
+import type { AgentRun, ThreadMessage, TraceEvent } from "../types";
+import { evidenceLine, flagFigure, flagLines, foldTrace, noteState, progressLabel, traceFromMessage } from "./trace";
 
 describe("foldTrace", () => {
   const events: TraceEvent[] = [
@@ -68,10 +68,20 @@ describe("stored messages", () => {
   });
 });
 
-describe("reviews and the pill", () => {
-  it("knows a superseded review by the run key", () => {
-    expect(isSuperseded({ run_key: "k1" }, "k1")).toBe(false);
-    expect(isSuperseded({ run_key: "k1" }, "k2")).toBe(true);
-    expect(isSuperseded({ run_key: "k1" }, null)).toBe(false); // no result shown yet: nothing to compare
+describe("the note", () => {
+  const digest = (over: Partial<AgentRun> = {}): AgentRun => ({
+    run_id: "d-1", project_id: "p", kind: "digest", agent: "digest", workflow_id: null, branch_id: "br-1", thread_id: null, event_id: null, parent_run_id: null,
+    status: "running", started_at: "2026-10-03T10:00:00Z", finished_at: null, model: null, input_tokens: null, output_tokens: null, cost_credits: null, solves: null, summary: null, error: null, ...over,
+  });
+  it("tells a note being written, one of an earlier run, none yet, and the current one", () => {
+    expect(noteState(null, "k1", [digest()], "br-1").kind).toBe("writing");
+    expect(noteState(null, "k1", [digest({ branch_id: "br-2" })], "br-1").kind).toBe("none"); // another branch's digest
+    expect(noteState({ run_key: "k1" }, "k2", [digest({ status: "done" })], "br-1").kind).toBe("earlier");
+    expect(noteState({ run_key: "k1" }, "k1", [], "br-1").kind).toBe("current");
+    expect(noteState({ run_key: "k1" }, null, [], "br-1").kind).toBe("current"); // no result shown yet: nothing to compare
+  });
+  it("picks the figure a flag names", () => {
+    expect(flagFigure("figure 98765.4 appears in no tool output of this conversation")).toBe("98765.4");
+    expect(flagFigure("no figure here")).toBe("no figure here");
   });
 });

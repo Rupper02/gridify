@@ -14,15 +14,17 @@ import { useCallback, useEffect } from "react";
 import { api, failureText, onWarehouse } from "../../api";
 import { retrying, retryable } from "../../lib/boot";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
+import { RUN_IDLE } from "../../lib/runStages";
 import type { Project } from "../../types";
 import { BRANCH_FRESH } from "./core";
 import type { Core, PlannerState } from "./core";
 import type { RunFn } from "./useRun";
 
-/** What a project switch resets: everything that belonged to the previous project's grid, branches and result. */
+/** What a project switch resets: everything that belonged to the previous project's grid, branches and result
+ * (its run too: a job of the old project still polling sees it is no longer the planner's run and stops itself). */
 const FRESH: Partial<PlannerState> = {
   ...BRANCH_FRESH, model: null, boundary: null, modelLoading: true, modelError: null, branches: [], activeBranch: "",
-  result: null, resultAt: "", added: {}, agents: null, agentRuns: [], runsOpen: false, healthChecks: [], registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
+  result: null, resultAt: "", run: RUN_IDLE, added: {}, agents: null, agentRuns: [], runsOpen: false, registry: [], registryLoaded: false, assumptions: null, showAssumptions: false,
 };
 
 export function useProjects({ patch, ref, mapApi, toastMsg }: Core, run: RunFn) {

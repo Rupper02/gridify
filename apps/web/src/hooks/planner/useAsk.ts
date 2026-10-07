@@ -7,18 +7,15 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { api, failureText } from "../../api";
-import { type ProposalEffect, latestNextChecks, proposalEffect } from "../../lib/ask";
+import { type ProposalEffect, proposalEffect } from "../../lib/ask";
 import { mainIdOf } from "../../lib/projects";
-import type { Approval, ThreadView } from "../../types";
-import type { Core, PlannerState } from "./core";
+import type { Approval } from "../../types";
+import type { Core } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
 
 const SETTLE_POLL_MS = 1000;
 const SETTLE_MAX_POLLS = 90;
-
-/** A thread as read: the health thread also hands the picker the steward's latest "next checks". */
-const threadRead = (t: ThreadView): Partial<PlannerState> => (t.kind === "health" ? { thread: t, healthChecks: latestNextChecks(t) } : { thread: t });
 
 export function useAsk(
   { patch, ref, toastMsg }: Core,
@@ -39,10 +36,10 @@ export function useAsk(
     };
     return {
       branch: async () => void (await refreshBranches()),
-      // the agent's run is the branch's run: cached, so this only shows it
+      // the agent's run is the branch's run: cached, so this only shows it (quietly: no card for a cache hit)
       run: async (bid) => {
         void refreshBranches();
-        void run({ activeBranch: bid });
+        void run({ activeBranch: bid, quiet: true });
       },
       project: extras("project"),
       reinforcement: extras("reinforcement"),
@@ -69,7 +66,7 @@ export function useAsk(
   const reload = useCallback(
     async (tid: string) => {
       const t = await api.getThread(ref.current.projectId, tid);
-      if (ref.current.thread?.thread_id === tid) patch(threadRead(t));
+      if (ref.current.thread?.thread_id === tid) patch({ thread: t });
       return t;
     },
     [patch, ref],
@@ -112,7 +109,7 @@ export function useAsk(
       stop.current?.();
       try {
         const t = await api.getThread(ref.current.projectId, tid);
-        patch((st) => ({ ...threadRead(t), trace: [], chat: { ...st.chat, open: true, input: "", busy: false }, tab: "ask", sideOpen: true }));
+        patch((st) => ({ thread: t, trace: [], chat: { ...st.chat, open: true, input: "", busy: false }, tab: "ask", sideOpen: true }));
         const live = t.messages.find((m) => m.role === "assistant" && (m.status === "queued" || m.status === "streaming"));
         if (live) follow(tid, live.message_id);
       } catch (e) {
@@ -239,9 +236,6 @@ export function useAsk(
         }
       };
       try {
-        // the API applies an approved proposal as soon as it is recorded: refresh what it touched now, not only when the
-        // continued answer settles minutes later (a run is the agent's to start, so it shows once the answer resumes)
-        if (decision === "approve" && mine && proposalEffect(mine.tool) !== "run") await applyEffects([mine], false);
         if (r.waiting_for.length) {
           await reload(tid);
           toastMsg(`Recorded. ${r.waiting_for.length} more proposal${r.waiting_for.length > 1 ? "s" : ""} of this reply wait${r.waiting_for.length > 1 ? "" : "s"} for your decision; the answer continues once all are decided.`);
@@ -253,7 +247,8 @@ export function useAsk(
           const last = [...t.messages].reverse().find((m) => m.role === "assistant");
           if (t.messages.length > before && last && last.status !== "queued" && last.status !== "streaming") break;
         }
-        // what every approved proposal of this reply touched, now that the answer has settled
+        // what every approved proposal of this reply touched, once the answer has settled (applied once, here: the
+        // API applies a proposal as soon as it is recorded, but the run that shows it is the agent's to start)
         await applyEffects(siblings.filter((a) => (a.approval_id === approvalId ? decision === "approve" : a.status === "approved")), true);
       } catch (e) {
         toastMsg(`Recorded; the view could not refresh: ${failureText(e)}`, "warn");

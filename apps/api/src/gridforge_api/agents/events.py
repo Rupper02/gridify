@@ -1,7 +1,10 @@
-"""What wakes the agents: a registry of triggers, each naming the workflows it starts and how its
-events are deduplicated, and `emit`, the one entry point the routers call. A no-op while the runtime is
-starting, recorded but not started while paused; idempotent by deduplication id (a cached re-run never wakes
-anyone twice)."""
+"""Project events and what they wake.
+
+`TRIGGERS` is the registry: an event type maps to the workflows it starts, with a dedup identity so a
+repeated event never wakes anyone twice (the planner's poll, a replay, two routes seeing one run). Every
+event is recorded in `project_events` whether or not it starts a workflow; a paused project records and
+starts nothing.
+"""
 
 from __future__ import annotations
 
@@ -18,48 +21,30 @@ if TYPE_CHECKING:
 
 class Trigger(NamedTuple):
     workflows: tuple[str, ...]  # names in workflows.WORKFLOWS
-    allowed_specialists: tuple[str, ...]  # what the steward may ask for on this event
     dedup: Callable[[dict], str]
     applies: Callable[[dict], bool] = lambda p: True  # which payloads wake anyone at all
 
 
 TRIGGERS: dict[str, Trigger] = {
-    # a run finished on a branch: the reviewer comments like a PR bot, and the steward may send the connections
-    # specialist after the projects the run deferred on a grid limit, or the works specialist when the run flags a
-    # works window (`works_flagged` in the payload: not simply feasible, or second faults found during it). A run whose
-    # physics is its parent's (a branch just opened, nothing changed: `run_key == parent_run_key`) wakes nobody
-    "run.finished": Trigger(("review_branch", "steward_run"), ("connections", "works"), lambda p: f"run:{p['branch_id']}:{p['run_key']}",
-                            applies=lambda p: not p.get("is_main") and p.get("run_key") != p.get("parent_run_key")),
-    # the plan of record changed: the steward sweeps what a merge can move
-    "branch.merged": Trigger(("steward_run",), ("thermal", "voltage", "boundary", "demand_security", "works"), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
-    # a new model: everything, data quality first
-    "project.imported": Trigger(("steward_run",), ("data_quality", "thermal", "voltage", "demand_security", "boundary"), lambda p: f"snapshot:{p.get('project_id', '')}:{p['snapshot_id']}"),
-    # NGED published a new LTDS edition
-    "edition.changed": Trigger(("steward_run",), ("data_quality", "thermal"), lambda p: f"edition:{p['ltds_edition']}"),
+    # a run finished (main's or a branch's): the engine's digest of it gets its engineer's note. A run whose physics
+    # is its parent's (a branch just opened, nothing changed: `run_key == parent_run_key`) wakes nobody
+    "run.finished": Trigger(("digest_run",), lambda p: f"run:{p['branch_id']}:{p['run_key']}",
+                            applies=lambda p: p.get("run_key") != p.get("parent_run_key")),
+    # recorded for the audit trail; the next run of main carries the note (a merge, an import or a new edition change
+    # nothing that is cached, so there is nothing to digest until that run)
+    "branch.merged": Trigger((), lambda p: f"merge:{p['branch_id']}:{p.get('run_key', '')}"),
+    "project.imported": Trigger((), lambda p: f"snapshot:{p.get('project_id', '')}:{p['snapshot_id']}"),
+    "edition.changed": Trigger((), lambda p: f"edition:{p['ltds_edition']}"),
     # the operator asked a question
-    "operator.asked": Trigger(("answer",), (), lambda p: f"ask:{p['message_id']}"),
+    "operator.asked": Trigger(("answer",), lambda p: f"ask:{p['message_id']}"),
 }
-
-
-def works_flagged(out: dict) -> tuple[int, int]:
-    """A run payload's works windows, and how many of them a planner should look at: not simply feasible,
-    or with second faults found during the window."""
-    studies = [s for y in (out.get("years") or {}).values() for s in (y.get("outage_studies") or [])]
-    flagged = sum(1 for s in studies if s.get("verdict") != "feasible" or ((s.get("n1_during") or {}).get("findings") or 0) > 0)
-    return len(studies), flagged
-
-
-GRID_REASONS = ("line", "trafo", "voltage", "gsp")  # a deferral on a grid limit (`Reason.type`): what the connections specialist studies
 
 
 def run_finished(branch_id: str, out: dict, *, is_main: bool, parent_run_key: str | None = None) -> dict:
     """The `run.finished` payload of a run, wherever it ran (the router, an agent's approved run): its identity, its
-    parent's (`parent_run_key`: equal when the run changed no physics), how many projects it deferred on a grid limit,
-    how many works windows it studied and flagged, and whether it was a main's (a main is not reviewed: it merges nowhere)."""
-    n_works, flagged = works_flagged(out)
-    deferred = sum(1 for q in out.get("queue") or [] if q.get("status") == "Deferred" and (q.get("reason") or {}).get("type") in GRID_REASONS)
+    parent's (`parent_run_key`: equal when the run changed no physics) and whether it was a main's."""
     return {"project_id": out.get("project_id"), "branch_id": branch_id, "run_key": out.get("run_key", ""), "parent_run_key": parent_run_key,
-            "n_deferred_on_grid": deferred, "n_works": n_works, "works_flagged": flagged, "is_main": is_main}
+            "is_main": is_main}
 
 
 def parent_run_key(plans, store, branch_id: str) -> str | None:
@@ -67,16 +52,6 @@ def parent_run_key(plans, store, branch_id: str) -> str | None:
     with store.cursor() as con:
         base = repository.base_of(con, repository.require_branch(con, branch_id))
     return plans.freshness(base["branch_id"]).years_key if base else None
-
-
-def nothing_to_triage(event: dict) -> str | None:
-    """Why the steward need not read a `run.finished` event: nothing it could send a specialist after (no project
-    deferred on a grid limit, no works window flagged). None when there is something, or for any other event."""
-    if event.get("type") != "run.finished":
-        return None
-    if event.get("n_deferred_on_grid", 1) or event.get("works_flagged", 1):
-        return None
-    return "nothing to triage after this run: no project deferred on a grid limit and no works window flagged"
 
 
 def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
@@ -97,7 +72,7 @@ def emit(rt: AgentRuntime, type_: str, payload: dict) -> dict | None:
         runs.insert_event(con, event_id=event_id, project_id=project_id, type_=type_, dedup_id=dedup, payload={**payload, "type": type_})
     if paused:
         return {"event_id": event_id, "workflow_ids": [], "deduplicated": False, "paused": True}
-    event = {**payload, "project_id": project_id, "type": type_, "event_id": event_id, "dedup_id": dedup, "allowed_specialists": list(trigger.allowed_specialists)}
+    event = {**payload, "project_id": project_id, "type": type_, "event_id": event_id, "dedup_id": dedup}
     workflow_ids = [rt.start(name, dedup, event) for name in trigger.workflows]
     with rt.harness.store.cursor() as con:
         runs.set_event_workflows(con, event_id, workflow_ids)

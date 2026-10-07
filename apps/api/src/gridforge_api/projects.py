@@ -30,7 +30,7 @@ from .config import MAX_IMPORT_BYTES, now
 from .store import PROJECT_COLS, ScenarioStore, ensure_main_branch
 from .warehouse import Warehouse
 
-PROJECT_TABLES = ("project_events", "project_state", "agent_runs", "threads", "approvals", "agent_budgets", "reviews")  # keyed by project_id
+PROJECT_TABLES = ("project_events", "project_state", "agent_runs", "threads", "approvals", "agent_budgets", "run_notes")  # keyed by project_id
 BRANCH_TABLES = ("added_candidates", "branch_outages", "branch_reinforcements", "findings", "merges")  # keyed by branch_id
 
 

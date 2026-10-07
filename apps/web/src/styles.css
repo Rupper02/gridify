@@ -309,9 +309,10 @@ input { font-family: inherit; }
 .tab-body { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
 .scroll { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
 .reopen { position: absolute; top: 68px; right: 10px; z-index: 16; display: flex; align-items: center; gap: 7px; height: 36px; padding: 0 12px; border-radius: 12px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-.toast { position: absolute; left: 12px; right: 12px; bottom: 12px; padding: 11px 13px; border-radius: 12px; background: rgba(10, 16, 26, 0.95); border: 1px solid rgba(124, 227, 255, 0.35); font-size: 12.5px; display: flex; align-items: center; gap: 9px; box-shadow: 0 16px 40px rgba(2, 6, 14, 0.6); z-index: 5; }
+.toasts { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; z-index: 5; }
+.toasts.floating { left: auto; right: 10px; bottom: 10px; width: 360px; z-index: 30; }
+.toast { padding: 11px 13px; border-radius: 12px; background: rgba(10, 16, 26, 0.95); border: 1px solid rgba(124, 227, 255, 0.35); font-size: 12.5px; display: flex; align-items: center; gap: 9px; box-shadow: 0 16px 40px rgba(2, 6, 14, 0.6); }
 .toast.warn { border-color: rgba(255, 195, 107, 0.5); }
-.toast.floating { position: absolute; left: auto; right: 10px; bottom: 10px; width: 360px; z-index: 30; }
 
 /* queue */
 .qgroup { display: flex; flex-direction: column; gap: 4px; }
@@ -446,7 +447,7 @@ input { font-family: inherit; }
 /* Review: what merging adds to and removes from main's planned works and reinforcements */
 .merge-changes { display: flex; flex-direction: column; gap: 6px; }
 
-/* ---- the merge gate (Review) and the findings ledger (Findings tab) ---- */
+/* ---- the merge gate (Review) and the findings ledger (folded under the Limits tab) ---- */
 .gate-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
 .gate-state { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--ink-2); }
 .gate-state[data-tone="bad"] { color: var(--red-ink); }
@@ -485,7 +486,32 @@ input { font-family: inherit; }
 .filter-chips button { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; color: var(--mute); font-size: 11.5px; font-weight: 600; }
 .filter-chips button.on { background: rgba(255, 255, 255, 0.12); color: var(--ink); border-color: rgba(255, 255, 255, 0.22); }
 
-/* the agents: the header pill, a reply's stage chips, flags, approvals, the reviewer's card, the evidence drawer */
+/* ---- the Limits tab: a section per reading of the run, a binding element's row (name, kind, sparkline, then its
+   figures and the projects it holds back), a deferred project's chain card, an N-1 cause or works row, and the
+   findings ledger folded at the bottom ---- */
+.lsec { display: flex; flex-direction: column; gap: 6px; }
+.lsec-title { font-size: 12.5px; font-weight: 600; }
+.lrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 3px 8px; align-items: center; padding: 8px 10px; border-radius: 10px; background: var(--well); border: var(--well-bd); }
+.lrow .sev-dot { margin-top: 0; }
+.lrow .lfacts { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 11px; color: var(--mute); line-height: 1.4; }
+.lrow .chips { grid-column: 2 / -1; }
+.chip.kind { background: rgba(255, 255, 255, 0.08); color: var(--mute); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
+.chip.hold { background: rgba(255, 195, 107, 0.14); color: var(--amber-ink); font-size: 10.5px; font-family: var(--mono); }
+.chain-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: 1px solid rgba(255, 195, 107, 0.3); }
+.lstudy { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+.link-btn { all: unset; cursor: pointer; color: var(--accent); }
+.link-btn:hover { text-decoration: underline; }
+.cause-row { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: var(--well); border: var(--well-bd); text-align: left; color: inherit; font: inherit; min-width: 0; }
+.cause-row.link:hover { border-color: rgba(124, 227, 255, 0.45); }
+.show-more { align-self: flex-start; height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.14); background: transparent; color: var(--mute); font-size: 11.5px; font-weight: 600; }
+.show-more:hover { color: var(--ink); border-color: rgba(255, 255, 255, 0.24); }
+.ledger-fold > summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 6px; padding: 8px 2px; border-top: 1px solid rgba(255, 255, 255, 0.1); font-size: 12.5px; font-weight: 600; }
+.ledger-fold > summary::-webkit-details-marker { display: none; }
+.ledger-fold > summary::before { content: "\25B8"; color: var(--mute-2); font-size: 10px; transition: transform 120ms var(--ease); }
+.ledger-fold[open] > summary::before { transform: rotate(90deg); }
+.ledger { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; }
+
+/* the agents: the header pill, a reply's stage chips, flags, approvals, the note card, the evidence drawer */
 .agents-pill { height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.05); color: var(--mute); font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: none; }
 .agents-pill[data-tone="good"] { color: var(--green-ink); border-color: rgba(94, 230, 168, 0.4); }
 .agents-pill[data-tone="warn"] { color: var(--amber-ink); border-color: rgba(255, 195, 107, 0.45); }
@@ -501,16 +527,10 @@ input { font-family: inherit; }
 .flag-note { font-size: 11px; color: var(--amber-ink); line-height: 1.4; }
 .evidence-line { font-family: var(--mono); font-size: 10.5px; color: var(--mute-2); line-height: 1.4; word-break: break-all; }
 .approval { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(255, 195, 107, 0.45); background: rgba(255, 195, 107, 0.08); }
-.review-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
-.review-card .body { font-size: 12px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
-/* a brief's gaps (folded) and its next checks (one question per button) */
-.not-studied > summary { cursor: pointer; list-style: none; font-size: 11px; color: var(--mute); display: flex; align-items: center; gap: 6px; }
-.not-studied > summary::-webkit-details-marker { display: none; }
-.not-studied > summary::before { content: "\25B8"; color: var(--mute-2); font-size: 10px; transition: transform 120ms var(--ease); }
-.not-studied[open] > summary::before { transform: rotate(90deg); }
-.not-studied ul { margin: 4px 0 0; padding-left: 18px; font-size: 11px; line-height: 1.45; color: var(--mute); }
-.next-checks { display: flex; flex-direction: column; gap: 4px; }
-.next-checks .ask-q { padding: 6px 10px; font-size: 11.5px; }
+.note-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: var(--well-bd); }
+.note-card .body { font-size: 12px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip.flag { background: rgba(255, 255, 255, 0.06); color: var(--mute); font-size: 10.5px; font-family: var(--mono); }
 /* the agents pill's popover: the last runs */
 .runs-pop { width: 380px; max-width: calc(100vw - 20px); max-height: min(70vh, 560px); overflow-y: auto; overflow-x: hidden; }
 .runs-head { display: flex; align-items: center; gap: 8px; padding: 2px 4px 8px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-size: 11px; color: var(--mute); }

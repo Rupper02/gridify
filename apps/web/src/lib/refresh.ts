@@ -20,10 +20,3 @@ export const EDIT_POLICY: Record<EditKind, EditPolicy> = {
 
 /** Wait this long after the last auto edit before refreshing, so a burst of edits is one run. */
 export const AUTO_REFRESH_DEBOUNCE_MS = 600;
-
-/**
- * Merge a new run request into the one already waiting (`pending` undefined: none is waiting). The
- * merged run is quiet only if every request that formed it was; a request without the flag is a Run.
- */
-export const mergeQuiet = (pending: boolean | undefined, next: boolean | undefined): boolean =>
-  (pending ?? true) && !!next;

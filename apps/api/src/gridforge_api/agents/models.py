@@ -24,7 +24,7 @@ def openrouter_model_factory(key: str) -> ModelFactory:
 
     from gridforge_optimizer.config import OPENROUTER_BASE_URL
 
-    # one client-side retry, and a connect timeout a network blip survives (the SDK's 5 s default once ended a steward
+    # one client-side retry, and a connect timeout a network blip survives (the SDK's 5 s default once ended a note's
     # sweep on a single ConnectTimeout). The durable runtime does not retry a failed model request (a DBOS step without
     # retries), so this is the only retry layer; the 600 s request timeout is the SDK's own.
     client = AsyncOpenAI(api_key=key, base_url=OPENROUTER_BASE_URL, max_retries=1, timeout=Timeout(600.0, connect=20.0))
@@ -32,7 +32,7 @@ def openrouter_model_factory(key: str) -> ModelFactory:
     cache: dict[str, Model] = {}
 
     def factory(role: str) -> Model:
-        name = AGENT_MODELS.get(role, AGENT_MODELS["specialist"])
+        name = AGENT_MODELS.get(role, AGENT_MODELS["answerer"])
         if name not in cache:
             cache[name] = OpenRouterModel(name, provider=provider, settings={"temperature": 0.2, "max_tokens": AGENT_RUN_BUDGET["max_output_tokens"]})
         return cache[name]

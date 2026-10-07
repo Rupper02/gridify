@@ -1,4 +1,4 @@
-"""Agent runs, branch reviews and proposal approvals: plain SQL over the scenarios store."""
+"""Agent runs, run notes and proposal approvals: plain SQL over the scenarios store."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ import json
 import uuid
 
 from ..config import now
-from ..store import APPROVAL_COLS, REVIEW_COLS, RUN_COLS, Cursor
+from ..store import APPROVAL_COLS, NOTE_COLS, RUN_COLS, Cursor
 
-_JSON = {"verdict_json": "gate", "blockers_json": "blockers", "warnings_json": "warnings", "not_studied_json": "not_studied",
-         "args_json": "args", "result_json": "result"}
+_JSON = {"digest_json": "digest", "flags_json": "flags", "args_json": "args", "result_json": "result"}
 
 
 def _row(cols, values) -> dict:
@@ -85,45 +84,30 @@ def close_run(con: Cursor, run_id: str, *, status: str, error: str) -> None:
                 [status, now(), error, run_id])
 
 
-# --- reviews -------------------------------------------------------------------------------------------
-def supersede_reviews(con: Cursor, branch_id: str, run_key: str) -> int:
-    rows = con.execute("SELECT review_id FROM reviews WHERE branch_id = ? AND run_key <> ? AND status = 'prepared_for_review'",
-                       [branch_id, run_key]).fetchall()
-    con.executemany("UPDATE reviews SET status = 'superseded' WHERE review_id = ?", [[r[0]] for r in rows])
+# --- run notes: the engineer's note on a branch's current run --------------------------------------------
+def supersede_notes(con: Cursor, branch_id: str, run_key: str) -> int:
+    rows = con.execute("SELECT note_id FROM run_notes WHERE branch_id = ? AND run_key <> ? AND status = 'current'", [branch_id, run_key]).fetchall()
+    con.executemany("UPDATE run_notes SET status = 'superseded' WHERE note_id = ?", [[r[0]] for r in rows])
     return len(rows)
 
 
-def insert_review(con: Cursor, *, project_id: str, branch_id: str, run_key: str, run_id: str, verdict: str, verdict_json: dict,
-                  body: str, blockers: list, warnings: list, not_studied: list) -> dict:
-    rid = "rv-" + uuid.uuid4().hex[:8]
-    row = {"review_id": rid, "project_id": project_id, "branch_id": branch_id, "run_key": run_key, "run_id": run_id, "verdict": verdict,
-           "verdict_json": json.dumps(verdict_json, default=str), "body": body, "blockers_json": json.dumps(blockers, default=str),
-           "warnings_json": json.dumps(warnings, default=str), "not_studied_json": json.dumps(not_studied, default=str),
-           "status": "prepared_for_review", "created_at": now()}
-    con.execute(f"INSERT INTO reviews ({', '.join(REVIEW_COLS)}) VALUES ({', '.join('?' * len(REVIEW_COLS))})", [row[c] for c in REVIEW_COLS])
-    return _row(REVIEW_COLS, [row[c] for c in REVIEW_COLS])
+def insert_note(con: Cursor, *, project_id: str, branch_id: str, run_key: str, run_id: str, body: str, digest: dict, flags: list) -> dict:
+    nid = "nt-" + uuid.uuid4().hex[:8]
+    row = {"note_id": nid, "project_id": project_id, "branch_id": branch_id, "run_key": run_key, "run_id": run_id, "body": body,
+           "digest_json": json.dumps(digest, default=str), "flags_json": json.dumps(flags, default=str), "status": "current", "created_at": now()}
+    con.execute(f"INSERT INTO run_notes ({', '.join(NOTE_COLS)}) VALUES ({', '.join('?' * len(NOTE_COLS))})", [row[c] for c in NOTE_COLS])
+    return _row(NOTE_COLS, [row[c] for c in NOTE_COLS])
 
 
-def list_reviews(con: Cursor, branch_id: str, *, all_reviews: bool = False) -> list[dict]:
-    where = "branch_id = ?" + ("" if all_reviews else " AND status = 'prepared_for_review'")
-    cur = con.execute(f"SELECT {', '.join(REVIEW_COLS)} FROM reviews WHERE {where} ORDER BY created_at DESC", [branch_id])
-    return [_row(REVIEW_COLS, r) for r in cur.fetchall()]
+def current_note(con: Cursor, branch_id: str) -> dict | None:
+    """The note on the branch's current run, or None (never written, or superseded by a newer run)."""
+    r = con.execute(f"SELECT {', '.join(NOTE_COLS)} FROM run_notes WHERE branch_id = ? AND status = 'current' ORDER BY created_at DESC LIMIT 1",
+                    [branch_id]).fetchone()
+    return _row(NOTE_COLS, r) if r else None
 
 
-def review_exists(con: Cursor, branch_id: str, run_key: str) -> bool:
-    return bool(con.execute("SELECT 1 FROM reviews WHERE branch_id = ? AND run_key = ?", [branch_id, run_key]).fetchone())
-
-
-def review_for_run(con: Cursor, project_id: str, run_key: str, base_years_key: str) -> dict | None:
-    """The current review, on another branch of the project, of this same plan (`run_key`) judged against the same
-    parent plan (`base_years_key`, in the stored gate): the same physics pair, reviewed already."""
-    cur = con.execute(f"SELECT {', '.join(REVIEW_COLS)} FROM reviews WHERE project_id = ? AND run_key = ? AND status = 'prepared_for_review' "
-                      "ORDER BY created_at DESC", [project_id, run_key])
-    for r in cur.fetchall():
-        row = _row(REVIEW_COLS, r)
-        if (row.get("gate") or {}).get("base_years_key") == base_years_key:
-            return row
-    return None
+def note_exists(con: Cursor, branch_id: str, run_key: str) -> bool:
+    return bool(con.execute("SELECT 1 FROM run_notes WHERE branch_id = ? AND run_key = ?", [branch_id, run_key]).fetchone())
 
 
 # --- approvals -----------------------------------------------------------------------------------------

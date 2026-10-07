@@ -104,19 +104,28 @@ export function DiffTile({ label, base, head, delta, c }: { label: string; base:
   );
 }
 
-/** An element's loading over the plan years as thin bars on a baseline, its rating as a dashed line, the viewed year
- * brighter; a year not solved shows as a stub. Each bar names its year and figure on hover. Colours are the planner's
- * loading tokens (`loadColor`), the same the map and the readings use. */
-export function Sparkline({ points, year, color }: { points: { year: number; pct: number | null }[]; year: number; color: (v: number | null) => string }) {
+/** An element's figure over the plan years as thin bars on a baseline, its limit as a dashed line (the rating, at 100%,
+ * unless the caller names another: a bus's voltage limit in pu), the viewed year brighter; a year not solved shows as a
+ * stub. Each bar names its year and figure on hover (`fmt`). Colours are the caller's: the planner's loading tokens
+ * (`loadColor`), the same the map and the readings use, or the voltage ones. */
+export function Sparkline({
+  points, year, color, limit = 100, fmt = (v) => `${Math.round(v)}%`,
+}: {
+  points: { year: number; pct: number | null }[];
+  year: number;
+  color: (v: number | null) => string;
+  limit?: number;
+  fmt?: (v: number) => string;
+}) {
   const w = 10;
   const gap = 4;
   const h = 30;
   const width = points.length * (w + gap) - gap;
-  const max = Math.max(110, ...points.map((p) => p.pct ?? 0));
-  const yOf = (pct: number) => h - (pct / max) * h;
+  const max = Math.max(limit * 1.1, ...points.map((p) => p.pct ?? 0));
+  const yOf = (v: number) => h - (v / max) * h;
   return (
-    <svg className="spark" width={width} height={h + 2} role="img" aria-label="Loading by plan year">
-      <line className="spark-rating" x1={0} x2={width} y1={yOf(100)} y2={yOf(100)} strokeDasharray="2 3" />
+    <svg className="spark" width={width} height={h + 2} role="img" aria-label="By plan year">
+      <line className="spark-rating" x1={0} x2={width} y1={yOf(limit)} y2={yOf(limit)} strokeDasharray="2 3" />
       {points.map((p, i) => {
         const x = i * (w + gap);
         const on = p.year === year;
@@ -130,7 +139,7 @@ export function Sparkline({ points, year, color }: { points: { year: number; pct
         const bh = Math.max(2, h - yOf(p.pct));
         return (
           <g key={p.year}>
-            <title>{`${p.year}: ${Math.round(p.pct)}%`}</title>
+            <title>{`${p.year}: ${fmt(p.pct)}`}</title>
             <rect x={x} y={h - bh} width={w} height={bh} rx={2} fill={color(p.pct)} opacity={on ? 1 : 0.5} />
           </g>
         );
@@ -170,8 +179,8 @@ const MD_COMPONENTS: Components = {
   },
 };
 
-/** An agent's text (an answer, a brief, the reviewer's comment) as markdown: elements named where they are, every
- * `[step …]` citation a numbered chip. The caller's container carries the `md` class. */
+/** An agent's text (an answer, the engineer's note) as markdown: elements named where they are, every `[step …]`
+ * citation a numbered chip (a note carries none). The caller's container carries the `md` class. */
 export function AgentText({ text, ix }: { text: string; ix: ModelIndex | null }) {
   return (
     <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>

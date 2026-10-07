@@ -12,6 +12,7 @@ import { cardSlot, type Layout } from "../lib/layout";
 import { DERATE_PCT, PARALLEL_LABEL, WORKS, WORK_UI, draftHint, outageLine, repoweredNotes, stepFactor, verdictColor, windowView } from "../lib/maintenance";
 import { type Plan, clampYear, firstYear, lastYear, statusTitle } from "../lib/plan";
 import { type ControlForm, EMPTY_CONTROL, controlFromForm, controlText } from "../lib/projects";
+import { connectQuestion } from "../lib/ask";
 import { C, ST, TECH, fmtMw, isTech, loadColor, techLabel, tint } from "../theme";
 import type { Control, ElementSel, QueueItem, RegistryItem, Season } from "../types";
 import { Sparkline, Stepper, TechIcon } from "./ui";
@@ -188,7 +189,7 @@ function ProjectCard({ planner, layout, plan, id }: CardProps & { id: string }) 
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.45 }}>{nameElements(x.reason.why, derived.ix)}</span>
           <span style={{ fontSize: 11.5, color: C.ink2, lineHeight: 1.45 }}>{nameElements(x.reason.action, derived.ix)}</span>
           {x.status === "Deferred" && (
-            <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(`How could ${id} connect? What would it take?`)}>
+            <button className="btn warn sq" style={{ alignSelf: "flex-start" }} onClick={() => void actions.askAbout(connectQuestion(id))}>
               <Sparkle size={13} weight="fill" />
               Ask the agents how it could connect
             </button>

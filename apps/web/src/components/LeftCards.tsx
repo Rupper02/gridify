@@ -1,6 +1,6 @@
-// Top-left: the result stamp (which profile the shown result was solved on, how many years are in,
-// and whether it is out of date) and the readings for the selected year. Below 1100px wide they
-// collapse into one pill.
+// Top-left: the result stamp (which profile the shown result was solved on, how many years are in, whether it is out
+// of date, and a run that failed or stopped, with a Retry) and the readings for the selected year. Below 1100px wide
+// they collapse into one pill.
 
 import { Info, X } from "@phosphor-icons/react";
 
@@ -10,38 +10,45 @@ import { alertSummary } from "../lib/demand";
 import { GSP_NEAR_LIMIT, ZOOM_ELEMENT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { assumptionGroups, assumptionText } from "../lib/projects";
-import { runInProgress } from "../lib/runStages";
+import { runButton } from "../lib/runStages";
 import { C, caseLabel, fmtMw } from "../theme";
 import { Gauge, ProfileGlyph } from "./ui";
 
 export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "refreshing" | "result" | "resultAt" | "running" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
-  "focusSel" | "retryLoad" | "run" | "setLayer" | "showFindings" | "toggleBoundary" | "toggleAssumptions",
+  "assumptions" | "boundary" | "model" | "modelError" | "modelLoading" | "outages" | "plan" | "result" | "resultAt" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
+  "focusSel" | "retryLoad" | "run" | "setLayer" | "showLimits" | "toggleBoundary" | "toggleAssumptions",
   "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
 >;
 
+type RunButton = ReturnType<typeof runButton>;
+
 export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
   const { s, actions, derived } = planner;
-  const { yr, stale, resultProfile, profile } = derived;
+  const { yr, stale, resultProfile, profile, run } = derived;
   const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
   const gsp = yr?.converged === false ? null : (yr?.gsp_export_mw ?? null); // a year that did not solve has no figures
   const gspHot = gsp != null && limit ? gsp / limit > GSP_NEAR_LIMIT : false;
-  const runLabel = `${stale.stale ? "Re-run" : "Run"}${profile ? ` on ${profile.label}` : ""}`; // plain until the profile is known
-  // out of date, unless a refresh is already on its way or a run that will include the change is under way
-  const showStale = stale.stale && !s.refreshing && !runInProgress(derived.run.phase);
+  const runBtn = runButton(run, stale.stale, profile?.label ?? "", !!s.model); // plain until the profile is known
+  // out of date, unless a run that will include the change is on its way (or the last one did not finish: Retry covers both)
+  const showStale = stale.stale && !run.inProgress && !run.problem;
 
   if (layout.narrow) {
     return (
-      <div className="narrow-pill glass" style={{ borderColor: showStale ? "rgba(255,195,107,0.45)" : undefined }}>
+      <div className="narrow-pill glass" style={{ borderColor: showStale || run.problem ? "rgba(255,195,107,0.45)" : undefined }}>
         {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
         <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile ? `${resultProfile.label} result` : (gridLoadText(!!s.model, s.modelLoading, s.modelError) ?? "No run yet")}</span>
         <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
           GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
         </span>
-        {s.refreshing && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
+        {run.quiet && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
         {showStale && (
-          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()}>
+          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
             Out of date · re-run
+          </button>
+        )}
+        {run.problem && (
+          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={run.problem}>
+            {run.roadmap} · retry
           </button>
         )}
       </div>
@@ -51,20 +58,21 @@ export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layo
   const reserve = layout.showDock ? layout.dockPx + 88 : 88;
   return (
     <div className="left-col" style={{ maxHeight: `calc(100% - ${reserve}px)` }}>
-      <ResultStamp planner={planner} runLabel={runLabel} showStale={showStale} />
+      <ResultStamp planner={planner} runBtn={runBtn} showStale={showStale} />
       {layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
       {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
     </div>
   );
 }
 
-function ResultStamp({ planner, runLabel, showStale }: { planner: LeftCardsPlanner; runLabel: string; showStale: boolean }) {
+function ResultStamp({ planner, runBtn, showStale }: { planner: LeftCardsPlanner; runBtn: RunButton; showStale: boolean }) {
   const { s, actions, derived } = planner;
   const { stale, resultProfile, run: st, caps, synthetic } = derived;
   const n = s.outages.length;
+  const settled = !st.inProgress && !st.problem; // the stamp adds what it knows only to a finished run's line
   const sub =
     gridLoadText(!!s.model, s.modelLoading, s.modelError) ??
-    (st.phase === "done" ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label);
+    (settled ? `${st.label}${n ? ` · ${n} planned outage${n > 1 ? "s" : ""}` : ""}${caps.summer_case ? "" : " · winter peak only"}` : st.label);
   return (
     <div className="card glass">
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -88,8 +96,16 @@ function ResultStamp({ planner, runLabel, showStale }: { planner: LeftCardsPlann
       {showStale && (
         <div className="box amber">
           <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={s.running}>
-            {runLabel}
+          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+            {runBtn.label}
+          </button>
+        </div>
+      )}
+      {st.problem && (
+        <div className="box amber" role="alert">
+          <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{st.problem}</span>
+          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
+            Retry
           </button>
         </div>
       )}
@@ -158,7 +174,7 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
       {yr?.converged === false ? (
         <div className="notice red" role="status">
           <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
-          or N-1 results to read. Check the model (the Findings tab lists each year that fails) before trusting a plan on it.
+          or N-1 results to read. Check the model (the Limits tab's findings list each year that fails) before trusting a plan on it.
         </div>
       ) : (
       <div className={`readings${compact ? " compact" : ""}`}>
@@ -187,10 +203,10 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
           <span className="v">×{yr ? yr.growth.toFixed(2) : "–"}</span>
           <span className="n">vs today, by {yr?.year ?? s.year}</span>
         </div>
-        {/* "12 of 27 outages": opens the Findings tab on the N-1 group, as the worst element flies to its element */}
+        {/* "12 of 27 outages": opens the Limits tab's findings on the N-1 group, as the worst element flies to its element */}
         <button
           className="reading reading-btn"
-          onClick={() => actions.showFindings("n1")}
+          onClick={() => actions.showLimits("n1")}
           disabled={!yr?.n1_screened}
           title={yr?.n1_screened ? "Open the N-1 findings" : undefined}
         >
@@ -207,7 +223,7 @@ function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCards
       </div>
       )}
       {yr?.alerts && <CustomerAlerts planner={planner} />}
-      {note && !s.running && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
+      {note && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
     </div>
   );
 }

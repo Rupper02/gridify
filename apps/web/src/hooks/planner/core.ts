@@ -10,6 +10,7 @@ import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeat
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { Plan } from "../../lib/plan";
 import { DEFAULT_PROJECT_ID, mainIdOf } from "../../lib/projects";
+import { RUN_IDLE, type RunState } from "../../lib/runStages";
 import type {
   AgentRun,
   AgentsStatus,
@@ -20,6 +21,7 @@ import type {
   Diff,
   Finding,
   Forecast,
+  Limits,
   MapLayer,
   MergeCheck,
   Model,
@@ -27,7 +29,7 @@ import type {
   Outage,
   Project,
   RegistryItem,
-  Review,
+  RunNote,
   Sel,
   StepEvidence,
   Tab,
@@ -49,10 +51,20 @@ export interface ChatState {
   busy: boolean;
 }
 
-export type { MaintDraft };
+export type { MaintDraft, RunState };
 
-/** What the Findings tab opens on when another card sends the operator there (read once, then cleared). */
+/** The findings group the Limits tab's ledger opens on when another card sends the operator there (read once, then cleared). */
 export type FindingsFocus = "n1";
+
+export interface Toast {
+  id: number;
+  text: string;
+  tone: "ok" | "warn";
+}
+
+/** How many toasts show at once (the oldest goes when a fourth arrives) and for how long. */
+const MAX_TOASTS = 3;
+const TOAST_MS = 3600;
 
 export interface PlannerState {
   // projects: the grids planned on; the active one owns the model, the branches and the result below
@@ -85,12 +97,9 @@ export interface PlannerState {
   added: Record<string, RegistryItem[]>;
   // the run
   result: OptimizeResult | null;
-  resultAt: string; // when the shown result was solved (HH:MM)
-  running: boolean; // the overlay: until the queue and the viewed year are in
-  solving: boolean; // the job is still solving the remaining years in the background
-  refreshing: boolean; // an automatic refresh after a cheap edit is pending or running (no overlay)
-  stage: string;
-  fraction: number;
+  resultAt: string; // when the shown result's run finished (HH:MM)
+  run: RunState; // where the branch's run stands (lib/runStages.ts); useRun is its only writer
+
   // review
   diff: Diff | null;
   diffMode: boolean;
@@ -98,20 +107,21 @@ export interface PlannerState {
   mergeCheck: MergeCheck | null; // the gate's verdict for the active branch (null until checked)
   gateError: string | null; // why the gate's verdict could not load (Review offers a Retry)
   findings: Finding[]; // the active branch's findings ledger
+  limits: Limits | null; // what limits the active branch: the engine's reduction of its last run (null until read)
+  limitsError: string | null; // why it could not be read (the Limits tab offers a Retry)
   // the agents
   agents: AgentsStatus | null; // the project's agents: starting, idle, running or paused; polled
   agentRuns: AgentRun[]; // the project's agent runs, newest first (read while the runs popover or the Review tab shows)
   runsOpen: boolean; // the agents pill's popover
-  threads: Thread[]; // the project's conversations (Ask the model, the health thread)
+  threads: Thread[]; // the project's conversations
   thread: ThreadView | null; // the open conversation
-  healthChecks: string[]; // the steward's latest "next checks", once its brief has been read: the picker suggests them
   trace: TraceEvent[]; // the reply being streamed, as events
-  reviews: Review[]; // the reviewer's comments on the active branch
+  note: RunNote | null; // the engineer's note on the active branch's run (null until written, or once the run moved on)
   study: StepEvidence | null; // the evidence drawer: a recorded step and the study behind it
   // view
   tab: Tab;
   sideOpen: boolean;
-  findingsFocus: FindingsFocus | null; // the group the Findings tab expands on opening (the readings' N-1 stat sets it)
+  findingsFocus: FindingsFocus | null; // the findings group the Limits tab's ledger expands on opening (the readings' N-1 stat sets it)
   layer: MapLayer;
   /** The kinds of element the map shows (lib/mapFeatures.ts). */
   visible: FeatureKey[];
@@ -123,14 +133,14 @@ export interface PlannerState {
   sel: Sel | null;
   maintDraft: MaintDraft;
   chat: ChatState;
-  toast: { text: string; tone: "ok" | "warn" } | null;
+  toasts: Toast[]; // newest last
 }
 
 export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
 /** What belongs to one branch's view: reset on every switch (select, open, merge, discard, a project switch). */
 export const BRANCH_FRESH: Partial<PlannerState> = {
-  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], reviews: [], thread: null, trace: [], study: null, sel: null,
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null, note: null, thread: null, trace: [], study: null, sel: null,
   outages: [], reinforcements: [], candidates: [], chat: EMPTY_CHAT,
 };
 
@@ -139,14 +149,14 @@ export const INITIAL: PlannerState = {
   model: null, modelLoading: true, modelError: null, warehouseStale: false, forecasts: [], defaultScenario: "", plan: null, boundary: null, registry: [], registryLoaded: false,
   branches: [], activeBranch: "", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
-  result: null, resultAt: "", running: false, solving: false, refreshing: false, stage: "", fraction: 0,
-  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [],
-  agents: null, agentRuns: [], runsOpen: false, threads: [], thread: null, healthChecks: [], trace: [], reviews: [], study: null,
+  result: null, resultAt: "", run: RUN_IDLE,
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null,
+  agents: null, agentRuns: [], runsOpen: false, threads: [], thread: null, trace: [], note: null, study: null,
   tab: "ask", sideOpen: true, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then
   maintDraft: INITIAL_DRAFT,
   chat: EMPTY_CHAT,
-  toast: null,
+  toasts: [],
 };
 
 export type Patch = Partial<PlannerState> | ((st: PlannerState) => Partial<PlannerState>);
@@ -172,28 +182,31 @@ export function editableBranch({ ref, toastMsg }: Pick<Core, "ref" | "toastMsg">
 export function useCore(): { s: PlannerState; core: Core } {
   const [s, setS] = useState<PlannerState>(() => ({ ...INITIAL, visible: loadVisible() }));
   const ref = useRef(s);
-  ref.current = s;
+  // `ref.current` is the planner's state of record and `patch` writes it synchronously: an async flow that patches and
+  // then reads the ref in the same tick (a run started right after the branch landed) sees what it just wrote. React's
+  // own updater would run only when it renders (eagerly only while nothing else is queued), which left the ref stale.
   const patch = useCallback(
-    (p: Patch) =>
-      setS((st) => {
-        const next = { ...st, ...(typeof p === "function" ? p(st) : p) };
-        ref.current = next; // async flows read the latest state before React re-renders
-        return next;
-      }),
+    (p: Patch) => {
+      const next = { ...ref.current, ...(typeof p === "function" ? p(ref.current) : p) };
+      ref.current = next;
+      setS(next);
+    },
     [],
   );
   const mapApi = useRef<MapApi | null>(null);
-  const toastTimer = useRef<number | undefined>(undefined);
+  const toastSeq = useRef(0);
+  const toastTimers = useRef<number[]>([]);
 
+  // a short queue, so a merge's, a switch's and a run's messages in quick succession all get read
   const toastMsg = useCallback(
     (text: string, tone: "ok" | "warn" = "ok") => {
-      window.clearTimeout(toastTimer.current);
-      patch({ toast: { text, tone } });
-      toastTimer.current = window.setTimeout(() => patch({ toast: null }), 3600);
+      const id = ++toastSeq.current;
+      patch((st) => ({ toasts: [...st.toasts, { id, text, tone }].slice(-MAX_TOASTS) }));
+      toastTimers.current.push(window.setTimeout(() => patch((st) => ({ toasts: st.toasts.filter((t) => t.id !== id) })), TOAST_MS));
     },
     [patch],
   );
-  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+  useEffect(() => () => toastTimers.current.forEach((t) => window.clearTimeout(t)), []);
 
   return { s, core: { patch, ref, mapApi, toastMsg } };
 }

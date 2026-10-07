@@ -1,12 +1,12 @@
 // Review: the branch against main as a consequence diff (the four tiles: MW by each phase's horizon, connected,
 // deferred; the network effect
 // in the viewed year with a year picker tied to the planner's year, the planned works on main vs the
-// branch, what changed), the reinforcements proposed on it, the merge gate, the reviewer agent's comment
-// (the gate restated, prepared for engineer review), then Merge into its parent (main, or the branch it was opened
-// from) or Discard. A branch main moved past is
-// offered a rebase first (RebaseCard). main has nothing to review.
+// branch, what changed), the reinforcements proposed on it, the merge gate, the engineer's note on the run (one
+// model call restating the engine's digest, written a few seconds after every run), then Merge into its parent (main,
+// or the branch it was opened from) or Discard. A branch main moved past is
+// offered a rebase first (RebaseCard). main has nothing to review, but its run has a note too.
 
-import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, Plus, Prohibit, ShieldCheck, ShieldWarning, Sparkle, Trash, Warning, Wrench } from "@phosphor-icons/react";
+import { ArrowRight, ArrowsClockwise, Check, GitMerge, type Icon, LockSimple, Minus, NotePencil, Plus, Prohibit, ShieldCheck, ShieldWarning, Trash, Warning, Wrench } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
@@ -29,16 +29,16 @@ import {
 } from "../lib/diff";
 import { VERDICTS } from "../lib/maintenance";
 import type { Plan } from "../lib/plan";
-import { type ReviewerState, reviewerState, runElapsed } from "../lib/trace";
+import { type NoteState, flagFigure, noteState, runElapsed } from "../lib/trace";
 import { C, ST, fmtMw, profileLabel, signed, tint } from "../theme";
-import type { AgentRun, AgentsStatus, Diff, MergeCheck, OnMerge, Review, ReviewVerdict, Status, WorkDelta, YearDelta } from "../types";
+import type { AgentRun, AgentsStatus, Diff, MergeCheck, OnMerge, RunNote, Status, WorkDelta, YearDelta } from "../types";
 import { RebaseCard } from "./RebaseCard";
 import { AgentText, DiffTile } from "./ui";
 
 export type ReviewTabPlanner = PlannerSlice<
-  "activeBranch" | "agentRuns" | "agents" | "branches" | "diff" | "diffError" | "mergeCheck" | "outages" | "plan" | "reinforcements" | "reviews" | "solving" | "year",
-  "createBranch" | "discardBranch" | "loadAgentRuns" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "refreshDiff" | "refreshMergeCheck" | "removeReinforcement" | "setYear",
-  "branch" | "gate" | "hue" | "ix" | "onMain" | "parent" | "reviewStale" | "yearDelta"
+  "activeBranch" | "agentRuns" | "agents" | "branches" | "diff" | "diffError" | "mergeCheck" | "note" | "outages" | "plan" | "reinforcements" | "result" | "year",
+  "createBranch" | "discardBranch" | "loadAgentRuns" | "loadNote" | "mergeBranch" | "previewRebase" | "rebaseBranch" | "refreshDiff" | "refreshMergeCheck" | "removeReinforcement" | "run" | "setYear",
+  "branch" | "gate" | "hue" | "ix" | "onMain" | "parent" | "run" | "yearDelta"
 >;
 
 const statusLabel = (st: Status | null, parent: string): string => (st == null ? `not on ${parent}` : ST[st].label);
@@ -47,10 +47,13 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   const { s, actions, derived } = planner;
   const { branch, hue, ix, gate, parent } = derived;
   const [confirm, setConfirm] = useState(false); // the warnings step before "Merge anyway"
-  // the reviewer's state comes from the runs list: read when the tab shows a branch (the status poll refreshes it while it does)
+  // the note, and whether one is being written (a digest run in the runs list): read when the tab shows a branch or
+  // main (the status poll refreshes both while it does)
   useEffect(() => {
-    if (!derived.onMain) void actions.loadAgentRuns();
-  }, [actions, derived.onMain, s.activeBranch]);
+    void actions.loadAgentRuns();
+    if (s.activeBranch) void actions.loadNote(s.activeBranch);
+  }, [actions, s.activeBranch]);
+  const note = <NoteCard note={s.note} runKey={s.result?.run_key} runs={s.agentRuns} branchId={s.activeBranch} agents={s.agents} ix={ix} />;
   if (derived.onMain)
     return (
       <div className="scroll" style={{ padding: "4px 14px 16px", gap: 12 }}>
@@ -62,6 +65,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
             New branch
           </button>
         </div>
+        {note}
       </div>
     );
 
@@ -97,14 +101,20 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
         </div>
       )}
       {!d || !plan ? (
-        s.diffError && !s.solving ? (
+        derived.run.problem ? (
+          // the comparison waits for a run that will not come: say so, with the run's own Retry
+          <span className="notice amber" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="grow">{derived.run.problem}</span>
+            <button className="btn" onClick={() => void actions.run()}>Retry</button>
+          </span>
+        ) : s.diffError && !derived.run.inProgress ? (
           <span className="notice amber" style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span className="grow">Could not compare with {parent}: {s.diffError}</span>
             <button className="btn" onClick={() => branch && void actions.refreshDiff(branch.branch_id)}>Retry</button>
           </span>
         ) : (
           <span className="mute" style={{ fontSize: 12 }}>
-            {s.solving ? `The comparison with ${parent} appears once every year of this run is solved.` : `Comparing with ${parent}…`}
+            {derived.run.inProgress ? `The comparison with ${parent} appears once every year of this run is solved.` : `Comparing with ${parent}…`}
           </span>
         )
       ) : (
@@ -132,8 +142,14 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
           ))}
         </div>
       )}
-      <MergeReadiness mc={s.mergeCheck} gate={gate} ix={ix} parent={parent} onRetry={() => branch && void actions.refreshMergeCheck(branch.branch_id)} />
-      <Reviews reviews={s.reviews} stale={derived.reviewStale} agents={s.agents} runs={s.agentRuns} branchId={s.activeBranch} ix={ix} />
+      <MergeReadiness
+        mc={s.mergeCheck}
+        gate={gate}
+        ix={ix}
+        parent={parent}
+        onRetry={gate.state === "unfinished" ? () => void actions.run() : () => branch && void actions.refreshMergeCheck(branch.branch_id)}
+      />
+      {note}
       {confirm && s.mergeCheck && (
         <div className="gate-card" style={{ borderColor: "rgba(255,195,107,0.4)" }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Merge with these warnings?</span>
@@ -162,7 +178,7 @@ export function ReviewTab({ planner }: { planner: ReviewTabPlanner }) {
   );
 }
 
-/** One line of the gate (or the reviewer's restatement of it): a blocker, a warning, with its kind's title. */
+/** One line of the gate: a blocker, a warning, with its kind's title. */
 function GateRow({ cls, title, text }: { cls: string; title?: string; text: string }) {
   return (
     <span className={`gate-row ${cls}`}>
@@ -176,20 +192,23 @@ function GateRow({ cls, title, text }: { cls: string; title?: string; text: stri
   );
 }
 
-const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: ArrowsClockwise, failed: Warning, stale: ArrowsClockwise, blocked: Prohibit, warnings: ShieldWarning, ready: ShieldCheck };
-const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", failed: "warn", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
+const GATE_ICON: Record<GateState, Icon> = { closed: LockSimple, checking: ArrowsClockwise, unfinished: Warning, failed: Warning, stale: ArrowsClockwise, blocked: Prohibit, warnings: ShieldWarning, ready: ShieldCheck };
+const GATE_TONE: Record<GateState, "bad" | "warn" | "good" | "neutral"> = { closed: "neutral", checking: "neutral", unfinished: "warn", failed: "warn", stale: "bad", blocked: "bad", warnings: "warn", ready: "good" };
+/** States with no verdict to show: the check is not in, or the result it would judge is not there. */
+const NO_VERDICT: GateState[] = ["closed", "checking", "unfinished", "failed", "stale"];
 
-/** The merge gate: may this branch become the plan of record? Blockers, warnings, and what its parent already carries. */
+/** The merge gate: may this branch become the plan of record? Blockers, warnings, and what its parent already carries.
+ * `onRetry` asks the check again, or runs the branch again when its last run did not finish. */
 function MergeReadiness({ mc, gate, ix, parent, onRetry }: { mc: MergeCheck | null; gate: GateView; ix: ModelIndex | null; parent: string; onRetry: () => void }) {
   const I = GATE_ICON[gate.state];
-  const v = gate.state === "stale" || gate.state === "checking" || gate.state === "failed" || gate.state === "closed" ? null : (mc?.verdict ?? null);
+  const v = NO_VERDICT.includes(gate.state) ? null : (mc?.verdict ?? null);
   const row = (f: Parameters<typeof gateText>[0], cls: string, i: number) => <GateRow key={`${cls}${i}`} cls={cls} title={gateTitle(f.kind)} text={gateText(f, ix)} />;
   return (
     <div className="gate-card">
       <span className="gate-state" data-tone={GATE_TONE[gate.state]}>
         <I size={14} weight="bold" />
         {gate.headline}
-        {gate.state === "failed" && (
+        {(gate.state === "failed" || gate.state === "unfinished") && (
           <button className="btn" style={{ marginLeft: "auto" }} onClick={onRetry}>
             Retry
           </button>
@@ -210,55 +229,47 @@ function MergeReadiness({ mc, gate, ix, parent, onRetry }: { mc: MergeCheck | nu
   );
 }
 
-const REVIEW_LABEL: Record<ReviewVerdict, string> = { blocked: "blocked", mergeable_with_warnings: "mergeable with warnings", mergeable: "mergeable" };
-const REVIEW_TONE: Record<ReviewVerdict, { background: string; color: string }> = {
-  blocked: { background: "rgba(255,107,107,0.16)", color: C.redInk },
-  mergeable_with_warnings: { background: "rgba(255,195,107,0.16)", color: C.amberInk },
-  mergeable: { background: "rgba(94,230,168,0.16)", color: C.greenInk },
-};
-
-/** Where the reviewer stands on this branch, from its newest review run: reading the gate (live), failed, superseded, or not yet. */
-function reviewerLine(rs: ReviewerState, now: number, paused: boolean): string {
-  if (rs.kind === "running") return `The reviewer is reading the gate… (${runElapsed(rs.run, now) ?? "just started"})`;
-  if (rs.kind === "failed") return `The reviewer could not comment: ${rs.run.error || "its run failed"}`;
-  if (rs.kind === "superseded") return "The reviewer's comment was superseded by a newer run.";
-  return paused ? "The agents are paused; no review comes until they resume." : "Waiting for the reviewer: it comments a few seconds after every run.";
+/** The state line under the note's title: being written (live elapsed), of an earlier run, none yet; nothing when current. */
+function noteLine(ns: NoteState, now: number, agents: AgentsStatus | null): string | null {
+  if (ns.kind === "writing") return `Writing the note… (${runElapsed(ns.run, now) ?? "just started"})`;
+  if (ns.kind === "earlier") return "The note is for an earlier run; the next run writes a new one.";
+  if (ns.kind === "current") return null;
+  if (!agents || agents.status === "starting") return "The agents are starting with the API; the note is written a few seconds after a run once they are up.";
+  return agents.status === "paused" ? "The agents are paused: the note is written once they resume." : "No note yet: it is written a few seconds after a run.";
 }
 
-/** The reviewer agent's comment on the branch's current run, like a PR bot: the gate restated, prepared for engineer review. */
-function Reviews({ reviews, stale, agents, runs, branchId, ix }: { reviews: Review[]; stale: boolean; agents: AgentsStatus | null; runs: AgentRun[]; branchId: string; ix: ModelIndex | null }) {
-  const rv = reviews.find((r) => r.status === "prepared_for_review") ?? null;
-  const starting = !agents || agents.status === "starting";
-  const rs = reviewerState(runs, branchId);
-  const now = useNow(rs.kind === "running");
-  const restate = (b: Review["blockers"][number], cls: string, i: number) => (
-    <GateRow key={`${cls}${i}`} cls={cls} title={gateTitle(b.kind)} text={nameElements(b.restated, ix)} />
-  );
+/** The engineer's note on the branch's run: one model call restating the engine's digest of it (markdown, elements
+ * named, no step ids), its flags (figures the digest does not carry) as muted chips, and where it stands. */
+function NoteCard({ note, runKey, runs, branchId, agents, ix }: { note: RunNote | null; runKey: string | undefined; runs: AgentRun[]; branchId: string; agents: AgentsStatus | null; ix: ModelIndex | null }) {
+  const ns = noteState(note, runKey, runs, branchId);
+  const now = useNow(ns.kind === "writing");
+  const line = noteLine(ns, now, agents);
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span style={{ fontSize: 12.5, fontWeight: 600 }}>Review</span>
-      {starting ? (
-        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }}>The agents are starting with the API; the reviewer comments a few seconds after every run once they are up. The gate above decides either way.</span>
-      ) : !rv ? (
-        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }} data-live={rs.kind === "running" || undefined}>
-          {reviewerLine(rs, now, agents.status === "paused")}
+    <div className="note-card">
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <NotePencil size={13} color={C.accent} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>Engineer's note</span>
+        {note && <span className="mono" style={{ fontSize: 10.5, color: C.mute2 }}>{note.created_at.slice(0, 16).replace("T", " ")}</span>}
+      </div>
+      {line && (
+        <span className="mute" style={{ fontSize: 11.5, lineHeight: 1.45 }} data-live={ns.kind === "writing" || undefined}>
+          {line}
         </span>
-      ) : (
-        <div className="review-card">
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Sparkle size={13} color={C.accent} weight="fill" />
-            <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1, minWidth: 0 }}>Prepared for engineer review</span>
-            <span className="chip" style={REVIEW_TONE[rv.verdict]}>{REVIEW_LABEL[rv.verdict]}</span>
-          </div>
-          {stale && <div className="notice amber">Of an earlier run: {rs.kind === "running" ? reviewerLine(rs, now, false) : "the reviewer comments again once the current run has finished."}</div>}
+      )}
+      {note && (
+        <>
           <div className="body md">
-            <AgentText text={rv.body} ix={ix} />
+            <AgentText text={note.body} ix={ix} />
           </div>
-          {rv.blockers.map((b, i) => restate(b, "blocker", i))}
-          {rv.warnings.map((w, i) => restate(w, "warning", i))}
-          {rv.not_studied.length > 0 && <span className="mute" style={{ fontSize: 11, lineHeight: 1.4 }}>Not studied: {rv.not_studied.join("; ")}</span>}
-          <span className="evidence-line">run {rv.run_key.slice(0, 10)} · {rv.created_at.slice(0, 16).replace("T", " ")} · the figures are the gate's, the words the reviewer's</span>
-        </div>
+          {note.flags.length > 0 && (
+            <span className="chips" title="Figures in the note that appear in no tool output">
+              {note.flags.map((f, i) => (
+                <span key={i} className="chip flag">not in the digest: {flagFigure(f)}</span>
+              ))}
+            </span>
+          )}
+          <span className="evidence-line">run {note.run_key.slice(0, 10)} · the figures are the engine's digest, the words the model's</span>
+        </>
       )}
     </div>
   );

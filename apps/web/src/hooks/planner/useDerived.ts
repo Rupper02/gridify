@@ -17,8 +17,7 @@ import { sectionsByStatus } from "../../lib/findings";
 import { gateState } from "../../lib/gate";
 import { lineTiers } from "../../lib/mapFeatures";
 import { ALL_CAPABILITIES, mainIdOf, projectOf } from "../../lib/projects";
-import { runStatus } from "../../lib/runStages";
-import { isSuperseded } from "../../lib/trace";
+import { runView } from "../../lib/runStages";
 import { profileOf } from "../../theme";
 import type { QueueItem } from "../../types";
 import type { PlannerState } from "./core";
@@ -48,26 +47,23 @@ export function useDerived(s: PlannerState) {
     // years the engine ran but whose power flow did not converge: they have no figures to show
     const yearsFailed = s.result ? Object.values(s.result.years ?? {}).filter((y) => y.converged === false).length : 0;
     const yearsTotal = s.result?.years_total ?? s.plan?.years.length ?? 0;
-    // where the run stands, in words: the result stamp, the readings' note and the roadmap read it
-    const run = runStatus({ hasResult: !!s.result, solving: s.solving, refreshing: s.refreshing, stage: s.stage, yearsSolved, yearsFailed, yearsTotal });
+    // where the run stands: the stamp, the roadmap, the readings, every Run button, the stale box and the gate read it
+    const run = runView(s.run, { hasResult: !!s.result, yearsSolved, yearsFailed, yearsTotal });
     // projects that exist only on this branch: not in main's plan (the diff's base), or preliminary
     const branchOnly = new Set<string>(prelim.map((p) => p.request_id));
     if (!onMain && s.diff) s.diff.projects.forEach((p) => p.base_status == null && branchOnly.add(p.request_id));
     const bindLines = new Set<number>();
     q.forEach((x) => x.status === "Deferred" && x.reason?.element?.line_id != null && bindLines.add(x.reason.element.line_id));
     // the merge gate as the buttons show it, and the ledger's open counts for the tab's badge
-    const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", s.running, s.gateError);
+    const gate = gateState(s.mergeCheck, stale, (branch?.status ?? "open") === "open", run, s.gateError);
     // what the branch is judged against and merges into: its parent (main, or the branch it was opened from)
     const parent = parentName(s.branches, branch, mainId);
-    // the reviewer's current comment, and whether it is of an earlier run than the one shown (a run still solving
-    // replaces the result it reviewed, before its own run key is known); the proposals waiting in the open conversation
-    const reviewCurrent = s.reviews.find((r) => r.status === "prepared_for_review") ?? null;
-    const reviewStale = reviewCurrent ? s.solving || isSuperseded(reviewCurrent, s.result?.run_key) : false;
+    // the proposals waiting in the open conversation
     const pendingApprovals = s.thread?.approvals.filter((a) => a.status === "pending").length ?? 0;
-    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, reviewStale, pendingApprovals, parent, run };
-  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.reviews, s.running, s.solving, s.thread]);
+    return { project, mainId, caps, synthetic, onMain, branch, hue, profile, resultProfile, q, qById, prelim, stale, yearsSolved, yearsFailed, yearsTotal, branchOnly, bindLines, gate, pendingApprovals, parent, run };
+  }, [s.activeBranch, s.added, s.branches, s.candidates, s.diff, s.mergeCheck, s.model?.crs, s.outages, s.projectId, s.projects, s.reinforcements, s.result, s.run, s.thread]);
 
-  // the ledger folded across plan years, per status: the Findings tab's sections and its badge read it
+  // the ledger folded across plan years, per status: the Limits tab's findings fold reads it
   const findingSections = useMemo(() => sectionsByStatus(s.findings), [s.findings]);
 
   const year = useMemo(() => {

@@ -49,6 +49,7 @@ from .config import (
 from .dispatch import FLEET_TABLES
 from .findings import fingerprint
 from .greedy import NetFactory, Progress, build_base_net
+from .sensitivity import rank_buses
 from .network import (
     _CASE_LABEL,
     _case_reason,
@@ -65,6 +66,7 @@ from .network import (
     set_tap_positions,
     tap_positions,
     voltage_limits,
+    solve_case,
 )
 from .suggest import discover_chain, phase_net
 from .types import REASON_SPECS, Candidate, ModelAssumption, OptimizeParams, OptimizeResult, Outage, Reason, StudyItem, StudyResult
@@ -131,7 +133,7 @@ class ConnectionOptionsParams(BaseModel):
 
     request_id: str = Field(description="the project, as the queue names it")
     step_mw: float = Field(default=HOSTING_STEP_MW, ge=1.0, description="resolution of the MW answers")
-    max_buses: int = Field(default=CONNECTION_OPTION_BUSES, ge=0, le=12, description="higher-voltage busbars to probe, nearest first by network steps")
+    max_buses: int = Field(default=CONNECTION_OPTION_BUSES, ge=0, le=12, description="higher-voltage busbars to probe: the ones with the most first-order room (DC sensitivity), the AC solve confirming")
     part: Literal["all", "site", "bus"] = Field(default="all", description="a chunk: the project's own site (its busbar and the chain), one higher-voltage busbar (bus_ids), or everything")
     bus_ids: list[int] | None = Field(default=None, description="the higher-voltage busbars to probe instead of the nearest ones")
 
@@ -209,13 +211,23 @@ def _slack_buses(net) -> set[int]:
 
 
 # --- hosting capacity ----------------------------------------------------------------------------------------
+def _ranked(net, buses: list[int], direction: str, limit: int) -> list[int]:
+    """The `limit` buses with the most first-order headroom for `direction` (`sensitivity.rank_buses` on the winter-peak
+    operating point: one DC factor matrix instead of a bisection per bus), so the AC probes go where the room is. The
+    given order stands when there are no more buses than `limit`, or when the factors are not available."""
+    if len(buses) <= limit:
+        return buses[:limit]
+    solve_case(net, "winter_peak")
+    return rank_buses(net, buses, direction=direction)[:limit]
+
+
 def _probe_buses(net, p: HostingParams) -> list[int]:
     if p.bus_ids:
         return [int(b) for b in p.bus_ids if int(b) in net.bus.index]
     deg = _degree(net)
     buses = [int(b) for b in net.bus.index if float(net.bus.at[b, "vn_kv"]) >= p.min_kv]
     buses.sort(key=lambda b: (-float(net.bus.at[b, "vn_kv"]), -deg.get(b, 0), b))
-    return buses[:p.max_buses]
+    return _ranked(net, buses, p.direction, p.max_buses)
 
 
 def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
@@ -671,7 +683,7 @@ def _move_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phas
     where = _bus_name(net, home)
     tech = c.technology or "project"
     higher = dict(_higher_buses(net, home))
-    buses = [int(b) for b in p.bus_ids if int(b) in net.bus.index] if p.bus_ids else list(higher)[:p.max_buses]
+    buses = [int(b) for b in p.bus_ids if int(b) in net.bus.index] if p.bus_ids else _ranked(net, list(higher), direction, p.max_buses)
     solves = 0
     for b in buses:
         there, steps = _bus_name(net, b), higher.get(b)
@@ -755,7 +767,8 @@ def _connection_chunks(ctx: StudyContext, p: ConnectionOptionsParams) -> list[Ba
         c = _candidate_of(ctx, p.request_id)
     except ValueError:
         return [p]  # the run itself says why
-    buses = p.bus_ids or [b for b, _ in _higher_buses(ctx.net_factory(), int(c.bus_id))[:p.max_buses]]
+    net = ctx.net_factory()
+    buses = p.bus_ids or _ranked(net, [b for b, _ in _higher_buses(net, int(c.bus_id))], _asks(c)[0], p.max_buses)
     return [p.model_copy(update={"part": "site"})] + [p.model_copy(update={"part": "bus", "bus_ids": [b]}) for b in buses]
 
 

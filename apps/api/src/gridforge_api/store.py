@@ -44,8 +44,7 @@ MESSAGE_COLS = ["message_id", "thread_id", "seq", "role", "content", "status", "
                 "model_json", "usage_json", "cost_credits", "flags_json", "evidence_json", "created_at"]
 APPROVAL_COLS = ["approval_id", "project_id", "thread_id", "message_id", "run_id", "tool_call_id", "tool", "args_json", "status",
                  "decided_at", "decided_by", "note", "result_json", "created_at"]
-REVIEW_COLS = ["review_id", "project_id", "branch_id", "run_key", "run_id", "verdict", "verdict_json", "body", "blockers_json",
-               "warnings_json", "not_studied_json", "status", "created_at"]
+NOTE_COLS = ["note_id", "project_id", "branch_id", "run_key", "run_id", "body", "digest_json", "flags_json", "status", "created_at"]
 MERGE_COLS = [
     "merge_id", "branch_id", "into_branch", "outcome", "ok", "n_blockers", "n_warnings", "acknowledged",
     "verdict_json", "head_key", "base_key", "snapshot_id", "engine", "created_at",
@@ -306,7 +305,7 @@ def migrate(con: Cursor) -> None:
         """
     )
     # the agent harness (agents/): events in, runs and their recorded tool steps (the evidence every
-    # figure is bound to), operator threads, approvals of proposed actions, daily budgets, branch reviews
+    # figure is bound to), operator threads, approvals of proposed actions, daily budgets, the engineer's note on each run
     for ddl in (
         "CREATE TABLE IF NOT EXISTS project_events (event_id VARCHAR PRIMARY KEY, project_id VARCHAR, type VARCHAR, dedup_id VARCHAR, "
         "payload_json VARCHAR, created_at VARCHAR, workflow_ids VARCHAR)",
@@ -326,9 +325,9 @@ def migrate(con: Cursor) -> None:
         "note VARCHAR, result_json VARCHAR, created_at VARCHAR)",
         "CREATE TABLE IF NOT EXISTS agent_budgets (project_id VARCHAR, day VARCHAR, credits DOUBLE, tokens INTEGER, solves INTEGER, "
         "paused BOOLEAN, paused_reason VARCHAR, updated_at VARCHAR, PRIMARY KEY (project_id, day))",
-        "CREATE TABLE IF NOT EXISTS reviews (review_id VARCHAR PRIMARY KEY, project_id VARCHAR, branch_id VARCHAR, run_key VARCHAR, run_id VARCHAR, "
-        "verdict VARCHAR, verdict_json VARCHAR, body VARCHAR, blockers_json VARCHAR, warnings_json VARCHAR, not_studied_json VARCHAR, "
-        "status VARCHAR, created_at VARCHAR)",
+        "CREATE TABLE IF NOT EXISTS run_notes (note_id VARCHAR PRIMARY KEY, project_id VARCHAR, branch_id VARCHAR, run_key VARCHAR, run_id VARCHAR, "
+        "body VARCHAR, digest_json VARCHAR, flags_json VARCHAR, status VARCHAR, created_at VARCHAR)",
+        "DROP TABLE IF EXISTS reviews",  # the reviewer's restatements of the gate (model prose nobody re-reads) made way for the run notes
     ):
         con.execute(ddl)
     _ensure_builtin_project(con)

@@ -54,7 +54,7 @@ async def _lifespan(_app: FastAPI):
     def _warm_rest() -> None:
         try:
             plans.warm_profiles(NGED_MAIN_ID, idle=jobs.idle)  # the other demand profiles, while nobody is waiting
-            agents.emit_startup_events()  # a new snapshot since the last start wakes the steward
+            agents.emit_startup_events()  # a new snapshot since the last start is recorded as an event
         except Exception:
             log.exception("warm-up failed")
 

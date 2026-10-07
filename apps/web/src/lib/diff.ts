@@ -3,7 +3,7 @@
 // Pure: given the API's diff (engine: diff.diff_results), no React.
 
 import { C } from "../theme";
-import type { BranchReinforcement, Diff, LoadingDelta, OnMerge, Outage, WorkChange, WorkDelta, WorkVerdict, YearDelta } from "../types";
+import type { BranchReinforcement, Diff, LoadingDelta, OnMerge, Outage, Verdict, WorkChange, WorkDelta, YearDelta } from "../types";
 import { type ModelIndex, lineName, plural, trafoName } from "./derive";
 import { VERDICTS, WORK_UI } from "./maintenance";
 
@@ -129,7 +129,7 @@ export const WORK_CHANGE: Record<WorkChange, { label: string; tone: Tone }> = {
 };
 
 /** A verdict with its MW: "Curtailment 40 MW", "Demand at risk 12 MW", "Feasible". */
-export function verdictText(v: WorkVerdict | null, curtailed: number | null, atRisk: number | null): string {
+export function verdictText(v: Verdict | null, curtailed: number | null, atRisk: number | null): string {
   if (v == null) return "Not studied";
   const label = VERDICTS[v]?.label ?? v;
   if (v === "curtailment" && curtailed) return `${label} ${Math.round(curtailed * 10) / 10} MW`;

@@ -201,13 +201,14 @@ def decide_approval(pid: str, aid: str, body: ApprovalDecision) -> dict:
     return {**a, "workflow_id": wid, "waiting_for": waiting, "checked_at": now()}
 
 
-# --- reviews and the audit trail ------------------------------------------------------------------------------------
-@router.get("/branches/{branch_id}/reviews")
-def branch_reviews(branch_id: str, all: bool = False) -> dict:  # noqa: A002
-    """The reviewer's comments on a branch: the current one (prepared for engineer review), or all."""
+# --- the note and the audit trail -----------------------------------------------------------------------------------
+@router.get("/branches/{branch_id}/note")
+def branch_note(branch_id: str) -> dict:
+    """The engineer's note on the branch's current run (`current`), with the digest it was written from; `note: null`
+    while none has been written or the run has moved on."""
     with scenarios.cursor() as con:
         repository.require_branch(con, branch_id)
-        return {"branch_id": branch_id, "reviews": runs.list_reviews(con, branch_id, all_reviews=all)}
+        return {"branch_id": branch_id, "note": runs.current_note(con, branch_id)}
 
 
 @router.get("/projects/{pid}/agents/runs")

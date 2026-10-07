@@ -77,7 +77,7 @@ export function App() {
       {s.projectsOpen && <ProjectsScreen planner={planner} />}
       {layout.showDock && <Roadmap planner={planner} layout={layout} />}
       <SidePanel planner={planner} layout={layout} />
-      {s.running && <RunOverlay planner={planner} layout={layout} />}
+      {derived.run.overlay && <RunOverlay planner={planner} layout={layout} />}
     </div>
   );
 }

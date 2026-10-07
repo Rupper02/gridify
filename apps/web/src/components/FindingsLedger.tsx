@@ -1,8 +1,9 @@
-// Findings: everything the branch's last run found, and what the agents found (with the evidence behind it), by
-// criticality (breaches, warnings, notes) and then by kind, every finding once across the plan years it holds in
-// (lib/findings.ts folds the ledger's one-row-per-year): a row shows the span and the worst year's figure and opens to
-// its per-year rows, each still its own finding to acknowledge or trace. A row jumps to the element, project or
-// demand group on the map in that year. Every group is collapsed until clicked: the headings are the overview.
+// The findings ledger, folded under the Limits tab: everything the branch's last run found, by criticality (breaches,
+// warnings, notes) and then by kind, every finding once across the plan years it holds in (lib/findings.ts folds the
+// ledger's one-row-per-year): a row shows the span and the worst year's figure and opens to its per-year rows, each
+// still its own finding to acknowledge or trace. A row jumps to the element, project or demand group on the map in that
+// year. Every group is collapsed until clicked: the headings are the overview. The operator's call on a finding
+// (acknowledge, reopen) stays here.
 
 import { ArrowCounterClockwise, CaretDown, CaretRight, Check, Receipt, Warning } from "@phosphor-icons/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -14,10 +15,10 @@ import { SEVERITY, findingSel } from "../lib/gate";
 import { C } from "../theme";
 import type { Finding, FindingSeverity, FindingStatus } from "../types";
 
-export type FindingsTabPlanner = PlannerSlice<
-  "findings" | "findingsFocus" | "model" | "outages" | "running",
+export type FindingsLedgerPlanner = PlannerSlice<
+  "findings" | "findingsFocus" | "model" | "outages",
   "clearFindingsFocus" | "focusSel" | "openEvidence" | "setFindingStatus" | "setLayer" | "setYear",
-  "branch" | "findingSections" | "ix" | "onMain" | "stale"
+  "findingSections" | "ix"
 >;
 
 const FILTERS: { key: FindingStatus; label: string }[] = [
@@ -39,13 +40,12 @@ const NEXT: Record<FindingStatus, { st: FindingStatus; label: string; icon: type
 const sevKey = (sev: FindingSeverity) => `sev:${sev}`;
 const kindKey = (sev: FindingSeverity, title: string) => `kind:${sev}:${title}`;
 
-export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
+export function FindingsLedger({ planner }: { planner: FindingsLedgerPlanner }) {
   const { s, actions, derived } = planner;
   const [filter, setFilter] = useState<FindingStatus>("open");
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const sections = derived.findingSections[filter];
   const counts = sectionCounts(derived.findingSections.open);
-  const where = derived.onMain ? "main" : derived.branch?.name;
   // the engine names elements by index: name every message once per ledger, not per row per render
   const named = useMemo(() => new Map(s.findings.map((f) => [f.finding_id, nameElements(f.message, derived.ix)])), [s.findings, derived.ix]);
   const firstN1 = sections.flatMap((sec) => sec.kinds).find((k) => k.kind === "n1");
@@ -60,7 +60,7 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
     });
 
   // another card sent the operator here (the readings' N-1 stat): expand that kind's groups among the open findings,
-  // scroll to the first, then forget the focus so the tab is the operator's again
+  // scroll to the first, then forget the focus so the ledger is the operator's again
   useEffect(() => {
     const focus = s.findingsFocus;
     if (!focus) return;
@@ -84,26 +84,18 @@ export function FindingsTab({ planner }: { planner: FindingsTabPlanner }) {
   const evidenceFor = (f: Finding) => (f.evidence_kind === "tool_call" ? () => void actions.openEvidence(f.evidence_ref) : undefined);
 
   return (
-    <div className="scroll" style={{ padding: "4px 14px 16px", gap: 10 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>Findings on {where}</span>
-        <span style={{ fontSize: 12, color: C.mute, lineHeight: 1.45 }}>
-          What the last run found: overloads, voltages outside the band, the GSP against its limit, N-1, customer alerts,
-          planned works and the projects it holds back. Each finding is counted once across the plan years it holds in; open
-          it for the years. Every figure is the engine's; click a row to see it on the map.
-        </span>
-        <span className="mono" style={{ fontSize: 11.5, color: C.mute }} title={counts.rows ? `${counts.rows} ledger rows, one per plan year` : undefined}>
-          {counts.groups === 0 ? "nothing open" : (
-            <>
-              {counts.breach > 0 && <span style={{ color: C.red }}>{counts.breach} breach{counts.breach !== 1 ? "es" : ""}</span>}
-              {counts.breach > 0 && counts.warn > 0 && " · "}
-              {counts.warn > 0 && <span style={{ color: C.amber }}>{counts.warn} warning{counts.warn !== 1 ? "s" : ""}</span>}
-              {counts.info > 0 && ` · ${counts.info} note${counts.info !== 1 ? "s" : ""}`}
-            </>
-          )}
-        </span>
-      </div>
-      {derived.stale.stale && !s.running && <div className="notice amber">The result is out of date; these findings are from its last run.</div>}
+    <div className="ledger">
+      <span className="mono" style={{ fontSize: 11.5, color: C.mute }} title={counts.rows ? `${counts.rows} ledger rows, one per plan year` : undefined}>
+        {counts.groups === 0 ? "nothing open" : (
+          <>
+            {counts.breach > 0 && <span style={{ color: C.red }}>{counts.breach} breach{counts.breach !== 1 ? "es" : ""}</span>}
+            {counts.breach > 0 && counts.warn > 0 && " · "}
+            {counts.warn > 0 && <span style={{ color: C.amber }}>{counts.warn} warning{counts.warn !== 1 ? "s" : ""}</span>}
+            {counts.info > 0 && ` · ${counts.info} note${counts.info !== 1 ? "s" : ""}`}
+          </>
+        )}
+        {" · each counted once across the plan years it holds in; every figure is the engine's"}
+      </span>
       <div className="filter-chips" role="tablist" aria-label="Finding status">
         {FILTERS.map((f) => (
           <button
@@ -261,7 +253,7 @@ function GroupRow({
   );
 }
 
-/** The study behind an agent's finding (nothing for the engine's own). */
+/** The study behind a finding that cites a recorded step (nothing for the engine's own rows). */
 function EvidenceChip({ onClick }: { onClick?: () => void }) {
   if (!onClick) return null;
   return (

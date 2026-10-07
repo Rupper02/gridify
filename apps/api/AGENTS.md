@@ -61,77 +61,58 @@ to the API and the agent harness. The API table is in the root `README.md`.
   `openrouter_model_factory(key)` and the `OpenRouterNarrator`: there is no key-less mode.
 
 ### The agent harness (`agents/`)
-- `runtime.py`, `AgentRuntime`: the DBOS lifecycle, the queues `steward` (partitioned by project, one at a time) and
+- `runtime.py`, `AgentRuntime`: the DBOS lifecycle, the queues `digest` (partitioned by project: one note at a time) and
   `chat`, the built agents, status and the startup events.
-- `roster.py`, the `AGENTS` registry (role, prompt, tool groups, typed output, studies in remit) and the output validators.
-- `tools.py`, the `TOOL_GROUPS` (`read`, `studies`: one tool per `studies.STUDIES` entry, `proposals`: deferred,
-  operator-approved), every call a recorded durable step (a study streams `progress` events as its chunks land, so the
-  planner's chip is never silent), and `SolverGate` (operators first, then the process lock).
-- `workflows.py`, the DBOS workflows `steward_run` → `specialist_run`, `review_branch`, `answer` / `answer_resume` and the
-  `WORKFLOWS` registry.
+- `roster.py`, the `AGENTS` registry: two roles. `answerer` (read, study and proposal tools, free text or deferred
+  proposals) and `digest` (no tools, free text: the engineer's note from the engine's digest).
+- `tools.py`, the `TOOL_GROUPS` (`read`: `limits` first, then the overview, queue, plan years, findings and the merge
+  check; `studies`: one tool per `studies.STUDIES` entry; `proposals`: deferred, operator-approved), every call a recorded
+  durable step (a study streams `progress` events as its chunks land, so the planner's chip is never silent),
+  `PROPOSAL_TEXT` (a proposal in words) and `SolverGate` (operators first, then the process lock).
+- `workflows.py`, the DBOS workflows `digest_run`, `answer` / `answer_resume` and the `WORKFLOWS` registry.
 - `events.py`, the `TRIGGERS` registry and `emit`, the one entry point routers call (`routers/optimize.py` after every run,
-  `routers/branches.py` after a merge, the lifespan at startup).
+  `routers/branches.py` after a merge, the lifespan at startup). Only `run.finished` starts work.
 - `streaming.py`, Pydantic AI events → the planner's trace (`STAGE_BY_TOOL_PREFIX`); `models.py`, the only OpenRouter
-  import; `prompts.py`; `schemas.py`, the agents' typed outputs; `runs.py`, runs / reviews / approvals / events SQL;
-  `evidence.py`, the step ledger every agent figure is bound to; `spend.py`, what the agents spent per project and day
-  (OpenRouter's billed cost from each response's `provider_details["cost"]`) and the pause switch; `threads.py`, operator
-  conversations.
-- `routers/agents.py`: status, pause, events, threads with an SSE stream, approvals, reviews, the audit trail.
+  import; `prompts.py`; `citations.py`, one citation shape; `runs.py`, runs / notes / approvals / events SQL;
+  `evidence.py`, the step ledger an answer's figures are checked against; `spend.py`, what the agents spent per project
+  and day (OpenRouter's billed cost from each response's `provider_details["cost"]`) and the pause switch; `threads.py`,
+  operator conversations.
+- `routers/agents.py`: status, pause, events, threads with an SSE stream, approvals, the note, the audit trail.
 
 ### Agent contracts
 
-The current contracts between the harness and the models. Like *Concurrency*, they are new and still being tried:
-change them by proposal, not by working around them.
+The contracts between the harness and the models. Change them by proposal, not by working around them.
 
-- Every agent run is told where it works: `tools.scope_instructions`, registered on every agent, gives the branch's name
-  and id and what it was opened from, and says tools default to that branch. Never leave an agent to guess its branch.
+- **The model never reads a table.** The engine solves; `gridforge_optimizer.analysis` reduces a run to the binding set,
+  the chains, the clusters and the digest; the model phrases a digest (the note) or plans typed queries (the answerer).
+  Anything that looks like a model summarising rows is a bug: reduce first, in the engine, deterministically.
+- **The note** (`digest_run`): woken by `run.finished` (main's runs included; a run whose physics is its parent's,
+  `run_key == parent_run_key`, wakes nobody), deduplicated by `run:{branch}:{run_key}`. Its one step computes
+  `PlanService.digest` under the solver gate (the parent's side may need solving), one model call writes at most 150
+  words, `check_numbers(note, [digest])` flags every digit figure the digest does not hold, and the note is stored in
+  `run_notes` for the branch's current `run_key`, superseding the previous one; a note whose run the branch moved past
+  is never stored, and a note still being written when a newer run lands is cancelled (`runs.open_runs_of`).
+- Every answer run is told where it works: `tools.scope_instructions` gives the branch's name and id and what it was
+  opened from, and says tools default to that branch. Never leave an agent to guess its branch.
 - Agents read names, not indices: every tool payload goes through `name_payload` ("Bicker Fen to Boston 132 kV, circuit 2
   (line 1)", the id in brackets for proposals), and a payload about a branch carries `branch_id` and `branch_name`. The
   evidence ledger keeps the engine's own words.
-- The prompt rules (`prompts.py`): answers start with what was found, never name the PLAN/ASSEMBLE/RUN steps (the planner
-  shows them as chips), and never write a bare id (rule 7).
-- A proposal applies the same engine rule as the study that recommended it: a resize scales a battery's import with
-  `Candidate.import_at`, as `connection_options` probed it. When a study recommends a value, the proposal that applies it
-  must not apply it differently.
+- The prompt rules (`prompts.py`): answers start with what was found, read `limits` before any study, never name the
+  PLAN/ASSEMBLE/RUN steps (the planner shows them as chips), and never write a bare id (rule 7).
+- Citations are one shape: `[step <full step_id>]` inline after the figure, or `[same step]`. Every stored text goes
+  through `citations.normalize_citations` with the run's step ids: an abbreviated id is completed, a bracket that cites
+  nothing recorded is dropped. The planner renders the chips (`lib/markdown.ts`), so never store a raw bracket of another
+  shape. Run summaries are stripped of citations (`strip_citations`).
+- A proposal is read in words: `tools.PROPOSAL_TEXT` (a registry by tool) phrases each pending approval ("I propose to
+  resize ECR-83EF2 to 55 MW (its import follows); run the branch now"); a new proposal tool needs its entry. A proposal
+  applies the same engine rule as the study that recommended it: a resize scales a battery's import with
+  `Candidate.import_at`, as `connection_options` probed it.
 - `agent_runs` is not the final word on a run's status: `AgentRuntime.reconcile` (at startup and on every status poll)
-  closes the runs DBOS has already ended.
+  closes the runs DBOS has ended, and cancels and closes the ones left pending under another application version.
 - No daily cap: whoever runs GridForge pays with their own OpenRouter key, so spend is recorded and shown ("spent $X today
-  · $Y in all"), never a stop. Only the operator's Pause stops the agents; check the agents pill before reading a missing
-  answer as a bug. Per run, `AGENT_RUN_BUDGET` still ends a looping run (tool calls, solves, tokens, wall time), and each model response is
-  capped at `max_output_tokens`. Token events are streamed only for a run someone reads (an answer, through the SSE route):
-  a sweep's tokens were one DBOS stream row each, nobody's to read (`streaming.on_event`).
-- The reviewer reads the gate grouped (`tools.merge_summary`: one item per kind and element across the plan years it
-  applies to, the worst member's fingerprint, the count and the worst messages) and restates those items; it never
-  calls `merge_check` itself. A review of a run the branch has moved past is cancelled by the next review's gate step
-  (`runs.open_runs_of`), not finished for nothing. The same plan judged against the same parent plan on another branch
-  of the project (`run_key` and the gate's `base_years_key`, `runs.review_for_run`) is reviewed once: the later branch
-  inherits the comment, marked as inherited, and no model is paid again for the same physics pair.
-- Citations are one shape: `[step <full step_id>]` inline after the figure, or `[same step]`. Every stored text (a
-  brief, a review body, an answer, what the model said alongside its proposals) goes through
-  `citations.normalize_citations` with the run's step ids: an abbreviated id (models shorten to the `toolu_` suffix) is
-  completed, a bracket that cites nothing recorded is dropped. The planner renders the chips (`lib/markdown.ts`), so
-  never store a raw bracket of another shape.
-- A specialist files what it measured, as it goes: `file_finding` (the `filing` tool group, specialists only) binds one
-  study item to the ledger the moment the model calls it (`EvidenceLedger.bind_findings`; the step may be named by its
-  tool-call id alone, `EvidenceLedger.resolve_step` completes it), and `deps.context["filed"]` counts them. The report's
-  own `findings` list still works, but the specialists (Haiku) kept writing prose that *claimed* to have filed while the
-  list stayed empty, and a tool call mid-run is what a model does reliably. When nothing was filed either way and the
-  studies returned items, `roster._validate_report` sends the report back once with the items listed; a report that
-  names a step or item wrongly is sent back with the run's study steps listed. A filed finding lands in the ledger with
-  an evidence link; prose does not.
-- What was not studied is data, capped and computed: a typed output's `not_studied` keeps at most three items
-  (`schemas.MAX_NOT_STUDIED`; the harness appends the studies in the specialist's remit it did not run or that were
-  refused, `specialist_run`), a study payload's `shown: N of M` is a display cap the prompt says is not a gap, and the
-  brief's `not_studied` and `next_checks` (questions, at most five) travel in the health message's `evidence`, never as
-  lines at the end of the body. Only the free-text answerer writes a `**Not studied**` section.
-- A proposal is read in words: `tools.PROPOSAL_TEXT` (a registry by tool) phrases each pending approval for the message
-  ("I propose to resize ECR-83EF2 to 55 MW (its import follows); run the branch now"); a new proposal tool needs its
-  entry, or the message falls back to the tool's name and arguments.
-- The `findings` tool narrows by status, kind, severity and source and says how many matched; the steward reads the
-  open breaches first, never a 40-row page of warnings.
-- A run wakes nobody when its physics is its parent's (`run_key == parent_run_key`: a branch just opened), and the
-  steward skips a `run.finished` with no project deferred on a grid limit and no works window flagged
-  (`events.nothing_to_triage`); the reviewer still comments. The brief agent has no tools: it restates the reports.
+  · $Y in all"), never a stop. Only the operator's Pause stops the agents. Per run, `AGENT_RUN_BUDGET` ends a looping run
+  (tool calls, solves, tokens, wall time) and each model response is capped at `max_output_tokens`. Token events stream
+  only for a run someone reads (an answer, through the SSE route): the note's tokens go nowhere (`streaming.on_event`).
 - `events.emit` enqueues workflows: call it from workflow code, never inside a step (DBOS refuses a child workflow
   from a step; the event row it writes is idempotent by its dedup id).
 
@@ -153,7 +134,7 @@ change them by proposal, not by working around them.
     gate's freshness is `ResultCache.has` on those same keys (`PlanService.freshness`): never derive it from timestamps.
   - Studies (`PlanService.study`) are cached the same way under `study:<kind>` with the study's parameters in the key, so
     a chunk (a study with its own parameters) caches on its own.
-  - The payload's `run_key` is the plan-years key: the identity a review or an agent event refers to. Agent steps store
+  - The payload's `run_key` is the plan-years key: the identity a note or an agent event refers to. Agent steps store
     the cache key of what they ran; `EvidenceLedger.replay` re-reads it and flags `stale` when the engine has changed.
 - **Agent work is DBOS workflows** (`agents/workflows.py`): bounded by `config.AGENT_RUN_BUDGET`, idempotent by workflow
   id (`<workflow>:<dedup id>`, from `events.TRIGGERS`, so a cached re-run or a repeated event never wakes anyone twice),
@@ -166,10 +147,9 @@ change them by proposal, not by working around them.
   - Agent solves go through `SolverGate`, taken **per chunk** of a study (`PlanService.study(hold=)`): an operator's job
     gets the solver between chunks, not after a whole hosting-capacity sweep. How solving is shared: see *Concurrency*.
   - A study outside an agent's remit or over its solve budget is refused in the tool's answer (a payload the model
-    reads), never raised: a raised retry twice over ends the run. One failed specialist is a line in the steward's brief,
-    not the end of the sweep.
-  - A review is stored only while its run is still the branch's current one (`freshness().years_key`), so a slow review
-    of an earlier run never becomes current.
+    reads), never raised: a raised retry twice over ends the run.
+  - A note is stored only while its run is still the branch's current one (`freshness().years_key`), so a slow note
+    on an earlier run never becomes current.
   - A new agent is one `AgentSpec`, a new trigger one `Trigger`, a new study tool appears by itself from `studies.STUDIES`.
   - The SSE route reads the stream with DBOS's blocking reader in a worker thread, on purpose (the async reader shares
     one executor across event loops).
@@ -214,7 +194,7 @@ way, propose a better one rather than working around it.
   behind a run: `through(solve=False)` / `through(wait=False)` raise `errors.NotSolved` (409 `{code: "not_solved", retry}`;
   `retry: true` when the engine was merely busy) and the planner asks again when its run has finished, retrying a refusal a few
   times (about half a minute: an agent's study holding the solver as the run ends) before it shows Retry. `?solve=1` is the
-  blocking read for scripts. The agents' tools and the reviewer's gate keep solving, behind the `SolverGate`.
+  blocking read for scripts. The agents' tools and the note's digest keep solving, behind the `SolverGate`.
 - Agents wait rather than fail: `SolverGate.hold` waits while an operator's job runs, for as long as the agent run's own
   time allows (`AgentDeps.deadline` = `AGENT_RUN_BUDGET.timeout_s` less `AGENT_ANSWER_RESERVE_S`), says so in the trace,
   and past the deadline the tool answers with a refusal the model reads (`SolverBusy`), never a raised timeout.

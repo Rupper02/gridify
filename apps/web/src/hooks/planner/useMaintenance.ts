@@ -36,7 +36,7 @@ export function useMaintenance(core: Core, edited: EditedFn) {
       try {
         const o = await api.addOutage(bid, draftBody(sel, d));
         patch((x) => (x.activeBranch === bid ? { outages: [...x.outages.filter((y) => y.outage_id !== o.outage_id), o], year: d.year } : {}));
-        toastMsg(`${WORK_UI[d.work].label} scheduled for ${d.season.toLowerCase()} ${d.year}. Studying it now.`);
+        toastMsg(`${WORK_UI[d.work].label} scheduled for ${d.season.toLowerCase()} ${d.year}.`); // the stamp says when it is studied
         edited("works");
       } catch (e) {
         toastMsg(`Could not schedule it: ${failureText(e)}`, "warn");

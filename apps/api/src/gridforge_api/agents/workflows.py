@@ -23,10 +23,8 @@ from ..config import AGENT_RUN_BUDGET, log, now
 from . import events, runs, threads
 from .citations import normalize_citations, strip_citations
 from .evidence import check_numbers
-from .roster import SPECIALISTS
-from .schemas import HealthBrief, ReviewComment, SpecialistReport, StewardPlan
 from .streaming import stage_of
-from .tools import merge_summary, proposal_text
+from .tools import proposal_text
 
 if TYPE_CHECKING:
     from .runtime import AgentRuntime
@@ -76,13 +74,6 @@ def _begin(run_id: str, project_id: str, *, kind: str, agent: str, branch_id=Non
     return _step(do)
 
 
-def _sum_usage(*usages: dict) -> dict:
-    """One run's usage from its model calls (the steward's triage and its brief)."""
-    costs = [u["cost_credits"] for u in usages if u.get("cost_credits") is not None]
-    return {"input_tokens": sum(u.get("input_tokens", 0) for u in usages), "output_tokens": sum(u.get("output_tokens", 0) for u in usages),
-            "cost_credits": sum(costs) if costs else None}
-
-
 def _finish(run_id: str, project_id: str, *, status: str, summary: str = "", error: str | None = None, usage: dict | None = None, solves: int = 0) -> None:
     rt = _rt()
     u = usage or {}
@@ -99,176 +90,59 @@ def _finish(run_id: str, project_id: str, *, status: str, summary: str = "", err
     _step(do)
 
 
-# --- the steward: triage an event, run specialists, write the brief --------------------------------------------
+# --- the note: one model call after a run, from the engine's own digest ------------------------------------------------
 @DBOS.workflow()
-def steward_run(project_id: str, event: dict) -> dict:
+def digest_run(project_id: str, branch_id: str, run_key: str, event: dict) -> dict:
+    """The engineer's note on a run: the engine reduces the run to a digest (`PlanService.digest`: the binding set,
+    the deferrals with their chains, what changed, the works, the gate), one model call turns it into at most 150
+    words, every figure is checked by value against the digest, and the note is stored for the branch's current run
+    (`run_key`) and superseded by the next. Skipped when the branch has moved on or the note exists."""
     rt = _rt()
-    run_id = DBOS.workflow_id or f"steward:{event.get('dedup_id', 'local')}"
-    begun = _begin(run_id, project_id, kind="steward", agent="steward", branch_id=event.get("branch_id"), event_id=event.get("event_id"))
-    if begun["paused"]:
-        return {"run_id": run_id, "status": "skipped_paused", "reason": begun["reason"]}
-    skip = events.nothing_to_triage(event)
-    if skip:  # a clean run: no specialist to send, so no triage call, no brief (the reviewer still comments)
-        _finish(run_id, project_id, status="skipped", summary=skip)
-        return {"run_id": run_id, "status": "skipped", "reason": skip}
-    allowed = [s for s in event.get("allowed_specialists", []) if s in SPECIALISTS]
-    try:
-        deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
-        prompt = (f"Event: {json.dumps({k: v for k, v in event.items() if k not in ('allowed_specialists',)}, default=str)}\n"
-                  f"Allowed specialists now: {', '.join(allowed) or 'none'}. Each studies: {rt.remits()}.\n"
-                  "Read the project overview and the open findings, then plan.")
-        triage = rt.agents["steward"].run_sync(prompt, deps=deps, usage_limits=_limits())
-        plan: StewardPlan = triage.output
-        reports = []
-        for i, req in enumerate(plan.specialists):
-            if req.kind not in allowed:
-                continue
-            with SetWorkflowID(f"{run_id}:{i}:{req.kind}"):
-                handle = DBOS.start_workflow(specialist_run, project_id, req.kind, {"branch_id": req.branch_id or event.get("branch_id"), "why": req.why, "event": event.get("type")}, run_id)
-            try:
-                reports.append(handle.get_result())
-            except Exception as e:  # one specialist failing is a line in the brief, not the end of the sweep
-                reports.append({"kind": req.kind, "status": "failed", "error": f"{type(e).__name__}: {e}"[:300]})
-        brief_prompt = (f"Event: {event.get('type')}. Your triage note: {plan.note}\n"
-                        f"Specialist reports: {json.dumps(reports, default=str)}\nWrite the HealthBrief.")
-        brief_deps = rt.deps_for(run_id, project_id=project_id, branch_id=event.get("branch_id"))
-        res = rt.agents["steward_brief"].run_sync(brief_prompt, deps=brief_deps, usage_limits=_limits())
-        brief: HealthBrief = res.output
+    run_id = DBOS.workflow_id or f"digest:{branch_id}:{run_key}"
 
-        def store():
-            # the brief cites its specialists' steps: every bracket becomes a chip the planner renders, or goes
-            cited = [s["step_id"] for s in rt.evidence.steps(run_id)] + [sid for r in reports for sid in (r.get("steps") or [])]
-            text = normalize_citations(f"{brief.headline}\n\n{brief.body}", cited)
-            # what was not studied and what to check next travel as data (the planner collapses one and offers the other
-            # as questions), never as a wall of prose at the end of the brief
-            gaps = list(brief.not_studied) + sorted({x for r in reports for x in (r.get("not_studied") or []) if x not in brief.not_studied})
-            with rt.harness.store.cursor() as con:
-                health = next((t for t in threads.list_threads(con, project_id, kind="health")), None) or threads.create_thread(con, project_id, None, "Project health", kind="health")
-                threads.add_message(con, health["thread_id"], "assistant", text, run_id=run_id,
-                                    evidence={"event": event.get("type"), "reports": reports, "not_studied": gaps, "next_checks": list(brief.next_checks)})
-            return True
-        _step(store)
-        _finish(run_id, project_id, status="done", summary=strip_citations(brief.headline), usage=_sum_usage(_usage(triage), _usage(res)),
-                solves=deps.solves + brief_deps.solves)
-        return {"run_id": run_id, "status": "done", "headline": brief.headline, "specialists": [r.get("kind") for r in reports]}
-    except Exception as e:
-        _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
-        raise
+    def current() -> bool:
+        return rt.harness.plans.freshness(branch_id).years_key == run_key
 
-
-@DBOS.workflow()
-def specialist_run(project_id: str, kind: str, scope: dict, parent_run_id: str) -> dict:
-    rt = _rt()
-    run_id = DBOS.workflow_id or f"{parent_run_id}:{kind}"
-    branch_id = scope.get("branch_id") or rt.harness.projects.main_id(project_id)  # the project's own main, never NGED's
-    begun = _begin(run_id, project_id, kind="specialist", agent=kind, branch_id=branch_id, parent=parent_run_id)
-    if begun["paused"]:
-        return {"kind": kind, "run_id": run_id, "status": "skipped_paused"}
-    try:
-        deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for(kind))
-        prompt = (f"Study branch '{branch_id}'. Why you were asked: {scope.get('why', '')} (event: {scope.get('event', '')}).\n"
-                  f"Your studies: {', '.join(rt.studies_for(kind))}. Keep the scope small enough for the run budget.")
-        res = rt.agents[kind].run_sync(prompt, deps=deps, usage_limits=_limits())
-        report: SpecialistReport = res.output
-        # what the report still lists is bound here; what the specialist filed as it went (`file_finding`) is already in the ledger
-        fps = _step(lambda: rt.evidence.bind_findings(run_id, branch_id, report.findings, snapshot_id=rt.harness.warehouse.baseline_id(), at=now()))
-        fps = list(dict.fromkeys([*deps.context.get("filed", []), *fps]))
-        _finish(run_id, project_id, status="done", summary=strip_citations(report.summary), usage=_usage(res), solves=deps.solves)
-
-        def recorded():
-            """The run's steps, and what was not studied as the harness computes it: the model's few items plus the
-            studies in this specialist's remit it did not run (or that were refused)."""
-            steps = rt.evidence.steps(run_id)
-            ran = {s["tool"].removeprefix("study_") for s in steps
-                   if s["tool"].startswith("study_") and not (isinstance(s.get("result"), dict) and s["result"].get("refused"))}
-            not_run = [f"{k} was not run" for k in rt.studies_for(kind) if k not in ran]
-            return {"steps": [s["step_id"] for s in steps], "not_studied": list(report.not_studied) + not_run}
-        rec = _step(recorded)
-        return {"kind": kind, "run_id": run_id, "status": "done", "summary": report.summary, "n_findings": len(fps), "not_studied": rec["not_studied"],
-                "steps": rec["steps"]}
-    except Exception as e:
-        _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
-        raise
-
-
-# --- the reviewer: a comment on every branch run, like a PR bot --------------------------------------------------------
-@DBOS.workflow()
-def review_branch(project_id: str, branch_id: str, run_key: str) -> dict:
-    rt = _rt()
-    run_id = DBOS.workflow_id or f"review:{branch_id}:{run_key}"
-    def superseded() -> bool:
-        """The branch has moved on (a newer run, or new inputs) since this run: its review is not current."""
-        return rt.harness.plans.freshness(branch_id).years_key != run_key
-
-    def gate():
+    def prepare():
         with rt.harness.store.cursor() as con:
-            if runs.review_exists(con, branch_id, run_key) or superseded():
+            if runs.note_exists(con, branch_id, run_key) or not current():
                 return None
-            runs.supersede_reviews(con, branch_id, run_key)
-            older = [(rid, wid) for rid, wid in runs.open_runs_of(con, branch_id, "review") if rid != run_id]
-            head = repository.require_branch(con, branch_id)
-            base = repository.base_of(con, head)
-        for rid, wid in older:  # a review of an earlier run still being written: `store` would throw it away, so stop paying for it
+            older = [(rid, wid) for rid, wid in runs.open_runs_of(con, branch_id, "digest") if rid != run_id]
+        for _rid, wid in older:  # a note on an earlier run still being written would be superseded at once: stop paying for it
             if wid:
                 DBOS.cancel_workflow(wid)
         if older:
             with rt.harness.store.cursor() as con:
                 for rid, _wid in older:
                     runs.close_run(con, rid, status="cancelled", error="superseded by a newer run")
-        if base is None:  # a project's main merges nowhere: nothing to review
-            return None
-        with rt.harness.solver_gate.hold():
-            verdict, evidence = rt.harness.plans.merge_check(branch_id, base["branch_id"])
-        mc = merge_summary(base["branch_id"], verdict, evidence)
-        # the same plan (run key) judged against the same parent plan (base key) on another branch of the project has
-        # a current review already: its words hold here too, so it is copied, not bought again
-        prior = None
-        if mc.get("base_years_key"):
-            with rt.harness.store.cursor() as con:
-                prior = runs.review_for_run(con, project_id, run_key, mc["base_years_key"])
-        return {"mc": mc, "inherit": prior if prior and prior["branch_id"] != branch_id else None}
-    gated = _step(gate)
-    if gated is None:
-        return {"run_id": run_id, "status": "skipped", "reason": "already reviewed, superseded by a newer run, or a main (it merges nowhere)"}
-    mc, prior = gated["mc"], gated["inherit"]
-    begun = _begin(run_id, project_id, kind="review", agent="reviewer", branch_id=branch_id)
+        with rt.harness.solver_gate.hold():  # the parent's years may have to be solved for the comparison
+            return rt.harness.plans.digest(branch_id)
+    digest = _step(prepare)
+    if digest is None:
+        return {"run_id": run_id, "status": "skipped", "reason": "already noted, or superseded by a newer run"}
+    begun = _begin(run_id, project_id, kind="digest", agent="digest", branch_id=branch_id, event_id=event.get("event_id"))
     if begun["paused"]:
-        return {"run_id": run_id, "status": "skipped_paused"}
-    if prior is not None:
-        def copy():
-            if superseded():
-                return None
-            with rt.harness.store.cursor() as con:
-                return runs.insert_review(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, verdict=prior["verdict"],
-                                          verdict_json=mc, body=prior["body"] + f"\n\nThe same plan against the same parent was reviewed on branch "
-                                          f"{prior['branch_id']} (review {prior['review_id']}); this is that comment, inherited.",
-                                          blockers=prior.get("blockers") or [], warnings=prior.get("warnings") or [], not_studied=prior.get("not_studied") or [])
-        row = _step(copy)
-        _finish(run_id, project_id, status="done" if row else "skipped",
-                summary=f"inherited the review of the same plan from {prior['branch_id']}" if row else "superseded by a newer run before it was stored")
-        return {"run_id": run_id, "status": "done" if row else "skipped", "inherited_from": prior["review_id"]}
+        return {"run_id": run_id, "status": "skipped_paused", "reason": begun["reason"]}
     try:
-        deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id, allowed=rt.studies_for("reviewer"))
-        deps.context["merge_check"] = mc
-        prompt = (f"Review branch '{branch_id}' against '{mc['into']}'. The merge gate says:\n{json.dumps(mc, default=str)}\n"
-                  "Read the diff and the findings if you need context, then write the ReviewComment.")
-        res = rt.agents["reviewer"].run_sync(prompt, deps=deps, usage_limits=_limits())
-        review: ReviewComment = res.output
+        deps = rt.deps_for(run_id, project_id=project_id, branch_id=branch_id)
+        prompt = f"Event: {event.get('type', 'run.finished')}.\nThe digest:\n{json.dumps(digest, default=str)}\nWrite the note."
+        res = rt.agents["digest"].run_sync(prompt, deps=deps, usage_limits=_limits())
+        body = str(res.output).strip()
+        flags = _figure_flags(body, [digest])
 
         def store():
-            if superseded():  # a newer run finished while this review was written: it is not the current one
+            if not current():  # a newer run finished while the note was written: it is not the current one
                 return None
-            body = normalize_citations(review.body, [s["step_id"] for s in rt.evidence.steps(run_id)])
             with rt.harness.store.cursor() as con:
-                return runs.insert_review(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, verdict=review.verdict_restated,
-                                          verdict_json=mc, body=body, blockers=[b.model_dump() for b in review.blockers],
-                                          warnings=[w.model_dump() for w in review.warnings], not_studied=review.not_studied)
+                runs.supersede_notes(con, branch_id, run_key)
+                return runs.insert_note(con, project_id=project_id, branch_id=branch_id, run_key=run_key, run_id=run_id, body=body,
+                                        digest=digest, flags=flags)
         row = _step(store)
         if row is None:
-            _finish(run_id, project_id, status="skipped", summary="superseded by a newer run before it was stored", usage=_usage(res), solves=deps.solves)
+            _finish(run_id, project_id, status="skipped", summary="superseded by a newer run before it was stored", usage=_usage(res))
             return {"run_id": run_id, "status": "skipped", "reason": "superseded by a newer run"}
-        _finish(run_id, project_id, status="done", summary=strip_citations(review.body)[:200], usage=_usage(res), solves=deps.solves)
-        return {"run_id": run_id, "status": "done", "review_id": row["review_id"], "verdict": review.verdict_restated}
+        _finish(run_id, project_id, status="done", summary=body.splitlines()[0][:200] if body else "", usage=_usage(res))
+        return {"run_id": run_id, "status": "done", "note_id": row["note_id"], "flags": flags}
     except Exception as e:
         _finish(run_id, project_id, status="failed", error=f"{type(e).__name__}: {e}")
         raise
@@ -450,7 +324,7 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
             ran = next((s["result"] for s in steps.values() if s["tool"] == "propose_run" and (s.get("result") or {}).get("event")), None)
             return {"ran": ran}
         settled = _step(settle)
-        if settled["ran"]:  # an approved run is a run like any other: the reviewer (and the steward) hear about it, alike
+        if settled["ran"]:  # an approved run is a run like any other: its note is written, alike
             # workflow code, not a step: `emit` enqueues workflows, which DBOS refuses from inside a step (the event
             # row it writes is idempotent by its dedup id, so a replay of this line wakes nobody twice)
             events.emit(rt, "run.finished", {**settled["ran"]["event"], "project_id": project_id})
@@ -462,8 +336,8 @@ def answer_resume(project_id: str, thread_id: str, message_id: str) -> dict:
         raise
 
 
-STEWARD_QUEUE = "steward"  # partitioned by project: one steward activity per project at a time
-CHAT_QUEUE = "chat"  # reviews and answers: a few at once
+DIGEST_QUEUE = "digest"  # partitioned by project: notes land one at a time, in order
+CHAT_QUEUE = "chat"  # answers: a few at once
 
 
 class WorkflowSpec(NamedTuple):
@@ -475,8 +349,7 @@ class WorkflowSpec(NamedTuple):
 
 # the registry `AgentRuntime.start` enqueues from (events.emit by trigger, the approvals route by name)
 WORKFLOWS: dict[str, WorkflowSpec] = {
-    "steward_run": WorkflowSpec(steward_run, lambda pid, ev: (pid, ev), STEWARD_QUEUE, 3),  # the triage, its specialists and the brief
-    "review_branch": WorkflowSpec(review_branch, lambda pid, ev: (pid, ev["branch_id"], ev["run_key"]), CHAT_QUEUE, 3),
+    "digest_run": WorkflowSpec(digest_run, lambda pid, ev: (pid, ev["branch_id"], ev["run_key"], ev), DIGEST_QUEUE, 1),
     "answer": WorkflowSpec(answer, lambda pid, ev: (pid, ev["thread_id"], ev["message_id"]), CHAT_QUEUE, 3),
     "answer_resume": WorkflowSpec(answer_resume, lambda pid, ev: (pid, ev["thread_id"], ev["message_id"]), CHAT_QUEUE, 1),
 }

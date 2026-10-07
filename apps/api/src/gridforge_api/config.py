@@ -73,18 +73,16 @@ MAX_IMPORT_BYTES = 50 * 1024 * 1024
 # --- the agent harness (agents/) ---------------------------------------------------------------------------
 # OpenRouter model ids per role (AGENTS.md rule 2: they plan studies and phrase; the engine computes)
 AGENT_MODELS = {
-    "steward": "anthropic/claude-sonnet-5.5",
-    "reviewer": "anthropic/claude-sonnet-5.5",
-    "answerer": "anthropic/claude-sonnet-5.5",
-    "specialist": "anthropic/claude-sonnet-5.5",
+    "answerer": "anthropic/claude-sonnet-5.5",  # plans typed queries, cites, proposes
+    "digest": "anthropic/claude-sonnet-5.5",  # one call per run: the engineer's note from the engine's digest
 }
 # per agent run: tool calls, solves and wall time before it is cut short
 NGED_MAIN_ID = "main"  # the built-in project's main (an import's is `<project id>-main`)
 AGENT_RUN_BUDGET = {"max_tool_calls": 12, "max_solves": 600, "timeout_s": 600, "max_tokens": 400_000,
-                    "max_output_tokens": 8_000}  # per model response: a typed report or a markdown answer is well under it; a model that
-                                                 # loops (a specialist once streamed 17 000 tokens of "(.)") ends there, not at its context
-# max_tokens: the run's model requests and responses together (a healthy review or brief is 20-40k; a reviewer that
-# restated 750 gate rows over three attempts read 1.45M tokens for $4 and its review was thrown away)
+                    "max_output_tokens": 8_000}  # per model response: a note or a markdown answer is well under it; a model that
+                                                 # loops (one once streamed 17 000 tokens of "(.)") ends there, not at its context
+# max_tokens: the run's model requests and responses together (a healthy answer is 20-40k; a model that once restated
+# 750 gate rows over three attempts read 1.45M tokens for $4)
 # an agent run waits for an operator's job to free the solver for as long as its own time allows, less this reserve to write the answer
 AGENT_ANSWER_RESERVE_S = 60.0
 OPENROUTER_APP = {"app_url": "https://github.com/Rupper02/gridforge", "app_title": "GridForge"}  # OpenRouter attribution headers

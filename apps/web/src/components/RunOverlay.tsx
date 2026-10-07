@@ -1,7 +1,7 @@
 // The run card, docked bottom-centre over the map above the roadmap: what is being solved, a progress rail with a
 // travelling pulse, the five stages bound to the job's real stage, and the engine's own readout. No backdrop: the map
-// and its substations stay clickable while the engine works. It closes as soon as the queue and the viewed year are
-// in; the remaining years carry on in the background.
+// and its substations stay clickable while the engine works. It shows for a loud run from its start to its end (the
+// years land on the map as they are solved, the viewed one first); a quiet refresh never shows it.
 
 import { Check } from "@phosphor-icons/react";
 
@@ -11,15 +11,15 @@ import { firstYear, lastYear } from "../lib/plan";
 import { runStages, stageIndex, stageReadout } from "../lib/runStages";
 import { C } from "../theme";
 
-export type RunOverlayPlanner = PlannerSlice<"fraction" | "outages" | "plan" | "stage", never, "branch" | "hue" | "onMain" | "prelim" | "profile" | "q">;
+export type RunOverlayPlanner = PlannerSlice<"outages" | "plan" | "run", never, "branch" | "hue" | "onMain" | "prelim" | "profile" | "q">;
 
 export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; layout: Layout }) {
   const { s, derived } = planner;
-  const { plan } = s;
-  if (!plan) return null;
+  const { plan, run } = s;
+  if (!plan || run.kind !== "running") return null;
   const profile = derived.profile?.label ?? "";
   const stages = runStages(plan, profile, s.outages.length);
-  const cur = stageIndex(s.stage, plan);
+  const cur = stageIndex(run.stage, plan);
   const n = derived.q.length + derived.prelim.length;
   return (
     <div className="run-overlay" style={{ right: layout.sideW + 10, bottom: layout.showDock ? layout.dockPx + 20 : 20 }} role="status" aria-live="polite">
@@ -37,7 +37,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
         </div>
         <div className="rail">
           <div className="wire" />
-          <div className="done" style={{ width: `${Math.max(4, Math.min(100, s.fraction * 100))}%` }} />
+          <div className="done" style={{ width: `${Math.max(4, Math.min(100, run.fraction * 100))}%` }} />
           <div className="pulse" />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -55,7 +55,7 @@ export function RunOverlay({ planner, layout }: { planner: RunOverlayPlanner; la
             );
           })}
         </div>
-        <div className="readout">{stageReadout(s.stage, plan)}</div>
+        <div className="readout">{stageReadout(run.stage, plan)}</div>
       </div>
     </div>
   );

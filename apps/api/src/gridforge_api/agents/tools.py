@@ -35,7 +35,7 @@ from .. import ledger, repository
 from . import events
 from ..config import AGENT_RUN_BUDGET, now
 from ..schemas import NewCandidate, OutageCreate, ReinforcementCreate
-from .evidence import AgentFinding, EvidenceLedger
+from .evidence import EvidenceLedger
 
 TOP_ITEMS = 25  # how many study items a tool returns to the model (the full study stays in the cache)
 
@@ -59,7 +59,7 @@ def _badness(f) -> float:
 def _grouped(findings) -> list[dict]:
     """The gate's findings as the agents read them: one item per kind and element across the plan years, carrying
     the worst member's fingerprint (what a review restates and the UI links), the year span, the count, the worst
-    figure and the worst few messages. Several hundred single-year N-1 rows are a dozen items (a reviewer handed
+    figure and the worst few messages. Several hundred single-year N-1 rows are a dozen items (a model handed
     them one by one restated 750 rows over three attempts, $4 of tokens, and its review was superseded meanwhile)."""
     groups: dict[tuple, list] = {}
     for f in findings:
@@ -76,7 +76,7 @@ def _grouped(findings) -> list[dict]:
 
 
 def merge_summary(into: str, verdict, evidence: dict) -> dict:
-    """The merge gate's verdict as the agents read it (the `merge_check` tool, the reviewer's prompt and its validator):
+    """The merge gate's verdict as the agents read it (the `merge_check` tool and the run digest):
     fresh or stale, ok or not, how many blockers and warnings there are, and both grouped by kind and element
     (`_grouped`); the UI reads the gate itself (`GET /branches/{id}/merge-check`), row by row."""
     return {"into": into, "fresh": evidence["fresh"], "stale_reasons": evidence["stale_reasons"], "ok": verdict.ok,
@@ -149,7 +149,6 @@ class AgentDeps:
     tool_calls: int = 0
     solves: int = 0
     seq: int = 0
-    context: dict = field(default_factory=dict)  # what a validator may need (e.g. the merge check)
     deadline: float | None = None  # monotonic time after which the run stops waiting for the solver (None = no limit)
 
     def next_seq(self) -> int:
@@ -260,6 +259,25 @@ def build_read_tools() -> FunctionToolset[AgentDeps]:
             return ({"branch_id": bid, "queue": q, "phases": phases, "summary": f"{len(q)} projects: " + ", ".join(
                 f"{s} {sum(1 for x in q if x['status'] == s)}" for s in ("Phase1", "Phase2", "Deferred", "Rejected"))}, None, 0)
         return _recorded(ctx, "queue", {"branch_id": bid}, work)
+
+    @ts.tool
+    def limits(ctx: RunContext[AgentDeps], branch_id: str | None = None) -> dict:
+        """What limits the branch's plan, as the engine reduces the whole run: the binding set (which elements bind or come near their limit, from which plan year, in which study case, with the MW of headroom left at the worst year, the projects deferred on each and how many N-1 outages breach it), the deferred projects' chains (the reason's element, case, figure against the limit, and what a connection_options study measured when one has run), the N-1 rows folded into clusters by cause, and the works verdicts. Read this before any study: most questions are answered here."""
+        bid = _branch(ctx, branch_id)
+
+        def work():
+            h = ctx.deps.h
+            with _gate(ctx.deps)():
+                lim = h.plans.limits(bid, solve=True, wait=True)
+            out = lim.model_dump(exclude_none=True)
+            for b in out["binding"]:
+                b["trajectory"] = [p for p in b["trajectory"] if p["year"] in (lim.years[0], lim.years[-1]) or p["year"] == b["worst"]["year"]]
+            out["binding"] = out["binding"][:TOP_ITEMS]
+            out["clusters"] = out["clusters"][:TOP_ITEMS]
+            out["summary"] = (f"{len(lim.binding)} elements bind or come near a limit; {len(lim.chains)} projects deferred; "
+                              f"{lim.n1_rows} N-1 rows in {lim.n1_pairs} outage/case pairs, {len(lim.clusters)} causes; {len(lim.works)} works windows")
+            return ({"branch_id": bid, **out}, None, 0)
+        return _recorded(ctx, "limits", {"branch_id": bid}, work)
 
     @ts.tool
     def plan_year(ctx: RunContext[AgentDeps], year: int, branch_id: str | None = None) -> dict:
@@ -431,39 +449,6 @@ def build_study_tools() -> FunctionToolset[AgentDeps]:
     return ts
 
 
-# --- filing: a specialist's findings, bound to a study item as they are found -------------------------------------------
-def build_filing_tools() -> FunctionToolset[AgentDeps]:
-    """`file_finding`: a specialist files a finding the moment a study returns the item, as a tool call (what a model does
-    reliably mid-run) rather than as a list in its final typed answer (where the specialists kept writing prose that
-    claimed to have filed). The server binds the figures from the recorded step; the model adds the words."""
-    ts: FunctionToolset[AgentDeps] = FunctionToolset(id="filing")
-
-    @ts.tool
-    def file_finding(ctx: RunContext[AgentDeps], step_id: str, item_index: int, message: str, action: str) -> dict:
-        """File one finding in the branch's ledger from an item a study of this run returned: step_id as the study returned it (or just its tool-call id, the part after the last colon), item_index the item's index, message what it means for the engineer, action what to do (one of the engine's levers, in words). The figures are copied from the study; file every warn or breach item worth attention, and what your job says to file even when it is info."""
-        deps = ctx.deps
-        bid = deps.branch_id or deps.main_id
-
-        def work():
-            h = deps.h
-            steps = h.evidence.study_steps(deps.run_id)
-            full = h.evidence.resolve_step(step_id, steps)
-            if full is None:
-                return ({"refused": f"{step_id} is not a study step of this run; your study steps: "
-                                    + "; ".join(f"{s['step_id']} (items 0..{len(s['result'].get('items') or []) - 1})" for s in steps)}, None, 0)
-            n = len(next(s for s in steps if s["step_id"] == full)["result"].get("items") or [])
-            if not (0 <= int(item_index) < n):
-                return ({"refused": f"{full} has no item {item_index} (it has {n})"}, None, 0)
-            fps = h.evidence.bind_findings(deps.run_id, bid, [AgentFinding(step_id=full, item_index=int(item_index), message=message, action=action)],
-                                           snapshot_id=h.warehouse.baseline_id(), at=now())
-            deps.context.setdefault("filed", []).extend(fps)
-            return ({"filed": fps[0], "step_id": full, "item_index": int(item_index), "branch_id": bid,
-                     "summary": f"filed finding {fps[0]} on {bid} from item {item_index} of {full.rsplit(':', 1)[-1]}"}, None, 0)
-        return _recorded(ctx, "file_finding", {"branch_id": bid, "step_id": step_id, "item_index": item_index, "message": message, "action": action}, work)
-
-    return ts
-
-
 # --- proposals: deferred tools the operator approves -----------------------------------------------------------------
 def _element_ids(h: Harness, branch_id: str) -> dict[str, set]:
     """The ids a proposal on a branch may name: its own project's (a model read, so never under the store lock)."""
@@ -602,7 +587,6 @@ def build_proposal_tools() -> FunctionToolset[AgentDeps]:
 TOOL_GROUPS: dict[str, Callable[[], FunctionToolset[AgentDeps]]] = {
     "read": build_read_tools,
     "studies": build_study_tools,
-    "filing": build_filing_tools,
     "proposals": build_proposal_tools,
 }
 

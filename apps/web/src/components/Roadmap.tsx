@@ -12,7 +12,7 @@ import { C, LENS, ST, fmtMw, tint } from "../theme";
 import { TechIcon } from "./ui";
 
 export type RoadmapPlanner = PlannerSlice<
-  "outages" | "plan" | "result" | "sel" | "solving" | "year",
+  "outages" | "plan" | "result" | "sel" | "year",
   "selectProject" | "setYear",
   "branchOnly" | "hue" | "ix" | "prelim" | "q" | "run" | "yr"
 >;
@@ -59,7 +59,7 @@ export function Roadmap({ planner, layout }: { planner: RoadmapPlanner; layout: 
                 onClick={() => actions.setYear(y.y)}
                 title={y.failed ? `The power flow does not converge in ${y.y}: no figures` : undefined}
               >
-                {s.result && !y.solved && s.solving && <span className="solving">solving</span>}
+                {s.result && !y.solved && derived.run.inProgress && <span className="solving">solving</span>}
                 <div className="chips">
                   {y.chips.map((c, i) => {
                     if (c.kind === "outage") {

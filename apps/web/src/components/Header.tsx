@@ -1,7 +1,8 @@
 // The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu (a branch its parent
 // moved past says "behind main"), Diff / Merge
 // on a branch, the agents pill (its popover: the last runs with their elapsed time, cost and solves, the spend, Pause),
-// the demand profile control and the Run button ("Re-run" when the shown result is out of date).
+// the demand profile control (locked while a run is on its way) and the Run button ("Re-run" when the shown result is
+// out of date; disabled during a loud run, a click during a quiet refresh shows its card).
 
 import { CaretDown, ChatCircleDots, GitBranch, GitDiff, GitMerge, Globe, Lightning, LockSimple, Pause, Play, Sparkle, Warning } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
@@ -10,6 +11,7 @@ import type { CSSProperties } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { useNow } from "../hooks/useNow";
 import { behindLabel, branchHue, parentName } from "../lib/derive";
+import { runButton } from "../lib/runStages";
 import { agentsPill, firstSentence, fmtCost, isLiveRun, runElapsed, runStatusLabel } from "../lib/trace";
 import type { Layout } from "../lib/layout";
 import { PROFILES, profileLabel, tint } from "../theme";
@@ -17,9 +19,9 @@ import type { AgentRun } from "../types";
 import { ProfileGlyph } from "./ui";
 
 export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "agentRuns" | "agents" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects" | "running" | "runsOpen",
+  "activeBranch" | "agentRuns" | "agents" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects" | "runsOpen",
   "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setAgentsPaused" | "setProfile" | "setRunsOpen" | "setTab" | "toggleDiff" | "toggleMenu",
-  "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "stale"
+  "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "run" | "stale"
 >;
 
 /** How many of the project's runs the pill's popover lists (the API keeps 50). */
@@ -33,7 +35,7 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
   const parent = parentName(s.branches, branch, derived.mainId);
   const sub = onMain ? "plan of record" : `from ${parent} · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
   // plain "Run" until the branch's profile is known (nothing is claimed before then)
-  const runLabel = wide && profile ? `${stale.stale ? "Re-run" : "Run"} on ${profile.label}` : stale.stale ? "Re-run" : "Run";
+  const runBtn = runButton(derived.run, stale.stale, wide && profile ? profile.label : "", !!s.model);
   const pill = agentsPill(s.agents);
 
   return (
@@ -118,7 +120,8 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
                 aria-checked={on}
                 className={on ? "on" : ""}
                 onClick={() => void actions.setProfile(p.id)}
-                disabled={branch?.status !== undefined && branch.status !== "open"}
+                disabled={(branch?.status !== undefined && branch.status !== "open") || derived.run.inProgress}
+                title={derived.run.inProgress ? "A run is on its way: the demand profile can change once it has finished." : undefined}
                 style={{ padding: wide ? "0 12px" : "0 9px" }}
               >
                 <ProfileGlyph bars={p.bars} on={on} />
@@ -129,9 +132,9 @@ export function Header({ planner, layout }: { planner: HeaderPlanner; layout: La
         </div>
       </div>
 
-      <button className="btn primary" onClick={() => void actions.run()} disabled={s.running || !s.model}>
+      <button className="btn primary" onClick={() => void actions.run()} disabled={runBtn.disabled} title={runBtn.title}>
         <Play size={13} weight="bold" />
-        {runLabel}
+        {runBtn.label}
       </button>
     </header>
   );

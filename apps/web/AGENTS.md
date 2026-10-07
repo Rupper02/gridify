@@ -7,8 +7,9 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
 
 - `src/hooks/usePlanner.ts` composes the hooks in `src/hooks/planner/`: `core`, `slice`, `useRun`, `useBranchFlows`,
   `useBranchList`, `useRegistry`, `useSelection`, `useProjectEdits`, `useMaintenance` (planned works, reinforcements and
-  the branch's stored projects: `loadExtras`), `useFindings`, `useAgents` (the agents' status poll, the pause switch, a
-  branch's reviews, the evidence drawer), `useAsk` (the planner's one conversation: a streamed reply that can be stopped,
+  the branch's stored projects: `loadExtras`), `useLimits` (what limits the branch, and the findings ledger behind it),
+  `useAgents` (the agents' status poll, the pause switch, the engineer's note on the branch's run, the evidence drawer),
+  `useAsk` (the planner's one conversation: a streamed reply that can be stopped,
   suggested questions, approvals and what each approved proposal refreshes), `useProjects` (the boot, the project switch,
   import, delete, the assumptions), `useDerived`.
 - `src/api.ts` is the typed client: it re-exports `normReason`; `ApiError` carries the status and the API's `detail`;
@@ -17,8 +18,9 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
 - `src/lib/` holds the pure derivations: `derive`, `ask` (suggested questions from the state in view; `PROPOSAL_EFFECT`,
   what an approved proposal refreshes), `plan` (the plan's years and phases, from `GET /forecasts`: never write a plan
   year in the planner), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
-  buttons, finding titles, grouping and map targets), `trace` (a reply's events folded into text and stage chips,
-  each stage as the API tagged it, the evidence line, the agents pill), `placement` (where the map's markers, labels and
+  buttons, finding titles, grouping and map targets), `limits` (what limits a branch: the badge, the summary line, a
+  binding element's figures and sparkline points, map targets), `trace` (a reply's events folded into text and stage
+  chips, each stage as the API tagged it, the evidence line, the agents pill, the note's state), `placement` (where the map's markers, labels and
   tags go: fan-out, collision boxes, thresholds, `midpoint`), `projects` (`mainIdOf`: the project's plan-of-record
   branch, `DEFAULT_PROJECT_ID`, capability chips, the import report's lines, the known-limit fields), `reasons.ts` (the
   reason normaliser registry).
@@ -27,7 +29,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   stamp carries *What the model assumes* and the synthetic-layout note), `MapView`, `MapMarkers`, `MapControls`,
   `DetailCards`, `Roadmap`, `SidePanel` (a typed `TABS` registry) → `AskTab` (the picker: *Ask anything*, suggested
   questions, conversations; the chat with its trace chips, Stop and approval cards) / `QueueTab` / `OutagesTab` /
-  `FindingsTab` (an *evidence* link on agent findings) / `ReviewTab` (merge readiness, then the reviewer's comment),
+  `LimitsTab` (what limits the branch; the findings ledger, `FindingsLedger`, folded under it) / `ReviewTab` (merge
+  readiness, then the engineer's note on the run),
   `StudyDrawer` (the study behind a cited step), `RunOverlay`, `ui`.
 - `MapView.tsx` owns MapLibre (CARTO dark basemap). Icons come from `@phosphor-icons/react`. The planner is live-only
   against the API (`VITE_API_BASE`, default `http://127.0.0.1:8000`: uvicorn listens on IPv4 only, and `localhost`
@@ -48,8 +51,10 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   flushed yet take an explicit override (e.g. `run({ activeBranch })`) instead of reading it back.
 - **Long calls:** a cold run decides the queue in ~10-20 s, then solves the ten plan years at a few seconds each (about a
   minute; several under load); a cached run is near-instant. Every engine change makes everything cold (the engine
-  fingerprint is in every cache key). `run()` keeps its in-flight flag in a ref and coalesces overlapping requests into
-  one re-run; a failed call clears the flag and toasts. Keep that pattern for any long call; never drop requests silently.
+  fingerprint is in every cache key). The run is one state machine, `s.run` (`lib/runStages.ts`), written only by
+  `useRun`: a request for the branch already on its way starts no new job (a loud one shows the card of a quiet one), a
+  request for another branch supersedes the run in flight, and a failure stays on the stamp with a Retry, never only
+  as a toast. Keep that pattern for any long call: one owner of the state, no restarts, no silent failures.
 - **Projects in the planner.** `s.projectId` is the active project and `derived.mainId` its plan-of-record branch
   (`lib/projects.mainIdOf`): never write `"main"` for a branch id in a hook or component (the word *main* in copy is fine:
   every project's plan of record is called that). `useProjects` boots the planner (the projects, then the default
@@ -60,8 +65,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   only as a toast. What a project cannot do is hidden by `derived.caps` (`project.capabilities`): no boundary card without
   a boundary, no Demand layer without demand groups, no registry section without a registry; a `synthetic` model
   (`model.crs`) gets a blank basemap (`MapView` is keyed by `crs`, so it remounts) and a note under the result stamp.
-- **The agents in the planner.** `useAgents` polls `GET /projects/{pid}/agents` every 15 s (and a branch's reviews with it,
-  since the reviewer comments a few seconds after a run); `useAsk` keeps one open `EventSource` per reply
+- **The agents in the planner.** `useAgents` polls `GET /projects/{pid}/agents` every 15 s (and the branch's note with it
+  while the Review tab shows, since the note is written a few seconds after a run); `useAsk` keeps one open `EventSource` per reply
   (`api.streamReply`), folds its events into `s.trace` while it streams and re-reads the stored message when it ends.
   A reply's proposals are decided one by one and the answer resumes once all of them are (`waiting_for` until then); the
   planner then polls the thread until the continued answer settles and refreshes what every approved proposal touched

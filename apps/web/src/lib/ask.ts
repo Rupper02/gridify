@@ -4,7 +4,7 @@
 // proposal's arguments are phrased in words here too (`proposalText`), elements and branches by name.
 
 import { fmtMw, techLabel } from "../theme";
-import type { Branch, Outage, QueueItem, Sel, ThreadView } from "../types";
+import type { Branch, Outage, QueueItem, Sel } from "../types";
 import { type ModelIndex, busWhere, lineName, trafoName } from "./derive";
 
 export interface AskContext {
@@ -17,18 +17,18 @@ export interface AskContext {
   connectKv: number | null;
   /** The grid models a transmission boundary (a GSP export limit) to ask about. */
   boundary: boolean;
-  /** The steward's "next checks" from its latest health brief, once read: they lead the suggestions. */
-  nextChecks?: string[];
 }
 
 const MAX_QUESTIONS = 5;
-const MAX_NEXT_CHECKS = 3;
 
-/** Questions worth asking about the state in view: the steward's next checks, the first deferred project, the selection, the year's works, the GSP. */
+/** The question every "how could it connect" button sends (the project card's, the Limits tab's, the picker's). */
+export const connectQuestion = (requestId: string): string => `How could ${requestId} connect? What would it take?`;
+
+/** Questions worth asking about the state in view: the first deferred project, the selection, the year's works, the GSP. */
 export function suggestedQuestions(c: AskContext): string[] {
-  const out: string[] = (c.nextChecks ?? []).slice(0, MAX_NEXT_CHECKS);
+  const out: string[] = [];
   const deferred = c.q.filter((x) => x.status === "Deferred" && x.reason?.kind === "grid");
-  if (deferred.length) out.push(`How could ${deferred[0].request_id} connect? What would it take?`);
+  if (deferred.length) out.push(connectQuestion(deferred[0].request_id));
   if (c.sel?.kind === "project") {
     const x = c.q.find((p) => p.request_id === c.sel!.id);
     if (x) out.push(x.status === "Deferred" ? `Why is ${x.request_id} deferred, and what are its options?` : `What does ${x.request_id} do to the network in ${c.year}?`);
@@ -44,13 +44,6 @@ export function suggestedQuestions(c: AskContext): string[] {
   if (c.boundary) out.push("What limits the GSP export by the end of the plan?");
   out.push(`Where can 50 MW of export connect${c.connectKv != null ? ` at ${+c.connectKv} kV` : ""} today?`);
   return [...new Set(out)].slice(0, MAX_QUESTIONS);
-}
-
-/** The "next checks" of the latest brief in the project's health thread (empty for any other thread, or none). */
-export function latestNextChecks(t: Pick<ThreadView, "kind" | "messages"> | null | undefined): string[] {
-  if (t?.kind !== "health") return [];
-  const brief = [...t.messages].reverse().find((m) => m.role === "assistant" && m.evidence?.next_checks?.length);
-  return brief?.evidence?.next_checks ?? [];
 }
 
 /** What the planner refreshes after a proposal the operator approved, by the tool that made it. */

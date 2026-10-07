@@ -539,8 +539,6 @@ export interface YearDelta {
   energised_only_head: string[];
   energised_only_base: string[];
 }
-/** As OutageStudy.verdict. */
-export type WorkVerdict = Verdict;
 export type WorkChange = "worse" | "better" | "unchanged" | "unstudied";
 /** One of the branch's planned works windows, studied on main's plan and on the branch's (engine: diff.WorkDelta). */
 export interface WorkDelta {
@@ -548,8 +546,8 @@ export interface WorkDelta {
   year: number;
   work: string;
   with_ids: string[];
-  verdict_on_main: WorkVerdict | null;
-  verdict_on_branch: WorkVerdict;
+  verdict_on_main: Verdict | null;
+  verdict_on_branch: Verdict;
   curtailed_mw_main: number | null;
   curtailed_mw_branch: number;
   demand_at_risk_mw_main: number | null;
@@ -614,7 +612,7 @@ export type Sel =
   | { kind: "region"; id: string };
 /** The network elements (the element card): not a project, not a demand region. */
 export type ElementSel = Exclude<Sel, { kind: "project" } | { kind: "region" }>;
-export type Tab = "ask" | "queue" | "outages" | "findings" | "review";
+export type Tab = "ask" | "queue" | "outages" | "limits" | "review";
 export type MapLayer = "flow" | "loading" | "voltage" | "demand";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
@@ -710,7 +708,88 @@ export interface FindingCounts {
   warn_open: number;
 }
 
-// ---- the agents (API agents/, routes /projects/{pid}/agents, threads, approvals, reviews, steps) ----
+// ---- what limits a branch (engine limits.py, API GET /branches/{id}/limits): the engine's own reduction of a run ----
+/** One plan year's envelope figure for an element, and the study case that set it. */
+export interface LimitPoint {
+  year: number;
+  value: number;
+  case: string | null;
+}
+/** An element that binds or comes near its limit in some plan year: its trajectory, the first years it nears and
+ * breaches, the projects it holds back and the N-1 outages whose post-fault state breaches it. */
+export interface ElementBinding {
+  kind: "line" | "trafo" | "bus";
+  element_id: number;
+  name: string;
+  unit: "%" | "pu";
+  limit: number;
+  trajectory: LimitPoint[];
+  first_near_year: number | null;
+  first_breach_year: number | null;
+  worst: LimitPoint;
+  headroom_mw: number | null;
+  rating_mva: number | null;
+  /** Request ids deferred with this element as their reason. */
+  holds_back: string[];
+  /** Distinct (outage, case) pairs whose post-fault state breaches it. */
+  n1_outages: number;
+  severity: "breach" | "near" | "ok";
+}
+/** A deferred project and the chain of what stops it, in queue order; `studied` when the engine probed what it would take. */
+export interface Chain {
+  request_id: string;
+  technology: string | null;
+  rating_mw: number | null;
+  bus_id: number | null;
+  reason_type: string;
+  element_kind: string | null;
+  element_id: number | null;
+  element_name: string;
+  value: number | null;
+  limit: number | null;
+  case: string | null;
+  phase: string;
+  first_near_year: number | null;
+  message: string;
+  fits_mw: number | null;
+  chain_connects: boolean | null;
+  best_move: { bus_id: number; name: string; mw: number; case: string | null } | null;
+  studied: boolean;
+}
+/** An N-1 cause: one weak link many outages overload, an island, or an outage with no post-fault steady state. The key
+ * names the element ("line:12", "voltage:19" for a bus), the island's buses or the collapsing outage. */
+export interface Cluster {
+  kind: "weak_link" | "island" | "collapse";
+  key: string;
+  label: string;
+  n_rows: number;
+  outages: string[];
+  cases: string[];
+  years: number[];
+  worst: number | null;
+  unit: string;
+}
+/** A planned works window's verdict in its year. */
+export interface WorkVerdict {
+  outage_id: string;
+  element: string;
+  year: number;
+  verdict: Verdict | string;
+  curtailed_mw: number;
+  demand_at_risk_mw: number;
+  n1_findings: number | null;
+}
+export interface Limits {
+  years: number[];
+  binding: ElementBinding[];
+  chains: Chain[];
+  clusters: Cluster[];
+  works: WorkVerdict[];
+  n1_rows: number;
+  n1_pairs: number;
+}
+
+// ---- the agents (API agents/, routes /projects/{pid}/agents, threads, approvals, the run note, steps) ----
 /** starting: the API's runtime is not launched yet (the key is required, so there is no "off"). */
 export type AgentsState = "starting" | "idle" | "running" | "paused";
 /** What the agents spent on a project: OpenRouter's billed credits (US dollars) today and in all. Shown, never a cap. */
@@ -733,13 +812,13 @@ export interface AgentsStatus {
   models: Record<string, string>;
   project_id: string;
 }
-/** A conversation: the operator's ("ask", on a branch or on main) or the project's health thread. */
+/** A conversation: the operator's ("ask", on a branch or on main). */
 export interface Thread {
   thread_id: string;
   project_id: string;
   branch_id: string | null;
   title: string;
-  kind: "ask" | "health" | string;
+  kind: "ask" | string;
   created_at: string;
   updated_at: string | null;
 }
@@ -757,9 +836,6 @@ export interface MessageEvidence {
   branch_id: string | null;
   snapshot_id: string;
   engine: string;
-  /** The steward's health brief: what no study it ran covers, and what an engineer should look at next (short questions). */
-  not_studied?: string[];
-  next_checks?: string[];
 }
 export interface ThreadMessage {
   message_id: string;
@@ -807,8 +883,9 @@ export type TraceEvent =
   | { t: "cite"; stage: "CITE"; seq?: number }
   | { t: "final"; status: MessageStatus; text?: string; approvals?: string[]; flags?: string[]; seq?: number }
   | { t: "error"; message: string; seq?: number };
-/** One agent run (GET /projects/{pid}/agents/runs, newest first): who ran, on what, for how long and at what cost. */
-export type AgentRunKind = "steward" | "specialist" | "review" | "answer" | string;
+/** One agent run (GET /projects/{pid}/agents/runs, newest first): who ran, on what, for how long and at what cost.
+ * `digest`: the one model call that writes a branch's note after a run; `answer`: a reply in a conversation. */
+export type AgentRunKind = "answer" | "digest" | string;
 export type AgentRunStatus = "queued" | "running" | "done" | "failed" | "skipped" | "skipped_paused" | "cancelled" | string;
 export interface AgentRun {
   run_id: string;
@@ -831,27 +908,20 @@ export interface AgentRun {
   summary: string | null;
   error: string | null;
 }
-/** A gate finding as the reviewer restates it: identified as the gate gave it, in the reviewer's words. */
-export interface ReviewRestated {
-  kind: string;
-  element_id: string | null;
-  fingerprint: string | null;
-  restated: string;
-}
-export type ReviewVerdict = "blocked" | "mergeable_with_warnings" | "mergeable";
-/** The reviewer's comment on one run of a branch, like a PR bot's. */
-export interface Review {
-  review_id: string;
+/** The engineer's note on one run of a branch (GET /branches/{id}/note): one model call restating the engine's digest
+ * of the run, written a few seconds to a minute after the run lands; `superseded` once a newer run has one. */
+export interface RunNote {
+  note_id: string;
   branch_id: string;
+  /** The physics the note is of (`OptimizeResult.run_key`): the planner tells an earlier run's note by it. */
   run_key: string;
   run_id: string;
-  verdict: ReviewVerdict;
-  gate: { into: string; fresh: boolean; ok: boolean; summary: string; n_context: number };
+  /** Markdown, at most 150 words, no step ids. */
   body: string;
-  blockers: ReviewRestated[];
-  warnings: ReviewRestated[];
-  not_studied: string[];
-  status: "prepared_for_review" | "superseded";
+  digest: Record<string, unknown>;
+  /** Figures in the body that appear in no tool output ("figure 98765.4 appears in no tool output of this conversation"). */
+  flags: string[];
+  status: "current" | "superseded";
   created_at: string;
 }
 /** One row of a study (engine studies.STUDIES): an element and a figure, with a stable fingerprint. */

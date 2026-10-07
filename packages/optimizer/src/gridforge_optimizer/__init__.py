@@ -9,6 +9,7 @@ import hashlib as _hashlib
 from functools import lru_cache as _lru_cache
 from pathlib import Path as _Path
 
+from .analysis import Limits, RunDigest, element_ratings, limits, run_digest
 from .diff import (
     ConsequenceDiff,
     LineDelta,
@@ -75,6 +76,11 @@ def engine_fingerprint() -> str:
 
 __all__ = [
     "engine_fingerprint",
+    "Limits",
+    "RunDigest",
+    "element_ratings",
+    "limits",
+    "run_digest",
     "optimize",
     "Candidate",
     "OptimizeParams",

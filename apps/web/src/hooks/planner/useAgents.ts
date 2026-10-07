@@ -1,29 +1,24 @@
 // The project's agents as the planner sees them: their status (polled), the pause switch, the runs
-// list (read only while the pill's popover or the Review tab shows it), the reviewer's comments on the
-// active branch, and the evidence drawer behind a step an agent cited.
+// list (read only while the pill's popover or the Review tab shows it), the engineer's note on the
+// active branch's run, and the evidence drawer behind a step an agent cited.
 
 import { useCallback, useEffect } from "react";
 
 import { api, failureText } from "../../api";
-import { mainIdOf } from "../../lib/projects";
 import type { Core } from "./core";
 
 const POLL_MS = 15_000;
 
-export function useAgents({ patch, ref, toastMsg }: Core, projectId: string, loadFindings: (bid: string) => Promise<unknown>) {
+export function useAgents({ patch, ref, toastMsg }: Core, projectId: string) {
   const loadAgents = useCallback(async () => {
     try {
       const pid = ref.current.projectId;
-      const before = ref.current.agents?.running ?? 0;
       const agents = await api.agentsStatus(pid);
-      if (ref.current.projectId !== pid) return;
-      patch({ agents });
-      // a run just ended: a specialist may have filed findings on the branch in view, so the ledger is read again
-      if (before > agents.running && ref.current.activeBranch) void loadFindings(ref.current.activeBranch);
+      if (ref.current.projectId === pid) patch({ agents });
     } catch {
       /* the pill keeps its last state */
     }
-  }, [loadFindings, patch, ref]);
+  }, [patch, ref]);
 
   /** The project's agent runs, newest first. Ignored if the planner moved to another project. */
   const loadAgentRuns = useCallback(async () => {
@@ -45,15 +40,15 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string, loa
     [loadAgentRuns, patch],
   );
 
-  /** The reviewer's comments on a branch (main is never reviewed). Ignored if the planner moved on. */
-  const loadReviews = useCallback(
+  /** The engineer's note on a branch's run (main's too). Ignored if the planner moved on. */
+  const loadNote = useCallback(
     async (bid: string) => {
-      if (!bid || bid === mainIdOf(ref.current.projects, ref.current.projectId)) return;
+      if (!bid) return;
       try {
-        const reviews = await api.listReviews(bid);
-        if (ref.current.activeBranch === bid) patch({ reviews });
+        const note = await api.branchNote(bid);
+        if (ref.current.activeBranch === bid) patch({ note });
       } catch {
-        /* the Review tab shows no review */
+        /* the Review tab shows no note */
       }
     },
     [patch, ref],
@@ -85,20 +80,19 @@ export function useAgents({ patch, ref, toastMsg }: Core, projectId: string, loa
   );
   const closeEvidence = useCallback(() => patch({ study: null }), [patch]);
 
-  // the status, at once for each project opened and then every few seconds; a branch's reviews refresh
-  // with it (the reviewer comments a few seconds after a run), and the runs list while something shows it
+  // the status, at once for each project opened and then every few seconds; while the Review tab shows, the branch's
+  // note refreshes with it (the note is written a few seconds after a run), and the runs list while something shows it
   useEffect(() => {
     void loadAgents();
     const id = window.setInterval(() => {
       void loadAgents();
       const st = ref.current;
-      const bid = st.activeBranch;
-      const onBranch = !!bid && bid !== mainIdOf(st.projects, st.projectId);
-      if (onBranch) void loadReviews(bid);
-      if (st.runsOpen || (onBranch && st.tab === "review")) void loadAgentRuns();
+      const review = st.tab === "review" && !!st.activeBranch;
+      if (review) void loadNote(st.activeBranch);
+      if (st.runsOpen || review) void loadAgentRuns();
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [loadAgentRuns, loadAgents, loadReviews, ref, projectId]);
+  }, [loadAgentRuns, loadAgents, loadNote, ref, projectId]);
 
-  return { loadAgents, loadAgentRuns, setRunsOpen, loadReviews, setAgentsPaused, openEvidence, closeEvidence };
+  return { loadAgents, loadAgentRuns, setRunsOpen, loadNote, setAgentsPaused, openEvidence, closeEvidence };
 }

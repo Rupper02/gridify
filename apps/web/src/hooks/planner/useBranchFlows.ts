@@ -2,21 +2,17 @@
 
 import { useCallback, useMemo } from "react";
 
-import { ApiError, api, failureText } from "../../api";
+import { ApiError, NOT_SOLVED_RETRIES, NOT_SOLVED_RETRY_MS, api, failureText, notSolved } from "../../api";
 import type { RebasePick, RebasePreview } from "../../types";
 import { parentName } from "../../lib/derive";
 import { refusedCheck } from "../../lib/gate";
 import { latestWins } from "../../lib/latest";
 import { mainIdOf } from "../../lib/projects";
+import { runInProgress } from "../../lib/runStages";
 import { BRANCH_FRESH } from "./core";
 import type { Core, PlannerState } from "./core";
 import type { EditedFn } from "./useAutoRefresh";
 import type { RunFn } from "./useRun";
-
-/** A read the API refused because the engine was busy (409 `{code: "not_solved"}`): worth asking again in a moment. */
-const notSolved = (e: unknown): boolean => e instanceof ApiError && e.status === 409 && (e.detail as { code?: unknown } | null)?.code === "not_solved";
-const NOT_SOLVED_RETRY_MS = 4000;
-const NOT_SOLVED_RETRIES = 8; // about half a minute: an agent's works study or the run's own closing steps
 
 export function useBranchFlows(
   { patch, ref, toastMsg }: Core,
@@ -27,7 +23,8 @@ export function useBranchFlows(
 ) {
   const begin = useMemo(() => latestWins(), []); // one per planner: the diff and gate loads, latest wins
 
-  /** Show a branch: its view starts fresh (BRANCH_FRESH), its works and projects load, and its plan runs (cached when unchanged). */
+  /** Show a branch: its view starts fresh (BRANCH_FRESH), its works and projects load, and its plan runs (cached when
+   * unchanged; the request supersedes a run of the branch we left, cancelling its job). */
   const switchTo = useCallback(
     (bid: string, extra: Partial<PlannerState> = {}) => {
       patch({ ...BRANCH_FRESH, activeBranch: bid, menuOpen: false, ...extra });
@@ -138,13 +135,13 @@ export function useBranchFlows(
     [begin, patch, ref],
   );
 
-  /** Show the diff; while a run is still solving it is not asked for (the run asks when it is done). */
+  /** Show the diff; while a run is on its way it is not asked for (the run asks when it is done). */
   const toggleDiff = useCallback(() => {
     const st = ref.current;
     if (st.activeBranch === mainIdOf(st.projects, st.projectId)) return;
     const on = !st.diffMode;
     patch({ diffMode: on, ...(on ? { tab: "review" as const, sideOpen: true } : {}) });
-    if (on && !st.diff && !st.solving) void refreshDiff(st.activeBranch);
+    if (on && !st.diff && !runInProgress(st.run)) void refreshDiff(st.activeBranch);
   }, [patch, ref, refreshDiff]);
 
   /**
@@ -243,12 +240,12 @@ export function useBranchFlows(
     [afterRebase, ref, toastMsg],
   );
 
-  /** Review the branch: open the Review tab (Merge lives there). A run still solving asks for both itself
+  /** Review the branch: open the Review tab (Merge lives there). A run on its way asks for both itself
    * when it is done, so nothing is asked of a result that is not there yet. */
   const goReview = useCallback(() => {
     patch({ tab: "review", sideOpen: true });
     const st = ref.current;
-    if (st.solving) return;
+    if (runInProgress(st.run)) return;
     if (!st.diff) void refreshDiff(st.activeBranch);
     if (!st.mergeCheck) void refreshMergeCheck(st.activeBranch);
   }, [patch, ref, refreshDiff, refreshMergeCheck]);

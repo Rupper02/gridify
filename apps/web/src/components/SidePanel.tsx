@@ -1,26 +1,27 @@
-// The collapsible side panel (keyboard `]`): Ask / Queue / Outages / Findings / Review as a pill
-// segmented control, the active tab's body, and the toast. The tabs are a registry: adding one is one
-// entry here (its label, icon, badge and body) plus its key in the `Tab` union.
+// The collapsible side panel (keyboard `]`): Ask / Queue / Outages / Limits / Review as a pill
+// segmented control, the active tab's body, and the toasts (a short stack: successive messages all get read). The
+// tabs are a registry: adding one is one entry here (its label, icon, badge and body) plus its key in the `Tab` union.
 
-import { CheckCircle, ChatCircleDots, GitDiff, type Icon, ListNumbers, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
+import { CheckCircle, ChatCircleDots, Gauge, GitDiff, type Icon, ListNumbers, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
+import type { Toast } from "../hooks/planner/core";
 import type { PlannerSlice } from "../hooks/planner/slice";
-import { sectionCounts } from "../lib/findings";
 import type { Layout } from "../lib/layout";
+import { limitsBadge } from "../lib/limits";
 import { C } from "../theme";
 import type { Tab } from "../types";
 import { AskTab, type AskTabPlanner } from "./AskTab";
-import { FindingsTab, type FindingsTabPlanner } from "./FindingsTab";
+import { LimitsTab, type LimitsTabPlanner } from "./LimitsTab";
 import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
 import { ReviewTab, type ReviewTabPlanner } from "./ReviewTab";
 
-export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toast", "setTab" | "toggleSide", "pendingApprovals" | "prelim" | "q"> &
+export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "toasts", "setTab" | "toggleSide", "pendingApprovals" | "prelim" | "q"> &
   AskTabPlanner &
   QueueTabPlanner &
   OutagesTabPlanner &
-  FindingsTabPlanner &
+  LimitsTabPlanner &
   ReviewTabPlanner;
 
 interface TabSpec {
@@ -40,13 +41,8 @@ const TABS: Record<Tab, TabSpec> = {
   },
   queue: { label: "Queue", icon: ListNumbers, badge: (p) => String(p.derived.q.length + p.derived.prelim.length || ""), render: (p) => <QueueTab planner={p} /> },
   outages: { label: "Outages", icon: Wrench, badge: (p) => (p.s.outages.length ? String(p.s.outages.length) : ""), render: (p) => <OutagesTab planner={p} /> },
-  findings: {
-    label: "Findings",
-    icon: Warning,
-    // the open breaches, each counted once across the plan years it holds in (never the ledger's row count)
-    badge: (p) => String(sectionCounts(p.derived.findingSections.open).breach || ""),
-    render: (p) => <FindingsTab planner={p} />,
-  },
+  // the elements over a limit, else the projects deferred: the two things the engine's reduction of the run puts first
+  limits: { label: "Limits", icon: Gauge, badge: (p) => limitsBadge(p.s.limits), render: (p) => <LimitsTab planner={p} /> },
   review: { label: "Review", icon: GitDiff, badge: () => "", render: (p) => <ReviewTab planner={p} /> },
 };
 
@@ -57,7 +53,7 @@ export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layo
       {!s.sideOpen && (
         <button className="reopen glass" onClick={actions.toggleSide} title="Show panel (])">
           <SidebarSimple size={15} style={{ transform: "scaleX(-1)" }} />
-          Ask, queue, findings and review
+          Ask, queue, limits and review
         </button>
       )}
       <aside className={`side${s.sideOpen ? "" : " closed"}`} aria-hidden={!s.sideOpen}>
@@ -78,18 +74,22 @@ export function SidePanel({ planner, layout }: { planner: SidePanelPlanner; layo
           })}
         </div>
         <div className="tab-body">{TABS[s.tab].render(planner, layout)}</div>
-        {s.toast && s.sideOpen && <Toast toast={s.toast} />}
+        {s.toasts.length > 0 && s.sideOpen && <Toasts toasts={s.toasts} />}
       </aside>
-      {s.toast && !s.sideOpen && <Toast toast={s.toast} floating />}
+      {s.toasts.length > 0 && !s.sideOpen && <Toasts toasts={s.toasts} floating />}
     </>
   );
 }
 
-function Toast({ toast, floating }: { toast: { text: string; tone: "ok" | "warn" }; floating?: boolean }) {
+function Toasts({ toasts, floating }: { toasts: Toast[]; floating?: boolean }) {
   return (
-    <div className={`toast${toast.tone === "warn" ? " warn" : ""}${floating ? " floating" : ""}`} role="status">
-      {toast.tone === "warn" ? <Warning size={15} color={C.amber} weight="fill" /> : <CheckCircle size={15} color={C.phase1} weight="fill" />}
-      {toast.text}
+    <div className={`toasts${floating ? " floating" : ""}`}>
+      {toasts.map((t) => (
+        <div key={t.id} className={`toast${t.tone === "warn" ? " warn" : ""}`} role="status">
+          {t.tone === "warn" ? <Warning size={15} color={C.amber} weight="fill" /> : <CheckCircle size={15} color={C.phase1} weight="fill" />}
+          {t.text}
+        </div>
+      ))}
     </div>
   );
 }

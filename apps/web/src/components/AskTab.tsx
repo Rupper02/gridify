@@ -5,11 +5,10 @@
 // with its planning stages as chips (Plan · Assemble · Run · Check · Propose · Cite) and can be stopped.
 
 import { ArrowRight, ArrowUp, Check, Lightning, NotePencil, Pause, Play, Prohibit, Receipt, Sparkle, Stop, Warning, X } from "@phosphor-icons/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { proposalText, suggestedQuestions } from "../lib/ask";
-import { nameElements } from "../lib/derive";
 import type { Layout } from "../lib/layout";
 import { type FoldedTrace, STAGE_LABEL, type TraceChip, agentsPill, argsLine, evidenceLine, flagLines, foldTrace, toolLabel, traceFromMessage } from "../lib/trace";
 import { C } from "../theme";
@@ -17,13 +16,10 @@ import type { Approval, ThreadMessage } from "../types";
 import { AgentText } from "./ui";
 
 export type AskTabPlanner = PlannerSlice<
-  "activeBranch" | "agents" | "branches" | "chat" | "healthChecks" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
+  "activeBranch" | "agents" | "branches" | "chat" | "outages" | "projectId" | "result" | "sel" | "thread" | "threads" | "trace" | "year",
   "ask" | "askAbout" | "cancelReply" | "closeThread" | "decideApproval" | "loadThreads" | "openEvidence" | "openThread" | "setAgentsPaused" | "setInput" | "startAsk",
   "branch" | "caps" | "hue" | "ix" | "onMain" | "q" | "tiers"
 >;
-
-/** How many of a brief's "next checks" show as buttons (the steward names at most five). */
-const MAX_NEXT_CHECKS = 5;
 
 export function AskTab({ planner, layout }: { planner: AskTabPlanner; layout: Layout }) {
   return planner.s.chat.open ? <AskChat planner={planner} layout={layout} /> : <Picker planner={planner} />;
@@ -42,17 +38,17 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
   const pill = agentsPill(s.agents);
   const questions = suggestedQuestions({
     q: derived.q, sel: s.sel, outages: s.outages, year: s.year, ix: derived.ix,
-    connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary, nextChecks: s.healthChecks,
+    connectKv: derived.tiers.mid ?? derived.tiers.high, boundary: derived.caps.boundary,
   });
   const bid = derived.onMain ? null : s.activeBranch;
   const threads = s.threads.filter((t) => t.kind === "ask" && (t.branch_id ?? null) === bid).slice(0, 4);
-  const health = s.threads.find((t) => t.kind === "health");
   return (
     <div className="scroll" style={{ padding: "6px 14px 16px", gap: 14 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ fontSize: 15, fontWeight: 600 }}>Ask the agents</span>
         <span style={{ fontSize: 12, color: C.mute, lineHeight: 1.45 }}>
-          Working on <b className="mono" style={{ fontWeight: 600, color: derived.onMain ? C.mute : derived.hue }}>{target}</b> and its last run. The agents plan the study, run the engine and propose what to do; you approve.
+          Working on <b className="mono" style={{ fontWeight: 600, color: derived.onMain ? C.mute : derived.hue }}>{target}</b> and its last run. The agents plan the study, run the engine and propose what to do; you approve. A note on
+          every run is in the Review tab.
         </span>
       </div>
       <button className="mode-card" onClick={actions.startAsk} disabled={starting} title={starting ? pill.title : "Ask the agents"}>
@@ -77,7 +73,7 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
         ))}
       </div>
       <AgentsLine planner={planner} />
-      {(threads.length > 0 || health) && (
+      {threads.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
           <span style={{ fontSize: 12.5, fontWeight: 600 }}>Conversations</span>
           {threads.map((t) => (
@@ -89,15 +85,6 @@ function Picker({ planner }: { planner: AskTabPlanner }) {
               </span>
             </button>
           ))}
-          {health && (
-            <button className="thread-row" onClick={() => void actions.openThread(health.thread_id)}>
-              <Lightning size={15} color={C.mute} />
-              <span style={{ display: "flex", flexDirection: "column", minWidth: 0, lineHeight: 1.35 }}>
-                <span className="ellipsis" style={{ fontSize: 12.5 }}>Project health</span>
-                <span style={{ fontSize: 11, color: C.mute }}>the steward's briefs after runs, merges and data changes</span>
-              </span>
-            </button>
-          )}
         </div>
       )}
       {s.result?.justification && (
@@ -157,7 +144,7 @@ function AskChat({ planner, layout }: { planner: AskTabPlanner; layout: Layout }
       <div className="chat-head">
         <div style={{ display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", minWidth: 0, overflow: "hidden" }}>
           <Sparkle size={15} color={C.accent} weight="fill" />
-          <span style={{ fontSize: 13, fontWeight: 600, flex: "none" }}>{t?.kind === "health" ? "Project health" : "Ask the agents"}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, flex: "none" }}>Ask the agents</span>
           {layout.wide && <ArrowRight size={12} color={C.mute2} />}
           {layout.wide && <span style={{ fontSize: 12, color: C.mute, flex: "none" }}>on</span>}
           <span className="mono ellipsis" style={{ fontSize: 12, fontWeight: 600, color: target === "main" ? C.mute : derived.hue, minWidth: 40, flex: "1 1 auto" }}>{target}</span>
@@ -217,8 +204,7 @@ function AskChat({ planner, layout }: { planner: AskTabPlanner; layout: Layout }
   );
 }
 
-/** One reply: its stage chips (live or stored), the text, the flags, what a brief did not study and what to check next, the
- * evidence line, the proposals waiting. */
+/** One reply: its stage chips (live or stored), the text, the flags, the evidence line, the proposals waiting. */
 function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: FoldedTrace | null; approvals: Approval[]; planner: AskTabPlanner }) {
   const { actions, derived } = planner;
   const chips: TraceChip[] = live ? live.chips : traceFromMessage(m);
@@ -229,8 +215,6 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   const cited = live ? !!live.final : m.status === "done"; // the evidence is attached when the reply has ended, not when its first text starts
   const flags = flagLines(m.flags);
   const evidence = evidenceLine(m);
-  const notStudied = m.evidence?.not_studied ?? [];
-  const nextChecks = (m.evidence?.next_checks ?? []).slice(0, MAX_NEXT_CHECKS);
   return (
     <div className="bubble-bot">
       <span className="av"><Lightning size={12} weight="fill" /></span>
@@ -266,24 +250,6 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
             {f}
           </span>
         ))}
-        {notStudied.length > 0 && (
-          <details className="not-studied">
-            <summary>Not studied · {notStudied.length}</summary>
-            <ul>
-              {notStudied.map((x, i) => <li key={i}>{nameElements(x, derived.ix)}</li>)}
-            </ul>
-          </details>
-        )}
-        {nextChecks.length > 0 && (
-          <div className="next-checks" aria-label="Next checks">
-            <span className="mute" style={{ fontSize: 11, fontWeight: 600 }}>Next checks</span>
-            {nextChecks.map((q) => (
-              <button key={q} className="ask-q" onClick={() => void actions.askAbout(q)} disabled={isStarting(planner)} title="Ask the agents this, in a new conversation">
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
         {approvals.map((a) => <ApprovalCard key={a.approval_id} a={a} planner={planner} />)}
         {evidence && (
           <span className="evidence-line">
@@ -296,9 +262,16 @@ function BotMessage({ m, live, approvals, planner }: { m: ThreadMessage; live: F
   );
 }
 
-/** A proposal waiting for the operator: in words when the tool is known (its arguments as given on hover), else as given. */
+/** A proposal waiting for the operator: in words when the tool is known (its arguments as given on hover), else as given.
+ * Only the card decided on locks (the card goes once its decision is stored); a reply's other proposals stay decidable
+ * while the answer settles. */
 function ApprovalCard({ a, planner }: { a: Approval; planner: AskTabPlanner }) {
   const { actions, s, derived } = planner;
+  const [deciding, setDeciding] = useState(false);
+  const decide = (decision: "approve" | "deny", note?: string) => {
+    setDeciding(true);
+    void actions.decideApproval(a.approval_id, decision, note).finally(() => setDeciding(false));
+  };
   const words = proposalText(a.tool, a.args, derived.ix, s.branches);
   const raw = argsLine(a.args) || "no arguments";
   return (
@@ -311,11 +284,11 @@ function ApprovalCard({ a, planner }: { a: Approval; planner: AskTabPlanner }) {
       )}
       <span style={{ fontSize: 11, color: C.mute, lineHeight: 1.4 }}>Nothing happens until you decide. Once every proposal of this reply is decided, the approved ones are applied on the branch and the answer continues; main is never edited.</span>
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="btn primary sm" onClick={() => void actions.decideApproval(a.approval_id, "approve")} disabled={s.chat.busy}>
+        <button className="btn primary sm" onClick={() => decide("approve")} disabled={deciding}>
           <Check size={12} weight="bold" />
           Approve
         </button>
-        <button className="btn" style={{ height: 32 }} onClick={() => void actions.decideApproval(a.approval_id, "deny", "declined in the planner")} disabled={s.chat.busy}>
+        <button className="btn" style={{ height: 32 }} onClick={() => decide("deny", "declined in the planner")} disabled={deciding}>
           <Prohibit size={12} />
           Deny
         </button>

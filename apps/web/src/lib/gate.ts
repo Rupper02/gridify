@@ -7,23 +7,24 @@ import type { Finding, FindingSeverity, GateFinding, MergeCheck, Model, Outage, 
 import { alertTitle } from "./demand";
 import { type ModelIndex, type Staleness, nameElements, outageSel, plural } from "./derive";
 import { VERDICTS } from "./maintenance";
+import type { RunView } from "./runStages";
 
-/** Where the Merge button stands. */
-export type GateState = "closed" | "checking" | "failed" | "stale" | "blocked" | "warnings" | "ready";
+/** Where the Merge button stands (`unfinished`: the last run failed or stopped, so Retry runs it again). */
+export type GateState = "closed" | "checking" | "unfinished" | "failed" | "stale" | "blocked" | "warnings" | "ready";
 
 export interface GateView {
   state: GateState;
   headline: string;
 }
 
-
 /**
- * The gate's state from the server's check and what the client already knows: a result the client
- * sees as stale is stale whatever an older check said; a branch that is not open cannot merge.
+ * The gate's state from the server's check and what the client already knows: a run on its way is still checking,
+ * a result the client sees as stale is stale whatever an older check said; a branch that is not open cannot merge.
  */
-export function gateState(mc: MergeCheck | null, stale: Staleness, open: boolean, running: boolean, error: string | null = null): GateView {
+export function gateState(mc: MergeCheck | null, stale: Staleness, open: boolean, run: Pick<RunView, "inProgress" | "problem">, error: string | null = null): GateView {
   if (!open) return { state: "closed", headline: "This branch is not open." };
-  if (running) return { state: "checking", headline: "Solving the plan…" };
+  if (run.problem) return { state: "unfinished", headline: "Re-run before merging: the last run did not finish." };
+  if (run.inProgress) return { state: "checking", headline: "Solving the plan…" };
   if (stale.stale) return { state: "stale", headline: `Re-run before merging: ${stale.text}` };
   if (!mc) return error ? { state: "failed", headline: `Could not check whether this branch can merge: ${error}` } : { state: "checking", headline: "Checking whether this branch can merge…" };
   if (!mc.fresh) return { state: "stale", headline: `Re-run before merging: ${mc.stale_reasons[0] ?? "the result is out of date"}.` };
@@ -82,15 +83,28 @@ export function findingTitle(f: Finding): string {
   return FINDING_KIND[f.kind] ?? f.kind.replace(/_/g, " ");
 }
 
+/** Where a bus shows on the map: the demand region it sits in, else a line on it (a bus is not selectable by itself). */
+export function busSel(model: Model | null, bus: number): Sel | null {
+  const region = (model?.regions ?? []).find((r) => r.buses.includes(bus));
+  if (region) return { kind: "region", id: region.region_id };
+  const line = (model?.lines ?? []).find((l) => l.from_bus === bus || l.to_bus === bus);
+  return line ? { kind: "line", id: line.line_id } : null;
+}
+
+/** Where an element the engine names by kind and index points on the map (a bus through `busSel`); null for the GSP. */
+export function elementSel(kind: string | null | undefined, id: number | string | null | undefined, model: Model | null): Sel | null {
+  if (id == null) return null;
+  if (kind === "line") return { kind: "line", id: Number(id) };
+  if (kind === "trafo") return { kind: "trafo", id: Number(id) };
+  if (kind === "bus" || kind === "voltage") return busSel(model, Number(id));
+  return null;
+}
+
 /** Where a finding points on the map: the element, the project, the region, or the region a bus sits in. */
 export function findingSel(f: Finding, model: Model | null, outages: Outage[]): Sel | null {
   const id = f.element_id;
   if (id == null) return null;
   switch (f.element_kind) {
-    case "line":
-      return { kind: "line", id: Number(id) };
-    case "trafo":
-      return { kind: "trafo", id: Number(id) };
     case "project":
       return { kind: "project", id };
     case "region":
@@ -99,22 +113,9 @@ export function findingSel(f: Finding, model: Model | null, outages: Outage[]): 
       const o = outages.find((x) => x.outage_id === id);
       return o ? outageSel(o) : null;
     }
-    case "bus": {
-      const bus = Number(id);
-      const region = (model?.regions ?? []).find((r) => r.buses.includes(bus));
-      if (region) return { kind: "region", id: region.region_id };
-      const line = (model?.lines ?? []).find((l) => l.from_bus === bus || l.to_bus === bus);
-      return line ? { kind: "line", id: line.line_id } : null;
-    }
     default:
-      return null;
+      return elementSel(f.element_kind, id, model);
   }
-}
-
-/** How many findings are open, and how many of those are breaches and warnings (the tab's badge). */
-export function openCounts(fs: Finding[]): { open: number; breach: number; warn: number } {
-  const open = fs.filter((f) => f.status === "open");
-  return { open: open.length, breach: open.filter((f) => f.severity === "breach").length, warn: open.filter((f) => f.severity === "warn").length };
 }
 
 /** The verdict a refused merge carries (the 409 body `{code, message, fresh, verdict}`), as a check the Review tab can show. */

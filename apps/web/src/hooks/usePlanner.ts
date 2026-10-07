@@ -16,7 +16,7 @@ import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
 import { useDerived } from "./planner/useDerived";
 import { useView } from "./planner/useView";
-import { useFindings } from "./planner/useFindings";
+import { useLimits } from "./planner/useLimits";
 import { useAutoRefresh } from "./planner/useAutoRefresh";
 import { useMaintenance } from "./planner/useMaintenance";
 import { useMapFeatures } from "./planner/useMapFeatures";
@@ -40,16 +40,17 @@ export function usePlanner() {
   const { refreshBranches } = useBranchList(core);
   const run = useRun(core, afterRun);
   const projects = useProjects(core, run);
-  const edited = useAutoRefresh(core, run);
+  const edited = useAutoRefresh(run);
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
-  const findings = useFindings(core);
-  const agents = useAgents(core, s.projectId, findings.loadFindings);
+  const limits = useLimits(core);
+  const agents = useAgents(core, s.projectId);
   const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited, flows.afterRebase);
   afterRunRef.current = (bid: string) => {
     void refreshBranches();
-    void findings.loadFindings(bid);
-    void agents.loadReviews(bid); // the reviewer comments a few seconds later; the status poll refreshes it
+    void limits.loadFindings(bid);
+    void limits.loadLimits(bid); // what limits the branch: the engine's reduction of this very result
+    void agents.loadNote(bid); // the note is written a few seconds later; the Review tab's poll refreshes it
     void (async () => {
       await flows.refreshDiff(bid); // the diff solves main's years if need be; the gate then finds them cached
       await flows.refreshMergeCheck(bid);
@@ -68,7 +69,7 @@ export function usePlanner() {
       ...flows,
       ...maint,
       ...mapView,
-      ...findings,
+      ...limits,
       ...agents,
       ...ask,
       ...projects,
@@ -84,7 +85,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, run, select, selectProject, setSchedule, setControl, ...Object.values(view),
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(findings), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(limits), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 
   return { s, actions, derived, mapApi };

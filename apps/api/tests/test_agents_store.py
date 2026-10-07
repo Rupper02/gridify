@@ -9,7 +9,7 @@ import pytest
 
 from gridforge_api import deps
 from gridforge_api.agents.spend import SpendMeter
-from gridforge_api.agents.evidence import AgentFinding, check_numbers, numbers_in
+from gridforge_api.agents.evidence import check_numbers, numbers_in
 from gridforge_api.config import NGED_PROJECT_ID, now
 from gridforge_optimizer.years import PLAN_YEARS
 from gridforge_api.jobs import JobRunner
@@ -40,43 +40,6 @@ def test_the_study_catalogue_and_a_study_job_cached_by_the_branch_inputs():
     client.post("/optimize", json={"with_justification": False})
     g = wait_job(client.post("/branches/main/studies/gsp_margin_by_year", json={}).json())["result"]
     assert [it["year"] for it in g["items"]] == list(PLAN_YEARS)
-
-
-def test_an_agent_finding_is_bound_to_a_recorded_step_and_its_figures_are_the_engines():
-    bid = client.post("/branches", json={"name": "evidence", "from_branch": "main"}).json()["branch_id"]
-    study = deps.plans.study(bid, "data_quality", {})
-    assert study.items, "the builder records assumptions, so the data-quality study has items"
-    key = next(k for k, v in deps.plans.cache.compute.items() if v is study)
-    run_id, step_id = "run-test-1", "run-test-1:call_1"
-    deps.evidence.record_step(run_id=run_id, step_id=step_id, seq=1, tool="study_data_quality", args={"branch_id": bid}, cache_key=key,
-                              result={"summary": study.summary, "items": [it.model_dump() for it in study.items[:3]]}, solves=0,
-                              started_at=now(), finished_at=now())
-    deps.evidence.record_step(run_id=run_id, step_id=step_id, seq=1, tool="study_data_quality", args={"branch_id": bid}, cache_key=key,
-                              solves=0, started_at=now(), finished_at=now())  # a replayed step is idempotent
-    assert len(deps.evidence.steps(run_id)) == 1
-    loaded = deps.evidence.load_step(step_id)
-    assert loaded is not None and loaded.study is not None and loaded.study.kind == "data_quality"
-
-    fps = deps.evidence.bind_findings(run_id, bid, [AgentFinding(step_id=step_id, item_index=0, message="The model guesses some ratings; check them.", action="verify the LTDS rows")],
-                                      snapshot_id="snap", at=now())
-    item = study.items[0]
-    assert fps == [item.fingerprint]
-    rows = client.get(f"/branches/{bid}/findings").json()["findings"]
-    f = next(x for x in rows if x["fingerprint"] == item.fingerprint)
-    assert f["source"] == "agent" and f["evidence_kind"] == "tool_call" and f["evidence_ref"] == step_id
-    # the figures are the study item's, not the model's words
-    assert f["value"] == item.value and f["element_id"] == str(item.element_id) and f["kind"] == "data_quality"
-    assert f["message"].startswith("The model guesses") and f["context"]["engine_message"] == item.message
-    assert f["evidence"]["cache_key"] == key and f["evidence"]["item_index"] == 0
-    # a bad reference is refused, loudly
-    with pytest.raises(ValueError):
-        deps.evidence.bind_findings(run_id, bid, [AgentFinding(step_id=step_id, item_index=999, message="x")], snapshot_id="s", at=now())
-    with pytest.raises(ValueError):
-        deps.evidence.bind_findings(run_id, bid, [AgentFinding(step_id="run-test-1:nope", item_index=0, message="x")], snapshot_id="s", at=now())
-    with pytest.raises(ValueError):
-        deps.evidence.bind_findings("another-run", bid, [AgentFinding(step_id=step_id, item_index=0, message="x")], snapshot_id="s", at=now())
-    replay = deps.evidence.replay(step_id)
-    assert replay["study"]["kind"] == "data_quality" and replay["stale"] is False and replay["step"]["tool"] == "study_data_quality"
 
 
 def test_the_number_guard_flags_figures_no_step_produced():

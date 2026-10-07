@@ -9,6 +9,10 @@ from typing import NamedTuple
 
 from .errors import Invalid, NotSolved
 from gridforge_optimizer import (
+    Limits,
+    element_ratings,
+    limits,
+    run_digest,
     PLAN_YEARS,
     STUDIES,
     Candidate,
@@ -261,6 +265,30 @@ class PlanService:
             compute=study,
             dump=lambda studies: json.dumps([s.model_dump() for s in studies]), wait=wait,
         )
+
+    def limits(self, branch_id: str, *, solve: bool = False, wait: bool = False) -> Limits:
+        """What limits a branch's plan (`analysis.limits`): the binding set, the deferrals' chains, the N-1 clusters and
+        the works, from the cached run. A read by default: `NotSolved` unless the branch has run for what it holds."""
+        b = self.inputs(branch_id)
+        res = self.result_with_years(b, solve=solve, wait=wait)
+        return limits(res, res.years, self.projects.model(b.project_id), element_ratings(b.net_factory()))
+
+    def digest(self, branch_id: str) -> dict:
+        """The run digest the note is written from (`analysis.run_digest`): the limits plus what changed against the
+        parent and the gate's verdict. The branch's own plan must be solved (`NotSolved` otherwise); the parent's
+        side is solved if need be, so call it under the solver gate."""
+        b = self.inputs(branch_id)
+        res = self.result_with_years(b, solve=False, wait=True)
+        lim = limits(res, res.years, self.projects.model(b.project_id), element_ratings(b.net_factory()))
+        with self.store.cursor() as con:
+            head = repository.require_branch(con, branch_id)
+            base = repository.base_of(con, head)
+            name = head.get("name") or branch_id
+        d, verdict = None, None
+        if base is not None:
+            d = self.diff(branch_id, base["branch_id"])
+            verdict, _ = self.merge_check(branch_id, base["branch_id"])
+        return run_digest(name, lim, res, res.years, diff=d, gate=verdict, assumptions=len(self.projects.assumptions(b.project_id))).model_dump(exclude_none=True)
 
     def _solved_pair(self, head_in: BranchInputs, base_in: BranchInputs, *, wait: bool = True) -> tuple[OptimizeResult, OptimizeResult, ConsequenceDiff]:
         """Both plans with their years, and the consequence diff between them (the branch's windows

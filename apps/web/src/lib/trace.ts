@@ -1,9 +1,9 @@
 // The agents as the planner shows them. Pure: the API runs the agents and records every step; this
 // folds a reply's event stream into text and stage chips, names tools and stages, reads a message's
-// evidence line, tells a superseded review, words the header pill, and reads the runs list (elapsed,
-// cost, the reviewer's state on a branch).
+// evidence line, words the header pill, reads the runs list (elapsed, cost) and tells where the
+// engineer's note on a branch stands.
 
-import type { AgentRun, AgentsStatus, Review, ThreadMessage, TraceEvent, TraceStage } from "../types";
+import type { AgentRun, AgentsStatus, RunNote, ThreadMessage, TraceEvent, TraceStage } from "../types";
 
 export const STAGE_LABEL: Record<TraceStage, string> = { PLAN: "Plan", ASSEMBLE: "Assemble", RUN: "Run", CHECK: "Check", PROPOSE: "Propose", CITE: "Cite" };
 
@@ -86,8 +86,8 @@ export function evidenceLine(m: Pick<ThreadMessage, "evidence" | "tool_trace">):
 /** The soft flags on an answer (figures no tool produced), as sentences. */
 export const flagLines = (flags: string[] | null | undefined): string[] => (flags ?? []).map((f) => f.charAt(0).toUpperCase() + f.slice(1));
 
-/** A review is of an earlier run when the shown result's key differs from the one it was written for. */
-export const isSuperseded = (review: Pick<Review, "run_key">, runKey: string | null | undefined): boolean => !!runKey && review.run_key !== runKey;
+/** The figure a flag names ("figure 98765.4 appears in no tool output…" → "98765.4"); the flag itself when it names no number. */
+export const flagFigure = (flag: string): string => /figure\s+(-?\d[\d,.]*)/i.exec(flag)?.[1] ?? flag;
 
 // ---- the runs list ------------------------------------------------------------------------------
 
@@ -127,25 +127,25 @@ export function firstSentence(text: string | null | undefined): string {
   return m ? m[1] : t;
 }
 
-/** What the Review tab says about the reviewer, from the newest review run on the branch. */
-export type ReviewerState = { kind: "running"; run: AgentRun } | { kind: "failed"; run: AgentRun } | { kind: "superseded"; run: AgentRun } | { kind: "none" };
-export function reviewerState(runs: AgentRun[], branchId: string): ReviewerState {
-  const run = runs.find((r) => r.kind === "review" && r.branch_id === branchId);
-  if (!run) return { kind: "none" };
-  if (isLiveRun(run)) return { kind: "running", run };
-  if (run.status === "failed") return { kind: "failed", run };
-  if (run.status === "skipped" && /supersed/i.test(run.summary ?? "")) return { kind: "superseded", run };
-  return { kind: "none" };
+/** Where the engineer's note on a branch stands: being written (a `digest` run is live for the branch), of an earlier
+ * run than the result shown (its run key differs), not written yet, or current. No result shown yet: nothing to compare. */
+export type NoteState = { kind: "writing"; run: AgentRun } | { kind: "earlier" } | { kind: "none" } | { kind: "current" };
+export function noteState(note: Pick<RunNote, "run_key"> | null, runKey: string | null | undefined, runs: AgentRun[], branchId: string): NoteState {
+  const run = runs.find((r) => r.kind === "digest" && r.branch_id === branchId && isLiveRun(r));
+  if (run) return { kind: "writing", run };
+  if (!note) return { kind: "none" };
+  if (runKey && note.run_key !== runKey) return { kind: "earlier" };
+  return { kind: "current" };
 }
 
 /** The header pill: starting (the API's runtime is not up yet), idle, running or paused. */
 export function agentsPill(st: AgentsStatus | null): { label: string; tone: "neutral" | "good" | "warn" | "bad"; title: string } {
   if (!st) return { label: "agents", tone: "neutral", title: "Checking the agents…" };
-  if (st.status === "starting") return { label: "agents starting", tone: "neutral", title: "The agents are starting with the API; they answer, review and propose as soon as they are up." };
+  if (st.status === "starting") return { label: "agents starting", tone: "neutral", title: "The agents are starting with the API; they answer and propose as soon as they are up." };
   if (st.status === "paused") {
     const why = `by the operator${st.paused_reason && st.paused_reason !== "operator" ? `: ${st.paused_reason}` : ""}`;
     return { label: "agents paused", tone: "warn", title: `Paused ${why}. Resume from the Ask tab.` };
   }
   if (st.status === "running") return { label: `agents · ${st.running} running`, tone: "good", title: `${st.running} agent ${st.running === 1 ? "run" : "runs"} in progress.` };
-  return { label: "agents idle", tone: "good", title: "The agents watch the project: a review after every branch run, a sweep after merges and data changes." };
+  return { label: "agents idle", tone: "good", title: "The agents answer questions and propose; a note is written after every run." };
 }

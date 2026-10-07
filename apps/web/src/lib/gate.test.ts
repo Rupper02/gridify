@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Finding, GateFinding, MergeCheck, Model, Outage } from "../types";
-import { findingSel, gateState, openCounts, refusedCheck } from "./gate";
+import { findingSel, gateState, refusedCheck } from "./gate";
 
 const gf = (over: Partial<GateFinding> = {}): GateFinding => ({
   kind: "new_overload", level: "blocker", year: 2031, case: null, element_kind: "line", element_id: "12", value: 104, base_value: 90,
@@ -15,27 +15,33 @@ const check = (over: Partial<MergeCheck> = {}, verdict: Partial<MergeCheck["verd
 });
 
 const fresh = { stale: false, text: "" };
+const settled = { inProgress: false, problem: null };
+const solving = { inProgress: true, problem: null };
 
 describe("gateState", () => {
-  it("follows the branch, the client's staleness, the run, then the server's verdict", () => {
-    expect(gateState(null, fresh, false, false).state).toBe("closed");
-    expect(gateState(check(), fresh, true, true).state).toBe("checking");
-    expect(gateState(null, fresh, true, false).state).toBe("checking");
-    const s = gateState(check(), { stale: true, text: "An energisation year changed." }, true, false);
+  it("follows the branch, the run, the client's staleness, then the server's verdict", () => {
+    expect(gateState(null, fresh, false, settled).state).toBe("closed");
+    expect(gateState(check(), fresh, true, solving).state).toBe("checking");
+    expect(gateState(null, fresh, true, settled).state).toBe("checking");
+    expect(gateState(null, fresh, true, settled, "timed out").state).toBe("failed");
+    const unfinished = gateState(check(), fresh, true, { inProgress: false, problem: "The run failed: boom" });
+    expect(unfinished.state).toBe("unfinished");
+    expect(unfinished.headline).toContain("did not finish");
+    const s = gateState(check(), { stale: true, text: "An energisation year changed." }, true, settled);
     expect(s.state).toBe("stale");
     expect(s.headline).toContain("energisation year");
-    const srv = gateState(check({ fresh: false, stale_reasons: ["the plan years have not been solved"] }), fresh, true, false);
+    const srv = gateState(check({ fresh: false, stale_reasons: ["the plan years have not been solved"] }), fresh, true, settled);
     expect(srv.state).toBe("stale");
     expect(srv.headline).toContain("plan years");
   });
   it("is blocked, warnings or ready by the verdict and words the count", () => {
-    const b = gateState(check({}, { ok: false, blockers: [gf(), gf({ element_id: "13" })] }), fresh, true, false);
+    const b = gateState(check({}, { ok: false, blockers: [gf(), gf({ element_id: "13" })] }), fresh, true, settled);
     expect(b.state).toBe("blocked");
     expect(b.headline).toBe("Blocked: 2 problems this branch introduces.");
-    const w = gateState(check({}, { warnings: [gf({ kind: "against_recommendation", level: "warning" })] }), fresh, true, false);
+    const w = gateState(check({}, { warnings: [gf({ kind: "against_recommendation", level: "warning" })] }), fresh, true, settled);
     expect(w.state).toBe("warnings");
     expect(w.headline).toContain("1 warning to acknowledge");
-    expect(gateState(check(), fresh, true, false)).toEqual({ state: "ready", headline: "Ready to merge: no new problem in any plan year." });
+    expect(gateState(check(), fresh, true, settled)).toEqual({ state: "ready", headline: "Ready to merge: no new problem in any plan year." });
   });
 });
 
@@ -62,9 +68,6 @@ describe("findings", () => {
     expect(findingSel(finding({ element_kind: "bus", element_id: "99" }), model, outages)).toBeNull();
     expect(findingSel(finding({ element_kind: "outage", element_id: "mw-1" }), model, outages)).toEqual({ kind: "trafo", id: 4 });
     expect(findingSel(finding({ element_kind: "gsp", element_id: "gsp" }), model, outages)).toBeNull();
-  });
-  it("counts the open findings by severity", () => {
-    expect(openCounts([finding(), finding({ severity: "warn" }), finding({ status: "acknowledged" }), finding({ severity: "info" })])).toEqual({ open: 3, breach: 1, warn: 1 });
   });
 });
 

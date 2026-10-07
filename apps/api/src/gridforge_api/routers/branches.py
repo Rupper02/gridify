@@ -136,6 +136,17 @@ def diff_branch(branch_id: str, with_narration: bool = False, solve: bool = Fals
     return out
 
 
+@router.get("/branches/{branch_id}/limits")
+def branch_limits(branch_id: str) -> dict:
+    """What limits the branch's plan, as the engine reduces it (`analysis.limits`): the binding set (each element with its
+    envelope per year and its case, the first year it comes near its limit, the headroom left, the projects deferred on
+    it, the outages that breach it), the deferrals with their chains, the N-1 rows folded into clusters by cause, and the
+    works verdicts. A read: 409 `not_solved` until the branch has run for what it holds now."""
+    with scenarios.cursor() as con:
+        repository.require_branch(con, branch_id)
+    return plans.limits(branch_id).model_dump()
+
+
 @router.get("/branches/{branch_id}/merge-check")
 def merge_check(branch_id: str, into: str | None = None, solve: bool = False) -> dict:
     """May this branch merge? The gate's verdict (gate.merge_verdict) against `into` (default its

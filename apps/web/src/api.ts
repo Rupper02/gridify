@@ -19,6 +19,7 @@ import type {
   Forecast,
   Horizon,
   Job,
+  Limits,
   MergeCheck,
   Model,
   OptimizeResult,
@@ -27,7 +28,7 @@ import type {
   RebasePick,
   RebasePreview,
   RegistryItem,
-  Review,
+  RunNote,
   StepEvidence,
   Thread,
   ThreadView,
@@ -54,6 +55,13 @@ export class ApiError extends Error {
 
 /** A failed call's reason for a toast or a stamp: the API's detail when it answered, else that it may be down. */
 export const failureText = (e: unknown): string => (e instanceof Error ? e.message : "check the API is running");
+
+/** A read the API refused because the branch has not run for what it holds, or the engine was busy (409
+ * `{code: "not_solved"}`: an agent's study or a job holding the solver as the run ended): worth asking again in a
+ * moment. The diff, the merge check and the limits all retry it the same way, for about half a minute. */
+export const notSolved = (e: unknown): boolean => e instanceof ApiError && e.status === 409 && (e.detail as { code?: unknown } | null)?.code === "not_solved";
+export const NOT_SOLVED_RETRY_MS = 4000;
+export const NOT_SOLVED_RETRIES = 8;
 
 async function errorDetail(r: Response): Promise<{ detail: unknown; text: string }> {
   const fallback = `${r.status} ${r.statusText}`;
@@ -246,6 +254,10 @@ export const api = {
   /** The findings ledger: what the branch's last run found, with the counts per status. */
   listFindings: (id: string) => getJson<{ branch_id: string; counts: FindingCounts; findings: Finding[] }>(`/branches/${id}/findings`),
   setFindingStatus: (findingId: string, status: FindingStatus, note = "") => postJson<Finding>(`/findings/${findingId}/ack`, { status, note }),
+  /** What limits the branch: the engine's own reduction of its run (409 `not_solved` until it has run for what it holds). */
+  branchLimits: (id: string) => getJson<Limits>(`/branches/${id}/limits`),
+  /** The engineer's note on the branch's run: null until it is written, or once the run has moved on. */
+  branchNote: async (id: string) => (await getJson<{ branch_id: string; note: RunNote | null }>(`/branches/${id}/note`)).note,
 
   // planned maintenance and simulated reinforcements on a branch
   listOutages: async (id: string) => (await getJson<{ outages: Outage[] }>(`/branches/${id}/outages`)).outages ?? [],
@@ -255,7 +267,7 @@ export const api = {
     (await getJson<{ reinforcements: BranchReinforcement[] }>(`/branches/${id}/reinforcements`)).reinforcements ?? [],
   removeReinforcement: (id: string, rid: string) => del<{ removed: boolean }>(`/branches/${id}/reinforcements/${rid}`),
 
-  // the agents: status and the pause switch, conversations with a streamed reply, approvals, reviews, evidence
+  // the agents: status and the pause switch, conversations with a streamed reply, approvals, evidence
   agentsStatus: (pid: string) => getJson<AgentsStatus>(`/projects/${pid}/agents`),
   pauseAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/pause`, { reason: "operator" }),
   resumeAgents: (pid: string) => postJson<AgentsStatus>(`/projects/${pid}/agents/resume`),
@@ -299,8 +311,6 @@ export const api = {
   /** Decide a proposal. The answer continues once every proposal of its reply is decided; until then `waiting_for` lists the open ones. */
   decideApproval: (pid: string, aid: string, decision: "approve" | "deny", note = "") =>
     postJson<Approval & { workflow_id: string | null; waiting_for: string[] }>(`/projects/${pid}/approvals/${aid}`, { decision, note }),
-  /** The reviewer's current comment on a branch. */
-  listReviews: async (branchId: string) => (await getJson<{ reviews: Review[] }>(`/branches/${branchId}/reviews`)).reviews ?? [],
   /** The evidence behind a step an agent cited. */
   stepEvidence: (pid: string, stepId: string) => getJson<StepEvidence>(`/projects/${pid}/agents/steps/${encodeURIComponent(stepId)}`),
 };

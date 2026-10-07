@@ -20,10 +20,10 @@ from dbos import DBOS, DBOSConfig, SetEnqueueOptions, SetWorkflowID, SetWorkflow
 
 from ..config import AGENT_ANSWER_RESERVE_S, AGENT_MODELS, AGENT_RUN_BUDGET, log
 from . import runs, workflows
-from .workflows import CHAT_QUEUE, STEWARD_QUEUE
+from .workflows import CHAT_QUEUE, DIGEST_QUEUE
 from .spend import SpendMeter
 from .evidence import EvidenceLedger
-from .roster import AGENTS, SPECIALIST_STUDIES, build
+from .roster import AGENTS, build
 from .tools import AgentDeps, Harness, SolverGate
 
 
@@ -81,7 +81,7 @@ class AgentRuntime:
                 self.agents = build(self.model_factory)
             workflows.RUNTIME = self
             DBOS.launch()
-            DBOS.register_queue(STEWARD_QUEUE, partition_concurrency=1)
+            DBOS.register_queue(DIGEST_QUEUE, partition_concurrency=1)
             DBOS.register_queue(CHAT_QUEUE, worker_concurrency=2)
             self.launched = True
             log.info("agents launched on %s (version %s)", self.system_db_url, self.app_version)
@@ -107,9 +107,6 @@ class AgentRuntime:
 
     def studies_for(self, agent: str) -> tuple[str, ...]:
         return AGENTS[agent].studies if agent in AGENTS else ()
-
-    def remits(self) -> str:
-        return "; ".join(f"{k}: {', '.join(v)}" for k, v in SPECIALIST_STUDIES.items())
 
     def emit_for(self, run_id: str) -> Callable[[dict], None]:
         """The event sink of a run: the workflow's DBOS stream (outside a workflow, in tests, nobody streams: dropped)."""
@@ -140,7 +137,7 @@ class AgentRuntime:
         spec = workflows.WORKFLOWS[workflow_name]
         pid = event.get("project_id") or self.project_id
         wid = f"{workflow_name}:{dedup}"
-        opts = SetEnqueueOptions(queue_partition_key=pid) if spec.queue == STEWARD_QUEUE else nullcontext()  # one steward activity per project
+        opts = SetEnqueueOptions(queue_partition_key=pid) if spec.queue == DIGEST_QUEUE else nullcontext()  # one note at a time per project
         with SetWorkflowID(wid), SetWorkflowTimeout(float(AGENT_RUN_BUDGET["timeout_s"]) * spec.timeout_runs), opts:
             DBOS.enqueue_workflow(spec.queue, spec.fn, *spec.args_of(pid, event))
         return wid
@@ -191,7 +188,7 @@ class AgentRuntime:
         DBOS.cancel_workflow(workflow_id)
 
     def emit_startup_events(self) -> list[dict]:
-        """What changed while the API was down: a new model snapshot or LTDS edition wakes the steward."""
+        """What changed while the API was down: a new model snapshot or LTDS edition is recorded as an event."""
         if not self.launched:
             return []
         from .events import emit
