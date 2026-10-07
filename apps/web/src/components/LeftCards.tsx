@@ -27,10 +27,10 @@ type RunButton = ReturnType<typeof runButton>;
 
 /** What each reading means, for a reader who has never met the term. */
 const HINTS = {
-  gsp: "The Grid Supply Point is where this distribution network meets the transmission grid. Export is the power flowing up through it when local generation exceeds local demand; the limit is what its supergrid transformers and the transmission connection allow. The gap between the two is the room for new generation on the whole network.",
+  gsp: "The Grid Supply Point is where this distribution network meets the transmission grid. Export is the power flowing up through it when local generation exceeds local demand; the limit is what its supergrid transformers and the transmission connection allow. The gap between the two is the room for new generation on the whole network: the generation headroom every DNO publishes per substation.",
   binding: "The line or transformer closest to its thermal rating this year: the first thing that would overload if more power flowed, so it sets the ceiling for new connections near it. \"Room\" is how many more MW it can carry before it reaches its rating (a first-order estimate; the Limits tab has the detail).",
-  voltage: "The lowest and highest busbar voltages, in per unit of nominal (1.000 = nominal). Each voltage level has a statutory band it must stay inside; outside it, customers' equipment is at risk and a connection that causes it is refused.",
-  n1: "The security test: every line and transformer on the 132 kV backbone is taken out one at a time, and the network must still carry its load within limits. The figure counts the single outages, of all those studied, that would overload something or cut off demand. Reported for the engineer; it does not by itself refuse a connection.",
+  voltage: "The lowest and highest busbar voltages, in per unit of nominal (1.000 = nominal). Each voltage level has a statutory band it must stay inside (GB: ±10% at 132 kV, ±6% below); outside it, customers' equipment is at risk and a connection that causes it is refused.",
+  n1: "The security test: every line and transformer on the 132 kV backbone is taken out one at a time, and the network must still carry its load within limits. The figure counts the single outages, of all those studied, that would overload something or cut off demand. Reported for the engineer; a generation connection is non-firm under an outage by default, so it does not by itself refuse one.",
   alerts: "Demand groups (substations) checked against their firm capacity and security of supply (Engineering Recommendation P2/8): a warning when a group's demand comes close to what it can be supplied with one transformer out, a breach when it is over.",
 };
 
