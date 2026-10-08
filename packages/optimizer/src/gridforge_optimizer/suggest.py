@@ -26,6 +26,7 @@ from .network import (
     feasibility,
     drop_project,
     inject_project,
+    limit_baseline,
     upstream_path_lines,
 )
 from .types import REASON_SPECS, Candidate, Control, OptimizeParams, OptimizeResult, Reason, Reinforcement, Suggestion
@@ -50,6 +51,21 @@ def _phase_net(cand_by_id, params, base, phase_key, reinf, exclude: str | None =
     return plan_net(cand_by_id.net_factory, params, int(phase_key), reinf, projects)
 
 
+def _phase_baseline(cand_by_id, params, base, phase_key, reinf, exclude: str | None = None):
+    """What the phase's network breaches with `reinf` before the phase's own projects: the ones `base` accepted in
+    earlier phases connected (none in the first), except `exclude`. A trial is judged on what it adds, as the queue run
+    judges it."""
+    earlier = [k for k in base.phases if int(k) < int(phase_key)]
+    inherited = base.phases[max(earlier, key=int)].accepted if earlier else []
+    projects = [c for rid in inherited if rid != exclude and (c := cand_by_id.get(rid)) is not None]
+    return limit_baseline(plan_net(cand_by_id.net_factory, params, int(phase_key), reinf, projects))
+
+
+def phase_baseline(candidates, params, base, phase_key, *, net_factory: NetFactory = build_base_net, exclude: str | None = None):
+    """What a probe in one phase of `base` is judged against (see `_phase_baseline`), on `net_factory`'s network."""
+    return _phase_baseline(_Candidates(candidates, net_factory), params, base, phase_key, [], exclude=exclude)
+
+
 def phase_net(candidates, params, base, phase_key, *, net_factory: NetFactory = build_base_net, exclude: str | None = None):
     """The plan's network in one phase of `base`: demand grown to it and every project the run connected
     by then energised (except `exclude`), on `net_factory`'s network. What a study probes against."""
@@ -67,13 +83,14 @@ def _trial_phase(cand_by_id, deferred_ids, params, base, phase_key, reinf=None, 
     factor absorbing, its reactive power following its output in every case), else as its own offer does; return
     (freed_mw, newly_ids, solves)."""
     net = _phase_net(cand_by_id, params, base, phase_key, reinf or [])
+    baseline = _phase_baseline(cand_by_id, params, base, phase_key, reinf or [])
     freed, newly, solves = 0.0, [], 0
     for rid in deferred_ids:  # deferred projects in the base run's rank order
         c = cand_by_id.get(rid)
         if c is None:
             continue
         ref = inject_project(net, c, control=control)
-        ok, _, _ = feasibility(net)
+        ok, _, _ = feasibility(net, baseline)
         solves += 1
         if ok:
             newly.append(rid)
@@ -98,7 +115,7 @@ def _discover_chain(cand_by_id, params, base, target_rid):
     for _ in range(MAX_REINFORCE_STEPS + 1):
         net = _phase_net(cand_by_id, params, base, _HARDEST_PHASE, reinf, exclude=target_rid)
         inject_project(net, target)
-        ok, reason, _ = feasibility(net)
+        ok, reason, _ = feasibility(net, _phase_baseline(cand_by_id, params, base, _HARDEST_PHASE, reinf, exclude=target_rid))
         solves += 1
         last_reason = reason
         if ok:

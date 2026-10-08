@@ -13,9 +13,9 @@ def count_feasibility(monkeypatch):
     calls = {"n": 0}
     real = greedy.feasibility
 
-    def counting(net):
+    def counting(net, baseline=None):
         calls["n"] += 1
-        return real(net)
+        return real(net, baseline)
 
     monkeypatch.setattr(greedy, "feasibility", counting)
     return calls

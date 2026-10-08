@@ -169,11 +169,12 @@ MERGE_GATE_LEVELS = {
     "against_recommendation": "warning", "profile_differs": "warning", "proposals_removed": "warning",
     "preexisting": "info", "deferred_on_grid": "info",
 }
-# An element already past its limit on the parent counts as WORSENED on the branch only beyond these
-# margins (loading points, MW of GSP export, pu of voltage): planning tolerances, chosen, not sourced.
-GATE_WORSEN_PTS = 1.0
-GATE_GSP_WORSEN_MW = 1.0
-GATE_VM_WORSEN_PU = 0.005
+# An element already past its limit counts as WORSENED only beyond these margins (loading points, MW of GSP export,
+# pu of voltage): a branch against its parent (the gate), the plan's projects against the grid without them (the
+# connection trials and studies), an outage against the intact network (N-1). Planning tolerances, chosen, not sourced.
+WORSEN_PTS = 1.0
+WORSEN_GSP_MW = 1.0
+WORSEN_VM_PU = 0.005
 # GSP export above this share of its export limit is a warning (the planner's gauge turns amber here too)
 GSP_NEAR_LIMIT_FRACTION = 0.9
 # GSP margin by year: export within this share of the limit is a warning: the gate's point above, read as a margin

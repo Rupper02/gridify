@@ -52,6 +52,7 @@ from .greedy import NetFactory, Progress, build_base_net
 from .sensitivity import rank_buses
 from .network import (
     _CASE_LABEL,
+    Baseline,
     _case_reason,
     _gsp_reason,
     _oltc_trafos,
@@ -60,6 +61,7 @@ from .network import (
     drop_project,
     inject_project,
     inject_sgen,
+    limit_baseline,
     n1_elements,
     emergency_ratio,
     outage_results,
@@ -68,7 +70,7 @@ from .network import (
     voltage_limits,
     solve_case,
 )
-from .suggest import discover_chain, phase_net
+from .suggest import discover_chain, phase_baseline, phase_net
 from .types import REASON_SPECS, Candidate, ModelAssumption, OptimizeParams, OptimizeResult, Outage, Reason, StudyItem, StudyResult
 from .windows import SEASONS, best_windows
 
@@ -230,9 +232,10 @@ def _probe_buses(net, p: HostingParams) -> list[int]:
     return _ranked(net, buses, p.direction, p.max_buses)
 
 
-def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
+def _probe(net, case, inject: Callable[[], int], baseline: Baseline | None = None) -> tuple[bool, Any, int]:
     """Inject something (`inject` connects it and returns its (table, index)), solve the case with the taps
-    regulated, then leave the net exactly as found. Returns (within limits, the binding reason, solves)."""
+    regulated, then leave the net exactly as found. Returns (within limits, the binding reason, solves): with a
+    `baseline`, a breach it already carries binds only once the injection worsens it, as a connection is judged."""
     taps = tap_positions(net)
     ref = inject()
     try:
@@ -242,14 +245,16 @@ def _probe(net, case, inject: Callable[[], int]) -> tuple[bool, Any, int]:
         set_tap_positions(net, taps)
     if res is None:
         return False, Reason(type="non_convergent", case=case.name, message=f"power flow does not converge at {_CASE_LABEL[case.name]}"), 1
-    r = _case_reason(net, case.name, res["vm"], res["line_pct"], res["trafo_pct"]) or _gsp_reason(net, -res["p_ext_mw"], case.name)
+    excused = baseline.breaches.get(case.name) if baseline else None
+    r = (_case_reason(net, case.name, res["vm"], res["line_pct"], res["trafo_pct"], excused)
+         or _gsp_reason(net, -res["p_ext_mw"], case.name, baseline.gsp_export_mw if baseline else None))
     return r is None, r, 1
 
 
-def _hosting_probe(net, case, bus: int, mw: float, direction: str) -> tuple[bool, Any, int]:
+def _hosting_probe(net, case, bus: int, mw: float, direction: str, baseline: Baseline) -> tuple[bool, Any, int]:
     """Probe `mw` of new firm export (or a demand connection importing it) at `bus`."""
     return _probe(net, case, lambda: ("sgen", inject_sgen(net, bus, mw, "hosting-probe", "other") if direction == "export"
-                                              else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw)))
+                                              else inject_sgen(net, bus, 0.0, "hosting-probe", "demand", import_mw=mw)), baseline)
 
 
 def _bisect_mw(probe: Callable[[float], tuple[bool, Any, int]], cap: float, step: float,
@@ -285,13 +290,14 @@ def _hosting_capacity(ctx: StudyContext, p: HostingParams) -> StudyResult:
     net = ctx.net_factory()
     cases = _cases_for(net, p.cases)
     buses = _probe_buses(net, p)
+    baseline = limit_baseline(net)
     items: list[StudyItem] = []
     solves = 0
     cap = MAX_CONNECTION_MW
     for i, bus in enumerate(buses):
         ctx.progress(f"hosting capacity: bus {bus} ({i + 1}/{len(buses)})", i / max(len(buses), 1))
         for case in cases.values():
-            value, binding, n = _bisect_mw(lambda mw: _hosting_probe(net, case, bus, mw, p.direction), cap, p.step_mw)
+            value, binding, n = _bisect_mw(lambda mw: _hosting_probe(net, case, bus, mw, p.direction, baseline), cap, p.step_mw)
             solves += n
             label = _CASE_LABEL[case.name]
             where = _bus_name(net, bus)
@@ -579,13 +585,13 @@ def _asks(c: Candidate) -> tuple[str, float]:
     return "export", float(c.rating_mw or 0.0)
 
 
-def _project_probe(net, case, bus: int, c: Candidate, mw: float, direction: str) -> tuple[bool, Any, int]:
+def _project_probe(net, case, bus: int, c: Candidate, mw: float, direction: str, baseline: Baseline) -> tuple[bool, Any, int]:
     """Probe `mw` of THIS project at `bus`: its own technology and control, so the case dispatch applies (PV at nil
     at winter peak, a battery charging, its reactive power as its offer runs it), with its import scaled along."""
     probe = c.model_copy(update={"bus_id": bus, "request_id": "connection-probe"})
     if direction == "import":
-        return _probe(net, case, lambda: inject_project(net, probe, p_mw=0.0, import_mw=mw))
-    return _probe(net, case, lambda: inject_project(net, probe, p_mw=mw, import_mw=c.import_at(mw)))
+        return _probe(net, case, lambda: inject_project(net, probe, p_mw=0.0, import_mw=mw), baseline)
+    return _probe(net, case, lambda: inject_project(net, probe, p_mw=mw, import_mw=c.import_at(mw)), baseline)
 
 
 def _probed_cases(cases: dict, c: Candidate, direction: str) -> dict:
@@ -620,14 +626,23 @@ def _plan_net(ctx: StudyContext, exclude: str) -> tuple[Any, str]:
     return phase_net(ctx.candidates, ctx.params or OptimizeParams(), ctx.result, phase, net_factory=ctx.net_factory, exclude=exclude), phase
 
 
-def _size_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem]) -> int:
+def _plan_baseline(ctx: StudyContext, phase: str, exclude: str) -> Baseline:
+    """What the probed phase breaches before its own projects (the earlier phases' connected, without `exclude`): a probe
+    is judged against it, as the queue run judges a connection in that phase."""
+    if phase == "today":
+        return limit_baseline(ctx.net_factory())
+    return phase_baseline(ctx.candidates, ctx.params or OptimizeParams(), ctx.result, phase, net_factory=ctx.net_factory, exclude=exclude)
+
+
+def _size_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem],
+                baseline: Baseline) -> int:
     """What the project's own busbar takes of it, per case: a firm size, or a flexible connection firm to that MW."""
     direction, asked = _asks(c)
     rid, bus = c.request_id, int(c.bus_id)
     where = _bus_name(net, bus)
     solves = 0
     for case in cases.values():
-        value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, bus, c, mw, direction), MAX_CONNECTION_MW, p.step_mw)
+        value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, bus, c, mw, direction, baseline), MAX_CONNECTION_MW, p.step_mw)
         solves += n
         label = _CASE_LABEL[case.name]
         fits = value >= asked
@@ -676,7 +691,8 @@ def _chain_item(ctx: StudyContext, c: Candidate, where: str, phase: str, items: 
     return solves
 
 
-def _move_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem]) -> int:
+def _move_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phase: str, items: list[StudyItem],
+                baseline: Baseline) -> int:
     """The project's full MW probed at higher-voltage busbars, nearest first; where it does not fit, how much does."""
     direction, asked = _asks(c)
     rid, home = c.request_id, int(c.bus_id)
@@ -689,13 +705,14 @@ def _move_items(p: ConnectionOptionsParams, c: Candidate, net, cases: dict, phas
         there, steps = _bus_name(net, b), higher.get(b)
         for case in cases.values():
             label = _CASE_LABEL[case.name]
-            ok, reason, n = _project_probe(net, case, b, c, asked, direction)
+            ok, reason, n = _project_probe(net, case, b, c, asked, direction, baseline)
             solves += n
             if ok:
                 value, binding, fits = asked, None, True
                 msg = f"{rid} ({asked:.0f} MW {tech}) connects at {there} at {label} within every limit"
             else:
-                value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, b, c, mw, direction), asked, p.step_mw, at_cap=(ok, reason))
+                value, binding, n = _bisect_mw(lambda mw: _project_probe(net, case, b, c, mw, direction, baseline), asked, p.step_mw,
+                                               at_cap=(ok, reason))
                 solves += n
                 fits = False
                 msg = f"{there} takes about {value:.0f} MW of {rid}'s {asked:.0f} MW at {label}, then {binding.message}"
@@ -713,6 +730,7 @@ def _connection_options(ctx: StudyContext, p: ConnectionOptionsParams) -> StudyR
     c = _candidate_of(ctx, p.request_id)
     direction, asked = _asks(c)
     net, phase = _plan_net(ctx, exclude=c.request_id)
+    baseline = _plan_baseline(ctx, phase, c.request_id)
     every_case = _cases_for(net, None)
     cases = _probed_cases(every_case, c, direction)
     skipped = [k for k in every_case if k not in cases]
@@ -721,12 +739,12 @@ def _connection_options(ctx: StudyContext, p: ConnectionOptionsParams) -> StudyR
     solves = 0
     if p.part in ("all", "site"):
         ctx.progress(f"connection options: {c.request_id} at its own busbar", 0.0)
-        solves += _size_items(p, c, net, cases, phase, items)
+        solves += _size_items(p, c, net, cases, phase, items, baseline)
         ctx.progress(f"connection options: the parallel-circuit chain for {c.request_id}", 0.3)
         solves += _chain_item(ctx, c, where, phase, items)
     if p.part in ("all", "bus"):
         ctx.progress(f"connection options: higher-voltage busbars for {c.request_id}", 0.5)
-        solves += _move_items(p, c, net, cases, phase, items)
+        solves += _move_items(p, c, net, cases, phase, items, baseline)
     sizes = [it for it in items if it.extra.get("option") == "size"]
     chain = next((it for it in items if it.extra.get("option") == "reinforce"), None)
     moves = [it for it in items if it.extra.get("option") == "move"]

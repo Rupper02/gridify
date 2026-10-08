@@ -16,13 +16,13 @@ from gridforge_optimizer import (
     merge_verdict,
 )
 from gridforge_optimizer.config import (
-    GATE_GSP_WORSEN_MW,
-    GATE_VM_WORSEN_PU,
-    GATE_WORSEN_PTS,
     GSP_NEAR_LIMIT_FRACTION,
     MERGE_GATE_LEVELS,
     PLAN_END_YEAR,
     PLAN_START_YEAR,
+    WORSEN_GSP_MW,
+    WORSEN_PTS,
+    WORSEN_VM_PU,
 )
 from gridforge_optimizer.gate import MERGE_CHECKS
 
@@ -103,8 +103,8 @@ def test_a_new_overload_blocks_and_a_preexisting_one_is_context():
 
 def test_an_existing_overload_that_worsens_blocks_only_past_the_threshold():
     base = _full(lambda y: _plain(y, trafo={5: 105.0}))
-    a_little = _full(lambda y: _plain(y, trafo={5: 105.0 + GATE_WORSEN_PTS * 0.5}))
-    a_lot = _full(lambda y: _plain(y, trafo={5: 105.0 + GATE_WORSEN_PTS * 3}))
+    a_little = _full(lambda y: _plain(y, trafo={5: 105.0 + WORSEN_PTS * 0.5}))
+    a_lot = _full(lambda y: _plain(y, trafo={5: 105.0 + WORSEN_PTS * 3}))
     assert merge_verdict(a_little, base).ok
     v = merge_verdict(a_lot, base)
     assert {b.kind for b in v.blockers} == {"overload_worse"} and v.blockers[0].element_kind == "trafo"
@@ -113,7 +113,7 @@ def test_an_existing_overload_that_worsens_blocks_only_past_the_threshold():
 
 def test_voltage_new_blocks_and_worse_warns():
     base = _full(lambda y: _plain(y, vm={9: 0.935, 8: 1.0}, viol=[9]))
-    head = _full(lambda y: _plain(y, vm={9: 0.935 - GATE_VM_WORSEN_PU * 2, 8: 0.92}, viol=[8, 9]))
+    head = _full(lambda y: _plain(y, vm={9: 0.935 - WORSEN_VM_PU * 2, 8: 0.92}, viol=[8, 9]))
     v = merge_verdict(head, base)
     assert {b.kind for b in v.blockers} == {"new_voltage_violation"} and {b.element_id for b in v.blockers} == {"8"}
     assert {w.kind for w in v.warnings} == {"voltage_worse"} and v.warnings[0].element_id == "9"
@@ -134,7 +134,7 @@ def test_gsp_newly_over_blocks_near_limit_warns_and_a_preexisting_breach_is_cont
     already = _full(lambda y: _plain(y, gsp=510.0, limit=limit))
     same = merge_verdict(already, already)
     assert same.ok and {c.kind for c in same.context} == {"preexisting"}
-    worse = _full(lambda y: _plain(y, gsp=510.0 + GATE_GSP_WORSEN_MW * 2, limit=limit))
+    worse = _full(lambda y: _plain(y, gsp=510.0 + WORSEN_GSP_MW * 2, limit=limit))
     assert {b.kind for b in merge_verdict(worse, already).blockers} == {"gsp_worse"}
 
 

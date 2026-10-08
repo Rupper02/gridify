@@ -4,6 +4,7 @@ outputs (QueueItem, PhaseResult, OptimizeResult, Reason)."""
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Literal, NamedTuple
 
 from pydantic import Field, BaseModel, model_validator
@@ -15,11 +16,15 @@ from .config import (
     GROWTH_2035,
     IMPORT_FORECAST_FACTOR_MAX,
     IMPORT_PATHWAYS,
+    N1_ISLAND_MIN_MW,
     PLAN_END_YEAR,
     PLAN_START_YEAR,
     W_NEED,
     W_READINESS,
     W_STRATEGIC,
+    WORSEN_GSP_MW,
+    WORSEN_PTS,
+    WORSEN_VM_PU,
 )
 
 
@@ -108,16 +113,26 @@ class ReasonSpec(NamedTuple):
     grid: bool = True  # the GRID held a project back (not intake or policy): findings, the gate, the agents' grid levers
     thermal: bool = False  # a parallel circuit on the binding element relieves it (suggest's chain)
     n1_order: int = 4  # worst first among N-1 findings during a works window (maintenance)
+    # (the figure now, the reference's) -> a breach the reference already carries counts as WORSE: beyond the planning
+    # tolerance (config.WORSEN_*). The reference is the grid without the plan's projects (a connection trial), the
+    # intact network (an outage) or the parent's plan (the merge gate). None: never excused.
+    worse: Callable[[float, float], bool] | None = None
+
+
+def _further_out(now: float, ref: float) -> bool:
+    """A voltage further from 1.0 pu, in either direction, beyond the tolerance."""
+    return abs(now - 1.0) - abs(ref - 1.0) > WORSEN_VM_PU
 
 
 REASON_SPECS: dict[str, ReasonSpec] = {
     "non_convergent": ReasonSpec("", n1_order=0),
-    "collapse": ReasonSpec("pu", n1_order=0),  # the N-1 screen's "no credible post-fault state" (network.N1_COLLAPSE_VM_PU)
-    "islanded": ReasonSpec("MW", n1_order=1),
-    "line": ReasonSpec("%", thermal=True, n1_order=2),
-    "trafo": ReasonSpec("%", thermal=True, n1_order=2),
-    "voltage": ReasonSpec("pu", n1_order=3),
-    "gsp": ReasonSpec("MW"),
+    # the N-1 screen's "no credible post-fault state" (network.N1_COLLAPSE_VM_PU): worse when its lowest voltage is lower
+    "collapse": ReasonSpec("pu", n1_order=0, worse=lambda now, ref: ref - now > WORSEN_VM_PU),
+    "islanded": ReasonSpec("MW", n1_order=1, worse=lambda now, ref: now - ref > N1_ISLAND_MIN_MW),
+    "line": ReasonSpec("%", thermal=True, n1_order=2, worse=lambda now, ref: now - ref > WORSEN_PTS),
+    "trafo": ReasonSpec("%", thermal=True, n1_order=2, worse=lambda now, ref: now - ref > WORSEN_PTS),
+    "voltage": ReasonSpec("pu", n1_order=3, worse=_further_out),
+    "gsp": ReasonSpec("MW", worse=lambda now, ref: now - ref > WORSEN_GSP_MW),
 }
 
 

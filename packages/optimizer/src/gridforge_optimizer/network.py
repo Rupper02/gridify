@@ -30,7 +30,7 @@ from .config import (
     VOLTAGE_BANDS,
 )
 from .dispatch import FLEET_TABLES, _ensure_fleet_columns, merit_order  # noqa: F401  (re-exported)
-from .types import Outage, Reason, Reinforcement
+from .types import REASON_SPECS, Outage, Reason, Reinforcement
 
 
 def build_base_net():
@@ -460,11 +460,23 @@ def _trafo_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
 LIMIT_CHECKS = (_voltage_breaches, _line_breaches, _trafo_breaches)
 
 
-def _case_reason(net, case: str, vm, line_pct, trafo_pct) -> Reason | None:
+Excused = dict[tuple[str, int], float]  # (reason type, element id) -> the reference's figure for a breach it already carries
+
+
+def _excused(r: Reason, excused: Excused | None) -> bool:
+    """A breach the reference already carries and this state does not worsen beyond its kind's tolerance."""
+    if not excused or r.element_id is None or r.value is None:
+        return False
+    ref = excused.get((r.type, int(r.element_id)))
+    worse = REASON_SPECS[r.type].worse if r.type in REASON_SPECS else None
+    return ref is not None and worse is not None and not worse(r.value, ref)
+
+
+def _case_reason(net, case: str, vm, line_pct, trafo_pct, excused: Excused | None = None) -> Reason | None:
     """The first limit this case breaches (voltage → line → transformer; then the GSP boundary): the worst element of the
-    first check that has any. What a connection is judged on."""
+    first check that has any, leaving out what `excused` already carries unworsened. What a connection is judged on."""
     for check in LIMIT_CHECKS:
-        breaches = check(net, case, vm, line_pct, trafo_pct)
+        breaches = [r for r in check(net, case, vm, line_pct, trafo_pct) if not _excused(r, excused)]
         if breaches:
             return breaches[0]
     return None
@@ -483,11 +495,14 @@ def gsp_export_limit(net) -> float | None:
     return float(net["gsp_export_limit_mw"])
 
 
-def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
+def _gsp_reason(net, export: float, case: str | None, base_export: float | None = None) -> Reason | None:
     """The GSP boundary: power pushed UP through the supergrid transformers to transmission, in its
-    worst study case, against the GSP's export limit."""
+    worst study case, against the GSP's export limit; when the reference (`base_export`) is over the
+    limit already, only what pushes it further than the tolerance."""
     limit = gsp_export_limit(net)
     if limit is None or export <= limit:
+        return None
+    if base_export is not None and base_export > limit and not REASON_SPECS["gsp"].worse(export, base_export):
         return None
     name = net.get("gsp_name") or "the GSP"
     return Reason(type="gsp", value=round(export, 1), limit=round(limit, 1), case=case,
@@ -507,9 +522,39 @@ def _by_case(groups: dict[str, tuple[pd.Series, pd.Series]]) -> dict[str, dict[s
     return out
 
 
-def feasibility(net) -> tuple[bool, Reason | None, dict]:
+class Baseline(NamedTuple):
+    """What a reference network already breaches: per study case that converged, each breach's figure; and its worst
+    GSP export. A connection is judged against it (`feasibility(net, baseline)`)."""
+
+    breaches: dict[str, Excused]
+    gsp_export_mw: float
+
+
+def limit_baseline(net) -> Baseline:
+    """Solve every study case on `net` (the reference: the plan's network before the projects being judged) and record what it already
+    breaches. A case that does not converge records nothing, so a trial in it is judged as it stands. The net's taps are
+    left as found."""
+    breaches: dict[str, Excused] = {}
+    export = 0.0
+    taps = tap_positions(net)
+    try:
+        for case, load_scale, rating_ratio in _study_cases(net):
+            res = _run_case(net, case, load_scale, rating_ratio)
+            if res is None:
+                continue
+            breaches[case] = {(r.type, int(r.element_id)): float(r.value)
+                              for r in case_breaches(net, case, res["vm"], res["line_pct"], res["trafo_pct"])}
+            export = max(export, -res["p_ext_mw"])
+    finally:
+        set_tap_positions(net, taps)
+    return Baseline(breaches, export)
+
+
+def feasibility(net, baseline: Baseline | None = None) -> tuple[bool, Reason | None, dict]:
     """Run power flow in every study case; check the statutory voltage band of every bus, line and
-    transformer thermal limits, and the GSP export boundary.
+    transformer thermal limits, and the GSP export boundary. With a `baseline`, only what the net
+    introduces or worsens against it fails (a connection is judged on what it adds); without one,
+    every breach does (a state is reported as it stands).
 
     Returns (ok, reason_if_not_ok, metrics). Afterwards net.res_line/res_trafo loading and
     net.res_bus voltage hold the worst-case ENVELOPE across cases (highest loading; the voltage
@@ -531,7 +576,7 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
             gsp_export, export_case = -p, case
         gsp_import = max(gsp_import, p)
         if reason is None:
-            reason = _case_reason(net, case, vm, line_pct, trafo_pct)
+            reason = _case_reason(net, case, vm, line_pct, trafo_pct, baseline.breaches.get(case) if baseline else None)
             if reason is not None:
                 binding_case = case
         if env_vm is None:
@@ -546,7 +591,7 @@ def feasibility(net) -> tuple[bool, Reason | None, dict]:
             env_trafo, case_trafo = pd.concat([env_trafo, trafo_pct], axis=1).max(axis=1), case_trafo.where(keep, case)
 
     if reason is None:  # local limits hold — now the boundary, at its worst export case
-        reason = _gsp_reason(net, gsp_export, export_case)
+        reason = _gsp_reason(net, gsp_export, export_case, baseline.gsp_export_mw if baseline else None)
         binding_case = export_case if reason is not None else None
     net.res_bus["vm_pu"], net.res_line["loading_percent"] = env_vm, env_line
     net.res_trafo["loading_percent"] = env_trafo
@@ -714,12 +759,23 @@ def outage_results(net, case: str, load_scale, rating_ratio, elements):
         yield OutageResult(kind, eid, name, res, lost, island)
 
 
+def _intact_breaches(net, case: str, intact: dict | None) -> Excused:
+    """What the intact state of `case` already breaches, transformers read against their emergency rating as the
+    post-fault states are: a fault does not cause these, so the N-1 screen reports them only where the outage worsens them."""
+    if intact is None:
+        return {}
+    trafo_pct = intact["trafo_pct"] / emergency_ratio(net).reindex(intact["trafo_pct"].index).fillna(1.0)
+    return {(r.type, int(r.element_id)): float(r.value) for r in case_breaches(net, case, intact["vm"], intact["line_pct"], trafo_pct)}
+
+
 def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = None) -> dict:
     """Single-outage screen of the backbone: take each in-service line and transformer at or
     above the grid's N-1 floor (`n1_floor`: N1_MIN_KV, or an import's own) out of service in turn, solve the study case, and report any thermal, voltage or
     islanding violation, every breached element its own finding, except a post-fault state with a bus below
-    `N1_COLLAPSE_VM_PU`: that is no credible steady state and is one "collapse" finding for the outage. Informational
-    (not a connection gate); roughly P2/8 security of supply.
+    `N1_COLLAPSE_VM_PU`: that is no credible steady state and is one "collapse" finding for the outage. A breach the
+    intact network already carries in the case is the intact state's, not the outage's: it is a finding only where the
+    outage worsens it beyond its kind's tolerance (`REASON_SPECS[...].worse`). Informational (not a connection gate);
+    roughly P2/8 security of supply.
     `rating_ratio` overrides the case's line ratings (a maintenance window's season, maintenance.py)."""
     cases = {c: (ls, rr) for c, ls, rr in _study_cases(net)}
     if case not in cases:
@@ -729,7 +785,7 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
     # the pre-fault state is the intact network with its taps regulated for THIS case. feasibility()
     # leaves them as the last study case (summer minimum) settled them, so settle them for the screened
     # case first; each outage then starts from those taps and lets the relays re-regulate (outage_results).
-    _run_case(net, case, load_scale, rating_ratio, regulate=True)
+    intact = _intact_breaches(net, case, _run_case(net, case, load_scale, rating_ratio, regulate=True))
     elements = n1_elements(net)
     violations: list[dict] = []
     for o in outage_results(net, case, load_scale, rating_ratio, elements):
@@ -757,6 +813,8 @@ def n1_screen(net, case: str = "winter_peak", rating_ratio: pd.Series | None = N
             continue
         # every element the outage breaches, each its own finding: a breach behind a worse one is a finding too
         for r in case_breaches(net, case, o.res["vm"], o.res["line_pct"], o.res["trafo_pct"]):
+            if _excused(r, intact):
+                continue
             msg = f"{o.kind} {o.eid} out: " + r.message + (" (post-fault, of its emergency rating)" if r.type == "trafo" else "")
             violations.append({**head, "type": r.type, "element_id": r.element_id, "value": r.value, "message": msg})
     # the screen leaves res_* from its last outage; callers re-solve for the intact state

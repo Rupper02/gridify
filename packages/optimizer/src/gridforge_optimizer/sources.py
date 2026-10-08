@@ -506,7 +506,8 @@ def validate_net(net) -> ValidationReport:
         if why is not None and why.type == "non_convergent":
             warnings.append(_non_convergence(net, why.message))
         elif why is not None and why.type != "gsp":
-            warnings.append(f"the base case already breaks a limit: {why.message}; every project would be deferred for it")
+            warnings.append(f"the base case already breaks a limit: {why.message}; a project is deferred for it only if it "
+                            "makes it worse, and every plan year reports it")
     if converged:  # the plan grows demand to its last year: a network can collapse there even if today's case solves
         from .network import apply_growth
         m_end = net["forecasts"]["ht"][PLAN_END_YEAR]

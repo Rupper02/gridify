@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import functools
 from typing import Any, Callable
 
 
 from .config import IMPORT_ONLY_TECHS, MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
 from .network import (
+    Baseline,
     plan_net,
     snapshot,
     _run_case,
@@ -14,6 +16,7 @@ from .network import (
     drop_project,
     feasibility,
     inject_project,
+    limit_baseline,
     n1_screen_cases,
     set_tap_positions,
     tap_positions,
@@ -91,6 +94,7 @@ class _Run:
         self.accepted_order: list[Candidate] = []
         self.last_reason: dict[str, Reason | None] = {}
         self.worst_line_at_accept: dict[str, float | None] = {}
+        self.n_inherited = 0  # how many of the accepted projects came from earlier phases (the phase's baseline has them)
 
     def _study_net(self, year: int, projects=()):
         """A fresh network grown to `year` with the simulated reinforcements applied and `projects` connected."""
@@ -124,13 +128,15 @@ class _Run:
             key=lambda c: (-self.rank_score(c), -c.readiness_score, c.rating_mw, c.request_id),
         )
 
-    def _trial(self, net, c: Candidate, phase_key: str, settled: bool) -> tuple[bool, Reason | None, float, bool]:
-        """Try one project on `net`: (accepted, reason, worst line %, whether a real solve ran).
+    def _trial(self, net, c: Candidate, phase_key: str, settled: bool,
+               baseline: Callable[[], Baseline]) -> tuple[bool, Reason | None, float, bool]:
+        """Try one project on `net`: (accepted, reason, worst line %, whether a real solve ran). Accepted when the
+        phase's projects together introduce or worsen no breach against `baseline()`, the phase's network before them.
 
-        The outcome is a function of (phase, what was accepted before it, the project, the
-        scenario), so it is looked up in the trial cache before solving. An accepted trial leaves its
-        generator and settled taps on the net; a rejected one leaves no trace."""
-        tkey = (phase_key, self.reinf_key, tuple(_sig(a) for a in self.accepted_order), _sig(c))
+        The outcome is a function of (phase, what was accepted before it and how much of that in earlier
+        phases, the project, the scenario), so it is looked up in the trial cache before solving. An accepted
+        trial leaves its generator and settled taps on the net; a rejected one leaves no trace."""
+        tkey = (phase_key, self.reinf_key, self.n_inherited, tuple(_sig(a) for a in self.accepted_order), _sig(c))
         hit = self.trial_cache.get(tkey) if self.trial_cache is not None else None
         if hit is not None and (settled or not hit[0]):
             ok, reason, max_line, taps_after = hit
@@ -141,7 +147,7 @@ class _Run:
 
         taps_before = tap_positions(net)
         ref = inject_project(net, c)
-        ok, reason, m = feasibility(net)
+        ok, reason, m = feasibility(net, baseline())
         max_line = round(m.get("max_line_pct", 0.0), 1)
         if ok:
             taps_after = tap_positions(net)
@@ -161,10 +167,21 @@ class _Run:
         settled = False  # taps are regulated by the first real solve of the phase
 
         todo = [c for c in self.ranked if c.request_id not in self.accepted_phase]
+        # what the phase's network breaches before this phase's trials (none of the plan's projects in the first phase;
+        # the earlier phases' accepted ones, committed by then, after it): this phase's projects are judged on what they
+        # add to it, together, so a pre-existing breach defers nobody and none of them can creep it up one tolerance at
+        # a time. Solved on the first trial that solves: a phase served wholly from the trial cache never builds it
+        inherited = list(self.accepted_order)
+        self.n_inherited = len(inherited)
+
+        @functools.cache
+        def baseline() -> Baseline:
+            return limit_baseline(self._study_net(int(phase_key), inherited))
+
         for i, c in enumerate(todo):
             self.report(f"phase {phase_key}: trial {i + 1}/{len(todo)}",
                         (phase_i + 0.1 + 0.7 * i / max(len(todo), 1)) / n_phases)
-            ok, reason, max_line, solved = self._trial(net, c, phase_key, settled)
+            ok, reason, max_line, solved = self._trial(net, c, phase_key, settled, baseline)
             settled = settled or solved
             if ok:
                 self.accepted_phase[c.request_id] = phase_num
@@ -255,8 +272,10 @@ def optimize(
     """Rank candidates by readiness + grid need + strategic fit, then connect them greedily.
 
     For each phase (2030, then 2035) demand is grown and every ranked project is trialled with a
-    power-flow feasibility check; it is accepted only if voltages and line/transformer loadings stay
-    within limits, else deferred with the binding constraint. Projects that failed intake triage are
+    power-flow feasibility check; it is accepted only if, together with the projects accepted before it
+    in the phase, it introduces or worsens no voltage, line, transformer or GSP breach against the phase's
+    network before them (the earlier phases' projects connected), else deferred with the binding
+    constraint. Projects that failed intake triage are
     appended as Rejected. Returns the ordered queue plus per-phase network results.
 
     `reinforcements` (optional) simulate network upgrades applied to every solved net — the

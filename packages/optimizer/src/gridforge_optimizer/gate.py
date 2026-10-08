@@ -28,16 +28,13 @@ from typing import NamedTuple
 
 from .config import (
     FORECASTS,
-    GATE_GSP_WORSEN_MW,
     GATE_NOISE,
-    GATE_VM_WORSEN_PU,
-    GATE_WORSEN_PTS,
     GSP_NEAR_LIMIT_FRACTION,
     LINE_LOADING_MAX_PCT,
     MERGE_GATE_LEVELS,
-    N1_ISLAND_MIN_MW,
     PLAN_YEARS,
     TRAFO_LOADING_MAX_PCT,
+    WORSEN_PTS,
 )
 from .diff import ConsequenceDiff, YearDelta, diff_results
 from .findings import (
@@ -57,7 +54,7 @@ from .findings import (
     work_id,
     year_id,
 )
-from .types import Alert, GateFinding, MergeVerdict, OptimizeResult, YearResult
+from .types import REASON_SPECS, Alert, GateFinding, MergeVerdict, OptimizeResult, YearResult
 
 
 
@@ -224,7 +221,7 @@ def _thermal(ctx: GateContext) -> list[GateFinding]:
                                     limit=limit, ledger=overload_id(table, eid, y)))
             for eid in sorted((h_over & b_over) - new):
                 bv, hv = bl[eid], hl[eid]
-                kind = "overload_worse" if hv - bv > GATE_WORSEN_PTS else "preexisting"
+                kind = "overload_worse" if REASON_SPECS[table].worse(hv, bv) else "preexisting"
                 text = (f"{label} {eid} is over its rating on {ctx.base_label} already ({bv:.0f}%) and loads "
                         f"{hv - bv:.0f} points more on this branch ({hv:.0f}%) in {y}." if kind == "overload_worse" else
                         f"{label} {eid} is over its rating on {ctx.base_label} in {y} ({bv:.0f}%); this branch leaves it at {hv:.0f}%.")
@@ -248,7 +245,7 @@ def _voltage(ctx: GateContext) -> list[GateFinding]:
             hv, bv = h.bus_vm.get(bus), b.bus_vm.get(bus)
             if hv is None or bv is None:
                 continue
-            worse = abs(hv - 1.0) - abs(bv - 1.0) > GATE_VM_WORSEN_PU
+            worse = REASON_SPECS["voltage"].worse(hv, bv)
             kind = "voltage_worse" if worse else "preexisting"
             text = (f"bus {bus} is outside its band on {ctx.base_label} ({bv:.3f} pu) and drifts further on this branch "
                     f"({hv:.3f} pu) in {y}." if worse else
@@ -272,7 +269,7 @@ def _gsp(ctx: GateContext) -> list[GateFinding]:
                                                   f"branch ({be:.0f} MW on {ctx.base_label}).",
                                 ledger=gsp_id("gsp_over_limit", y), **common))
         elif he > limit:
-            kind = "gsp_worse" if he - be > GATE_GSP_WORSEN_MW else "preexisting"
+            kind = "gsp_worse" if REASON_SPECS["gsp"].worse(he, be) else "preexisting"
             text = (f"GSP export is above its {limit:.0f} MW limit on {ctx.base_label} already ({be:.0f} MW) and this branch "
                     f"adds {he - be:.0f} MW ({he:.0f} MW) in {y}." if kind == "gsp_worse" else
                     f"GSP export is above its {limit:.0f} MW limit on {ctx.base_label} in {y} ({be:.0f} MW); this branch leaves it at {he:.0f} MW.")
@@ -286,16 +283,14 @@ def _gsp(ctx: GateContext) -> list[GateFinding]:
     return out
 
 
-# when the same N-1 finding (same outage, case and breached element) counts as WORSE on the branch, per kind of breach,
-# with the planning tolerances the intact checks use, and how its figure reads: (moved beyond the tolerance, figure)
-_N1_WORSE: dict[str, tuple[Callable[[float, float], bool], Callable[[float], str]]] = {
-    "line": (lambda h, b: h - b > GATE_WORSEN_PTS, lambda v: f"{v:.1f}%"),
-    "trafo": (lambda h, b: h - b > GATE_WORSEN_PTS, lambda v: f"{v:.1f}%"),
-    # further outside its band: further from 1.0 pu, in either direction (as `_voltage`)
-    "voltage": (lambda h, b: abs(h - 1.0) - abs(b - 1.0) > GATE_VM_WORSEN_PU, lambda v: f"{v:.3f} pu"),
-    "islanded": (lambda h, b: h - b > N1_ISLAND_MIN_MW, lambda v: f"{v:.1f} MW"),
-    # a collapse deeper: its lowest voltage lower (network.N1_COLLAPSE_VM_PU)
-    "collapse": (lambda h, b: b - h > GATE_VM_WORSEN_PU, lambda v: f"{v:.3f} pu"),
+# how an N-1 finding's figure reads, per kind of breach; when the same finding (same outage, case and breached element)
+# counts as WORSE on the branch is its kind's `REASON_SPECS[...].worse`, the tolerance the intact checks use
+_N1_FIGURE: dict[str, Callable[[float], str]] = {
+    "line": lambda v: f"{v:.1f}%",
+    "trafo": lambda v: f"{v:.1f}%",
+    "voltage": lambda v: f"{v:.3f} pu",
+    "islanded": lambda v: f"{v:.1f} MW",
+    "collapse": lambda v: f"{v:.3f} pu",
 }
 _N1_NEW_KIND = {"islanded": "n1_new_islanded", "collapse": "n1_new_collapse"}  # by the kind of breach; a limit otherwise
 _CASE_TEXT = {"winter_peak": "winter peak", "summer_min": "summer minimum"}  # the study cases as the gate names them
@@ -320,7 +315,7 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
     """New or worsened N-1 findings, each outage once per case: what one outage adds across the plan years is one gate
     item with its count, its years and the worst of them (the summer-minimum screen is not grown, so it repeats every
     year: an outage that breaches five elements in nine years is one blocker, not forty-five). Keyed by `findings.n1_key`,
-    never by the diff's capped lists; worse per kind of breach (`_N1_WORSE`), a smaller move is context, per year."""
+    never by the diff's capped lists; worse per kind of breach (`REASON_SPECS[...].worse`), a smaller move is context, per year."""
     new: dict[tuple, list[tuple[int, dict]]] = {}
     worse: dict[tuple, list[tuple[int, dict, dict]]] = {}
     out: list[GateFinding] = []
@@ -334,8 +329,8 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
         same = 0
         for k in sorted(hk.keys() & bk.keys(), key=str):
             hv, bv = hk[k].get("value"), bk[k].get("value")
-            is_worse, _figure = _N1_WORSE.get(hk[k].get("type"), (lambda h, b: False, str))
-            if hv is not None and bv is not None and is_worse(hv, bv):
+            spec = REASON_SPECS.get(hk[k].get("type"))
+            if hv is not None and bv is not None and spec is not None and spec.worse is not None and spec.worse(hv, bv):
                 v = hk[k]
                 worse.setdefault((v.get("outage_type"), str(v.get("outage_id")), v.get("case")), []).append((y, v, bk[k]))
             else:
@@ -356,7 +351,7 @@ def _n1(ctx: GateContext) -> list[GateFinding]:
     for (otype, oid, case), members in worse.items():
         years = sorted({y for y, _, _ in members})
         wy, wv, wb = max(members, key=lambda m: (_n1_badness(m[1]) - _n1_badness(m[2]), -m[0]))
-        _is_worse, figure = _N1_WORSE[wv.get("type")]
+        figure = _N1_FIGURE.get(wv.get("type"), str)
         n = len({n1_key(v) for _, v, _ in members})
         out.append(_finding("n1_worse", f"{otype} {oid} out at {_CASE_TEXT.get(case, case)}, {_years_text(years)}: {n} finding{'s' if n != 1 else ''} "
                                         f"worse than on {ctx.base_label}; worst: {_n1_detail(wv)} (now {figure(wv.get('value'))}, "
@@ -472,7 +467,7 @@ def _deferred(ctx: GateContext) -> list[GateFinding]:
 
 def _fault_levels(ctx: GateContext) -> list[GateFinding]:
     """A switchgear busbar whose projected fault level the branch pushes over its published rating in a year where the
-    parent's stays under (`fault_level_new`), or further over than the parent's by more than GATE_WORSEN_PTS
+    parent's stays under (`fault_level_new`), or further over than the parent's by more than WORSEN_PTS
     (`fault_level_worse`); the parent's own exceedances are context. Warnings: the screen is informational."""
     out: list[GateFinding] = []
     for y, b, h in ctx.common_years():
@@ -486,7 +481,7 @@ def _fault_levels(ctx: GateContext) -> list[GateFinding]:
             if bpct is None or bpct <= 100.0:
                 out.append(_finding("fault_level_new", f"{f.name}: the projected fault level reaches {f.utilisation_pct:.0f}% of its switchgear rating in {y} on this "
                                                        f"branch ({'not studied' if bpct is None else f'{bpct:.0f}%'} on {ctx.base_label}).", **common))
-            elif f.utilisation_pct - bpct > GATE_WORSEN_PTS:
+            elif f.utilisation_pct - bpct > WORSEN_PTS:
                 out.append(_finding("fault_level_worse", f"{f.name}: the fault level is over its switchgear rating on {ctx.base_label} already ({bpct:.0f}%) and this "
                                                          f"branch takes it to {f.utilisation_pct:.0f}% in {y}.", **common))
             else:
