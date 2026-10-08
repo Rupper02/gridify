@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
+import { HOSTING_IDLE, type HostingState } from "../../lib/capacity";
 import { DEFAULT_VISIBLE, type FeatureKey, loadVisible } from "../../lib/mapFeatures";
 import { INITIAL_DRAFT, type MaintDraft } from "../../lib/maintenance";
 import type { Plan } from "../../lib/plan";
@@ -110,6 +111,7 @@ export interface PlannerState {
   findings: Finding[]; // the active branch's findings ledger
   limits: Limits | null; // what limits the active branch: the engine's reduction of its last run (null until read)
   limitsError: string | null; // why it could not be read (the Limits tab offers a Retry)
+  hosting: HostingState; // the room to connect at each substation today (the Capacity tab, the Headroom layer)
   // the agents
   agents: AgentsStatus | null; // the project's agents: starting, idle, running or paused; polled
   agentRuns: AgentRun[]; // the project's agent runs, newest first (read while the Review tab shows: the note's "writing" line)
@@ -142,7 +144,7 @@ export const EMPTY_CHAT: ChatState = { open: false, input: "", busy: false };
 
 /** What belongs to one branch's view: reset on every switch (select, open, merge, discard, a project switch). */
 export const BRANCH_FRESH: Partial<PlannerState> = {
-  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null, note: null, thread: null, trace: [], study: null, sel: null,
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null, hosting: HOSTING_IDLE, note: null, thread: null, trace: [], study: null, sel: null,
   outages: [], reinforcements: [], candidates: [], chat: EMPTY_CHAT,
 };
 
@@ -152,7 +154,7 @@ export const INITIAL: PlannerState = {
   branches: [], activeBranch: "", menuOpen: false,
   outages: [], reinforcements: [], candidates: [], added: {},
   result: null, resultAt: "", run: RUN_IDLE, editedAt: 0,
-  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null,
+  diff: null, diffMode: false, diffError: null, mergeCheck: null, gateError: null, findings: [], limits: null, limitsError: null, hosting: HOSTING_IDLE,
   agents: null, agentRuns: [], threads: [], thread: null, trace: [], note: null, study: null,
   tab: "ask", sideOpen: true, dockFolded: false, leftFolded: false, findingsFocus: null, layer: "flow", visible: [...DEFAULT_VISIBLE], showMenuOpen: false, showDeferred: false, legendOpen: false, showBoundary: false,
   year: 0, sel: null, // set from the plan at boot; nothing shows a year before then

@@ -133,7 +133,9 @@ The contracts between the harness and the models. Change them by proposal, not b
   - Every engine result is read through `ResultCache.through` (in-process dict → durable table → compute), and the merge
     gate's freshness is `ResultCache.has` on those same keys (`PlanService.freshness`): never derive it from timestamps.
   - Studies (`PlanService.study`) are cached the same way under `study:<kind>` with the study's parameters in the key, so
-    a chunk (a study with its own parameters) caches on its own.
+    a chunk (a study with its own parameters) caches on its own. A study of the network alone (`needs_plan` false:
+    hosting capacity) is keyed without the candidates, the profile or the schedule (`PlanService.study_key`), so
+    branches with the same reinforcements share it; `study(..., solve=False)` (the route's `?cached=true`) only reads.
   - The payload's `run_key` is the plan-years key: the identity a note or an agent event refers to. Agent steps store
     the cache key of what they ran; `EvidenceLedger.replay` re-reads it and flags `stale` when the engine has changed.
 - **Agent work is DBOS workflows** (`agents/workflows.py`): bounded by `config.AGENT_RUN_BUDGET`, idempotent by workflow

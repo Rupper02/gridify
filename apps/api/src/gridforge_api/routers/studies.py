@@ -28,9 +28,10 @@ def study_catalogue() -> dict:
 
 
 @router.post("/branches/{branch_id}/studies/{kind}")
-def start_study(branch_id: str, kind: str, params: dict | None = None) -> dict:
+def start_study(branch_id: str, kind: str, params: dict | None = None, cached: bool = False) -> dict:
     """Run a study on a branch's plan as a background job (poll GET /jobs/{id}); the result is a
-    `StudyResult`, cached by the branch's inputs and the parameters. 404 unknown branch or study,
+    `StudyResult`, cached by the branch's inputs and the parameters. `?cached=1` answers with the cached
+    `StudyResult` itself and never solves (409 `not_solved` until the study has run). 404 unknown branch or study,
     422 bad parameters or a plan-reading study on a branch that has not run."""
     if kind not in STUDIES:
         raise HTTPException(status_code=404, detail=f"study '{kind}' is not in the catalogue: {', '.join(STUDIES)}")
@@ -40,6 +41,8 @@ def start_study(branch_id: str, kind: str, params: dict | None = None) -> dict:
         p = STUDIES[kind].params_model.model_validate(params or {})
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors()) from None
+    if cached:
+        return plans.study(branch_id, kind, p, solve=False).model_dump()
     if STUDIES[kind].needs_plan and not plans.freshness(branch_id).fresh:
         raise HTTPException(status_code=422, detail=f"{kind} reads the plan years: run the branch first")
     return jobs.start("study", lambda progress, _publish: plans.study(branch_id, kind, p, progress=progress).model_dump())

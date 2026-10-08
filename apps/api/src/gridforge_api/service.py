@@ -422,13 +422,17 @@ class PlanService:
     # --- studies (the agents' tools and POST /branches/{id}/studies/{kind}) --------------------------------------------
     def study_key(self, branch_id: str, kind: str, p) -> str:
         """The cache key of a study on a branch: the branch's inputs, the study's parameters, and the plan
-        years' key for the studies that read them (what an agent's recorded step points at)."""
+        years' key for the studies that read them (what an agent's recorded step points at). A study of the network
+        alone (no plan) reads neither the branch's projects nor its demand profile, so every branch with the same
+        reinforcements shares it."""
         b = self.inputs(branch_id)
-        extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}" + (f"|{years_key(b)}" if STUDIES[kind].needs_plan else "")
-        return self.cache.key(f"study:{kind}", self.params(b.req, b.project_id), b.ckey, b.baseline, extra=extra)
+        extra = f"{reinf_key(b.reinforcements)}|{p.model_dump_json()}"
+        if STUDIES[kind].needs_plan:
+            return self.cache.key(f"study:{kind}", self.params(b.req, b.project_id), b.ckey, b.baseline, extra=f"{extra}|{years_key(b)}")
+        return self.cache.key(f"study:{kind}", OptimizeParams(), "", b.baseline, extra=extra)
 
     def study(self, branch_id: str, kind: str, params=None, progress=None, *, chunked: bool = False, hold=nullcontext,
-              context: StudyContext | None = None) -> StudyResult:
+              context: StudyContext | None = None, solve: bool = True) -> StudyResult:
         """Run one study from `studies.STUDIES` on a branch's plan: its reinforced network, and its result with
         the plan years for the studies that read them. Cached like everything else, under the branch's inputs
         and the study's parameters, so an agent asking twice costs one solve. `chunked` runs the study's
@@ -436,7 +440,7 @@ class PlanService:
         after a crash recomputes only the parts that are not in the cache) and stores the merged result
         under the whole study's key. `hold` wraps every solve (the agents pass `SolverGate.hold`, so an
         operator's job gets the solver between chunks, not after the whole study): the plan the study reads is solved
-        once, inside it, and handed to every chunk (`context`)."""
+        once, inside it, and handed to every chunk (`context`). `solve=False` only reads the cache (`NotSolved` on a miss)."""
         spec = STUDIES[kind]
         p = params if params is not None and not isinstance(params, dict) else spec.params_model.model_validate(params or {})
         b = self.inputs(branch_id)
@@ -471,7 +475,7 @@ class PlanService:
         # a gated study takes the solver through its gate, per solve: the cache must not hold it while the gate waits
         return self.cache.through(self.study_key(branch_id, kind, p), f"study:{kind}", baseline=b.baseline,
                                   parse=StudyResult.model_validate_json, compute=compute, dump=lambda r: r.model_dump_json(),
-                                  locked=not gated)
+                                  locked=not gated, solve=solve)
 
     # --- the payload the planner renders -------------------------------------------------------------------
     def _enrich(self, result: OptimizeResult, branch_id: str, b: BranchInputs) -> dict:

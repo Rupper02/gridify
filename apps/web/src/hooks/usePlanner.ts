@@ -14,6 +14,7 @@ import { useAgents } from "./planner/useAgents";
 import { useAsk } from "./planner/useAsk";
 import { useBranchFlows } from "./planner/useBranchFlows";
 import { useBranchList } from "./planner/useBranchList";
+import { useCapacity } from "./planner/useCapacity";
 import { useDerived } from "./planner/useDerived";
 import { useView } from "./planner/useView";
 import { useLimits } from "./planner/useLimits";
@@ -44,6 +45,7 @@ export function usePlanner() {
   const maint = useMaintenance(core, edited);
   const flows = useBranchFlows(core, run, refreshBranches, maint.loadExtras, edited);
   const limits = useLimits(core);
+  const capacity = useCapacity(core, s);
   const agents = useAgents(core, s.projectId);
   const ask = useAsk(core, run, refreshBranches, maint.loadExtras, edited, flows.afterRebase);
   afterRunRef.current = (bid: string) => {
@@ -70,6 +72,7 @@ export function usePlanner() {
       ...maint,
       ...mapView,
       ...limits,
+      ...capacity,
       ...agents,
       ...ask,
       ...projects,
@@ -85,7 +88,7 @@ export function usePlanner() {
     // each hook's callbacks are stable; the objects holding them are not, so depend on the callbacks
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [addRegistryProject, core.toastMsg, focusSel, loadRegistry, run, select, selectProject, setSchedule, setControl, ...Object.values(view),
-      ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(limits), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
+      ...Object.values(flows), ...Object.values(maint), ...Object.values(mapView), ...Object.values(limits), ...Object.values(capacity), ...Object.values(agents), ...Object.values(ask), ...Object.values(projects)],
   );
 
   return { s, actions, derived, mapApi };

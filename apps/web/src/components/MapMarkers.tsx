@@ -7,6 +7,8 @@ import type { CSSProperties, ReactNode } from "react";
 import type { PlannerSlice } from "../hooks/planner/slice";
 import { type FeatureKey, lineFeature, shows } from "../lib/mapFeatures";
 import { effYearOf, isAccepted, outageSel, outageStudyOf, trafoRatio, trafoSub } from "../lib/derive";
+import { NEED, needOf, needYear, roomColor, roomText } from "../lib/capacity";
+import { fromText } from "../lib/limits";
 import { VERDICTS, outageTag, verdictColor } from "../lib/maintenance";
 import { type MapDelta, deltaTag, diffColor } from "../lib/diff";
 import {
@@ -24,6 +26,7 @@ import {
   overlaps,
   subLabelBox,
   substationSites,
+  tagBox,
   worstTrafoPerSite,
 } from "../lib/placement";
 import { C, ST, loadColor } from "../theme";
@@ -33,7 +36,7 @@ import { TechIcon } from "./ui";
 export type MapMarkersPlanner = PlannerSlice<
   "diff" | "diffMode" | "layer" | "model" | "outages" | "result" | "sel" | "showDeferred" | "visible" | "year",
   "select",
-  "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "tiers" | "yr"
+  "bindIx" | "branchOnly" | "diffDeltas" | "hue" | "ix" | "onMain" | "prelim" | "q" | "rooms" | "tiers" | "yr"
 >;
 
 interface MarkerItem {
@@ -57,6 +60,7 @@ export function MapMarkers({ planner, project, tick, width, height, top }: { pla
   const sel = s.sel;
   const inView = (x: number, y: number) => x > -60 && y > top + 12 && x < width + 60 && y < height + 30;
   const on = (k: FeatureKey) => shows(s.visible, k);
+  const headroom = s.layer === "headroom" && !diffOn;
   const lineOn = (id: number) => {
     const l = ix.line.get(id);
     return !!l && on(lineFeature(l.voltage_kv, derived.tiers));
@@ -125,10 +129,19 @@ export function MapMarkers({ planner, project, tick, width, height, top }: { pla
     if (boxes.some((o) => overlaps(box, o))) return null;
     boxes.push(box);
     const v = s.layer === "voltage" ? yr?.bus_vm?.[e.hv] : undefined;
+    const room = headroom ? derived.rooms.get(name) : undefined;
     return (
       <div key={`s${name}`} className="sub-label" style={{ left: x, top: y }}>
         <b>{name}</b>
-        <span>{v != null ? `${v.toFixed(3)} pu` : [...e.ratios].join(" · ")}</span>
+        {room ? (
+          <span title="Room to connect today: generation at summer minimum, demand at winter peak">
+            {room.gen && <>gen <b style={{ color: roomColor(room.gen.mw) }}>{roomText(room.gen)}</b></>}
+            {room.gen && room.dem && " · "}
+            {room.dem && <>dem <b style={{ color: roomColor(room.dem.mw) }}>{roomText(room.dem)}</b></>} MW
+          </span>
+        ) : (
+          <span>{v != null ? `${v.toFixed(3)} pu` : [...e.ratios].join(" · ")}</span>
+        )}
       </div>
     );
   });
@@ -168,10 +181,36 @@ export function MapMarkers({ planner, project, tick, width, height, top }: { pla
         </span>,
       );
     });
+  } else if (headroom) {
+    // every element that breaches or comes near its limit, tagged with the year it first does; the
+    // earliest wins where tags would overlap (the rest are in the Capacity tab's timeline)
+    const placed: Box[] = [];
+    [...derived.bindIx.values()]
+      .map((b) => ({ b, n: needOf(b, s.year), year: needYear(b) }))
+      .filter((x) => x.n !== "holds" && x.year != null)
+      .sort((x, y) => x.year! - y.year! || (x.b.first_breach_year == null ? 1 : 0) - (y.b.first_breach_year == null ? 1 : 0))
+      .forEach(({ b, n, year }) => {
+        const l = b.kind === "line" && lineOn(b.element_id) ? ix.line.get(b.element_id) : undefined;
+        const t = b.kind === "trafo" && on("transformers") ? ix.trafo.get(b.element_id) : undefined;
+        const bus = b.kind === "bus" && on("buses") ? ix.bus.get(b.element_id) : undefined;
+        const at = l ? project(...midpoint(l)) : t ? project(t.hv_lon, t.hv_lat) : bus ? project(bus.lon, bus.lat) : null;
+        if (!at || !inView(at[0], at[1])) return;
+        const text = `${t ? "T " : bus ? "V " : ""}${year}`;
+        const y = at[1] + (t ? TRAFO_TAG_DY : 0);
+        const box = tagBox(at[0], y, text);
+        if (placed.some((o) => overlaps(box, o))) return;
+        placed.push(box);
+        const c = NEED[n].c;
+        tagEls.push(
+          <span key={`n${b.kind}${b.element_id}`} className="line-tag" style={{ left: at[0], top: y, borderColor: c, color: c }} title={`${b.name}: ${fromText(b)}`}>
+            {text}
+          </span>,
+        );
+      });
   }
   // transformers: the most loaded one at each substation, tagged above its icon (loading layer, or
   // whenever one is over 100 %)
-  if (yr && !diffOn && on("transformers")) {
+  if (yr && !diffOn && !headroom && on("transformers")) {
     worstTrafoPerSite(yr.trafo_loading ?? {}, ix, s.layer === "loading").forEach((v) => {
       const pt = project(v.lon, v.lat);
       if (!pt || !inView(pt[0], pt[1])) return;

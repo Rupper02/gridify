@@ -2,12 +2,13 @@
 // Show menu (which kinds of element the map draws, lib/mapFeatures.ts), the legend and
 // zoom (+ / − / FIT), and the diff-mode banner.
 
-import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, Lightning, Minus, Plus, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
+import { ArrowRight, CaretDown, CaretUp, Crosshair, Eye, Gauge, GitDiff, Lightning, Minus, Plus, PlugsConnected, Users, WaveSine, Wrench, X } from "@phosphor-icons/react";
 
 import { useEffect, useRef } from "react";
 
 import type { PlannerSlice } from "../hooks/planner/slice";
 import type { Layout } from "../lib/layout";
+import { NEED, type Need, ROOM_KEY } from "../lib/capacity";
 import { REGION_STATE } from "../lib/demand";
 import { DEFAULT_VISIBLE, FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, featureLabel, shows } from "../lib/mapFeatures";
 import { C, tint } from "../theme";
@@ -25,6 +26,7 @@ const LAYERS: [MapLayer, string, typeof WaveSine][] = [
   ["loading", "Loading", Gauge],
   ["voltage", "Voltage", Lightning],
   ["demand", "Demand", Users],
+  ["headroom", "Headroom", PlugsConnected],
 ];
 
 /** The map's layers, in the header: the layer in view and the Show menu (which also holds the Deferred switch). */
@@ -119,7 +121,7 @@ function ShowMenu({ planner, wide }: { planner: LayerTogglePlanner; wide: boolea
   );
 }
 
-export type MapCornerPlanner = PlannerSlice<"legendOpen", "toggleLegend" | "zoomFit" | "zoomIn" | "zoomOut", "hue" | "tiers">;
+export type MapCornerPlanner = PlannerSlice<"layer" | "legendOpen", "toggleLegend" | "zoomFit" | "zoomIn" | "zoomOut", "hue" | "tiers">;
 
 const LEGEND_TECH: [Tech, string][] = [
   ["solar", "Solar PV"], ["wind", "Wind"], ["battery", "Battery"], ["hybrid", "Solar + battery"],
@@ -168,6 +170,18 @@ export function MapCorner({ planner, layout }: { planner: MapCornerPlanner; layo
               Demand region: breach · warn · ok
             </span>
           </div>
+          {s.layer === "headroom" && (
+            <div className="grid">
+              {(Object.keys(NEED) as Need[]).map((k) => (
+                <span key={k}><span style={{ width: 14, height: 3, borderRadius: 2, background: NEED[k].c }} />{NEED[k].label}</span>
+              ))}
+              <span><span className="mono" style={{ fontSize: 10, padding: "0 4px", borderRadius: 999, border: `1px solid ${C.amber}`, color: C.amber }}>2033</span>First year over (or near) its limit</span>
+              <span>
+                {ROOM_KEY.map(([c]) => <span key={c} style={{ width: 9, height: 9, borderRadius: 2, background: c }} />)}
+                Room to connect today: {ROOM_KEY.map(([, l]) => l).join(" · ")}
+              </span>
+            </div>
+          )}
           <div className="foot">
             <span><span style={{ width: 9, height: 9, borderRadius: 2, background: C.phase1 }} />Phase 1</span>
             <span><span style={{ width: 9, height: 9, borderRadius: 2, background: C.phase2 }} />Phase 2</span>

@@ -1,8 +1,8 @@
-// The collapsible side panel (keyboard `]`): Ask / Queue / Outages / Limits / Review as a pill
+// The collapsible side panel (keyboard `]`): Ask / Queue / Outages / Limits / Capacity / Review as a pill
 // segmented control, the active tab's body, and the toasts (a short stack: successive messages all get read). The
 // tabs are a registry: adding one is one entry here (its label, icon, badge and body) plus its key in the `Tab` union.
 
-import { CheckCircle, ChatCircleDots, Gauge, GitDiff, type Icon, ListNumbers, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
+import { CheckCircle, ChatCircleDots, Gauge, GitDiff, type Icon, ListNumbers, PlugsConnected, SidebarSimple, Warning, Wrench } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 import type { Toast } from "../hooks/planner/core";
@@ -12,6 +12,7 @@ import { limitsBadge } from "../lib/limits";
 import { C } from "../theme";
 import type { Tab } from "../types";
 import { AskTab, type AskTabPlanner } from "./AskTab";
+import { CapacityTab, type CapacityTabPlanner } from "./CapacityTab";
 import { LimitsTab, type LimitsTabPlanner } from "./LimitsTab";
 import { OutagesTab, type OutagesTabPlanner } from "./OutagesTab";
 import { QueueTab, type QueueTabPlanner } from "./QueueTab";
@@ -22,6 +23,7 @@ export type SidePanelPlanner = PlannerSlice<"outages" | "sideOpen" | "tab" | "to
   QueueTabPlanner &
   OutagesTabPlanner &
   LimitsTabPlanner &
+  CapacityTabPlanner &
   ReviewTabPlanner;
 
 interface TabSpec {
@@ -43,6 +45,7 @@ const TABS: Record<Tab, TabSpec> = {
   outages: { label: "Outages", icon: Wrench, badge: (p) => (p.s.outages.length ? String(p.s.outages.length) : ""), render: (p) => <OutagesTab planner={p} /> },
   // the elements over a limit, else the projects deferred: the two things the engine's reduction of the run puts first
   limits: { label: "Limits", icon: Gauge, badge: (p) => limitsBadge(p.s.limits), render: (p) => <LimitsTab planner={p} /> },
+  capacity: { label: "Capacity", icon: PlugsConnected, badge: () => "", render: (p) => <CapacityTab planner={p} /> },
   review: { label: "Review", icon: GitDiff, badge: () => "", render: (p) => <ReviewTab planner={p} /> },
 };
 

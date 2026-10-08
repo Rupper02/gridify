@@ -34,6 +34,12 @@ export const fanOffset = (n: number): number => (n % 2 ? 1 : -1) * Math.ceil(n /
 /** A project marker's box: its tile and its id to the right. */
 export const markerBox = (x: number, y: number, id: string): Box => [x - 13, y - 14, x + 13 + id.length * ID_CHAR_PX + 6, y + 14];
 
+/** A tag's box, centred on its point. */
+export const tagBox = (x: number, y: number, text: string): Box => {
+  const half = (text.length * ID_CHAR_PX + 12) / 2;
+  return [x - half, y - 9, x + half, y + 9];
+};
+
 /** A substation name's box, right of its point. */
 export const subLabelBox = (x: number, y: number, name: string): Box => [x, y - 12, x + Math.max(name.length * SUB_CHAR_PX, SUB_MIN_W), y + 12];
 

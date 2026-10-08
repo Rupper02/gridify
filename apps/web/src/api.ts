@@ -30,6 +30,7 @@ import type {
   RegistryItem,
   RunNote,
   StepEvidence,
+  StudyResult,
   Thread,
   ThreadView,
   TraceEvent,
@@ -255,6 +256,19 @@ export const api = {
   setFindingStatus: (findingId: string, status: FindingStatus, note = "") => postJson<Finding>(`/findings/${findingId}/ack`, { status, note }),
   /** What limits the branch: the engine's own reduction of its run (409 `not_solved` until it has run for what it holds). */
   branchLimits: (id: string) => getJson<Limits>(`/branches/${id}/limits`),
+  /** A study on the branch as the cache holds it (409 `not_solved` until it has run): never solves. */
+  cachedStudy: (id: string, kind: string, params: object) => postJson<StudyResult>(`/branches/${id}/studies/${kind}?cached=true`, params),
+  /** Run a study on the branch as a background job, reporting the job's stage and fraction until it is done. */
+  runStudy: async (id: string, kind: string, params: object, onProgress: (stage: string, fraction: number) => void): Promise<StudyResult> => {
+    let job = await postJson<Job<StudyResult>>(`/branches/${id}/studies/${kind}`, params);
+    while (job.status === "queued" || job.status === "running") {
+      onProgress(job.stage, job.fraction);
+      await new Promise((r) => setTimeout(r, job.status === "queued" ? POLL_QUEUED_MS : POLL_RUNNING_MS));
+      job = await getJson<Job<StudyResult>>(`/jobs/${job.job_id}`);
+    }
+    if (job.status !== "done" || !job.result) throw new Error(job.error ?? `the ${kind} study failed`);
+    return job.result;
+  },
   /** The engineer's note on the branch's run: null until it is written, or once the run has moved on. */
   branchNote: async (id: string) => (await getJson<{ branch_id: string; note: RunNote | null }>(`/branches/${id}/note`)).note,
 

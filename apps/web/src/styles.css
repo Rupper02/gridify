@@ -502,6 +502,10 @@ input { font-family: inherit; }
 .lrow .chips { grid-column: 2 / -1; }
 .chip.kind { background: rgba(255, 255, 255, 0.08); color: var(--mute); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
 .chip.hold { background: rgba(255, 195, 107, 0.14); color: var(--amber-ink); font-size: 10.5px; font-family: var(--mono); }
+/* Capacity: the reinforcement timeline, one group per plan year (a past year's head dims as the slider passes it) */
+.need-year { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px solid rgba(255, 255, 255, 0.1); }
+.need-year-head { font-size: 11.5px; font-weight: 700; color: var(--ink-2); letter-spacing: 0.02em; }
+.need-year-head.past { color: var(--mute-2); }
 .chain-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--well); border: 1px solid rgba(255, 195, 107, 0.3); }
 .lstudy { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
 .link-btn { all: unset; cursor: pointer; color: var(--accent); }

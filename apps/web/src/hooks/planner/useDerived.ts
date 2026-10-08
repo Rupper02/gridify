@@ -12,6 +12,7 @@ import {
   yearResultFor,
   parentName,
 } from "../../lib/derive";
+import { type SiteRoom, bindingIndex, siteRooms } from "../../lib/capacity";
 import { type DiffMap, diffMapFor, yearDeltaFor } from "../../lib/diff";
 import { sectionsByStatus } from "../../lib/findings";
 import { gateState } from "../../lib/gate";
@@ -65,6 +66,9 @@ export function useDerived(s: PlannerState) {
 
   // the ledger folded across plan years, per status: the Limits tab's findings fold reads it
   const findingSections = useMemo(() => sectionsByStatus(s.findings), [s.findings]);
+  // the binding set by element, and the room at each substation: the Headroom layer and the Capacity tab read them
+  const bindIx = useMemo(() => bindingIndex(s.limits), [s.limits]);
+  const rooms = useMemo(() => (s.model ? siteRooms(s.model, s.hosting.export, s.hosting.import) : new Map<string, SiteRoom>()), [s.model, s.hosting.export, s.hosting.import]);
 
   const year = useMemo(() => {
     const { yr, exact } = yearResultFor(s.result, s.year);
@@ -77,5 +81,5 @@ export function useDerived(s: PlannerState) {
     return { yr, exact, outLines, yearDelta, diffDeltas };
   }, [s.diff, s.diffMode, s.outages, s.result, s.year]);
 
-  return { ix, tiers, ...view, ...year, findingSections };
+  return { ix, tiers, ...view, ...year, findingSections, bindIx, rooms };
 }

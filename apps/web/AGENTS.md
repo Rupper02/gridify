@@ -8,6 +8,7 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
 - `src/hooks/usePlanner.ts` composes the hooks in `src/hooks/planner/`: `core`, `slice`, `useRun`, `useBranchFlows`,
   `useBranchList`, `useRegistry`, `useSelection`, `useProjectEdits`, `useMaintenance` (planned works, reinforcements and
   the branch's stored projects: `loadExtras`), `useLimits` (what limits the branch, and the findings ledger behind it),
+  `useCapacity` (the room to connect: the hosting-capacity study read from the cache, measured only on request),
   `useAgents` (the agents' status poll, the pause switch, the engineer's note on the branch's run, the evidence drawer),
   `useAsk` (the planner's one conversation: a streamed reply that can be stopped,
   suggested questions, approvals and what each approved proposal refreshes), `useProjects` (the boot, the project switch,
@@ -19,7 +20,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   what an approved proposal refreshes), `plan` (the plan's years and phases, from `GET /forecasts`: never write a plan
   year in the planner), `runStages`, `layout`, `geo`, `icons`, `gate` (the merge gate's state for the
   buttons, finding titles, grouping and map targets), `limits` (what limits a branch: the badge, the summary line, a
-  binding element's figures and sparkline points, map targets), `trace` (a reply's events folded into text and stage
+  binding element's figures and sparkline points, map targets), `capacity` (when each element needs reinforcement, its
+  need colour in a year, the lever in words, the room to connect per substation), `trace` (a reply's events folded into text and stage
   chips, each stage as the API tagged it, the evidence line, the note's state), `placement` (where the map's markers, labels and
   tags go: fan-out, collision boxes, thresholds, `midpoint`), `projects` (`mainIdOf`: the project's plan-of-record
   branch, `DEFAULT_PROJECT_ID`, capability chips, the import report's lines, the known-limit fields), `reasons.ts` (the
@@ -29,7 +31,8 @@ Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs
   stamp carries *What the model assumes* and the synthetic-layout note), `MapView`, `MapMarkers`, `MapControls`,
   `DetailCards`, `Roadmap`, `SidePanel` (a typed `TABS` registry) → `AskTab` (the picker: *Ask anything*, suggested
   questions, conversations; the chat with its trace chips, Stop and approval cards) / `QueueTab` / `OutagesTab` /
-  `LimitsTab` (what limits the branch; the findings ledger, `FindingsLedger`, folded under it) / `ReviewTab` (merge
+  `LimitsTab` (what limits the branch; the findings ledger, `FindingsLedger`, folded under it) / `CapacityTab` (the
+  reinforcement timeline and the room to connect) / `ReviewTab` (merge
   readiness, then the engineer's note on the run),
   `StudyDrawer` (the study behind a cited step), `RunOverlay`, `ui`.
 - `MapView.tsx` owns MapLibre (CARTO dark basemap). Icons come from `@phosphor-icons/react`. The planner is live-only

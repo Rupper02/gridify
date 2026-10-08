@@ -4,7 +4,8 @@
 import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
 import { C, loadColor, voltColor } from "../theme";
-import type { MapLayer, Model, Sel, YearResult } from "../types";
+import type { ElementBinding, MapLayer, Model, Sel, YearResult } from "../types";
+import { NEED, bindingKey, needOf } from "./capacity";
 import { regionFeatures } from "./demand";
 import { type DiffMap, diffColor } from "./diff";
 import { type FeatureKey, type LineTier, type LineTiers, lineFeature, shows, tierOf } from "./mapFeatures";
@@ -26,6 +27,9 @@ export interface GeoInputs {
   visible: readonly FeatureKey[];
   /** The grid's own line voltages in tiers: what is drawn heavy, medium and thin. */
   tiers: LineTiers;
+  /** The binding set by element (lib/capacity.bindingIndex) and the viewed year: the Headroom layer's colours. */
+  bindIx: Map<string, ElementBinding>;
+  year: number;
 }
 
 export interface Geo {
@@ -68,6 +72,9 @@ export function buildGeo(g: GeoInputs): Geo {
   const ll = yr?.line_loading ?? {};
   const over = new Set(yr?.overloaded_line_ids ?? []);
   const vv = new Set(yr?.voltage_violation_bus_ids ?? []);
+  // the Headroom layer: every element by when it needs reinforcement, the ones that hold dimmed so the rest stand out
+  const headroom = layer === "headroom" && !diffDeltas;
+  const need = (kind: string, id: number) => needOf(g.bindIx.get(bindingKey(kind, id)), g.year);
 
   const lines: Feature[] = mLines.map((l) => {
     const id = l.line_id;
@@ -78,9 +85,11 @@ export function buildGeo(g: GeoInputs): Geo {
     const isOut = g.outLines.has(id);
     let color = base.c;
     if (layer === "loading" && pct != null) color = loadColor(pct);
+    const n = headroom && !isTie ? need("line", id) : null;
+    if (n) color = NEED[n].c;
     if (isOver) color = C.red;
     const dl = diffDeltas?.lines.get(id);
-    let op = layer === "voltage" || layer === "demand" ? 0.45 : 0.92;
+    let op = layer === "voltage" || layer === "demand" ? 0.45 : n === "holds" ? 0.5 : 0.92;
     if (diffDeltas) {
       color = dl ? diffColor(dl) : C.dimmed;
       op = dl ? 1 : 0.5;
@@ -112,11 +121,13 @@ export function buildGeo(g: GeoInputs): Geo {
       const [lo, hi] = [b.vmin_pu, b.vmax_pu]; // the engine's band for this bus
       const vMode = layer === "voltage";
       const style = BUS_STYLE[tierOf(b.vn_kv, tiers)];
+      const n = headroom ? need("bus", b.bus_id) : null;
+      const bound = n != null && n !== "holds"; // a busbar that holds keeps its own colour: the circuits carry the picture
       return pt(b.lon, b.lat, {
         id: b.bus_id,
-        r: vMode ? style.rVolt : style.r,
-        color: vMode ? voltColor(v, lo, hi) : style.c,
-        ring: vMode && vv.has(b.bus_id) ? 1 : 0,
+        r: vMode || bound ? style.rVolt : style.r,
+        color: vMode ? voltColor(v, lo, hi) : bound ? NEED[n].c : style.c,
+        ring: (vMode && vv.has(b.bus_id)) || n === "now" ? 1 : 0,
       });
     });
 
@@ -131,13 +142,14 @@ export function buildGeo(g: GeoInputs): Geo {
   const trafos: Feature[] = (on("transformers") ? m.transformers : []).map((t) => {
     const pct = tl[t.trafo_id] ?? null;
     const dt = diffDeltas?.trafos.get(t.trafo_id);
+    const n = headroom ? need("trafo", t.trafo_id) : null;
     return pt(t.hv_lon, t.hv_lat, {
       id: t.trafo_id,
       sel: sel?.kind === "trafo" && sel.id === t.trafo_id ? 1 : 0,
       pct: pct ?? 0,
-      ring: diffDeltas ? (dt ? 1 : 0) : pct != null && (layer === "loading" || pct > 100) ? 1 : 0,
+      ring: diffDeltas ? (dt ? 1 : 0) : n || (pct != null && (layer === "loading" || pct > 100)) ? 1 : 0,
       over: pct != null && pct > 100 ? 1 : 0,
-      ringColor: dt ? diffColor(dt) : loadColor(pct),
+      ringColor: dt ? diffColor(dt) : n ? NEED[n].c : loadColor(pct),
     });
   });
   // the existing connected fleet: teal circles sized by √MW, on main and every branch

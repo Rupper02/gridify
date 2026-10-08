@@ -9,7 +9,8 @@ import type { Core, FindingsFocus } from "./core";
 export function useView({ patch, mapApi }: Core) {
   return useMemo(
     () => ({
-      setTab: (tab: Tab) => patch({ tab, sideOpen: true }),
+      /** Open a tab; the Capacity tab brings the map's Headroom layer with it (its figures are that layer's). */
+      setTab: (tab: Tab) => patch({ tab, sideOpen: true, ...(tab === "capacity" ? { layer: "headroom" as const } : {}) }),
       /** Open the Limits tab with its findings ledger unfolded on a group (the tab expands it once, then clears the focus). */
       showLimits: (focus: FindingsFocus | null = null) => patch({ tab: "limits", sideOpen: true, findingsFocus: focus }),  // no focus: the tab as it stands, binding set first
       clearFindingsFocus: () => patch({ findingsFocus: null }),

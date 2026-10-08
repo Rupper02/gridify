@@ -627,8 +627,8 @@ export type Sel =
   | { kind: "region"; id: string };
 /** The network elements (the element card): not a project, not a demand region. */
 export type ElementSel = Exclude<Sel, { kind: "project" } | { kind: "region" }>;
-export type Tab = "ask" | "queue" | "outages" | "limits" | "review";
-export type MapLayer = "flow" | "loading" | "voltage" | "demand";
+export type Tab = "ask" | "queue" | "outages" | "limits" | "capacity" | "review";
+export type MapLayer = "flow" | "loading" | "voltage" | "demand" | "headroom";
 
 /** A background engine run (POST /branches/{id}/optimize/jobs, GET /jobs/{id}). */
 export interface Job<R = OptimizeResult> {
