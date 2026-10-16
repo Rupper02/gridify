@@ -1,5 +1,5 @@
 // Design tokens the TypeScript side needs (colours on the map and in data-driven styles); the CSS
-// side lives in styles.css under the same names. GridForge Glass: one interactive accent (arc
+// side lives in styles.css under the same names. Gridify Glass: one interactive accent (arc
 // cyan), the limit colours, and a hue per branch.
 
 import type { Tech } from "./types";

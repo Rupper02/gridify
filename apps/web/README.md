@@ -1,6 +1,6 @@
-# GridForge web
+# Gridify web
 
-The planner ("GridForge Glass", designed in `docs/design/gridforge-glass/`): a single-page **Vite + React 19 + TypeScript** app around a full-bleed MapLibre map, with floating panels on top. It talks to the FastAPI service in `apps/api` and has no server of its own.
+The planner ("Gridify Glass", designed in `docs/design/gridify-glass/`): a single-page **Vite + React 19 + TypeScript** app around a full-bleed MapLibre map, with floating panels on top. It talks to the FastAPI service in `apps/api` and has no server of its own.
 
 | Path | Role |
 |---|---|
@@ -22,7 +22,7 @@ The planner ("GridForge Glass", designed in `docs/design/gridforge-glass/`): a s
 - **Compare** (a branch only) reads `GET /branches/{id}/diff` after every run: new and cleared breaches per year, the biggest loading movers, and the map coloured by the change in loading. Merge and Discard live there.
 
 ```bash
-pnpm --filter web dev        # http://localhost:3000  (needs the API: pnpm --filter @gridforge/api dev)
+pnpm --filter web dev        # http://localhost:3000  (needs the API: pnpm --filter @gridify/api dev)
 pnpm --filter web build      # tsc --noEmit + vite build -> dist/
 ```
 

@@ -1,4 +1,4 @@
-"""gridforge_optimizer: the deterministic grid engine.
+"""gridify_optimizer: the deterministic grid engine.
 
 `simulate(connections, params)` builds the network for every plan year (demand grown to the year, the connections
 energised by then), solves it in both study cases with AC power flow and reports every loading, voltage and breach;

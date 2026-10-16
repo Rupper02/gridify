@@ -7,7 +7,7 @@ Dagster. Read the root `AGENTS.md` first; this file adds what is specific to the
 
 - `defs/nged.py` (group `ltds`): `ltds_tables` (pinned snapshot, passed INTO the builder) → `nged_model_canonical` +
   `nged_connection_queue` + `ltds_edition_changes` → 3 asset checks → `served_nged` → DuckDB warehouse
-  `apps/pipeline/warehouse/gridforge.duckdb` with an append-only `snapshots` history.
+  `apps/pipeline/warehouse/gridify.duckdb` with an append-only `snapshots` history.
 - `defs/registers.py` (group `registers`): scheduled fetches of the ECR (monthly) and OSM coords (quarterly) into
   append-only edition tables + `ecr_changes`; `pin_*` assets promote an edition into the bundled snapshot (manual).
 - Warehouse writers carry a retry policy (DuckDB = one writer).
@@ -26,12 +26,12 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_reg
 
 ## Data refresh
 
-- Bundled snapshots live in `packages/optimizer/src/gridforge_optimizer/data/nged/` (LTDS tables, `ecr.json`,
+- Bundled snapshots live in `packages/optimizer/src/gridify_optimizer/data/nged/` (LTDS tables, `ecr.json`,
   `coords.csv`) and are the pinned edition the engine runs on.
 - Live fetches are Dagster assets in `defs/registers.py` (ECR via CKAN, OSM via Overpass) that store editions in the
   warehouse and diff them; `pin_ecr_edition` / `pin_osm_coords` promote the latest edition into the bundled files; `pin_nged_published` fetches the LTDS fault-level table and the DFES projections straight into them.
 - After pinning: re-materialise `ltds_tables*`, review the git diff of the bundled file, commit.
-- Every builder entry point in `gridforge_optimizer.nged` takes `tables=` (and `edition=` current/previous); the pipeline
+- Every builder entry point in `gridify_optimizer.nged` takes `tables=` (and `edition=` current/previous); the pipeline
   passes its bronze tables through so lineage is real.
 - The ECR fetch drops the customer-name, address, postcode and MPAN/MSID columns (`ECR_KEEP`); `customer_site` is kept as
   published and can name a property (root `AGENTS.md` Domain rule 5).

@@ -4,7 +4,7 @@ Two external registers change on their own clock, so they are fetched on a sched
 append-only EDITIONS in the warehouse (one row per fetch whose content differs from the last) and
 diffed edition-to-edition. Nothing here touches the model the engine runs on: that stays pinned
 to the bundled snapshot until someone runs the `pin_*` assets, which promote the latest edition
-into `gridforge_optimizer/data/nged/` (a reviewable, committable change).
+into `gridify_optimizer/data/nged/` (a reviewable, committable change).
 
   ecr_register_fetch  ->  ecr_editions  ->  ecr_changes        (monthly: NGED republishes the ECR)
   osm_substations_fetch  ->  coords_editions                   (quarterly: positions rarely move)
@@ -28,8 +28,8 @@ import dagster as dg
 import duckdb
 
 from grid_simulator.config import DB_PATH
-from gridforge_optimizer.editions import diff_ecr_editions, ecr_site_key
-from gridforge_optimizer.nged import (
+from gridify_optimizer.editions import diff_ecr_editions, ecr_site_key
+from gridify_optimizer.nged import (
     BUNDLED_DATA_DIR,
     DFES_POWER_RESOURCE_ID,
     LTDS_FAULT_RESOURCE_ID,
@@ -41,7 +41,7 @@ from gridforge_optimizer.nged import (
 )
 
 # who is asking, honestly: NGED's portal refuses Python's default agent (403) but serves a named one
-UA = "gridforge/0.2 (grid planning research)"
+UA = "gridify/0.2 (grid planning research)"
 CKAN = "https://connecteddata.nationalgrid.co.uk/api/3/action/"
 ECR_RESOURCE_ID = "82a4ae83-77a3-4e7b-9060-8072ed96de9d"
 ECR_GSP = "Bicker Fen 132Kv S Stn"

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import TypeVar
 
-from gridforge_optimizer import Connection, PlanParams
+from gridify_optimizer import Connection, PlanParams
 
 from .config import log, now
 from .errors import NotSolved

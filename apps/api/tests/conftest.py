@@ -6,7 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
-os.environ.setdefault("GRIDFORGE_SCENARIOS_DB", str(Path(tempfile.mkdtemp()) / "scenarios.duckdb"))
+os.environ.setdefault("GRIDIFY_SCENARIOS_DB", str(Path(tempfile.mkdtemp()) / "scenarios.duckdb"))
 
 import pytest
 

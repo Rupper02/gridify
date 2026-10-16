@@ -1,4 +1,4 @@
-"""The grid GridForge plans on: NGED Bicker Fen, read from the pipeline's warehouse so the lineage is real.
+"""The grid Gridify plans on: NGED Bicker Fen, read from the pipeline's warehouse so the lineage is real.
 
 `Grid` is the one place the API reads a network through: the `GridSource`, the model for the map, the bus ids a
 connection is checked against, the boundary card, the demand pathways, the registry of not-yet-built projects and
@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import threading
 
-from gridforge_optimizer import GridModel, ModelAssumption
-from gridforge_optimizer.config import FORECASTS
-from gridforge_optimizer.naming import name_model
-from gridforge_optimizer.network import band_at, build_base_net
-from gridforge_optimizer.nged import gsp_boundary
-from gridforge_optimizer.sources import NgedSource, Pathway
+from gridify_optimizer import GridModel, ModelAssumption
+from gridify_optimizer.config import FORECASTS
+from gridify_optimizer.naming import name_model
+from gridify_optimizer.network import band_at, build_base_net
+from gridify_optimizer.nged import gsp_boundary
+from gridify_optimizer.sources import NgedSource, Pathway
 
 from .warehouse import Warehouse
 

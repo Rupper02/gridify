@@ -4,7 +4,7 @@ the job path, the diff, and "main changes only by merging".
 Grid-agnostic: bus ids and years come from the live /model and the plan config, and no test asserts what a connection
 does to the grid. The tests that merge into main come last: main is shared state."""
 
-from gridforge_optimizer.years import PLAN_YEARS
+from gridify_optimizer.years import PLAN_YEARS
 
 from _support import add_connection, branch, client, connection, create_branch, requires_warehouse, run, wait_job
 

@@ -1,6 +1,6 @@
-"""GridForge API.
+"""Gridify API.
 
-Serves the grid GridForge plans on (NGED Bicker Fen, read-only from the pipeline's DuckDB warehouse) and simulates its
+Serves the grid Gridify plans on (NGED Bicker Fen, read-only from the pipeline's DuckDB warehouse) and simulates its
 branches through the plan years. Everything a user does is stored in a separate scenarios DB, so the pipeline
 baseline is never mutated.
 
@@ -50,7 +50,7 @@ async def _lifespan(_app: FastAPI):
     jobs.shutdown()
 
 
-app = FastAPI(title="GridForge API", lifespan=_lifespan)
+app = FastAPI(title="Gridify API", lifespan=_lifespan)
 
 SLOW_REQUEST_S = 0.5  # a request slower than this is logged: the planner feels it as a stall
 

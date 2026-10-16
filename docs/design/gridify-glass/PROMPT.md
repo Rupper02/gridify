@@ -1,16 +1,16 @@
 # Initial prompt for the coding agent
 
-Paste this into Claude Code from the root of the gridforge repo, after copying this folder to `docs/design/gridforge-glass/`.
+Paste this into Claude Code from the root of the gridify repo, after copying this folder to `docs/design/gridify-glass/`.
 
 ---
 
-You are implementing a redesign of the GridForge planner UI in `apps/web` (Vite + React + TypeScript + MapLibre). The design package is in `docs/design/gridforge-glass/`.
+You are implementing a redesign of the Gridify planner UI in `apps/web` (Vite + React + TypeScript + MapLibre). The design package is in `docs/design/gridify-glass/`.
 
 **Read first, in this order:**
 1. `AGENTS.md` and the root `README.md`. Their rules still apply: `main` is only what exists today, the LLM never computes physics, and honesty over fake precision.
-2. `docs/design/gridforge-glass/README.md`: the full spec (layout, tokens, every screen, state, behaviour).
-3. `docs/design/gridforge-glass/screenshots/`: what it should look like.
-4. Open `GridForge Glass v2.dc.html` and `GridForge Components.dc.html` in a browser to click through the behaviour. They are **HTML design references, not code to copy**. All numbers in them are sample data.
+2. `docs/design/gridify-glass/README.md`: the full spec (layout, tokens, every screen, state, behaviour).
+3. `docs/design/gridify-glass/screenshots/`: what it should look like.
+4. Open `Gridify Glass v2.dc.html` and `Gridify Components.dc.html` in a browser to click through the behaviour. They are **HTML design references, not code to copy**. All numbers in them are sample data.
 
 **What to build:** recreate the design inside the existing app, reusing `usePlanner` and its slices, `api.ts`, `lib/derive.ts`, `lib/geo.ts` and `lib/icons.ts`. Wire every figure to the real API: optimize jobs, branches, registry, schedule, diff and suggestions. Where the API doesn't support something yet, add a clearly marked stub and list it for me rather than inventing data. That covers the three demand profiles, all-years results, maintenance windows and new technologies.
 

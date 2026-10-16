@@ -26,7 +26,7 @@ class JobRunner:
     """Queue `fn(progress)` on one worker (pandapower is CPU-bound: one run at a time) and track it."""
 
     def __init__(self, solver_lock: threading.RLock | None = None):
-        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-job")
+        self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridify-job")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
         # pandapower is CPU-bound and its nets are not shared across threads: every power flow in the

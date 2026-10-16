@@ -2,8 +2,8 @@
 
 import pytest
 
-from gridforge_optimizer.config import MAX_CONNECTION_MW
-from gridforge_optimizer.nged import GSP_PEAK_DEMAND_MW, _ctx, _substation, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
+from gridify_optimizer.config import MAX_CONNECTION_MW
+from gridify_optimizer.nged import GSP_PEAK_DEMAND_MW, _ctx, _substation, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
 
 
 def _live(rows, col):

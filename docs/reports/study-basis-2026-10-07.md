@@ -1,6 +1,6 @@
-# Study basis: what the standards and the DNOs do, and what GridForge does
+# Study basis: what the standards and the DNOs do, and what Gridify does
 
-> **Note (2026-10-16):** the fault-level screen, the N-1 screen and the demand-side checks this report describes were removed when GridForge was stripped to its power-flow backbone; the study basis (the two cases) stands.
+> **Note (2026-10-16):** the fault-level screen, the N-1 screen and the demand-side checks this report describes were removed when Gridify was stripped to its power-flow backbone; the study basis (the two cases) stands.
 
 *7 October 2026. Sources read in full where the host allowed an automated fetch (NESO, Ofgem, Electricity North West, SSEN's curtailment note, NGED's open-data portal). SP Energy Networks, SSEN's plan pages and NGED's document pages block automated fetches; the ENA's own P2/8 and EREP 130 texts are behind a login, so those rest on Ofgem's decision documents.*
 
@@ -22,7 +22,7 @@ This note exists so the engine's study basis is defensible to a DNO reader, and 
 - Generation headroom: "reverse power thermal assessments which consider the network when all DG is operating when our customers are consuming the least amount at the time of minimum demand", plus a fault-level headroom per technology (inverter, synchronous, battery).
 - Security credit for generation: "An allowance for the contribution of local generation to security of supply is modelled following EREC P2/8 ... typically significantly less than the sum of the generators' rated capacity values."
 
-**GridForge**: winter peak (grown demand, intermittent generation at nil, batteries charging) and summer minimum (measured minimum demand, everything at full output), plus the GSP export limit. This is the SQSS's pair of interface conditions and the DNOs' pair of headroom studies. No generation is credited towards firm capacity (conservative against EREP 130).
+**Gridify**: winter peak (grown demand, intermittent generation at nil, batteries charging) and summer minimum (measured minimum demand, everything at full output), plus the GSP export limit. This is the SQSS's pair of interface conditions and the DNOs' pair of headroom studies. No generation is credited towards firm capacity (conservative against EREP 130).
 
 ## 2. Minimum demand over the years
 
@@ -31,7 +31,7 @@ This note exists so the engine's study basis is defensible to a DNO reader, and 
 - ENWL's Technical Limits curtailment forecast builds the year from "Previous year HH observed flow" and adds contracted generation on top: the demand baseline is last year's observation, not a grown figure.
 - NESO's Summer Outlook 2025 expects transmission demand to fall below the 2020 lockdown record because of embedded solar.
 
-**GridForge**: the summer minimum is each load's LTDS factor × its maximum, held flat over the plan years. The moving part of the export problem is the generation connected, which the queue and the branches model. Scaling the summer minimum with peak growth has no basis in these sources.
+**Gridify**: the summer minimum is each load's LTDS factor × its maximum, held flat over the plan years. The moving part of the export problem is the generation connected, which the queue and the branches model. Scaling the summer minimum with peak growth has no basis in these sources.
 
 ## 3. What generation to assume at minimum demand
 
@@ -41,14 +41,14 @@ This note exists so the engine's study basis is defensible to a DNO reader, and 
 | SSEN Technical Limits (curtailment) | 1.0 in summer, 0.8 spring and autumn, 0.2 winter, 10:00 to 16:00 | full export | export 06 to 10 and 18 to 21, import 23 to 06 | full export all day and season |
 | ESO factors as ENWL applies them (curtailment) | 0.84 at summer minimum with solar at its maximum, 0.33 with solar at its minimum, 0.2 at winter peak | 0.5 / 0.1 / 0.7 | 1 | waste and CHP 0.85, hydro 0, other 0.3 |
 
-**GridForge**: full output, the headroom test. The ESO factors are the recognised softer view for an expected-flow or curtailment estimate; they would be a third, informational case, not a replacement of the verdict.
+**Gridify**: full output, the headroom test. The ESO factors are the recognised softer view for an expected-flow or curtailment estimate; they would be a third, informational case, not a replacement of the verdict.
 
 ## 4. Fault level
 
 - Ofgem's Form of LTDS, Table 4 *Fault Level Information*: system impedance (R, X, % on 100 MVA), existing system fault currents (peak make, rms break, kA) and the rating (make, break, kA), "for nodes with switchgear installed"; "Calculated fault currents should include all relevant contributions from synchronous and induction machines as well as other parts of the distribution network and other connected networks"; the method must describe "the application of engineering recommendation G74".
 - NGED publishes Table 4 (resource `3bd0243c-71dd-4cdd-9ca9-57e6eb79d61f`): 268 rows for the Bicker Fen group, 47 busbars at 132, 33, 25 and 11 kV, with NGED's own make and break currents and the published ratings. Make ratings are 38.25 kA at 132 kV and 32.75 kA at 33 and 11 kV on most rows; break ratings are published on 159 of 268 rows. On several busbars the published current already sits above the published rating (Skegness 33 kV, 19.1 kA break against 13.1; Sleaford 33 kV, 15.8 against 11.4; Bicker Fen 132 kV, 14.1 against 10.0): reported as published, flagged as a data caveat, never silently corrected.
 
-**GridForge**: a fault-level screen is the one DNO check the engine lacked; it is built in this pass as an informational study (IEC 60909 via pandapower, the transmission infeed from the published 132 kV system impedance, inverter generation as current sources, synchronous generation by a stated sub-transient reactance), validated against NGED's own Table 4 currents and reported with its headroom per busbar.
+**Gridify**: a fault-level screen is the one DNO check the engine lacked; it is built in this pass as an informational study (IEC 60909 via pandapower, the transmission infeed from the published 132 kV system impedance, inverter generation as current sources, synchronous generation by a stated sub-transient reactance), validated against NGED's own Table 4 currents and reported with its headroom per busbar.
 
 ## 5. Forecasts
 
@@ -56,7 +56,7 @@ This note exists so the engine's study basis is defensible to a DNO reader, and 
 - NGED publishes DFES 2025 *Power Projections* per Electricity Supply Area (one per primary) and scenario (Counterfactual, Holistic Transition, Electric Engagement, Hydrogen Evolution), winter peak MW for every year 2025 to 2040 then 2045 and 2050. Summed over Bicker Fen's 21 primaries (non-coincident): Holistic Transition ×1.21 by 2030 and ×1.82 by 2035 on 2026; Counterfactual ×1.10 and ×1.31; Electric Engagement ×1.22 and ×1.79; Hydrogen Evolution ×1.18 and ×1.73.
 - The GB-level FES multipliers the engine used until now (×1.08 by 2030, ×1.35 by 2035) sit at the DFES Counterfactual, and the per-bus shape was a seeded heuristic.
 
-**GridForge**: the four demand profiles become NGED's four DFES scenarios per primary; the seeded per-bus shape goes. Loads with no supply area (customer connections, the BSP aggregates) follow the LTDS five-year forecast, then hold.
+**Gridify**: the four demand profiles become NGED's four DFES scenarios per primary; the seeded per-bus shape goes. Loads with no supply area (customer connections, the BSP aggregates) follow the LTDS five-year forecast, then hold.
 
 ## 6. Observed flows (NGED half-hourly series, 2024, Bicker Fen)
 
@@ -78,7 +78,7 @@ The demand side matches the observation almost exactly. The export side is the p
 - California ICA: 576 hourly profiles (a peak and a minimum day per month), results with reverse flow allowed to the substation busbar and with none; FERC's small-generator process adds a 100 % of minimum load screen.
 - ENWL: IPSA for 132 and 33 kV, a bespoke tool for HV and LV.
 
-**GridForge**: the same two snapshots per year, an N-1 screen with post-fault re-regulation and emergency ratings, a binding set with the limiting element and the violated constraint. Time series would only be needed for a curtailment estimate.
+**Gridify**: the same two snapshots per year, an N-1 screen with post-fault re-regulation and emergency ratings, a binding set with the limiting element and the violated constraint. Time series would only be needed for a curtailment estimate.
 
 ## Decisions taken in this pass
 

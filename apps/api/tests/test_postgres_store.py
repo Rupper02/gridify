@@ -1,7 +1,7 @@
 """The scenarios store on Postgres: the same API, the same SQL, a different engine.
 
-Runs only when GRIDFORGE_TEST_PG_URL points at a Postgres database the test may write to, e.g.
-    GRIDFORGE_TEST_PG_URL=postgresql://gridforge@127.0.0.1:5499/gridforge_test
+Runs only when GRIDIFY_TEST_PG_URL points at a Postgres database the test may write to, e.g.
+    GRIDIFY_TEST_PG_URL=postgresql://gridify@127.0.0.1:5499/gridify_test
 """
 
 import os
@@ -9,12 +9,12 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
-from gridforge_api import deps, main
+from gridify_api import deps, main
 from _support import connection, requires_warehouse
 
-PG_URL = os.getenv("GRIDFORGE_TEST_PG_URL")
+PG_URL = os.getenv("GRIDIFY_TEST_PG_URL")
 pytestmark = [
-    pytest.mark.skipif(not PG_URL, reason="set GRIDFORGE_TEST_PG_URL to a writable Postgres database"),
+    pytest.mark.skipif(not PG_URL, reason="set GRIDIFY_TEST_PG_URL to a writable Postgres database"),
     requires_warehouse,
 ]
 

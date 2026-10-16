@@ -1,5 +1,5 @@
 {
-  "name": "@gridforge/optimizer",
+  "name": "@gridify/optimizer",
   "private": true,
   "scripts": {
     "test": "uv run pytest -q",

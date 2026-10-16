@@ -3,8 +3,8 @@ consistent with those flags, and the ECR diff is keyed on a site's published ide
 
 import pytest
 
-from gridforge_optimizer.editions import change_rows, diff_ecr_editions, edition_changeset, status_counts
-from gridforge_optimizer.nged import (
+from gridify_optimizer.editions import change_rows, diff_ecr_editions, edition_changeset, status_counts
+from gridify_optimizer.nged import (
     EDITION_CURRENT,
     EDITION_PREVIOUS,
     build_nged_net,

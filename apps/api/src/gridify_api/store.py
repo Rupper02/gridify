@@ -12,7 +12,7 @@ from pathlib import Path
 
 import duckdb
 
-from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_START_YEAR
+from gridify_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_START_YEAR
 
 from .config import MAIN_ID, now
 

@@ -3,8 +3,8 @@ of not-yet-built projects."""
 
 from fastapi import APIRouter
 
-from gridforge_optimizer import PLAN_YEARS
-from gridforge_optimizer.config import DEFAULT_SCENARIO, IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
+from gridify_optimizer import PLAN_YEARS
+from gridify_optimizer.config import DEFAULT_SCENARIO, IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
 
 from ..deps import grid, scenarios, warehouse
 

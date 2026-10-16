@@ -1,10 +1,10 @@
-# AGENTS.md — GridForge
+# AGENTS.md — Gridify
 
 Guidance for AI coding agents (and humans) working in this monorepo. Read it before you change anything.
 
 ## What this is
 
-GridForge is, today, a **grid planning backbone**: a real distribution network, AC power flow through the plan years, and
+Gridify is, today, a **grid planning backbone**: a real distribution network, AC power flow through the plan years, and
 branches to try changes on. The loop:
 
 1. **`main` is the network as it exists today**, built from open data (NGED's Bicker Fen 132 kV GSP, Lincolnshire).
@@ -36,10 +36,10 @@ Each package has its own `AGENTS.md`; the one closest to the file you edit adds 
 
 | Path | What it is | Guidance |
 |---|---|---|
-| `packages/optimizer` (`gridforge_optimizer`) | The engine and **the single source of truth**: the network build, the physics, the plan years, the comparison, element names, editions, the CIM export, where a grid comes from (`sources.py`), the pydantic contract and every tunable | `packages/optimizer/AGENTS.md` |
+| `packages/optimizer` (`gridify_optimizer`) | The engine and **the single source of truth**: the network build, the physics, the plan years, the comparison, element names, editions, the CIM export, where a grid comes from (`sources.py`), the pydantic contract and every tunable | `packages/optimizer/AGENTS.md` |
 | `apps/pipeline` (`grid_simulator`) | Dagster: the pinned LTDS snapshot into the DuckDB warehouse, the ECR and OSM register fetches, pinning | `apps/pipeline/AGENTS.md` |
-| `apps/api` (`gridforge_api`) | FastAPI on :8000: the grid, branches and their connections, runs as jobs, the result cache, the comparison | `apps/api/AGENTS.md` |
-| `apps/web` | The planner: Vite + React 19 + TypeScript, "GridForge Glass" | `apps/web/AGENTS.md` |
+| `apps/api` (`gridify_api`) | FastAPI on :8000: the grid, branches and their connections, runs as jobs, the result cache, the comparison | `apps/api/AGENTS.md` |
+| `apps/web` | The planner: Vite + React 19 + TypeScript, "Gridify Glass" | `apps/web/AGENTS.md` |
 
 Both Python apps consume `packages/optimizer` as an editable uv path dependency. Never duplicate network-building or
 physics logic in the pipeline, the API or the client; import it from the engine.
@@ -57,7 +57,7 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_ta
 # never select 'pin_*' unless you mean to replace the pinned snapshot in packages/optimizer/.../data/nged/
 
 # run (two terminals, repo root)
-pnpm --filter @gridforge/api dev                  # http://localhost:8000
+pnpm --filter @gridify/api dev                  # http://localhost:8000
 pnpm --filter web dev                             # http://localhost:3000
 
 pnpm test                                         # everything, via Turborepo

@@ -2,8 +2,8 @@
 
 from pydantic import BaseModel, Field
 
-from gridforge_optimizer import Control
-from gridforge_optimizer.config import MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
+from gridify_optimizer import Control
+from gridify_optimizer.config import MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
 
 _YEAR = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
 

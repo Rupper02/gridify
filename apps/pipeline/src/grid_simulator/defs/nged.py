@@ -5,7 +5,7 @@ coordinates) -> canonical model + project registry + the LTDS edition change-set
 (power flow converges, referential integrity, single connected network) -> served to the DuckDB
 warehouse with an append-only snapshot history.
 
-The bronze tables are passed INTO the shared `gridforge_optimizer.nged` builder, so the Dagster
+The bronze tables are passed INTO the shared `gridify_optimizer.nged` builder, so the Dagster
 lineage is the real data path: change a row in `ltds_tables` and every downstream asset sees it.
 The engine's `build_base_net()` runs the same builder on the same bundled snapshot, so the warehouse
 the map reads and the network the engine solves cannot drift apart.
@@ -21,11 +21,11 @@ import networkx as nx
 import pandas as pd
 
 from grid_simulator.config import DB_PATH
-from gridforge_optimizer.cim import write_cgmes_zip
-from gridforge_optimizer.config import MAX_CONNECTION_MW
-from gridforge_optimizer.editions import edition_changeset
-from gridforge_optimizer.network import feasibility, voltage_limits
-from gridforge_optimizer.nged import (
+from gridify_optimizer.cim import write_cgmes_zip
+from gridify_optimizer.config import MAX_CONNECTION_MW
+from gridify_optimizer.editions import edition_changeset
+from gridify_optimizer.network import feasibility, voltage_limits
+from gridify_optimizer.nged import (
     NGED_CGMES_META,
     TABLE_NAMES,
     build_nged_net,
@@ -70,7 +70,7 @@ def ltds_tables(context: dg.AssetExecutionContext) -> dict:
         "sources": dg.MetadataValue.md(
             "NGED Connected Data Portal (CKAN): LTDS tabular model, Embedded Capacity Register "
             "(resource 82a4ae83-77a3-4e7b-9060-8072ed96de9d); OpenStreetMap substations (ODbL). "
-            "Pinned snapshot in `gridforge_optimizer/data/nged/`; refreshed by the `registers` assets."
+            "Pinned snapshot in `gridify_optimizer/data/nged/`; refreshed by the `registers` assets."
         ),
     })
     return tables
@@ -194,14 +194,14 @@ def single_connected_network(nged_model_canonical: dict) -> dg.AssetCheckResult:
 @dg.asset(group_name="ltds", kinds={"xml"})
 def nged_model_cgmes(context: dg.AssetExecutionContext, ltds_tables: dict, nged_model_canonical: dict) -> dg.MaterializeResult:
     """Today's network as a CGMES 2.4.15 exchange (EQ/TP/SSH/GL in one zip), written next to the
-    warehouse as `exports/GridForge_<edition>_CGMES.zip`. Deterministic: the same edition gives the
+    warehouse as `exports/Gridify_<edition>_CGMES.zip`. Deterministic: the same edition gives the
     same bytes, so two exports can be diffed like any other versioned artefact."""
     edition = tables_hash(ltds_tables)
     net = build_nged_net(ltds_tables)
     feasibility(net)  # settle the tap changers
     out_dir = DB_PATH.parent / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"GridForge_{edition}_CGMES.zip"
+    path = out_dir / f"Gridify_{edition}_CGMES.zip"
     sizes = write_cgmes_zip(path, net, nged_model_canonical, edition, meta=NGED_CGMES_META)
     return dg.MaterializeResult(metadata={"path": str(path), "ltds_edition": edition,
                                           **{k: v for k, v in sizes.items()}, "zip_bytes": path.stat().st_size})

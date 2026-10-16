@@ -1,5 +1,5 @@
 {
-  "name": "@gridforge/pipeline",
+  "name": "@gridify/pipeline",
   "private": true,
   "scripts": {
     "dev": "uv run dg dev",

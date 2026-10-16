@@ -6,10 +6,10 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from gridforge_optimizer.config import PLAN_START_YEAR
+from gridify_optimizer.config import PLAN_START_YEAR
 
-from gridforge_api.config import WAREHOUSE
-from gridforge_api.main import app
+from gridify_api.config import WAREHOUSE
+from gridify_api.main import app
 
 requires_warehouse = pytest.mark.skipif(not WAREHOUSE.exists(), reason="pipeline warehouse DB not materialized")
 

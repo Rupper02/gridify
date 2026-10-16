@@ -1,4 +1,4 @@
-// The API's shapes, as the planner reads them (gridforge_optimizer.types and the API's payloads).
+// The API's shapes, as the planner reads them (gridify_optimizer.types and the API's payloads).
 
 // ---- the grid ---------------------------------------------------------------------------------
 export interface Bus {

@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from _grid import stiff_bus
-from gridforge_optimizer.config import GENERATION_FACTORS, OLTC_DEADBAND_PU, OLTC_SETPOINT_PU
-from gridforge_optimizer.network import (
+from gridify_optimizer.config import GENERATION_FACTORS, OLTC_DEADBAND_PU, OLTC_SETPOINT_PU
+from gridify_optimizer.network import (
     case_breaches,
     _oltc_trafos,
     _run_case,

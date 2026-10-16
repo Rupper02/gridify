@@ -1,6 +1,6 @@
 # AGENTS.md — apps/web (the planner)
 
-Vite + React 19 + TypeScript single-page planner, "GridForge Glass" (spec: `docs/design/gridforge-glass/`). Read the root
+Vite + React 19 + TypeScript single-page planner, "Gridify Glass" (spec: `docs/design/gridify-glass/`). Read the root
 `AGENTS.md` first; this file adds what is specific to the planner. The file-by-file spec is `apps/web/README.md`.
 
 ## Conventions

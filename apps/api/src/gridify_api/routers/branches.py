@@ -3,7 +3,7 @@ and discard."""
 
 from fastapi import APIRouter
 
-from gridforge_optimizer.config import FORECASTS
+from gridify_optimizer.config import FORECASTS
 
 from .. import repository
 from ..config import now

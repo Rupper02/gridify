@@ -1,8 +1,8 @@
-# GridForge
+# Gridify
 
 **A grid planning backbone: a real UK distribution network, AC power flow through the plan years, and branches to try changes on.**
 
-GridForge models one real Grid Supply Point, **Bicker Fen 132 kV, Lincolnshire**, operated by National Grid Electricity Distribution (NGED), built entirely from open data. `main` is the network **as it exists today**. You open a branch, connect generation, storage or demand at a busbar and choose the year it energises, and the engine solves every plan year (2026 to 2035) with AC power flow in the two planning cases a DNO studies. Every year reports each line's and transformer's loading, every busbar's voltage, the GSP's export, and every limit breached, with its element, figure and case. You compare the branch with its parent year by year and merge it, or throw it away.
+Gridify models one real Grid Supply Point, **Bicker Fen 132 kV, Lincolnshire**, operated by National Grid Electricity Distribution (NGED), built entirely from open data. `main` is the network **as it exists today**. You open a branch, connect generation, storage or demand at a busbar and choose the year it energises, and the engine solves every plan year (2026 to 2035) with AC power flow in the two planning cases a DNO studies. Every year reports each line's and transformer's loading, every busbar's voltage, the GSP's export, and every limit breached, with its element, figure and case. You compare the branch with its parent year by year and merge it, or throw it away.
 
 The physics is deterministic and reproducible (pandapower). There is no AI in the product today: this repository is the backbone the next layer (learned demand and generation profiles, analysis) will be built on.
 
@@ -39,7 +39,7 @@ The physics is deterministic and reproducible (pandapower). There is no AI in th
 
 ## The network and the data
 
-All inputs are public. Each source is fetched by a script and bundled under `packages/optimizer/src/gridforge_optimizer/data/nged/`. [Sources and assumptions](#sources-and-assumptions) lists every figure the engine uses and where it comes from.
+All inputs are public. Each source is fetched by a script and bundled under `packages/optimizer/src/gridify_optimizer/data/nged/`. [Sources and assumptions](#sources-and-assumptions) lists every figure the engine uses and where it comes from.
 
 | Data | Source | Used for |
 |---|---|---|
@@ -52,7 +52,7 @@ All inputs are public. Each source is fetched by a script and bundled under `pac
 
 NGED's own substation-location datasets are access-restricted, which is why positions come from OpenStreetMap.
 
-**Building today's network** (`gridforge_optimizer/nged.py`):
+**Building today's network** (`gridify_optimizer/nged.py`):
 - Rows the LTDS marks **Removed** are dropped. The LTDS flags every row against NGED's previous edition, and a replaced transformer appears once as *Removed* and once as *New*.
 - Switches and zero-impedance links are merged into single buses.
 - Impedances are converted from %Z on a 100 MVA base.
@@ -107,13 +107,13 @@ Engine details: [`packages/optimizer/README.md`](packages/optimizer/README.md).
 
 ```
 apps/pipeline   Dagster: the pinned LTDS / ECR / OSM / DFES snapshot -> the DuckDB warehouse (read-only for the API)
-packages/optimizer   gridforge_optimizer: the network build (nged.py), the physics (network.py), the plan years (years.py), the comparison (diff.py)
+packages/optimizer   gridify_optimizer: the network build (nged.py), the physics (network.py), the plan years (years.py), the comparison (diff.py)
 apps/api        FastAPI on :8000: the grid, branches and their connections, runs as background jobs, the result cache, the comparison
 apps/web        Vite + React + TypeScript planner on :3000: the map, the readings, the timeline, the side panel
 ```
 
 - The engine is the single source of truth for the physics; the API and the planner never duplicate it.
-- The API keeps everything a user does in its own scenarios store (DuckDB by default, Postgres with `GRIDFORGE_SCENARIOS_URL`), never in the warehouse.
+- The API keeps everything a user does in its own scenarios store (DuckDB by default, Postgres with `GRIDIFY_SCENARIOS_URL`), never in the warehouse.
 - Every result is cached under the grid's snapshot, the demand profile, the connections and the engine's code fingerprint, in process and durably; plan years are cached one by one, so an edit re-solves only the years it changes.
 - One power flow runs at a time in the API process (one job worker and one solver lock).
 
@@ -158,7 +158,7 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_ta
 cd ../..
 
 # run the app: two terminals, from the repo root
-pnpm --filter @gridforge/api dev               # API on http://localhost:8000
+pnpm --filter @gridify/api dev               # API on http://localhost:8000
 pnpm --filter web dev                          # planner on http://localhost:3000
 ```
 
@@ -166,7 +166,7 @@ Open **http://localhost:3000**. You land on `main`, today's network, already sol
 
 - **Shell quoting:** quote `'ltds_tables*'`, or the shell may expand it. It selects the root asset and everything downstream.
 - **Dagster UI:** `uv run dg dev` shows lineage and check results. It also uses port 3000, so don't run it alongside the web app.
-- **Postgres (optional):** `GRIDFORGE_SCENARIOS_URL=postgresql://user@host:5432/dbname` before starting the API moves the scenarios store to Postgres.
+- **Postgres (optional):** `GRIDIFY_SCENARIOS_URL=postgresql://user@host:5432/dbname` before starting the API moves the scenarios store to Postgres.
 - **A store from before the backbone:** on first start each branch's old projects become its connections (in their scheduled year, else their requested one), and the old optimizer, works, ledger and agent tables are dropped.
 
 ## Refreshing the data
@@ -191,7 +191,7 @@ The LTDS tables (`circuit`, `t2a`, `demand`, `node`, `gen`) were pulled from the
 ```bash
 pnpm test                                     # everything, via Turborepo
 cd packages/optimizer && uv run pytest -q     # engine (4 workers): the physics, the cases, the plan years, the NGED data rules, the editions, the CIM export
-cd apps/api && uv run --with pytest pytest tests -q   # API (a temp scenarios DB; +1 against Postgres if GRIDFORGE_TEST_PG_URL is set)
+cd apps/api && uv run --with pytest pytest tests -q   # API (a temp scenarios DB; +1 against Postgres if GRIDIFY_TEST_PG_URL is set)
 ```
 
 The engine tests are **grid-agnostic**: fixtures are derived from whatever network `build_base_net()` returns, never from hard-coded bus ids. `test_nged.py` holds the NGED data rules (removed equipment is excluded, every live MW of demand is modelled, no registry project is pre-loaded). The planner has no unit tests; it is checked in a real browser.
@@ -296,7 +296,7 @@ The registry is a list of not-yet-built projects to pull onto a branch; the engi
 
 ## How this was built
 
-GridForge was built in about a week by one person working with Claude Code as a pair, and the commit history says so: every commit carries a `Co-Authored-By: Claude` trailer. It would be odd to hide that from a company that lists "AI-assisted software development" as a skill it hires for, so here is how the division of labour actually worked.
+Gridify was built in about a week by one person working with Claude Code as a pair, and the commit history says so: every commit carries a `Co-Authored-By: Claude` trailer. It would be odd to hide that from a company that lists "AI-assisted software development" as a skill it hires for, so here is how the division of labour actually worked.
 
 **What the human did.** Chose the problem and the data (one real GSP, open data only, NGED because it is the launch customer's network), set the rules the agent works under (`AGENTS.md`: `main` is only what exists today, the LLM never touches physics, honesty over fake precision), made every product decision (the pull-request framing, the registry of optional projects, "parameters are set by the flows, not the operator", recommend-then-override for energisation years), and reviewed the result in the browser after each slice. The pivots (restoration → data pipeline → connection-queue optimiser → PR workflow on a real network) were human calls, as was the decision to throw away a working manual-editing frontend.
 

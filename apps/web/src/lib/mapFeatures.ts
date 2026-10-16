@@ -78,7 +78,7 @@ export const onlyFeature = (visible: readonly FeatureKey[], key: FeatureKey): Fe
   visible.length === 1 && visible[0] === key ? [...DEFAULT_VISIBLE] : [key];
 
 // ---- remembered per viewer (a convenience: losing it only resets to the defaults) ----------------
-const STORE_KEY = "gridforge.mapFeatures.v2"; // v2: the backbone planner (connections replaced projects, works and demand groups)
+const STORE_KEY = "gridify.mapFeatures.v2"; // v2: the backbone planner (connections replaced projects, works and demand groups)
 
 
 export function loadVisible(): FeatureKey[] {

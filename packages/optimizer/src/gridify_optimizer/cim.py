@@ -47,13 +47,13 @@ _UNIT_KINDS = {"solar": "SolarGeneratingUnit", "wind": "WindGeneratingUnit", "ba
 
 class CgmesMeta(NamedTuple):
     """Who the model is from: the modelling authority URI and the regions the export names. Each
-    source carries its own (`nged.NGED_CGMES_META`); an imported grid gets GridForge's generic one."""
+    source carries its own (`nged.NGED_CGMES_META`); an imported grid gets Gridify's generic one."""
 
-    authority_uri: str = "http://gridforge.example/network"
+    authority_uri: str = "http://gridify.example/network"
     region_name: str = "Imported network"
     region_key: str = "import"
-    subregion_name: str = "GridForge import"
-    subregion_key: str = "gridforge"
+    subregion_name: str = "Gridify import"
+    subregion_key: str = "gridify"
 
 
 def _sub_of(net, b: int, bus_name: str) -> str:
@@ -129,7 +129,7 @@ def _value(table, i, col):
 
 
 def _cost_tag(net, et: str, i: int) -> str:
-    """` gridforge.cost=<cp1>,<cp2>` from the net's `poly_cost` for one element, or nothing: CIM carries no merit-order
+    """` gridify.cost=<cp1>,<cp2>` from the net's `poly_cost` for one element, or nothing: CIM carries no merit-order
     cost, so our own export writes it into the description and `sources._normalise_fleet` reads it back."""
     pc = net.get("poly_cost")
     if pc is None or not len(pc):
@@ -137,7 +137,7 @@ def _cost_tag(net, et: str, i: int) -> str:
     row = pc[(pc["et"] == et) & (pc["element"].astype(int) == int(i))]
     if not len(row):
         return ""
-    return f" gridforge.cost={float(row.iloc[0]['cp1_eur_per_mw']):g},{float(row.iloc[0]['cp2_eur_per_mw2']):g}"
+    return f" gridify.cost={float(row.iloc[0]['cp1_eur_per_mw']):g},{float(row.iloc[0]['cp2_eur_per_mw2']):g}"
 
 
 def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta = CgmesMeta()) -> dict[str, bytes]:
@@ -148,7 +148,7 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
     Returns {file name: xml bytes} for the EQ, TP, SSH and GL profiles.
     """
     created = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    tag = f"GridForge network@{snapshot_id}"
+    tag = f"Gridify network@{snapshot_id}"
     mids = {p: str(uuid.uuid5(_NS, f"{snapshot_id}|{p}")) for p in PROFILES}
     eq = _Doc("EQ", mids["EQ"], f"{tag} · equipment", created, [], meta.authority_uri)
     tp = _Doc("TP", mids["TP"], f"{tag} · topology", created, [mids["EQ"]], meta.authority_uri)
@@ -337,7 +337,7 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
             p_rated = float(t.at[i, "p_rated_mw"]) if "p_rated_mw" in t.columns and t.at[i, "p_rated_mw"] == t.at[i, "p_rated_mw"] else float(t.at[i, "p_mw"])
             uid = _id("genunit", key)
             imp = t.at[i, "import_mw"] if "import_mw" in t.columns else None
-            tag = f"gridforge.tech={tech}" + (f" gridforge.import_mw={float(imp):g}" if imp == imp and imp is not None else "")  # what CIM has no field for
+            tag = f"gridify.tech={tech}" + (f" gridify.import_mw={float(imp):g}" if imp == imp and imp is not None else "")  # what CIM has no field for
             tag += _cost_tag(net, table, int(i))  # a power station's merit-order cost: no CIM field either
             e = eq.obj(_UNIT_KINDS.get(tech, "ThermalGeneratingUnit"), uid, name=f"{name} unit")
             eq.ref(e, "Equipment.EquipmentContainer", sub_ids[_sub_of(net, b, str(net.bus.at[b, "name"] or f"bus {b}"))])
@@ -434,7 +434,7 @@ def export_cgmes(net, model=None, snapshot_id: str = "network", meta: CgmesMeta 
             gl.attr(e, "PositionPoint.xPosition", lon)
             gl.attr(e, "PositionPoint.yPosition", lat)
 
-    stem = f"GridForge_{snapshot_id}"
+    stem = f"Gridify_{snapshot_id}"
     return {f"{stem}_EQ.xml": eq.bytes(), f"{stem}_TP.xml": tp.bytes(), f"{stem}_SSH.xml": ssh.bytes(), f"{stem}_GL.xml": gl.bytes()}
 
 

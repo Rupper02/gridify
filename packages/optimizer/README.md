@@ -1,9 +1,9 @@
-# gridforge_optimizer
+# gridify_optimizer
 
-The deterministic grid engine behind GridForge: it builds NGED's Bicker Fen 132 kV GSP from open data, grows its demand to each plan year, connects the branch's connections in their years, and solves every year with AC power flow (pandapower) in the two planning cases. No network calls, no LLM: the same inputs always give the same result.
+The deterministic grid engine behind Gridify: it builds NGED's Bicker Fen 132 kV GSP from open data, grows its demand to each plan year, connects the branch's connections in their years, and solves every year with AC power flow (pandapower) in the two planning cases. No network calls, no LLM: the same inputs always give the same result.
 
 ```python
-from gridforge_optimizer import Connection, PlanParams, simulate, diff_plans
+from gridify_optimizer import Connection, PlanParams, simulate, diff_plans
 
 base = simulate([], PlanParams())                      # main: today's network, every plan year
 pv = Connection(request_id="PV-1", bus_id=17, technology="solar", rating_mw=150, year=2029)

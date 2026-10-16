@@ -1,4 +1,4 @@
-// Typed client for the GridForge API (apps/api). Every call goes to `BASE`.
+// Typed client for the Gridify API (apps/api). Every call goes to `BASE`.
 
 import type {
   Assumption,

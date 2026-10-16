@@ -8,18 +8,18 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 WAREHOUSE = Path(
-    os.getenv("GRIDFORGE_DB_PATH", str(REPO_ROOT / "apps" / "pipeline" / "warehouse" / "gridforge.duckdb"))
+    os.getenv("GRIDIFY_DB_PATH", str(REPO_ROOT / "apps" / "pipeline" / "warehouse" / "gridify.duckdb"))
 )
 SCENARIOS = Path(
-    os.getenv("GRIDFORGE_SCENARIOS_DB", str(Path(__file__).resolve().parents[2] / "data" / "scenarios.duckdb"))
+    os.getenv("GRIDIFY_SCENARIOS_DB", str(Path(__file__).resolve().parents[2] / "data" / "scenarios.duckdb"))
 )
 # a postgresql:// URL here puts branches, connections and the result cache in Postgres instead of the DuckDB file
 # (same schema, same SQL; see store.ScenarioStore)
-SCENARIOS_URL: str | None = os.getenv("GRIDFORGE_SCENARIOS_URL") or None
+SCENARIOS_URL: str | None = os.getenv("GRIDIFY_SCENARIOS_URL") or None
 
 MAIN_ID = "main"  # the plan of record: the network as it exists today, changed only by merging a branch into it
 
-log = logging.getLogger("gridforge_api")
+log = logging.getLogger("gridify_api")
 
 
 class _Stderr(logging.StreamHandler):
@@ -37,9 +37,9 @@ class _Stderr(logging.StreamHandler):
 
 if not log.handlers:  # uvicorn configures only its own loggers: without a handler every log line here was dropped
     _handler = _Stderr()
-    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s gridforge: %(message)s", "%H:%M:%S"))
+    _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s gridify: %(message)s", "%H:%M:%S"))
     log.addHandler(_handler)
-    log.setLevel(os.getenv("GRIDFORGE_LOG_LEVEL", "INFO"))
+    log.setLevel(os.getenv("GRIDIFY_LOG_LEVEL", "INFO"))
 
 
 def now() -> str:

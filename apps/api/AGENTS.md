@@ -1,4 +1,4 @@
-# AGENTS.md — apps/api (`gridforge_api`)
+# AGENTS.md — apps/api (`gridify_api`)
 
 FastAPI on :8000. Read the root `AGENTS.md` first (domain rules, design, testing stance); this file adds what is specific
 to the API. The API table is in the root `README.md`.
@@ -20,10 +20,10 @@ to the API. The API table is in the root `README.md`.
 
 ## Conventions
 
-- **Storage.** The warehouse is read **read-only** (`GRIDFORGE_DB_PATH`); a warehouse read runs on one read-only connection
+- **Storage.** The warehouse is read **read-only** (`GRIDIFY_DB_PATH`); a warehouse read runs on one read-only connection
   (one committed version), retries briefly while the pipeline writes, then serves the last consistent read or 503.
-  Everything a user does goes to the scenarios store: `apps/api/data/scenarios.duckdb` (`GRIDFORGE_SCENARIOS_DB`), or
-  Postgres with `GRIDFORGE_SCENARIOS_URL=postgresql://…`. `store.Cursor` translates `?`→`%s` and `DOUBLE`→`DOUBLE
+  Everything a user does goes to the scenarios store: `apps/api/data/scenarios.duckdb` (`GRIDIFY_SCENARIOS_DB`), or
+  Postgres with `GRIDIFY_SCENARIOS_URL=postgresql://…`. `store.Cursor` translates `?`→`%s` and `DOUBLE`→`DOUBLE
   PRECISION`, so write DuckDB-style SQL with `?` placeholders and `ON CONFLICT` upserts, never `INSERT OR REPLACE` or
   `PRAGMA`. A schema change needs a migration in `store.migrate` (dialect-aware).
 - **Main is read-only.** Every connection edit goes through `repository.require_open(..., allow_main=False)` (409 on
@@ -42,5 +42,5 @@ to the API. The API table is in the root `README.md`.
   never queues behind a run: `through(solve=False)` / `through(wait=False)` raise `errors.NotSolved` (409
   `{code: "not_solved", retry}`). Never call `through` while holding a store cursor (the store and the solver each have
   one lock).
-- The log (`config.log`, INFO by default, `GRIDFORGE_LOG_LEVEL`) says when a job starts and ends, what the cache computed
+- The log (`config.log`, INFO by default, `GRIDIFY_LOG_LEVEL`) says when a job starts and ends, what the cache computed
   and in how long, and any request slower than 0.5 s. Read it before reaching for py-spy.

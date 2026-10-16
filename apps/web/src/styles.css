@@ -1,4 +1,4 @@
-/* GridForge Glass. One accent (arc cyan), solid tinted "glass" panels (no backdrop blur), the map full
+/* Gridify Glass. One accent (arc cyan), solid tinted "glass" panels (no backdrop blur), the map full
    bleed underneath. Data-driven colours (status, branch hue) come in as inline styles / CSS vars. */
 
 :root {
@@ -349,7 +349,7 @@ input { font-family: inherit; }
 
 /* the Show menu in the layer toggle: which kinds of element the map draws */
 
-.capsule .chip-ic.logo-ic { background: linear-gradient(160deg, rgba(124, 227, 255, 0.35), rgba(124, 227, 255, 0.08)); color: var(--accent); } /* GridForge's mark is the project button's icon */
+.capsule .chip-ic.logo-ic { background: linear-gradient(160deg, rgba(124, 227, 255, 0.35), rgba(124, 227, 255, 0.08)); color: var(--accent); } /* Gridify's mark is the project button's icon */
 /* an instant tooltip under the header's icon-only controls (the native title waits a second) */
 
 .show-menu { position: absolute; top: calc(100% + 12px); right: 0; width: 232px; z-index: 40; border-radius: 14px; padding: 8px; max-height: min(70vh, 480px); display: flex; flex-direction: column; gap: 6px; flex: 0 1 auto; min-height: 0; overflow-y: auto; } /* takes what is left of the menu, which stops above the roadmap dock */

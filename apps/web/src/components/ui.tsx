@@ -1,4 +1,4 @@
-// Shared building blocks (the component sheet in docs/design/gridforge-glass): the tech icon, the profile glyph, the
+// Shared building blocks (the component sheet in docs/design/gridify-glass): the tech icon, the profile glyph, the
 // switch, the year stepper, the diff tile, the sparkline, the GSP gauge, the hint and the branch-hue vars.
 
 import {

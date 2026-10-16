@@ -8,7 +8,7 @@ connection overwhelms local capacity first.
 
 import collections
 
-from gridforge_optimizer.network import build_base_net
+from gridify_optimizer.network import build_base_net
 
 
 def base_net():

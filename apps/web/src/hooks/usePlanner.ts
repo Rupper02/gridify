@@ -404,7 +404,7 @@ export function usePlanner() {
   const tiers = useMemo(() => lineTiers((s.model?.lines ?? []).map((l) => l.voltage_kv)), [s.model]);
   const { yr, exact } = useMemo(() => yearOf(s.result, s.year), [s.result, s.year]);
   const branch = s.branches.find((b) => b.branch_id === s.activeBranch) ?? null;
-  const onMain = s.activeBranch === MAIN_ID;
+  const onMain = !s.activeBranch || s.activeBranch === MAIN_ID; // before the branches load, the planner opens on main
   const compare = !onMain && s.tab === "compare" && !!s.diff;
   const diffMap: DiffMap | null = useMemo(() => (compare ? diffMapFor(s.diff?.years[String(s.year)] ?? null) : null), [compare, s.diff, s.year]);
   const limits = useMemo(() => limiters(s.result?.years ?? {}), [s.result]);

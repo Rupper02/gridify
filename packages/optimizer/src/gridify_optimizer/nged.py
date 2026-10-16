@@ -839,7 +839,7 @@ PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
 )
 
 # how the CIM export names this model: its authority and regions (cim.CgmesMeta)
-NGED_CGMES_META = CgmesMeta(authority_uri="http://gridforge.example/nged-bickerfen", region_name="Great Britain", region_key="GB",
+NGED_CGMES_META = CgmesMeta(authority_uri="http://gridify.example/nged-bickerfen", region_name="Great Britain", region_key="GB",
                             subregion_name="NGED East Midlands licence area", subregion_key="NGED")
 
 

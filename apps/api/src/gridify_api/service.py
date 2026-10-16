@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import NamedTuple
 
-from gridforge_optimizer import Connection, PlanDiff, PlanParams, PlanResult, diff_plans, simulate
-from gridforge_optimizer.config import FORECASTS
+from gridify_optimizer import Connection, PlanDiff, PlanParams, PlanResult, diff_plans, simulate
+from gridify_optimizer.config import FORECASTS
 
 from . import repository
 from .cache import ResultCache, connections_key

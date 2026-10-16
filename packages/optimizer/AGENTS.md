@@ -1,4 +1,4 @@
-# AGENTS.md — packages/optimizer (`gridforge_optimizer`)
+# AGENTS.md — packages/optimizer (`gridify_optimizer`)
 
 The engine. Read the root `AGENTS.md` first (domain rules, design, testing stance); this file adds what is specific to
 the engine. The spec is `packages/optimizer/README.md`.
@@ -17,7 +17,7 @@ The **single source of truth** for:
 - the pydantic contract (`types.py`) and every tunable (`config.py`).
 
 `network.build_base_net()` is `sources.default_source().build_net()` (NGED); every engine function takes `net_factory=`
-for any other source. Bundled open data lives in `src/gridforge_optimizer/data/nged/`.
+for any other source. Bundled open data lives in `src/gridify_optimizer/data/nged/`.
 
 ## Conventions
 

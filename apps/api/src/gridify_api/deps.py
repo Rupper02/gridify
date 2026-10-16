@@ -6,7 +6,7 @@ build their own.
 
 import threading
 
-from gridforge_optimizer import engine_fingerprint
+from gridify_optimizer import engine_fingerprint
 
 from . import config
 from .cache import ResultCache

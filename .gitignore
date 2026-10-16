@@ -202,7 +202,7 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# --- GridForge local artifacts (generated / local state, never commit) ---
+# --- Gridify local artifacts (generated / local state, never commit) ---
 warehouse/
 .tmp_dagster_home*/
 .dg/

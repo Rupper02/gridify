@@ -36,7 +36,7 @@ export function Header({ planner, wide }: { planner: Planner; wide: boolean }) {
           <Lightning size={15} weight="bold" />
         </span>
         <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
-          <span className="nm project-nm" style={{ maxWidth: 200 }}>GridForge</span>
+          <span className="nm project-nm" style={{ maxWidth: 200 }}>Gridify</span>
           <span className="sub ellipsis" style={{ maxWidth: 200 }}>{s.model?.name ?? "Loading the grid…"}</span>
         </span>
       </div>

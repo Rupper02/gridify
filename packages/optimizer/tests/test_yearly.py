@@ -3,9 +3,9 @@
 import pytest
 from _grid import base_net, stiff_bus
 
-from gridforge_optimizer import Connection, PlanParams, simulate, year_order
-from gridforge_optimizer.network import interpolate_growth_for_year
-from gridforge_optimizer.years import evaluate_year
+from gridify_optimizer import Connection, PlanParams, simulate, year_order
+from gridify_optimizer.network import interpolate_growth_for_year
+from gridify_optimizer.years import evaluate_year
 
 PARAMS = PlanParams()
 
@@ -56,7 +56,7 @@ def test_simulate_reports_each_year_as_it_lands(stiff):
 
 
 def test_the_year_cache_resolves_only_the_years_an_edit_touches(monkeypatch, stiff):
-    import gridforge_optimizer.years as years_mod
+    import gridify_optimizer.years as years_mod
 
     solved = []
     real = years_mod.evaluate_year

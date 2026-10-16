@@ -945,7 +945,7 @@ source = { editable = "." }
 dependencies = [
     { name = "dagster" },
     { name = "duckdb" },
-    { name = "gridforge-optimizer" },
+    { name = "gridify-optimizer" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "networkx", version = "3.7", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -962,7 +962,7 @@ dev = [
 requires-dist = [
     { name = "dagster", specifier = "==1.13.24" },
     { name = "duckdb", specifier = ">=1.5.6" },
-    { name = "gridforge-optimizer", editable = "../../packages/optimizer" },
+    { name = "gridify-optimizer", editable = "../../packages/optimizer" },
     { name = "networkx", specifier = ">=3.4.2" },
     { name = "pandapower", specifier = ">=3.5.5" },
 ]
@@ -974,7 +974,7 @@ dev = [
 ]
 
 [[package]]
-name = "gridforge-optimizer"
+name = "gridify-optimizer"
 version = "0.1.0"
 source = { editable = "../../packages/optimizer" }
 dependencies = [

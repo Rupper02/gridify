@@ -4,8 +4,8 @@ engine's input type)."""
 import json
 import uuid
 
-from gridforge_optimizer import Connection
-from gridforge_optimizer.config import IMPORT_ONLY_TECHS
+from gridify_optimizer import Connection
+from gridify_optimizer.config import IMPORT_ONLY_TECHS
 
 from .config import now
 from .errors import Conflict, Invalid, NotFound

@@ -8,9 +8,9 @@ import pandapower as pp
 import pytest
 from lxml import etree
 
-from gridforge_optimizer.cim import PROFILES, cgmes_zip_bytes, export_cgmes
-from gridforge_optimizer.network import build_base_net, feasibility
-from gridforge_optimizer.nged import nged_model
+from gridify_optimizer.cim import PROFILES, cgmes_zip_bytes, export_cgmes
+from gridify_optimizer.network import build_base_net, feasibility
+from gridify_optimizer.nged import nged_model
 
 
 @pytest.fixture(scope="module")

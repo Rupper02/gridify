@@ -1,4 +1,4 @@
-"""Shared config for the GridForge engine: the physics, the study cases, the plan years and demand growth.
+"""Shared config for the Gridify engine: the physics, the study cases, the plan years and demand growth.
 Every constant here is listed in the README's *Sources and assumptions* register."""
 
 # --- feasibility constraints ---

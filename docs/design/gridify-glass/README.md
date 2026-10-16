@@ -1,7 +1,7 @@
-# Handoff: GridForge Glass (planner redesign)
+# Handoff: Gridify Glass (planner redesign)
 
 ## Overview
-A redesign of the GridForge connection-queue planner (`apps/web` in `Rupper02/gridforge`). It keeps the existing model (`main` = today's network, branches of optional projects, a power-flow-checked queue) and adds:
+A redesign of the Gridify connection-queue planner (`apps/web` in `Rupper02/gridify`). It keeps the existing model (`main` = today's network, branches of optional projects, a power-flow-checked queue) and adds:
 
 - **Copilot chat** with two modes picked at the start of each chat: **New project** (a guided intake that adds an application to the *preliminary* queue) and **Recommendations** (the "what would it take" levers, explained in chat).
 - **Branch identity**: every branch has a hue that frames the workspace, colours the branch capsule and rings every project that only exists on that branch. `main` is silver, locked and read-only.
@@ -242,7 +242,7 @@ Captured at 1440×900 (scaled), in `screenshots/`:
 - `13-main-read-only.png`: main, locked profile, empty review
 
 ## Components
-`GridForge Components.dc.html` documents each reusable piece with exact styles and states:
+`Gridify Components.dc.html` documents each reusable piece with exact styles and states:
 - GlassPanel
 - Button (primary / secondary / branch-hue / warning / destructive)
 - BranchCapsule
@@ -261,9 +261,9 @@ Captured at 1440×900 (scaled), in `screenshots/`:
 Build these as shared components first, then compose the screens.
 
 ## Files
-- `GridForge Components.dc.html`: component sheet (open in a browser next to `support.js`).
-- `GridForge Glass v2.dc.html`: the full interactive prototype. Open it in a browser next to `support.js`. Its logic class holds all the derivations and sample data.
-- `GridForge Palette.dc.html`: colour, branch-hue, demand-profile and line-language sheet.
+- `Gridify Components.dc.html`: component sheet (open in a browser next to `support.js`).
+- `Gridify Glass v2.dc.html`: the full interactive prototype. Open it in a browser next to `support.js`. Its logic class holds all the derivations and sample data.
+- `Gridify Palette.dc.html`: colour, branch-hue, demand-profile and line-language sheet.
 - `support.js`: runtime for the prototype files only (not for the app).
 
 Repo mapping:

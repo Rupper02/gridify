@@ -1,5 +1,5 @@
 {
-  "name": "gridforge",
+  "name": "gridify",
   "private": true,
   "packageManager": "pnpm@10.18.2",
   "scripts": {

@@ -1,8 +1,8 @@
 import pytest
 
 from _grid import stiff_bus, weak_buses
-from gridforge_optimizer.config import MAX_CONNECTION_MW
-from gridforge_optimizer.network import (
+from gridify_optimizer.config import MAX_CONNECTION_MW
+from gridify_optimizer.network import (
     _study_cases,
     build_base_net,
     bus_voltages,
@@ -11,7 +11,7 @@ from gridforge_optimizer.network import (
     line_loadings,
     voltage_violation_bus_ids,
 )
-from gridforge_optimizer.readiness import score_from_checklist
+from gridify_optimizer.readiness import score_from_checklist
 
 
 def test_base_feasible():
@@ -82,8 +82,8 @@ def test_gsp_export_limit_binds():
 def test_growing_to_a_horizon_adds_no_generation():
     # the base is what exists today; anything not built yet enters only as a connection on a branch —
     # bringing the network to 2035 grows demand but never pre-loads generation
-    from gridforge_optimizer.network import grow_for
-    from gridforge_optimizer.types import PlanParams
+    from gridify_optimizer.network import grow_for
+    from gridify_optimizer.types import PlanParams
 
     net = build_base_net()
     n0, p0 = len(net.sgen), float(net.sgen.p_mw.sum())
