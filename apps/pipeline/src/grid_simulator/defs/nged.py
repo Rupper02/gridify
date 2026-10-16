@@ -129,7 +129,8 @@ def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.As
     that does not solve blocks the warehouse write (ERROR); a limit breach in today's grid is a real
     finding to serve, so it fails at WARN."""
     net = build_nged_net(ltds_tables)
-    ok, reason, m = feasibility(net)
+    ok, breaches, m = feasibility(net)
+    reason = breaches[0] if breaches else None
     vmin, vmax = voltage_limits(net)
     vm = net.res_bus["vm_pu"].reindex(net.bus.index)
     out_of_band = int(((vm < vmin) | (vm > vmax)).sum())

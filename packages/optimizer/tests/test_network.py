@@ -1,11 +1,9 @@
 import pytest
 
 from _grid import stiff_bus, weak_buses
-from gridforge_optimizer import Reinforcement
 from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.network import (
     _study_cases,
-    apply_reinforcement,
     build_base_net,
     bus_voltages,
     feasibility,
@@ -17,8 +15,8 @@ from gridforge_optimizer.readiness import score_from_checklist
 
 
 def test_base_feasible():
-    ok, reason, m = feasibility(build_base_net())
-    assert ok and reason is None
+    ok, breaches, m = feasibility(build_base_net())
+    assert ok and breaches == []
     assert 0.9 <= m["min_vm"] <= m["max_vm"] <= 1.1
     assert m["max_line_pct"] < 100
 
@@ -28,9 +26,9 @@ def test_cluster_overload_is_infeasible():
     net = build_base_net()
     for b in weak_buses(net, 3):
         inject_sgen(net, b, MAX_CONNECTION_MW * 2)
-    ok, reason, _ = feasibility(net)
+    ok, breaches, _ = feasibility(net)
     assert not ok
-    assert reason.type in ("voltage", "line", "trafo", "non_convergent")
+    assert breaches[0].type in ("voltage", "line", "trafo", "non_convergent")
 
 
 def test_bus_voltages_cover_every_bus_and_in_band_at_base():
@@ -40,34 +38,6 @@ def test_bus_voltages_cover_every_bus_and_in_band_at_base():
     assert len(vm) == len(net.res_bus)
     assert all(0.9 <= v <= 1.1 for v in vm.values())  # base network is feasible
     assert voltage_violation_bus_ids(net) == []
-
-
-def test_apply_reinforcement_lowers_line_loading():
-    # push a modest, convergent amount of current through the feeder, then reinforce its most-loaded
-    # line. A fixed small injection keeps the solve well-conditioned regardless of the base fleet/cap.
-    b = weak_buses(build_base_net(), 1)[0]
-    mw = 15.0
-    net = build_base_net()
-    inject_sgen(net, b, mw)
-    feasibility(net)  # solve
-    ll = line_loadings(net)
-    lid = max(ll, key=ll.get)
-    before = ll[lid]
-    assert before > 0
-
-    # uprate doubles the thermal rating WITHOUT changing impedance -> current unchanged, loading halves
-    up = build_base_net()
-    inject_sgen(up, b, mw)
-    apply_reinforcement(up, Reinforcement(kind="line", element_id=lid, action="uprate", factor=2.0))
-    feasibility(up)
-    assert line_loadings(up)[lid] == pytest.approx(before / 2, rel=0.02)
-
-    # add_parallel (halves impedance AND doubles rating) also relieves the line
-    par = build_base_net()
-    inject_sgen(par, b, mw)
-    apply_reinforcement(par, Reinforcement(kind="line", element_id=lid, action="add_parallel"))
-    feasibility(par)
-    assert line_loadings(par)[lid] < before
 
 
 def _exporting_net():
@@ -100,26 +70,24 @@ def test_summer_minimum_case_pushes_export_up():
     assert feasibility(both)[2]["gsp_export_mw"] > feasibility(winter_only)[2]["gsp_export_mw"]
 
 
-def test_gsp_export_limit_binds_and_a_new_sgt_relieves_it():
+def test_gsp_export_limit_binds():
     net = _exporting_net()
     _, _, m = feasibility(net)
     net["gsp_export_limit_mw"] = m["gsp_export_mw"] - 1.0  # just below what the region exports
-    net["gsp_sgt_mw"] = 100.0
-    ok, reason, _ = feasibility(net)
-    assert not ok and reason.type == "gsp" and reason.value == pytest.approx(m["gsp_export_mw"], abs=0.2)
-    apply_reinforcement(net, Reinforcement(kind="gsp", element_id=0))  # one more supergrid transformer
-    assert feasibility(net)[0]
+    ok, breaches, _ = feasibility(net)
+    gsp = [r for r in breaches if r.type == "gsp"]
+    assert not ok and gsp and gsp[0].value == pytest.approx(m["gsp_export_mw"], abs=0.2)
 
 
 def test_growing_to_a_horizon_adds_no_generation():
-    # the base is what exists today; anything not built yet enters only as a queue project —
+    # the base is what exists today; anything not built yet enters only as a connection on a branch —
     # bringing the network to 2035 grows demand but never pre-loads generation
     from gridforge_optimizer.network import grow_for
-    from gridforge_optimizer.types import OptimizeParams
+    from gridforge_optimizer.types import PlanParams
 
     net = build_base_net()
     n0, p0 = len(net.sgen), float(net.sgen.p_mw.sum())
-    assert grow_for(net, OptimizeParams(), 2035) > 1.0
+    assert grow_for(net, PlanParams(), 2035) > 1.0
     assert len(net.sgen) == n0 and float(net.sgen.p_mw.sum()) == pytest.approx(p0)
 
 

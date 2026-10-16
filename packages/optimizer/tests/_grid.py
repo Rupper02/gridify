@@ -2,14 +2,12 @@
 
 Tests derive their fixtures from whatever `build_base_net()` returns, so the suite passes for any
 network (the NGED Bicker Fen region today, any other DNO GSP tomorrow) without hardcoding bus ids.
-The idea: a "stiff" bus (top voltage, best-connected) absorbs generation; saturating the weakest
-buses with capped projects overwhelms local capacity on any finite grid, forcing grid deferrals.
+The idea: a "stiff" bus (top voltage, best-connected) absorbs generation; the weakest buses are where a large
+connection overwhelms local capacity first.
 """
 
 import collections
 
-from gridforge_optimizer import Candidate
-from gridforge_optimizer.config import MAX_CONNECTION_MW
 from gridforge_optimizer.network import build_base_net
 
 
@@ -40,45 +38,3 @@ def weak_buses(net, k=12):
 
 def invalid_bus(net):
     return int(max(int(b) for b in net.bus.index)) + 10_000
-
-
-def _local_thermal_mva(net, buses):
-    """Median thermal capacity (MVA) of the circuits and transformers touching `buses` — the local
-    wires' size (a busbar fed only by its transformers is sized by them)."""
-    touch = net.line[net.line.from_bus.isin(buses) | net.line.to_bus.isin(buses)]
-    kv = net.bus.loc[touch.from_bus, "vn_kv"].to_numpy()
-    mva = list((3 ** 0.5) * kv * touch.max_i_ka.to_numpy() * touch.parallel.to_numpy())
-    tr = net.trafo[net.trafo.hv_bus.isin(buses) | net.trafo.lv_bus.isin(buses)]
-    mva += list(tr.sn_mva.astype(float) * tr.parallel.astype(float))
-    if not mva:
-        return None
-    return float(sorted(mva)[len(mva) // 2])
-
-
-def saturating_candidates(net, n=10, mw=None):
-    """`n` generation projects spread over the weakest buses, each ~2x the local circuits' rating.
-
-    On any finite grid the cumulative reverse flow exceeds local capacity, so some projects are
-    deferred on a grid constraint. Sized from the grid itself (not the intake cap, which is policy):
-    big enough to overload the local wires, moderate enough that the power flow still converges and
-    the deferral names a line/voltage limit rather than "did not converge". Capped below the intake
-    cap so they always pass intake."""
-    wb = weak_buses(net, n)
-    if mw is None:
-        local = _local_thermal_mva(net, wb)
-        mw = round(min(2.0 * local if local else MAX_CONNECTION_MW * 0.25, MAX_CONNECTION_MW * 0.5), 1)
-    return [
-        Candidate(request_id=f"SAT-{i}", bus_id=wb[i % len(wb)], technology="wind",
-                  rating_mw=mw, readiness_score=0.9, strategic_fit=0.8)
-        for i in range(n)
-    ]
-
-
-def grid_deferred(queue):
-    """Queue items deferred on a network constraint (line/trafo/voltage), not intake/non-convergence."""
-    return [q for q in queue if q.status == "Deferred" and q.reason and q.reason.type in ("line", "trafo", "voltage")]
-
-
-def fleet_generator(net) -> str:
-    """The id of an existing generator, as the outage and repowering studies take it (read from the network)."""
-    return str(net.sgen["fleet_id"].dropna().iloc[0])

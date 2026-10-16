@@ -13,6 +13,7 @@ from .errors import NotFound
 
 from .config import log, now
 
+
 class JobCancelled(Exception):
     """Raised inside a job's progress callback once the job has been cancelled."""
 
@@ -29,13 +30,12 @@ class JobRunner:
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
         # pandapower is CPU-bound and its nets are not shared across threads: every power flow in the
-        # process, an operator's job or an agent's study, runs under this one lock (agents.runtime.SolverGate)
+        # process runs under this one lock
         self.solver_lock = solver_lock or threading.RLock()
 
     def submit(self, fn: Callable[[], None]) -> None:
-        """Run a fire-and-forget task on the worker (the warm-up). It does not hold the solver lock for its whole
-        length (that would stall every agent study behind it): each result it misses takes the lock on its own
-        (`ResultCache.through`), and it yields to jobs by itself (`plans.warm_profiles(idle=)`)."""
+        """Run a fire-and-forget task on the worker (the warm-up). Each result it misses takes the solver lock on its
+        own (`ResultCache.through`)."""
         self._pool.submit(fn)
 
     def shutdown(self) -> None:
@@ -63,7 +63,7 @@ class JobRunner:
 
         def progress(stage: str, fraction: float) -> None:
             with self._lock:
-                if rec["cancel"]:  # cooperative: the engine reports progress between trials and years
+                if rec["cancel"]:  # cooperative: the engine reports progress between years
                     raise JobCancelled()
                 rec["stage"], rec["fraction"] = stage, round(float(fraction), 3)
 
@@ -103,8 +103,8 @@ class JobRunner:
 
     @contextmanager
     def _solver(self, rec: dict):
-        """Hold the solver for the job. While another holder finishes (an agent's study chunk, a request's cache
-        miss) the job says so, rather than reading "starting" as if it were already building the network."""
+        """Hold the solver for the job. While another holder finishes (a request's cache miss) the job says so, rather
+        than reading "starting" as if it were already building the network."""
         if not self.solver_lock.acquire(blocking=False):
             with self._lock:
                 rec["stage"] = "waiting for the solver"
@@ -119,7 +119,7 @@ class JobRunner:
             self.solver_lock.release()
 
     def _view(self, rec: dict, with_result: bool = False, with_partial: bool = False, since: int | None = None) -> dict:
-        """The job as the planner reads it. The partial result (the queue plus every year solved so far, re-serialised
+        """The job as the planner reads it. The partial result (every year solved so far, re-serialised
         on every poll) travels only when asked for and newer than the version the poll last saw (`since`)). A queued
         job says how many jobs hold the worker ahead of it (`stage: "queued behind N"`), so the planner can say why
         it waits rather than "queued" alone."""
@@ -134,19 +134,9 @@ class JobRunner:
             out["partial"] = rec["partial"]
         return out
 
-    def idle(self) -> bool:
-        """No job is waiting for the worker (background warm-up yields to real work)."""
-        with self._lock:
-            return not any(r["status"] == "queued" for r in self._jobs.values())
-
-    def busy(self) -> bool:
-        """An operator's job is queued or running: agent studies wait for it (operator first)."""
-        with self._lock:
-            return any(r["status"] in ("queued", "running") for r in self._jobs.values())
-
     def cancel(self, job_id: str) -> dict:
         """Ask a queued or running job to stop (it stops at its next progress report); 404 if unknown.
-        Work it already cached (greedy trials, solved years) is kept, so a re-run resumes cheaply."""
+        The years it already solved stay cached, so a re-run resumes cheaply."""
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:

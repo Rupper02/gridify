@@ -1,182 +1,140 @@
-// The floating header: logo, the project capsule (opens the projects screen), branch capsule + menu (a branch its parent
-// moved past says "behind main"), Diff / Merge on a branch, the demand profile control (a switch mid-run restarts the run on
-// the new profile) and the Run button ("Re-run" when the shown result is
-// out of date; disabled during a loud run, a click during a quiet refresh shows its card).
+// The header: the grid, the branch picker (switch, open a branch from the one in view), the demand profile, the map
+// layer, what the map shows, and Run.
 
-import { CaretDown, GitBranch, GitDiff, GitMerge, Lightning, LockSimple, Play, Warning } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import { CaretDown, Eye, GitBranch, Lightning, Play, Plus, Pulse, Waveform } from "@phosphor-icons/react";
+import { useState } from "react";
 
-import type { PlannerSlice } from "../hooks/planner/slice";
-import { behindLabel, branchHue, parentName } from "../lib/derive";
-import { runButton } from "../lib/runStages";
-import type { Layout } from "../lib/layout";
-import { PROFILES, profileLabel, tint } from "../theme";
-import { ProfileGlyph } from "./ui";
+import { MAIN_ID, type Planner, branchHue } from "../hooks/usePlanner";
+import { FEATURE_GROUPS, FEATURE_KEYS, MAP_FEATURES, featureLabel } from "../lib/mapFeatures";
+import { PROFILES } from "../theme";
+import type { MapLayer } from "../types";
+import { ProfileGlyph, Switch } from "./ui";
 
-export type HeaderPlanner = PlannerSlice<
-  "activeBranch" | "branches" | "diffMode" | "forecasts" | "menuOpen" | "model" | "projects",
-  "createBranch" | "goReview" | "openProjects" | "run" | "selectBranch" | "setProfile" | "toggleDiff" | "toggleMenu",
-  "branch" | "gate" | "hue" | "mainId" | "onMain" | "parent" | "prelim" | "profile" | "project" | "run" | "stale"
->;
+const LAYERS: { id: MapLayer; label: string; Icon: typeof Pulse }[] = [
+  { id: "flow", label: "Flow", Icon: Waveform },
+  { id: "loading", label: "Loading", Icon: Pulse },
+  { id: "voltage", label: "Voltage", Icon: Lightning },
+];
 
-export function Header({ planner, layout, center }: { planner: HeaderPlanner; layout: Layout; center?: ReactNode }) {
+export function Header({ planner, wide }: { planner: Planner; wide: boolean }) {
   const { s, actions, derived } = planner;
-  const { onMain, branch, hue, profile, stale, prelim, gate, project } = derived;
-  const wide = layout.wide;
-  const nAdded = branch?.n_added ?? 0;
-  const parent = parentName(s.branches, branch, derived.mainId);
-  const sub = onMain ? "plan of record" : `from ${parent} · ${nAdded} added${prelim.length ? ` · ${prelim.length} preliminary` : ""}`;
-  // plain "Run" until the branch's profile is known (nothing is claimed before then)
-  const runBtn = runButton(derived.run, stale.stale, wide && profile ? profile.label : "", !!s.model);
-
+  const [name, setName] = useState<string | null>(null);
+  const [showOpen, setShowOpen] = useState(false);
+  const branch = derived.branch;
+  const open = s.branches.filter((b) => b.status === "open");
+  const running = derived.running;
+  const submit = () => {
+    const n = (name ?? "").trim();
+    if (!n) return;
+    setName(null);
+    void actions.createBranch(n);
+  };
   return (
     <header className="header glass">
-      <button className="capsule project" onClick={actions.openProjects} title={`${project?.name ?? "Projects"}: switch or import a grid`} aria-haspopup="dialog">
-        <span className="chip-ic logo-ic"><Lightning size={15} weight="bold" /></span>
-        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
-          <span className="nm ellipsis project-nm">{project?.name ?? "Loading…"}</span>
+      <div className="capsule" style={{ borderColor: "rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.05)" }}>
+        <span className="chip-ic logo-ic">
+          <Lightning size={15} weight="bold" />
         </span>
-        <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
-      </button>
+        <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+          <span className="nm project-nm" style={{ maxWidth: 200 }}>GridForge</span>
+          <span className="sub ellipsis" style={{ maxWidth: 200 }}>{s.model?.name ?? "Loading the grid…"}</span>
+        </span>
+      </div>
 
       <div style={{ position: "relative" }}>
-        <button className="capsule" onClick={actions.toggleMenu} aria-haspopup="menu" aria-expanded={s.menuOpen}>
-          <span className="chip-ic">{onMain ? <LockSimple size={15} weight="bold" /> : <GitBranch size={15} weight="bold" />}</span>
-          <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.2 }}>
-            <span className="nm" style={{ maxWidth: wide ? 220 : 120 }}>{onMain ? "main" : (branch?.name ?? s.activeBranch)}</span>
-            {wide && (
-              <span className="sub">
-                {sub}
-                {behindLabel(branch, parent) && <span className="behind"> · {behindLabel(branch, parent)}</span>}
-              </span>
-            )}
+        <button className="capsule" onClick={() => actions.toggleMenu()} aria-expanded={s.menuOpen}>
+          <span className="chip-ic">
+            <GitBranch size={15} weight="bold" />
           </span>
-          <CaretDown size={13} color="var(--mute)" style={{ marginLeft: 6 }} />
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15, alignItems: "flex-start" }}>
+            <span className="nm">{branch?.name ?? "main"}</span>
+            <span className="sub">{derived.onMain ? "the network as it is today" : `from ${branch?.parent_id === MAIN_ID ? "main" : branch?.parent_id} · ${s.connections.length} connection${s.connections.length === 1 ? "" : "s"}`}</span>
+          </span>
+          <CaretDown size={13} />
         </button>
-        {s.menuOpen && <BranchMenu planner={planner} />}
-      </div>
-
-      {!onMain && (
-        <div style={{ display: "flex", gap: 4 }}>
-          <button
-            className="btn"
-            onClick={actions.toggleDiff}
-            title={`Diff vs ${derived.parent}`}
-            style={s.diffMode ? { borderColor: hue, background: tint(hue, "24"), color: hue } : undefined}
-          >
-            <GitDiff size={14} />
-            {wide && "Diff"}
-          </button>
-          <button className="btn hue" onClick={actions.goReview} title={gate.headline} data-gate={gate.state}>
-            {gate.state === "blocked" || gate.state === "stale" ? <Warning size={14} weight="bold" /> : <GitMerge size={14} weight="bold" />}
-            {wide && "Merge"}
-          </button>
-        </div>
-      )}
-
-      <div className="grow" />
-      {center}
-      <div className="grow" />
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
-        {wide && <span style={{ fontSize: 11, color: "var(--mute)" }}>Demand</span>}
-        <div className="seg" role="radiogroup" aria-label="Demand profile" title={onMain ? "The demand profile main is planned on" : "Demand profile for this branch"}>
-          {/* the project's own pathways: an import offers only those entered with it */}
-          {PROFILES.filter((p) => !s.forecasts.length || s.forecasts.some((f) => f.id === p.id)).map((p) => {
-            const on = p.id === branch?.scenario;
-            return (
-              <button
-                key={p.id}
-                role="radio"
-                aria-checked={on}
-                className={on ? "on" : ""}
-                onClick={() => void actions.setProfile(p.id)}
-                disabled={branch?.status !== undefined && branch.status !== "open"}
-                title={derived.run.inProgress ? "Switching the profile restarts the run on its way with it." : undefined}
-                style={{ padding: wide ? "0 12px" : "0 9px" }}
-              >
-                <ProfileGlyph bars={p.bars} on={on} />
-                {wide ? p.label : p.short}
+        {s.menuOpen && (
+          <div className="menu">
+            {open.map((b) => (
+              <button key={b.branch_id} className="menu-row" onClick={() => void actions.openBranch(b.branch_id)}>
+                <span className="dot" style={{ background: branchHue(s.branches, b.branch_id) }} />
+                <span className="grow" style={{ display: "flex", flexDirection: "column" }}>
+                  <b className="mono" style={{ fontSize: 12.5 }}>{b.name}</b>
+                  <span className="mute" style={{ fontSize: 11 }}>
+                    {b.branch_id === MAIN_ID ? "plan of record" : `${b.n_connections} connection${b.n_connections === 1 ? "" : "s"}`}
+                  </span>
+                </span>
+                {b.branch_id === s.activeBranch && <span className="mute" style={{ fontSize: 11 }}>viewing</span>}
               </button>
-            );
-          })}
-        </div>
+            ))}
+            <div className="menu-sep" />
+            {name == null ? (
+              <button className="menu-new" onClick={() => setName("")}>
+                <Plus size={14} weight="bold" /> New branch from {branch?.name ?? "main"}
+              </button>
+            ) : (
+              <div className="menu-input">
+                <input autoFocus value={name} placeholder="branch name" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+                <button className="btn primary sm" onClick={submit} disabled={!name.trim()}>Open</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      <button className="btn primary" onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
-        <Play size={13} weight="bold" />
-        {runBtn.label}
+      <div className="grow" />
+
+      <div className="seg" role="group" aria-label="Demand profile">
+        {PROFILES.map((p) => (
+          <button key={p.id} className={branch?.scenario === p.id ? "on" : ""} onClick={() => void actions.setProfile(p.id)} disabled={running} title={`${p.label} demand growth`}>
+            <ProfileGlyph bars={p.bars} on={branch?.scenario === p.id} />
+            {wide && p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="seg" role="group" aria-label="Map layer">
+        {LAYERS.map(({ id, label, Icon }) => (
+          <button key={id} className={s.layer === id ? "on" : ""} onClick={() => actions.setLayer(id)} title={label}>
+            <Icon size={14} />
+            {wide && label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ position: "relative" }}>
+        <button className="btn" onClick={() => setShowOpen((o) => !o)} aria-expanded={showOpen}>
+          <Eye size={14} /> Show
+        </button>
+        {showOpen && (
+          <div className="show-menu glass">
+            {FEATURE_GROUPS.map((g) => (
+              <div key={g} className="show-group">
+                <span className="show-head">{g}</span>
+                {FEATURE_KEYS.filter((k) => MAP_FEATURES[k].group === g).map((k) => {
+                  const label = featureLabel(k, derived.tiers);
+                  if (!label) return null;
+                  const on = s.visible.includes(k);
+                  return (
+                    <div key={k} className="show-row">
+                      <button className="show-label" onClick={() => actions.toggleFeature(k)}>
+                        <span className="ellipsis">{label}</span>
+                        <Switch on={on} />
+                      </button>
+                      <button className={`show-only${s.visible.length === 1 && on ? " on" : ""}`} onClick={() => actions.onlyFeature(k)} title={`Only ${label}`}>
+                        <Eye size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <button className="btn primary" onClick={() => void actions.run()} disabled={running || !s.activeBranch}>
+        <Play size={14} weight="fill" /> {running ? "Running…" : "Run"}
       </button>
     </header>
-  );
-}
-
-function BranchMenu({ planner }: { planner: HeaderPlanner }) {
-  const { s, actions, derived } = planner;
-  const { mainId } = derived;
-  const [naming, setNaming] = useState(false);
-  const [name, setName] = useState("");
-  const open = s.branches.filter((b) => b.branch_id === mainId || b.status === "open");
-  const box = useRef<HTMLDivElement>(null);
-  // a click anywhere else closes the menu
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (box.current && !box.current.contains(t) && !(t as HTMLElement).closest?.(".capsule")) actions.toggleMenu();
-    };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [actions]);
-  return (
-    <div className="menu" role="menu" ref={box}>
-      {open.map((b) => {
-        const hue = branchHue(s.branches, b.branch_id, mainId);
-        const on = b.branch_id === (s.activeBranch || mainId);
-        return (
-          <button
-            key={b.branch_id}
-            role="menuitem"
-            className="menu-row"
-            onClick={() => actions.selectBranch(b.branch_id)}
-            style={on ? { borderColor: tint(hue, "88"), background: tint(hue, "18") } : undefined}
-          >
-            <span className="dot" style={{ background: hue, boxShadow: `0 0 0 3px ${tint(hue, "33")}` }} />
-            <span style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, lineHeight: 1.3 }}>
-              <span className="mono ellipsis" style={{ fontSize: 12.5, fontWeight: 600 }}>{b.branch_id === mainId ? "main" : b.name}</span>
-              <span style={{ fontSize: 11, color: "var(--mute)" }}>
-                {b.branch_id === mainId ? "plan of record" : `from ${parentName(s.branches, b, mainId)} · ${b.n_added} added · open`}
-                {behindLabel(b, parentName(s.branches, b, mainId)) && (
-                  <span className="behind" title="its parent received changes after this branch was opened: rebase it from its Review tab before merging">
-                    {" "}· {behindLabel(b, parentName(s.branches, b, mainId))}
-                  </span>
-                )}
-              </span>
-            </span>
-            <span style={{ fontSize: 11, color: "var(--mute)" }}>{profileLabel(b.scenario)}</span>
-          </button>
-        );
-      })}
-      <div className="menu-sep" />
-      {naming ? (
-        <form
-          className="menu-input"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void actions.createBranch(name);
-          }}
-        >
-          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="branch name, e.g. boston-batteries" aria-label="New branch name" />
-          <button className="btn hue" type="submit" style={{ "--hue": "#7ce3ff", "--hue-bd": "#7ce3ff80", "--hue-bg": "#7ce3ff1f" } as CSSProperties}>
-            Create
-          </button>
-        </form>
-      ) : (
-        <button className="menu-new" onClick={() => setNaming(true)}>
-          <GitBranch size={15} />
-          New branch from main
-        </button>
-      )}
-    </div>
   );
 }

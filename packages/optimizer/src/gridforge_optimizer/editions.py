@@ -106,10 +106,10 @@ def _physics(ctx: dict) -> dict:
     from .network import feasibility
 
     net = copy.deepcopy(ctx["net"])
-    ok, reason, m = feasibility(net)
+    ok, breaches, m = feasibility(net)
     return {
         "feasible": bool(ok),
-        "binding": reason.message if reason else None,
+        "binding": breaches[0].message if breaches else None,
         "worst_line_pct": round(float(m.get("max_line_pct", 0.0)), 1) if m else None,
         "worst_trafo_pct": round(float(m.get("max_trafo_pct", 0.0)), 1) if m else None,
         "min_vm_pu": round(float(m.get("min_vm", 0.0)), 4) if m else None,
@@ -172,13 +172,6 @@ def edition_changeset(tables: LtdsTables) -> dict:
 # ---- ECR editions --------------------------------------------------------------------------------
 
 ECR_SITE_KEY = ("customer_site", "lat", "lon", "energy_source_1", "point_of_connection(poc)_voltage(kv)")
-# what the site-level diff cannot tell, because NGED publishes no stable reference for a site
-ECR_DIFF_CAVEATS = [
-    "The ECR publishes no stable site reference, so a site is matched on its name, location, energy source and voltage: "
-    "a corrected name or location shows as one site withdrawn and another added.",
-    "Redacted sites that publish no location share one identity per energy source and voltage, so changes among them "
-    "are not told apart.",
-]
 _ECR_MW = "accepted_change_to_maximum_export_capacity(mw)"
 _ECR_CONNECTED_MW = "connected_maximum_export_capacity(mw)"
 

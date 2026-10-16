@@ -60,29 +60,6 @@ def test_projects_not_built_yet_are_registry_only():
     assert all(n.startswith("EX-") for n in names)
 
 
-def test_demand_regions_are_the_live_ltds_table3_groups():
-    from gridforge_optimizer.demand import regions_of
-    from gridforge_optimizer.nged import _demand_group, nged_model
-
-    live = [d for d in _live(_load("demand"), "Status") if _num(d["Current Year Max Demand"])]
-    own = _own_demand(live)
-    net = build_nged_net()
-    regions = {r["name"]: r for r in regions_of(net)}
-    bsps = {_bsp_base(d["BSP Group"]) + " BSP" for d in live if d not in own}
-    assert set(regions) == {_demand_group(d) for d in own} | bsps  # one region per live demand group, none Removed
-    assert "Warth Lane" not in regions  # LTDS marks it Removed
-    for d in own:
-        r = regions[_demand_group(d)]
-        # firm capacity read as MVA, converted at the row's own power factor; peak is the row's own max demand
-        pf = min(max(_num(d["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
-        assert r["firm_mw"] == pytest.approx((_num(d["Firm Capacity of Substation"]) or 0.0) * pf, abs=1e-3)
-        assert r["peak_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]), abs=1e-3)
-        k = float(net.load.loc[net.load["region_id"] == r["region_id"], "coincidence"].iloc[0])
-        assert r["base_demand_mw"] == pytest.approx(_num(d["Current Year Max Demand"]) * k, abs=1e-3)
-    m = nged_model()
-    assert {ld["region_id"] for ld in m["loads"]} == {r["region_id"] for r in m["regions"] if r["level"] == "primary"}
-
-
 def test_winter_peak_demand_is_nesos_gsp_peak_and_summer_minimum_is_ltds_own():
     """No assumed diversity factor: today's winter-peak demand sums to NESO's FES figure for Bicker
     Fen at the GB peak, each BSP's primaries to the BSP's own published maximum (before the GSP
@@ -103,49 +80,6 @@ def test_winter_peak_demand_is_nesos_gsp_peak_and_summer_minimum_is_ltds_own():
     own_min = sum(_num(d["Current Year Max Demand"]) * _num(str(d["Minimum demand Scaling Factor (%)"]).rstrip("%")) / 100.0
                   for d in rows if _num(str(d.get("Minimum demand Scaling Factor (%)") or "").rstrip("%")))
     assert summer == pytest.approx(own_min, rel=1e-9)
-
-
-def test_a_bsps_own_rows_are_not_counted_twice():
-    """Table 3 lists Sleaford's 132/33 kV transformers as rows of their own ("Sleaford (GT1)",
-    "Sleaford (GT2)") and every primary they feed under "Sleaford": the GT rows are the same
-    customers seen from the BSP. They add no load; the BSP is a parent group of its primaries,
-    at its own busbar, with its published maximum demand and firm capacity."""
-    from gridforge_optimizer.demand import regions_of
-
-    live = _live(_load("demand"), "Status")
-    agg = _bsp_aggregates(live)
-    assert {"Sleaford (GT1)", "Sleaford (GT2)", "Grantham (GT1)", "Skegness (GT1)"} <= agg
-    assert not any(_bsp_base(b) == b for b in agg)  # only a BSP's own transformer rows
-    net = build_nged_net()
-    agg_nodes = {d["Node"] for d in live if d["BSP Group"] in agg}
-    regions = {r["name"]: r for r in regions_of(net)}
-    gt = [d for d in live if _bsp_base(d["BSP Group"]) == "Sleaford" and d["BSP Group"] in agg]
-    r = regions["Sleaford BSP"]
-    assert r["level"] == "bsp"
-    assert r["peak_demand_mw"] == pytest.approx(sum(_num(d["Current Year Max Demand"]) for d in gt), abs=1e-3)
-    pf = min(max(_num(gt[0]["Current Year Power Factor"]) or 0.95, 0.5), 1.0)
-    assert r["firm_mw"] == pytest.approx(min(_num(d["Firm Capacity of Substation"]) for d in gt) * pf, abs=1e-3)
-    members = net.load[net.load["bsp_region_id"] == r["region_id"]]
-    assert set(members["bsp"]) == {"Sleaford"}  # the primaries it feeds, nothing else
-    assert agg_nodes and len(agg_nodes) == len(agg)
-
-
-def test_new_beacon_road_is_above_its_firm_capacity_today():
-    """NGED's own LTDS row: 14.38 MW maximum demand against a 14 MVA firm capacity (unity power factor); the first plan
-    year carries NGED's DFES projection for the primary on top, so the group reads above its firm capacity from the start."""
-    from gridforge_optimizer import OptimizeParams
-    from gridforge_optimizer.network import build_base_net
-    from gridforge_optimizer.years import evaluate_year
-
-    base = build_base_net()
-    row = base.load[base.load["region"] == "New Beacon Road"]
-    assert float(row["peak_mw"].sum()) == pytest.approx(14.38, abs=0.01) and float(row["firm_mw"].iloc[0]) == pytest.approx(14.0)
-    assert all("ht" in c for c in row["growth_curves"])  # its supply area's DFES curves, not the LTDS fallback
-    yr = evaluate_year(2026, [], OptimizeParams(), {}, n1=False)
-    r = next(x for x in yr.regions if x.name == "New Beacon Road")
-    assert r.demand_mw >= 14.38 - 0.01 and r.firm_mw == pytest.approx(14.0)
-    assert r.p2_class == "C" and r.headroom_mw < 0
-    assert any(a.region_id == r.region_id and a.kind == "firm_capacity" for a in yr.alerts)
 
 
 def test_existing_fleet_is_sited_at_its_named_substation():

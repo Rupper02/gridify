@@ -1,5 +1,5 @@
-"""What the domain layers (the repository, projects, jobs, the service) refuse with, free of HTTP: the agents' tools
-and the workflows read them as plain errors, and `main.py` maps each kind to its status code once."""
+"""What the domain layers (the repository, the grid, jobs, the service) refuse with, free of HTTP: `main.py` maps each
+kind to its status code once."""
 
 from __future__ import annotations
 
@@ -13,40 +13,28 @@ class DomainError(Exception):
 
 
 class NotFound(DomainError):
-    """No such branch, project or job."""
-
-
-class Gone(DomainError):
-    """It existed, but what it needs is no longer there (an imported project's file)."""
+    """No such branch, connection or job."""
 
 
 class Conflict(DomainError):
-    """Not in this state: a main is read-only, a branch is not open, the built-in project stays."""
+    """Not in this state: main is read-only, a branch is not open."""
 
 
 class NotSolved(Conflict):
-    """Not computed yet, and this read does not compute it: the branch has to run first (`retry: false`), or the
-    engine is busy with a run and the read is worth asking again when it finishes (`retry: true`)."""
+    """Not computed yet, and this read does not compute it: run the branch first (`retry: false`), or the engine is
+    busy with a run and the read is worth asking again when it finishes (`retry: true`)."""
 
     def __init__(self, message: str, *, retry: bool):
         super().__init__({"code": "not_solved", "message": message, "retry": retry})
 
 
 class Invalid(DomainError):
-    """The request is understood but cannot be planned on (an unreadable or incomplete grid, an unknown pathway)."""
+    """The request is understood but cannot be simulated (a bus not in the model, a year outside the plan)."""
 
 
-class UnsupportedFile(DomainError):
-    """A file type no importer reads."""
-
-
-class TooLarge(DomainError):
-    """Over the import size limit."""
-
-
-STATUS: dict[type[DomainError], int] = {NotFound: 404, Gone: 410, Conflict: 409, Invalid: 422, UnsupportedFile: 415, TooLarge: 413}
+STATUS: dict[type[DomainError], int] = {NotFound: 404, Conflict: 409, Invalid: 422}
 
 
 def status_of(exc: DomainError) -> int:
-    """The status of a refusal by its kind, a subclass answering as its kind (repository.UnknownElement is Invalid)."""
+    """The status of a refusal by its kind, a subclass answering as its kind."""
     return next((STATUS[k] for k in type(exc).__mro__ if k in STATUS), 400)

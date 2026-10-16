@@ -1,30 +1,25 @@
-// The MapLibre map (CARTO dark, no labels) and its layers: voltage-weighted lines with binding /
-// overloaded / open-point / outage styles, the animated flow layer, buses, loads, transformers and
-// the existing fleet. Projects, substation names and tags are HTML on top (MapMarkers).
+// The MapLibre map (CARTO dark, no labels) and its layers: voltage-weighted lines with overloaded and open-point
+// styles, the animated flow layer, buses, loads, transformers and the existing fleet. Connections, substation names
+// and tags are HTML on top (MapMarkers).
 
 import type { FeatureCollection } from "geojson";
 import maplibregl, { type LayerSpecification, type Map as MLMap, type MapMouseEvent } from "maplibre-gl";
 import { useEffect, useRef, useState } from "react";
 
-import type { PlannerSlice, WithMap } from "../hooks/planner/slice";
+import type { Planner } from "../hooks/usePlanner";
 import { FLOW_DASH_SEQ, GEO_SOURCES, type Geo } from "../lib/geo";
 import { addIcons } from "../lib/icons";
-import { shows } from "../lib/mapFeatures";
 import type { Layout } from "../lib/layout";
 import { C } from "../theme";
 import type { Sel } from "../types";
 import { MapMarkers } from "./MapMarkers";
-import type { MapMarkersPlanner } from "./MapMarkers";
-import { RegionLabels, type RegionLabelsPlanner } from "./RegionLabels";
 
 const STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json";
-/** No basemap under a synthetic layout: the positions are a drawing, not places (the app remounts the map when `crs` changes). */
-const BLANK_STYLE = { version: 8 as const, sources: {}, layers: [{ id: "bg", type: "background" as const, paint: { "background-color": "#0a111c" } }] };
 const CLICK_LAYERS: [string, Sel["kind"]][] = [
   ["existing", "gen"],
   ["trafos", "trafo"],
+  ["bus-hit", "bus"],
   ["line-hit", "line"],
-  ["region-halo", "region"],
 ];
 
 type Expr = unknown[];
@@ -34,20 +29,16 @@ function addLayers(map: MLMap): void {
   const empty: FeatureCollection = { type: "FeatureCollection", features: [] };
   GEO_SOURCES.forEach((id) => map.addSource(id, { type: "geojson", data: empty }));
   const L = (spec: Record<string, unknown>) => map.addLayer(spec as unknown as LayerSpecification);
-  // demand regions sit under everything: soft halos sized by demand, coloured by their worst alert
-  const zr = (add = 0): Expr => ["interpolate", ["linear"], ["zoom"], 8, ["+", ["*", ["get", "r"], 0.75], add], 11, ["+", ["get", "r"], add], 15, ["+", ["*", ["get", "r"], 2], add]];
-  L({ id: "region-halo", type: "circle", source: "regions", paint: { "circle-radius": zr(), "circle-color": ["get", "color"], "circle-opacity": 0.2, "circle-blur": 0.2, "circle-stroke-color": ["get", "color"], "circle-stroke-width": 1.4, "circle-stroke-opacity": 0.7 } });
-  L({ id: "region-sel", type: "circle", source: "regions", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": zr(5), "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
-  L({ id: "line-glow", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["bind", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "glow"], "line-width": zw(9), "line-opacity": 0.22, "line-blur": 3 } });
+  L({ id: "line-glow", type: "line", source: "lines", filter: ["==", ["get", "kind"], "over"], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "glow"], "line-width": zw(9), "line-opacity": 0.22, "line-blur": 3 } });
   L({ id: "line-sel", type: "line", source: "lines", filter: ["==", ["get", "sel"], 1], layout: { "line-cap": "round" }, paint: { "line-color": C.accent, "line-width": zw(8), "line-opacity": 0.28, "line-blur": 2 } });
   L({ id: "line-solid", type: "line", source: "lines", filter: ["in", ["get", "kind"], ["literal", ["solid", "over"]]], layout: { "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": zw(), "line-opacity": ["get", "op"] } });
-  L({ id: "line-bind", type: "line", source: "lines", filter: ["==", ["get", "kind"], "bind"], paint: { "line-color": C.amber, "line-width": zw(), "line-dasharray": [3, 2] } });
   L({ id: "line-tie", type: "line", source: "lines", filter: ["==", ["get", "kind"], "tie"], paint: { "line-color": C.lineMid, "line-width": 1.2, "line-dasharray": [2, 2] } });
-  L({ id: "line-flow", type: "line", source: "lines", filter: ["!", ["in", ["get", "kind"], ["literal", ["tie", "maint"]]]], paint: { "line-color": ["get", "flow"], "line-width": zw(1), "line-blur": 0.6, "line-dasharray": [0, 4, 3] } });
-  L({ id: "line-maint", type: "line", source: "lines", filter: ["==", ["get", "kind"], "maint"], layout: { "line-cap": "round" }, paint: { "line-color": C.mute, "line-width": zw(), "line-opacity": 0.75, "line-dasharray": [0.6, 1.4] } });
+  L({ id: "line-flow", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": ["get", "flow"], "line-width": zw(1), "line-blur": 0.6, "line-dasharray": [0, 4, 3] } });
   L({ id: "line-hit", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": "#000", "line-opacity": 0, "line-width": 14 } });
   L({ id: "bus-ring", type: "circle", source: "buses", filter: ["==", ["get", "ring"], 1], paint: { "circle-radius": 12, "circle-color": "rgba(255,107,107,0.15)", "circle-stroke-color": C.red, "circle-stroke-width": 1.8 } });
+  L({ id: "bus-sel", type: "circle", source: "buses", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": 11, "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "bus", type: "circle", source: "buses", paint: { "circle-radius": ["get", "r"], "circle-color": ["get", "color"], "circle-stroke-color": C.night, "circle-stroke-width": 1 } });
+  L({ id: "bus-hit", type: "circle", source: "buses", paint: { "circle-radius": 9, "circle-color": "#000", "circle-opacity": 0 } });
   L({ id: "loads", type: "symbol", source: "loads", layout: { "icon-image": "load", "icon-size": ["get", "size"], "icon-allow-overlap": true, "icon-ignore-placement": true, "icon-offset": [10, 10] } });
   L({ id: "openpts", type: "symbol", source: "openpts", layout: { "icon-image": "openpt", "icon-allow-overlap": true } });
   L({ id: "existing-sel", type: "circle", source: "existing", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": ["+", ["get", "r"], 6], "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
@@ -58,10 +49,8 @@ function addLayers(map: MLMap): void {
   L({ id: "trafos", type: "symbol", source: "trafos", layout: { "icon-image": "trafo", "icon-allow-overlap": true, "icon-ignore-placement": true } });
 }
 
-export type MapViewPlanner = PlannerSlice<"layer" | "model" | "diffMode", "select"> & WithMap & MapMarkersPlanner & RegionLabelsPlanner;
-
-export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapViewPlanner; geo: Geo | null; layout: Layout; reducedMotion: boolean }) {
-  const { s, actions, mapApi } = planner;
+export function MapView({ planner, geo, layout, reducedMotion }: { planner: Planner; geo: Geo | null; layout: Layout; reducedMotion: boolean }) {
+  const { s, actions, derived, mapApi } = planner;
   const elRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const fitZoom = useRef<number | undefined>(undefined);
@@ -82,7 +71,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
       center: [-0.1, 52.98],
       zoom: 8.6,
       maxZoom: 16,
-      style: live.current.model?.crs === "synthetic" ? BLANK_STYLE : STYLE,
+      style: STYLE,
     });
     mapRef.current = map;
     map.addControl(new maplibregl.AttributionControl({ compact: true }), "top-left");
@@ -113,7 +102,7 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
         const f = fs.find((x) => x.layer.id === layer);
         if (f) {
           const id = f.properties.id as number | string;
-          live.current.select((kind === "gen" || kind === "region" ? { kind, id: String(id) } : { kind, id: Number(id) }) as Sel);
+          live.current.select((kind === "gen" ? { kind, id: String(id) } : { kind, id: Number(id) }) as Sel);
           return;
         }
       }
@@ -148,10 +137,10 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
         const map = mapRef.current;
         if (map) map.easeTo({ zoom: map.getZoom() + d, duration: 250 });
       },
-      focusOn(ll, kMin) {
+      focusOn(ll) {
         const map = mapRef.current;
         if (!ll || !map) return;
-        const z = Math.max(map.getZoom(), (fitZoom.current ?? 9) + Math.log2(kMin ?? 1));
+        const z = Math.max(map.getZoom(), (fitZoom.current ?? 9) + 1.2);
         // land it left of the detail card that the selection opens (top right of the map)
         map.easeTo({ center: ll, zoom: z, duration: 600, offset: [-180, 40] });
       },
@@ -174,8 +163,8 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
     GEO_SOURCES.forEach((k) => (map.getSource(k) as maplibregl.GeoJSONSource | undefined)?.setData(geo[k]));
   }, [ready, geo]);
 
-  // ---- the flow layer: dashes stepped every 70 ms (off under reduced motion and in diff mode) ----
-  const flowOn = s.layer === "flow" && !s.diffMode;
+  // ---- the flow layer: dashes stepped every 70 ms (off under reduced motion and in compare mode) ----
+  const flowOn = s.layer === "flow" && !derived.compare;
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
@@ -199,7 +188,6 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: MapV
   return (
     <>
       <div ref={elRef} className="map" aria-label="Network map" />
-      {ready && shows(s.visible, "demand") && <RegionLabels planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom} />}
       {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom} />}
     </>
   );

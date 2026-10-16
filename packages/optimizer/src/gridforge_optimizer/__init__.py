@@ -1,70 +1,24 @@
-"""gridforge_optimizer — the deterministic connection-queue engine.
+"""gridforge_optimizer: the deterministic grid engine.
 
-`optimize(candidates, params)` ranks projects by readiness + grid need + strategic fit and
-connects them greedily, gated by a pandapower power flow. Scoring helpers (readiness rubric,
-grid need) live in the sibling modules; see the package README.
+`simulate(connections, params)` builds the network for every plan year (demand grown to the year, the connections
+energised by then), solves it in both study cases with AC power flow and reports every loading, voltage and breach;
+`diff_plans` compares two runs year by year. See the package README.
 """
 
 import hashlib as _hashlib
 from functools import lru_cache as _lru_cache
 from pathlib import Path as _Path
 
-from .analysis import Limits, RunDigest, element_ratings, limits, run_digest
-from .diff import (
-    ConsequenceDiff,
-    LineDelta,
-    LoadingDelta,
-    PhaseDelta,
-    ProjectDelta,
-    WorkDelta,
-    YearDelta,
-    diff_results,
-    diff_works,
-    diff_year,
-    diff_years,
-)
-from .findings import against_recommendation, extract_findings
-from .gate import merge_verdict
-from .greedy import optimize
-from .network import apply_reinforcement
-from .sources import SOURCES, GridSource, NgedSource, SourceSpec, default_source, source_from_file, validate_net
-from .studies import STUDIES, StudyContext, chunk_study, merge_chunks, run_study
-from .suggest import suggest_unblock
-from .types import (
-    Candidate,
-    ValidationReport,
-    Control,
-    ImportMeta,
-    GridModel,
-    OptimizeParams,
-    OptimizeResult,
-    Curtailment,
-    N1During,
-    Alert,
-    Finding,
-    GateFinding,
-    MergeVerdict,
-    ModelAssumption,
-    StudyItem,
-    StudyResult,
-    Outage,
-    OutageStudy,
-    PhaseResult,
-    QueueItem,
-    RegionYear,
-    Reason,
-    Reinforcement,
-    Suggestion,
-    WindowOption,
-    YearResult,
-)
-from .years import PLAN_YEARS, energisation_years, evaluate_year, evaluate_years, year_order
-from .windows import best_windows
+from .diff import LoadingDelta, PlanDiff, YearDelta, diff_plans, diff_year
+from .sources import GridSource, NgedSource, Pathway, default_source
+from .types import Connection, Control, GridModel, ModelAssumption, PlanParams, PlanResult, Reason, YearResult
+from .years import PLAN_YEARS, evaluate_year, simulate, year_order
+
 
 @_lru_cache(maxsize=1)
 def engine_fingerprint() -> str:
-    """A hash of this package's source and bundled data. Cached results are keyed by it, so any
-    change to the physics, the ranking or the pinned network retires every cached answer."""
+    """A hash of this package's source and bundled data. Cached results are keyed by it, so any change to the physics
+    or the pinned network retires every cached answer."""
     h = _hashlib.sha256()
     here = _Path(__file__).resolve().parent
     for p in sorted(list(here.glob("*.py")) + list((here / "data").rglob("*"))):
@@ -76,70 +30,25 @@ def engine_fingerprint() -> str:
 
 __all__ = [
     "engine_fingerprint",
-    "Limits",
-    "RunDigest",
-    "element_ratings",
-    "limits",
-    "run_digest",
-    "optimize",
-    "Candidate",
-    "OptimizeParams",
-    "OptimizeResult",
-    "QueueItem",
-    "PhaseResult",
-    "YearResult",
-    "RegionYear",
-    "Alert",
-    "Outage",
-    "OutageStudy",
-    "Curtailment",
-    "N1During",
-    "evaluate_years",
-    "best_windows",
-    "WindowOption",
+    "simulate",
+    "evaluate_year",
     "year_order",
     "PLAN_YEARS",
+    "diff_plans",
+    "diff_year",
+    "PlanDiff",
+    "YearDelta",
+    "LoadingDelta",
+    "Connection",
+    "Control",
+    "PlanParams",
+    "PlanResult",
+    "YearResult",
     "Reason",
-    "Reinforcement",
-    "Suggestion",
-    "apply_reinforcement",
-    "suggest_unblock",
-    "diff_results",
-    "extract_findings",
-    "against_recommendation",
-    "merge_verdict",
-    "SOURCES",
+    "GridModel",
+    "ModelAssumption",
     "GridSource",
     "NgedSource",
-    "SourceSpec",
+    "Pathway",
     "default_source",
-    "source_from_file",
-    "validate_net",
-    "GridModel",
-    "Control",
-    "ImportMeta",
-    "ValidationReport",
-    "STUDIES",
-    "StudyContext",
-    "run_study",
-    "chunk_study",
-    "merge_chunks",
-    "ModelAssumption",
-    "StudyItem",
-    "StudyResult",
-    "Finding",
-    "GateFinding",
-    "MergeVerdict",
-    "ConsequenceDiff",
-    "ProjectDelta",
-    "PhaseDelta",
-    "LineDelta",
-    "LoadingDelta",
-    "YearDelta",
-    "WorkDelta",
-    "diff_year",
-    "diff_years",
-    "diff_works",
-    "evaluate_year",
-    "energisation_years",
 ]

@@ -1,197 +1,53 @@
 """Request bodies."""
 
-from typing import Literal
-
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from gridforge_optimizer import Control
-from gridforge_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_END_YEAR, PLAN_START_YEAR
+from gridforge_optimizer.config import MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
 
-from .config import MANUAL_READINESS_DEFAULT, MANUAL_STRATEGIC_DEFAULT
+_YEAR = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
 
 
-class NewCandidate(BaseModel):
-    """Request body for adding a project via the UI (scored with neutral placeholders)."""
+class ConnectionCreate(BaseModel):
+    """A connection placed on a branch: by hand, or pulled from the registry (`from_registry`, its id; the fields
+    given here override the registry's)."""
 
-    applicant: str | None = None
+    from_registry: str | None = None
+    name: str | None = None
     bus_id: int | None = None
     technology: str | None = None
-    rating_mw: float | None = None
-    readiness_score: float = MANUAL_READINESS_DEFAULT
-    strategic_fit: float = MANUAL_STRATEGIC_DEFAULT
-    readiness_rationale: str = ""
-    commissioning_year: int | None = None  # requested energisation year; derived if omitted
-    import_mw: float | None = None  # charging capacity (batteries); defaults to the rating
-    control: Control | None = None  # how its connection offer runs it; None: not stated (modelled at unity power factor)
+    rating_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
+    import_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)  # charging or demand capacity; None = the rating
+    control: Control | None = None  # how its connection offer runs it; None: unity power factor
+    year: int | None = _YEAR
 
 
-class CandidateCreate(NewCandidate):
-    """POST /optimize/candidates: a new project and the branch it goes on (a branch's own projects, at create, name none)."""
+class ConnectionChange(BaseModel):
+    """Change a connection on a branch: any field given."""
 
-    branch_id: str
-
-
-class OptimizeRequest(BaseModel):
-    """Request body for a /optimize run: DFES scenario (or custom growth) + optional weight overrides."""
-
-    # a DFES pathway id drives per-bus growth; growth_2030/2035 are the "Custom (manual)" override
-    scenario: str | None = DEFAULT_SCENARIO
-    growth_2030: float = GROWTH_2030
-    growth_2035: float = GROWTH_2035
-    w_readiness: float | None = None
-    w_need: float | None = None
-    w_strategic: float | None = None
-
-
-class BranchOptimizeRequest(BaseModel):
-    """Request body for running a branch (its scenario is the branch's own)."""
-
-    view_year: int | None = None  # the year the planner is looking at: solved first, published first
+    name: str | None = None
+    bus_id: int | None = None
+    technology: str | None = None
+    rating_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
+    import_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
+    control: Control | None = None
+    year: int | None = _YEAR
 
 
 class BranchCreate(BaseModel):
-    """Open a branch off `from_branch` (default main): a scenario + optional projects to add."""
+    """Open a branch off `from_branch` (copy-on-create: its connections and demand profile come along)."""
 
-    name: str
-    from_branch: str  # the branch it is opened from (a project's main, or another branch)
-    scenario: str | None = None
-    growth_2030: float | None = None
-    growth_2035: float | None = None
-    w_readiness: float | None = None
-    w_need: float | None = None
-    w_strategic: float | None = None
-    added_projects: list[NewCandidate] = []
+    name: str = Field(min_length=1)
+    from_branch: str
 
 
-class MergeRequest(BaseModel):
-    """Merge a branch into `into` (default: its parent, the branch the gate judges it against). Blockers always refuse the
-    merge; warnings refuse it until `acknowledge` is true (the operator has read them)."""
-
-    into: str | None = None
-    acknowledge: bool = False
-
-
-class RebaseRequest(BaseModel):
-    """Rebase a branch onto its parent as it is now: the operator's pick for every conflict the preview showed
-    (`GET /branches/{id}/rebase`), by conflict id. Nothing is picked for them."""
-
-    picks: dict[str, Literal["parent", "branch", "both"]] = {}
-
-
-class ScenarioUpdate(BaseModel):
-    """A branch's demand profile: the pathway and its two growth anchors."""
+class ProfileSet(BaseModel):
+    """A branch's demand profile: a pathway id (FORECASTS), or `custom` with its two anchors."""
 
     scenario: str
-    growth_2030: float
-    growth_2035: float
+    growth_2030: float | None = Field(default=None, gt=0)
+    growth_2035: float | None = Field(default=None, gt=0)
 
 
-class PauseIn(BaseModel):
-    reason: str = ""
-
-
-class EventIn(BaseModel):
-    """An event for the project's agents (agents.events.TRIGGERS)."""
-
-    type: str
-    payload: dict = {}
-
-
-class ThreadCreate(BaseModel):
-    branch_id: str | None = None
-    title: str = ""
-
-
-class MessageIn(BaseModel):
-    content: str = Field(min_length=1, max_length=4000)
-
-
-class ApprovalDecision(BaseModel):
-    decision: Literal["approve", "deny"]
-    note: str = ""
-
-
-class FindingStatusSet(BaseModel):
-    """The operator's call on a finding: acknowledge it (default), resolve it by hand, or reopen it."""
-
-    status: Literal["open", "acknowledged", "resolved"] = "acknowledged"
-    note: str = ""
-
-
-class RegistryAdd(BaseModel):
-    request_id: str
-
-
-class CandidateChange(BaseModel):
-    """A change to a project on a branch (the operator's, or an agent's approved proposal): its point of
-    connection, its export rating, its import capacity, its requested year or how its offer runs it (`control`).
-    Omitted fields keep their value."""
-
-    bus_id: int | None = None
-    rating_mw: float | None = Field(default=None, ge=0.0)
-    import_mw: float | None = Field(default=None, ge=0.0)
-    commissioning_year: int | None = None
-    control: Control | None = None
-
-
-class ScheduleSet(BaseModel):
-    """The operator's chosen energisation year for a project on a branch (None = follow the
-    optimizer's recommendation)."""
-
-    request_id: str
-    year: int | None = Field(default=None, ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
-
-
-Season = Literal["Winter", "Spring", "Summer", "Autumn"]
-
-
-class WorkSpec(BaseModel):
-    """What a planned work does to which element, without its window (shared by OutageCreate and
-    BestWindowRequest).
-
-    `work` says what it is for: maintenance (out, or derated with `kind`), a like-for-like
-    replacement, or repowering, which brings the element back from the following year with a new
-    capability: `repower` "uprate" (rating x `factor`, 1 < factor <= 4) or "add_parallel"."""
-
-    element_kind: Literal["line", "trafo", "gen"]
-    element_id: str  # line/trafo id, or an existing generator's id (EX-…)
-    weeks: int = Field(default=4, ge=1, le=26)
-    kind: Literal["outage", "derate"] = "outage"
-    work: Literal["maintenance", "repowering", "replacement"] = "maintenance"
-    repower: Literal["uprate", "add_parallel"] | None = None
-    factor: float | None = Field(default=None, gt=1.0, le=4.0)
-
-    @model_validator(mode="after")
-    def _work_fields(self):
-        if self.work != "repowering":
-            if self.repower is not None or self.factor is not None:
-                raise ValueError("repower and factor apply to repowering only")
-            if self.work == "replacement" and self.kind == "derate":
-                raise ValueError("a replacement takes the element fully out; derate is for maintenance")
-            return self
-        if self.kind == "derate":
-            raise ValueError("repowering takes the element fully out; derate is for maintenance")
-        if self.repower is None:
-            raise ValueError("repowering needs repower: 'uprate' or 'add_parallel'")
-        if self.repower == "uprate" and self.factor is None:
-            raise ValueError("an uprate needs a factor (1 < factor <= 4)")
-        if self.repower == "add_parallel" and self.factor is not None:
-            raise ValueError("add_parallel takes no factor")
-        return self
-
-
-class OutageCreate(WorkSpec):
-    """A planned works window on a branch (studied in its season; reported, never a gate)."""
-
-    season: Season
-    year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
-
-
-class ReinforcementCreate(BaseModel):
-    """A simulated reinforcement proposed on a branch (a lever from the suggestions, or the operator's own)."""
-
-    kind: Literal["line", "trafo", "gsp"]
-    element_id: int
-    action: Literal["add_parallel", "uprate"] = "add_parallel"
-    factor: float = Field(default=2.0, gt=1.0, le=4.0)  # an uprate multiplies the rating (impedance unchanged)
-    label: str = ""
+class RunRequest(BaseModel):
+    view_year: int | None = None  # the year the planner is looking at: solved first, published first

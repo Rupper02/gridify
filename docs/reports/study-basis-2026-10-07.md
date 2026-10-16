@@ -1,5 +1,7 @@
 # Study basis: what the standards and the DNOs do, and what GridForge does
 
+> **Note (2026-10-16):** the fault-level screen, the N-1 screen and the demand-side checks this report describes were removed when GridForge was stripped to its power-flow backbone; the study basis (the two cases) stands.
+
 *7 October 2026. Sources read in full where the host allowed an automated fetch (NESO, Ofgem, Electricity North West, SSEN's curtailment note, NGED's open-data portal). SP Energy Networks, SSEN's plan pages and NGED's document pages block automated fetches; the ENA's own P2/8 and EREP 130 texts are behind a login, so those rest on Ofgem's decision documents.*
 
 This note exists so the engine's study basis is defensible to a DNO reader, and so a change to it needs a source first (AGENTS.md rule 4). The README's *Sources and assumptions* register carries the one-line citations; this is the long form.

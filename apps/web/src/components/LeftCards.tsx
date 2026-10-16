@@ -1,355 +1,134 @@
-// Top-left: one card. A stamp line (when the shown result was solved and on which profile, or where the run stands),
-// the boxes that earn their space only when something is wrong (out of date, a run that failed or stopped, the grid
-// not loaded), then five readings for the selected year, each a figure with one label and a click-through: the GSP
-// export against its limit, the binding element with the MW of room left, the voltage range against the band, the
-// N-1 outages that breach, the customer alerts. Below 1100px wide it collapses into one pill.
+// The left column: the result stamp (solved, solving, failed with a Retry) and the viewed year's readings: the worst
+// line and transformer, the voltage range, the GSP's export against its limit, what breaches, demand growth. Then what
+// the model assumes, on request.
 
-import { CaretDown, CaretUp, Info, X } from "@phosphor-icons/react";
+import { ArrowClockwise, CheckCircle, Info, Warning } from "@phosphor-icons/react";
 
-import type { PlannerSlice } from "../hooks/planner/slice";
-import { GRID_LOAD_HINT, gridLoadText } from "../lib/boot";
-import { alertSummary } from "../lib/demand";
-import { GSP_NEAR_LIMIT, ZOOM_REGION, gspTicks, n1Counts, voltageCase, worstElement } from "../lib/derive";
-import type { Layout } from "../lib/layout";
-import { flatSummerNote } from "../lib/limits";
-import { assumptionGroups, assumptionText } from "../lib/projects";
-import { runButton } from "../lib/runStages";
-import { C, caseLabel, fmtMw } from "../theme";
-import type { ElementBinding, FaultLevel } from "../types";
-import { Gauge, Hint, ProfileGlyph } from "./ui";
+import type { Planner } from "../hooks/usePlanner";
+import { caseOf, lineName, trafoName } from "../lib/model";
+import { C, caseLabel, loadColor, profileLabel } from "../theme";
+import { Gauge, Hint } from "./ui";
 
-export type LeftCardsPlanner = PlannerSlice<
-  "assumptions" | "boundary" | "limits" | "model" | "modelError" | "modelLoading" | "plan" | "leftFolded" | "result" | "resultAt" | "sel" | "showAssumptions" | "showBoundary" | "warehouseStale" | "year",
-  "focusSel" | "retryLoad" | "run" | "setLayer" | "showLimits" | "toggleBoundary" | "toggleAssumptions" | "toggleLeft",
-  "exact" | "ix" | "profile" | "resultProfile" | "run" | "stale" | "yr" | "caps" | "synthetic"
->;
+const GSP_TICKS = 24;
 
-type RunButton = ReturnType<typeof runButton>;
-
-/** What each reading means, for a reader who has never met the term. */
-const HINTS = {
-  gsp: "The Grid Supply Point is where this distribution network meets the transmission grid. Export is the power flowing up through it when local generation exceeds local demand; the limit is what its supergrid transformers and the transmission connection allow. The gap between the two is the room for new generation on the whole network: the generation headroom every DNO publishes per substation.",
-  binding: "The line or transformer closest to its thermal rating this year: the first thing that would overload if more power flowed, so it sets the ceiling for new connections near it. \"Room\" is how many more MW it can carry before it reaches its rating (a first-order estimate; the Limits tab has the detail).",
-  voltage: "The lowest and highest busbar voltages, in per unit of nominal (1.000 = nominal). Each voltage level has a statutory band it must stay inside (GB: ±10% at 132 kV, ±6% below); outside it, customers' equipment is at risk and a connection that causes it is refused.",
-  n1: "The security test: every line and transformer on the 132 kV backbone is taken out one at a time, and the network must still carry its load within limits. The figure counts the single outages, of all those studied, that would overload something or cut off demand. Reported for the engineer; a generation connection is non-firm under an outage by default, so it does not by itself refuse one.",
-  alerts: "Demand groups (substations) checked against their firm capacity and security of supply (Engineering Recommendation P2/8): a warning when a group's demand comes close to what it can be supplied with one transformer out, a breach when it is over.",
-  fault: "The three-phase short-circuit current at the busbar with the least margin to its switchgear rating: what the breakers must interrupt in a fault. New generation raises it (synchronous machines most, inverters a little). The figure is the DNO's own published current scaled by the modelled change from today's network (IEC 60909); informational, never a connection gate.",
-  demand: "Firm capacity minus this year's peak demand at the tightest demand group: the demand headroom a DNO publishes per substation. Firm capacity is what the substation can still supply with its largest transformer out (P2/8). Negative means the group's forecast peak already exceeds it.",
-};
-
-export function LeftCards({ planner, layout }: { planner: LeftCardsPlanner; layout: Layout }) {
-  const { s, actions, derived } = planner;
-  const { yr, stale, resultProfile, profile, run } = derived;
-  const limit = yr?.gsp_limit_mw ?? s.boundary?.export_limit_mw ?? null;
-  const gsp = yr?.converged === false ? null : (yr?.gsp_export_mw ?? null); // a year that did not solve has no figures
-  const gspHot = gsp != null && limit ? gsp / limit > GSP_NEAR_LIMIT : false;
-  const runBtn = runButton(run, stale.stale, profile?.label ?? "", !!s.model); // plain until the profile is known
-  // out of date, unless a run that will include the change is on its way (or the last one did not finish: Retry covers both)
-  const showStale = stale.stale && !run.inProgress && !run.problem;
-
-  if (s.sel && !layout.narrow) return null; // a clicked element's card takes this column (cardSlot)
-
-  if (layout.narrow) {
-    return (
-      <div className="narrow-pill glass" style={{ borderColor: showStale || run.problem ? "rgba(255,195,107,0.45)" : undefined }}>
-        {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{resultProfile ? `${resultProfile.label} result` : (gridLoadText(!!s.model, s.modelLoading, s.modelError) ?? "No run yet")}</span>
-        <span className="mono" style={{ fontSize: 11, color: gspHot ? C.amber : C.ink2 }}>
-          GSP {gsp != null ? Math.round(gsp) : "–"}/{limit != null ? Math.round(limit) : "–"}
-        </span>
-        {run.quiet && <span style={{ fontSize: 11, color: C.mute }}>updating…</span>}
-        {showStale && (
-          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
-            Out of date · re-run
-          </button>
-        )}
-        {run.problem && (
-          <button className="btn warn" style={{ height: 24, fontSize: 11 }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={run.problem}>
-            {run.roadmap} · retry
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  const reserve = layout.showDock ? layout.dockPx + 88 : 88;
-  return (
-    <div className="left-col" style={{ maxHeight: `calc(100% - ${reserve}px)` }}>
-      <div className="card glass" style={{ gap: 12 }}>
-        <StampLine planner={planner} />
-        <Problems planner={planner} runBtn={runBtn} showStale={showStale} />
-        {!s.leftFolded && layout.showReadings && s.result && <Readings planner={planner} gsp={gsp} limit={limit} gspHot={gspHot} compact={layout.compactReadings} />}
-        {!s.leftFolded && <Assumptions planner={planner} />}
-      </div>
-      {s.showBoundary && s.boundary && <BoundaryCard planner={planner} />}
-    </div>
-  );
+function gspTicks(exportMw: number, limit: number | null): string[] {
+  if (!limit) return Array(GSP_TICKS).fill("rgba(255,255,255,0.1)");
+  const lit = Math.round((Math.min(exportMw, limit * 1.2) / limit) * GSP_TICKS);
+  return Array.from({ length: GSP_TICKS }, (_, i) => (i < lit ? (exportMw > limit ? C.red : exportMw > 0.9 * limit ? C.amber : C.accent) : "rgba(255,255,255,0.1)"));
 }
 
-/** One line: "Solved 21:24 · Standard" for a settled result, or where the run stands; the profile glyph beside it. */
-function StampLine({ planner }: { planner: LeftCardsPlanner }) {
-  const { s, actions, derived } = planner;
-  const { resultProfile, run: st } = derived;
-  const loading = gridLoadText(!!s.model, s.modelLoading, s.modelError);
-  const settled = !st.inProgress && !st.problem && s.result;
-  const text = loading ?? (settled ? `Solved ${s.resultAt || ""}` : st.label);
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }} title={settled ? st.label : undefined}>
-      {resultProfile && <ProfileGlyph bars={resultProfile.bars} />}
-      <span className="ellipsis" style={{ fontSize: 12.5, fontWeight: 600, minWidth: 0 }}>{text}</span>
-      {resultProfile && <span className="mono" style={{ marginLeft: "auto", fontSize: 10.5, color: C.mute, flex: "none" }}>{resultProfile.label}</span>}
-      <button className="icon-btn" style={resultProfile ? undefined : { marginLeft: "auto" }} onClick={actions.toggleLeft} aria-expanded={!s.leftFolded} aria-label={s.leftFolded ? "Show the readings" : "Hide the readings"} title={s.leftFolded ? "Show the readings" : "Hide the readings"}>
-        {s.leftFolded ? <CaretDown size={12} /> : <CaretUp size={12} />}
-      </button>
-    </div>
-  );
-}
-
-/** The boxes that earn their space only when something is wrong: out of date, a run that did not finish, the grid not
- * loaded; and the two tags a reader must know about the picture (a synthetic layout, a warehouse mid-write). */
-function Problems({ planner, runBtn, showStale }: { planner: LeftCardsPlanner; runBtn: RunButton; showStale: boolean }) {
-  const { s, actions, derived } = planner;
-  const { stale, run: st, synthetic } = derived;
-  return (
-    <>
-      {showStale && (
-        <div className="box amber">
-          <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{stale.text}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
-            {runBtn.label}
-          </button>
-        </div>
-      )}
-      {st.problem && (
-        <div className="box amber" role="alert">
-          <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{st.problem}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.run({ restart: stale.stale })} disabled={runBtn.disabled} title={runBtn.title}>
-            Retry
-          </button>
-        </div>
-      )}
-      {s.modelError && (
-        <div className="box amber">
-          <span style={{ fontSize: 12, color: C.amberInk, lineHeight: 1.4, textWrap: "pretty" }}>{GRID_LOAD_HINT}</span>
-          <button className="btn warn" style={{ alignSelf: "flex-start" }} onClick={() => void actions.retryLoad()} disabled={s.modelLoading}>
-            Retry
-          </button>
-        </div>
-      )}
-      {synthetic && <span className="synthetic-tag">Synthetic layout: the file has no coordinates, so the buses are laid out, not placed.</span>}
-      {s.warehouseStale && <span className="synthetic-tag">Read while the pipeline was writing a new warehouse version: what you see is the previous version. Reload the page to read the new one.</span>}
-    </>
-  );
-}
-
-/** The binding element in the Limits reading (`analysis.limits`) that is the viewed year's worst element, if read. */
-function bindingOf(planner: LeftCardsPlanner, kind: "line" | "trafo", id: number): ElementBinding | null {
-  return planner.s.limits?.binding.find((b) => b.kind === kind && b.element_id === id) ?? null;
-}
-
-function Readings({ planner, gsp, limit, gspHot, compact }: { planner: LeftCardsPlanner; gsp: number | null; limit: number | null; gspHot: boolean; compact: boolean }) {
+export function LeftCards({ planner, compact }: { planner: Planner; compact: boolean }) {
   const { s, actions, derived } = planner;
   const { yr, ix, exact } = derived;
-  const n1 = n1Counts(yr);
-  const { note } = derived.run;
-  const worst = worstElement(yr, ix);
-  const binding = worst && (worst.sel.kind === "line" || worst.sel.kind === "trafo") ? bindingOf(planner, worst.sel.kind, Number(worst.sel.id)) : null;
-  const room = binding?.headroom_mw ?? null; // the MW left at the element's worst year, first-order (the Limits tab says more)
-  const since = binding?.first_breach_year ?? binding?.first_near_year ?? null;
-  const vcase = voltageCase(yr);
-  const outside = yr?.voltage_violation_bus_ids.length ?? 0;
-  const sgt = s.boundary?.sgt_count;
-  const sgtMw = s.boundary && sgt ? s.boundary.export_limit_mw / sgt : null;
-  const gspNote = [yr?.gsp_case ? `Read at ${caseLabel(yr.gsp_case)}` : "", sgt && sgtMw ? `${sgt} × ${fmtMw(sgtMw)} MW supergrid transformers` : ""].filter(Boolean).join(" · ");
+  const run = s.run;
+  const worstLine = yr && Object.entries(yr.line_loading).reduce<[string, number] | null>((a, e) => (!a || e[1] > a[1] ? e : a), null);
+  const worstTrafo = yr && Object.entries(yr.trafo_loading).reduce<[string, number] | null>((a, e) => (!a || e[1] > a[1] ? e : a), null);
+  const breaches = yr?.violations.length ?? 0;
   return (
-    <>
-      {derived.caps.boundary && ( // a grid with no boundary has no export reading to show
-      <button className="gsp-btn" onClick={actions.toggleBoundary}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <span className="k" style={{ fontSize: 11.5, color: C.mute }}>GSP export <Hint tip={HINTS.gsp} note={gspNote} /></span>
-          <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: gspHot ? C.amber : C.ink, whiteSpace: "nowrap" }}>
-            {gsp != null ? fmtMw(gsp) : "–"} / {limit != null ? fmtMw(limit) : "–"} MW
-          </span>
-        </div>
-        <Gauge ticks={gspTicks(gsp ?? 0, limit)} />
-        {(yr?.gsp_case || (!exact && yr)) && (
-          <span style={{ fontSize: 10.5, color: C.mute2 }}>
-            {yr?.gsp_case ? `at ${caseLabel(yr.gsp_case)}` : ""}{!exact && yr ? `${yr.gsp_case ? " · " : ""}showing ${yr.year} until ${s.year} is solved` : ""}
-          </span>
-        )}
-      </button>
-      )}
-      {yr?.converged === false ? (
-        <div className="notice red" role="status">
-          <b>The power flow does not converge in {yr.year}.</b> The engine has no figures for this year: no loadings, voltages
-          or N-1 results to read. Check the model (the Limits tab's findings list each year that fails) before trusting a plan on it.
-        </div>
-      ) : (
-      <div className={`readings${compact ? " compact" : ""}`}>
-        <button
-          className="reading reading-btn"
-          onClick={() => actions.showLimits()}
-          disabled={!worst}
-        >
-          <span className="k">Binding element <Hint tip={HINTS.binding} note={worst ? `${worst.name}: ${Math.round(worst.pct)}% of its rating${worst.at ? ` at ${caseLabel(worst.at)}` : ""} in ${yr?.year}${binding && flatSummerNote(binding) ? `. ${flatSummerNote(binding)}` : ""}` : ""} /></span>
-          <span className="v" style={{ color: worst ? (worst.pct > 100 ? C.red : worst.pct > 90 ? C.amber : C.ink) : C.ink }}>
-            {!worst ? "–" : room != null ? `${room} MW room` : `${Math.round(worst.pct)}%`}
-          </span>
-          <span className="n">{worst ? `${worst.name}${room != null ? ` · ${Math.round(worst.pct)}%` : ""}${since ? ` · ${binding?.first_breach_year ? "breaches" : "near"} from ${since}` : ""}` : "not solved yet"}</span>
-        </button>
-        <div className="reading">
-          <span className="k">Voltage <Hint tip={HINTS.voltage} note={vcase ? `The lowest at ${caseLabel(vcase)} in ${yr?.year ?? s.year}` : ""} /></span>
-          <span className="v" style={{ color: outside ? C.amber : C.ink }}>{yr ? `${yr.min_vm_pu.toFixed(3)}–${yr.max_vm_pu.toFixed(3)}` : "–"}</span>
-          <span className="n">{yr ? (outside ? `${outside} bus${outside === 1 ? "" : "es"} out of band` : "pu · within band") : ""}</span>
-        </div>
-        {/* "12 of 27 outages": opens the Limits tab's findings on the N-1 group */}
-        <button
-          className="reading reading-btn"
-          onClick={() => actions.showLimits("n1")}
-          disabled={!yr?.n1_screened}
-        >
-          <span className="k">N-1 <Hint tip={HINTS.n1} note={yr?.n1_screened ? `${yr.n1_screened} outages studied${yr.n1_cases?.length ? ` at ${yr.n1_cases.map(caseLabel).join(" and ")}` : ""}${n1.breaches ? ` · ${n1.breaches} findings` : ""}` : "No line or transformer is in the N-1 scope: not studied"} /></span>
-          <span className="v" style={{ color: yr?.n1_violations.length ? C.amber : C.ink }}>
-            {yr ? (yr.n1_screened ? `${n1.outages} of ${yr.n1_screened}` : "none") : "–"}
-          </span>
-          <span className="n">{yr && !yr.n1_screened ? "not in scope" : "outages breach a limit"}</span>
-        </button>
-        {yr?.fault_levels && yr.fault_levels.length > 0 && <FaultReading planner={planner} rows={yr.fault_levels} />}
-        {yr?.regions && <DemandHeadroom planner={planner} />}
-        {yr?.alerts && <CustomerAlerts planner={planner} />}
-      </div>
-      )}
-      {note && <span style={{ fontSize: 10.5, color: C.mute2 }}>{note}</span>}
-    </>
-  );
-}
-
-/** The year's fault level at the busbar with the least margin to its switchgear rating (the highest utilisation, else the
- * highest current where no rating is published); opens the Limits tab. */
-function FaultReading({ planner, rows }: { planner: LeftCardsPlanner; rows: FaultLevel[] }) {
-  const { actions } = planner;
-  const rated = rows.filter((f) => f.utilisation_pct != null);
-  const worst = (rated.length ? rated : rows).reduce((a, f) => ((f.utilisation_pct ?? f.modelled_ka) > (a.utilisation_pct ?? a.modelled_ka) ? f : a));
-  const figure = worst.projected_ka ?? worst.modelled_ka;
-  const pct = worst.utilisation_pct;
-  const note = `${worst.name}: ${figure.toFixed(1)} kA three-phase break current${worst.rating_ka != null ? ` against a ${worst.rating_ka.toFixed(1)} kA rating` : ", no rating published"}${worst.published_over_rating ? ". NGED's own published figure already exceeds the rating" : ""}. Click: the Limits tab`;
-  return (
-    <button className="reading reading-btn" onClick={() => actions.showLimits()}>
-      <span className="k">Fault level <Hint tip={HINTS.fault} note={note} /></span>
-      <span className="v" style={{ color: pct != null && pct > 100 ? C.red : pct != null && pct > 90 ? C.amber : C.ink }}>{pct != null ? `${Math.round(pct)}%` : `${figure.toFixed(1)} kA`}</span>
-      <span className="n">{worst.name}</span>
-    </button>
-  );
-}
-
-/** The year's demand headroom: firm capacity less the year's peak at the tightest demand group with a published firm
- * capacity (the DNO's demand-headroom reading); opens the Demand layer on that group. */
-function DemandHeadroom({ planner }: { planner: LeftCardsPlanner }) {
-  const { actions, derived } = planner;
-  const groups = (derived.yr?.regions ?? []).filter((r) => r.firm_mw > 0);
-  if (!groups.length) return null;
-  const tight = groups.reduce((a, r) => (r.headroom_mw < a.headroom_mw ? r : a));
-  const share = tight.headroom_mw / tight.firm_mw;
-  const open = () => {
-    actions.setLayer("demand");
-    actions.focusSel({ kind: "region", id: tight.region_id }, ZOOM_REGION);
-  };
-  return (
-    <button className="reading reading-btn" onClick={open}>
-      <span className="k">Demand headroom <Hint tip={HINTS.demand} note={`${tight.name}: firm ${fmtMw(tight.firm_mw)} MW, peak ${fmtMw(tight.demand_mw)} MW in ${derived.yr?.year}. Click: the group on the map`} /></span>
-      <span className="v" style={{ color: tight.headroom_mw < 0 ? C.red : share < 0.1 ? C.amber : C.ink }}>{fmtMw(tight.headroom_mw)} MW</span>
-      <span className="n">{tight.name}</span>
-    </button>
-  );
-}
-
-/** The year's demand-side alerts by level, as a reading; opens the Demand layer on the worst region. */
-function CustomerAlerts({ planner }: { planner: LeftCardsPlanner }) {
-  const { actions, derived } = planner;
-  const { breach, warn, worst } = alertSummary(derived.yr);
-  const open = () => {
-    actions.setLayer("demand");
-    if (worst) actions.focusSel({ kind: "region", id: worst }, ZOOM_REGION);
-  };
-  const total = breach + warn;
-  return (
-    <button className="reading reading-btn" onClick={open}>
-      <span className="k">Customer alerts <Hint tip={HINTS.alerts} note={worst ? "Click: the worst group on the map" : "Click: the demand regions on the map"} /></span>
-      <span className="v" style={{ color: breach ? C.red : warn ? C.amber : C.greenInk }}>{total ? String(total) : "none"}</span>
-      <span className="n">{total ? [breach ? `${breach} breach${breach === 1 ? "" : "es"}` : "", warn ? `${warn} warning${warn === 1 ? "" : "s"}` : ""].filter(Boolean).join(" · ") : "firm capacity holds"}</span>
-    </button>
-  );
-}
-
-/** What the model assumes, as a small link that opens the list (every project has assumptions, NGED's included). */
-function Assumptions({ planner }: { planner: LeftCardsPlanner }) {
-  const { s, actions } = planner;
-  return (
-    <>
-      <button className="assume-btn" onClick={() => void actions.toggleAssumptions()} aria-expanded={s.showAssumptions}>
-        <Info size={12} />
-        {s.showAssumptions ? "Hide what the model assumes" : "What the model assumes"}
-      </button>
-      {s.showAssumptions && (
-        <div className="assume-list">
-          {!s.assumptions && <span className="mute" style={{ fontSize: 11.5 }}>Loading…</span>}
-          {s.assumptions && !s.assumptions.length && <span className="mute" style={{ fontSize: 11.5 }}>Nothing recorded.</span>}
-          {/* one section per source; the file's gaps (what the import could not provide) open first */}
-          {s.assumptions && assumptionGroups(s.assumptions).map((g) => (
-            <details key={g.source} className="assume-group" open={g.source === "file"}>
-              <summary>
-                {g.label}
-                <span className="mono fcount">{g.rows.length}</span>
-              </summary>
-              {g.rows.map((a) => (
-                <span key={a.key} style={{ fontSize: 11, color: C.ink2, lineHeight: 1.4, textWrap: "pretty" }}>· {assumptionText(a)}</span>
-              ))}
-            </details>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-function BoundaryCard({ planner }: { planner: LeftCardsPlanner }) {
-  const { s, actions, derived } = planner;
-  const b = s.boundary!;
-  const yr = derived.yr;
-  return (
-    <div className="card glass boundary-card">
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1 }}>Beyond the GSP</span>
-        <button className="icon-btn" onClick={actions.toggleBoundary} aria-label="Close">
-          <X size={12} />
-        </button>
-      </div>
-      <div className="rows">
-        <span className="mute">Export limit</span>
-        <span className="mono">{fmtMw(b.export_limit_mw)} MW</span>
-        <span className="mute">Firm (one SGT out)</span>
-        <span className="mono">{fmtMw(b.firm_export_mw)} MW</span>
-        <span className="mute">Export today</span>
-        <span className="mono">{fmtMw(b.export_today_mw)} MW</span>
-        <span className="mute">Export in {yr?.year ?? s.year}</span>
-        <span className="mono">{yr ? `${fmtMw(yr.gsp_export_mw)} MW` : "–"}</span>
-      </div>
-      <span className="mute" style={{ fontSize: 11.5 }}>
-        {b.gsp_name} already exports this region's surplus generation up to transmission, so its supergrid transformers fill first. The export
-        sign convention is assumed; fault levels and the 400 kV network are not modelled.
-      </span>
-      {b.transmission_projects.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ fontSize: 11.5, fontWeight: 600 }}>Transmission projects behind it</span>
-          {b.transmission_projects.map((t) => (
-            <span key={t.name} style={{ display: "flex", gap: 6, fontSize: 11 }}>
-              <span className="grow ellipsis">{t.name}</span>
-              <span className="mono mute">{fmtMw(t.mw)} MW · {t.year}</span>
+    <div className="left-col">
+      <div className="card glass">
+        <div className="stamp">
+          {run.kind === "running" ? (
+            <span className="grow" style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <b style={{ fontSize: 12.5 }}>Solving · {Math.round(run.fraction * 100)}%</b>
+              <span className="mute ellipsis" style={{ fontSize: 11 }}>{run.stage}</span>
             </span>
-          ))}
+          ) : run.kind === "failed" ? (
+            <>
+              <Warning size={16} color={C.amber} />
+              <span className="grow" style={{ fontSize: 11.5, color: C.amberInk }}>The run failed: {run.error}</span>
+              <button className="icon-btn" onClick={() => void actions.run()} title="Retry">
+                <ArrowClockwise size={14} />
+              </button>
+            </>
+          ) : s.bootError ? (
+            <>
+              <Warning size={16} color={C.amber} />
+              <span className="grow" style={{ fontSize: 11.5, color: C.amberInk }}>{s.bootError}</span>
+              <button className="icon-btn" onClick={() => void actions.boot()} title="Retry">
+                <ArrowClockwise size={14} />
+              </button>
+            </>
+          ) : s.result ? (
+            <>
+              <CheckCircle size={16} color={C.phase1} />
+              <span className="grow" style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                <b style={{ fontSize: 12.5 }}>Solved {s.resultAt === "cached" ? "(cached)" : s.resultAt}</b>
+                <span className="mute" style={{ fontSize: 11 }}>{profileLabel(s.result.params.scenario)} demand · AC power flow, two cases</span>
+              </span>
+            </>
+          ) : (
+            <span className="mute" style={{ fontSize: 12 }}>{s.model ? "Waiting for the first run…" : "Loading the grid…"}</span>
+          )}
         </div>
-      )}
-      <span className="mute-2" style={{ fontSize: 10.5 }}>Source: {b.source}</span>
+
+        {yr && (
+          <>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <b className="mono" style={{ fontSize: 15 }}>{s.year}</b>
+              <span className="mute" style={{ fontSize: 11 }}>
+                demand ×{yr.growth.toFixed(2)} of today{!exact && " · this year is still solving"}
+              </span>
+            </div>
+            <div className={`readings${compact ? " compact" : ""}`}>
+              <button className="reading-btn" onClick={() => worstLine && actions.select({ kind: "line", id: +worstLine[0] })}>
+                <span className="reading">
+                  <span className="k">Worst line <Hint tip="The most loaded circuit against its thermal rating, in the worse of the two study cases (winter peak at winter ratings, summer minimum at summer ratings)." /></span>
+                  <span className="v" style={{ color: loadColor(yr.worst_line_loading_pct) }}>{Math.round(yr.worst_line_loading_pct)}%</span>
+                  <span className="n ellipsis">{worstLine && ix ? `${lineName(ix, +worstLine[0])} · ${caseLabel(caseOf(yr, "lines", +worstLine[0]))}` : "–"}</span>
+                </span>
+              </button>
+              <button className="reading-btn" onClick={() => worstTrafo && actions.select({ kind: "trafo", id: +worstTrafo[0] })}>
+                <span className="reading">
+                  <span className="k">Worst transformer</span>
+                  <span className="v" style={{ color: loadColor(yr.worst_trafo_loading_pct) }}>{Math.round(yr.worst_trafo_loading_pct)}%</span>
+                  <span className="n ellipsis">{worstTrafo && ix ? `${trafoName(ix, +worstTrafo[0])} · ${caseLabel(caseOf(yr, "trafos", +worstTrafo[0]))}` : "–"}</span>
+                </span>
+              </button>
+              <span className="reading">
+                <span className="k">Voltage range <Hint tip="The lowest and highest busbar voltage after the tap changers settle. The statutory band is ±10% at 132 kV and ±6% below it." /></span>
+                <span className="v">{yr.min_vm_pu.toFixed(3)}–{yr.max_vm_pu.toFixed(3)}</span>
+                <span className="n">pu · {yr.voltage_violation_bus_ids.length} bus{yr.voltage_violation_bus_ids.length === 1 ? "" : "es"} out of band</span>
+              </span>
+              <button className="reading-btn" onClick={() => actions.setTab("limits")}>
+                <span className="reading">
+                  <span className="k">Breaches</span>
+                  <span className="v" style={{ color: breaches ? C.red : C.phase1 }}>{yr.converged ? breaches : "no solution"}</span>
+                  <span className="n">{breaches ? "see Limits" : "every limit holds"}</span>
+                </span>
+              </button>
+            </div>
+            <div className="gsp-btn">
+              <span style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
+                <span className="mute">GSP export to transmission</span>
+                <span className="mono">
+                  {Math.round(yr.gsp_export_mw)}
+                  {yr.gsp_limit_mw ? ` / ${Math.round(yr.gsp_limit_mw)}` : ""} MW
+                </span>
+              </span>
+              <Gauge ticks={gspTicks(yr.gsp_export_mw, yr.gsp_limit_mw)} />
+              <span className="mute-2" style={{ fontSize: 10.5 }}>
+                at {caseLabel(yr.gsp_case)} · import at peak {Math.round(yr.gsp_import_mw)} MW
+              </span>
+            </div>
+          </>
+        )}
+
+        <button className="btn ghost" style={{ justifyContent: "flex-start", padding: 0 }} onClick={() => void actions.toggleAssumptions()}>
+          <Info size={13} /> What the model assumes
+        </button>
+        {s.showAssumptions && (
+          <div className="box dark" style={{ fontSize: 11.5, lineHeight: 1.45, maxHeight: 260, overflowY: "auto" }}>
+            {(s.assumptions ?? []).map((a) => (
+              <span key={a.key}>
+                {a.message}
+                {a.count ? <span className="mute"> ({a.count} {a.element_kind ?? "elements"})</span> : null}
+              </span>
+            ))}
+            {!s.assumptions && <span className="mute">Loading…</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,5 +1,5 @@
-// Shared building blocks (the component sheet in docs/design/gridforge-glass): the tech icon, the
-// profile glyph, the switch, the year stepper, the diff tile, the GSP gauge and the branch-hue vars.
+// Shared building blocks (the component sheet in docs/design/gridforge-glass): the tech icon, the profile glyph, the
+// switch, the year stepper, the diff tile, the sparkline, the GSP gauge, the hint and the branch-hue vars.
 
 import {
   ArrowRight,
@@ -20,11 +20,6 @@ import {
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import Markdown, { type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
-
-import { type ModelIndex, nameElements } from "../lib/derive";
-import { citeSteps, citedStep } from "../lib/markdown";
 import { C, isTech, tint } from "../theme";
 import type { Tech } from "../types";
 
@@ -171,26 +166,6 @@ export function hueVars(hue: string, onMain: boolean): CSSProperties {
     "--hue-glow": tint(hue, "1c"),
   } as CSSProperties;
 }
-
-/** Citations become small numbered chips; any other link opens in a new tab. */
-const MD_COMPONENTS: Components = {
-  a: ({ href, children }) => {
-    const step = citedStep(href);
-    if (step) return <sup className="cite" title={`Traced to tool step ${step}`}>{children}</sup>;
-    return <a href={href} target="_blank" rel="noreferrer">{children}</a>;
-  },
-};
-
-/** An agent's text (an answer, the engineer's note) as markdown: elements named where they are, every `[step …]`
- * citation a numbered chip (a note carries none). The caller's container carries the `md` class. */
-export function AgentText({ text, ix }: { text: string; ix: ModelIndex | null }) {
-  return (
-    <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-      {citeSteps(nameElements(text, ix))}
-    </Markdown>
-  );
-}
-
 
 /** A small (i) beside a label that explains the term in plain words on hover or focus, for a reader who has never met
  * it; `note` is this grid's or year's caveat (the case it was read at, the element, what a click does), beneath. The

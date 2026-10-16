@@ -1,16 +1,14 @@
 // Design tokens the TypeScript side needs (colours on the map and in data-driven styles); the CSS
 // side lives in styles.css under the same names. GridForge Glass: one interactive accent (arc
-// cyan), planning-state colours, and a hue per branch.
+// cyan), the limit colours, and a hue per branch.
 
-import type { Lens } from "./lib/plan";
-import type { Status, Tech } from "./types";
+import type { Tech } from "./types";
 
 export const C = {
   night: "#0b111a",
   substation: "#152031",
   ink: "#eaf0f7",
   ink2: "#c9d6e8",
-  ink3: "#dbe4ef",
   mute: "#9aa9bc",
   mute2: "#7d8da3",
   accent: "#7ce3ff",
@@ -21,7 +19,6 @@ export const C = {
   red: "#ff6b6b",
   redInk: "#ff9b9b",
   greenInk: "#8ef0c2",
-  rejected: "#7d8da3",
   existing: "#2fbfa5",
   // the grid's line voltage tiers (lib/mapFeatures.lineTiers): its highest level, the next, and the rest
   lineHigh: "#dce6f2",
@@ -32,31 +29,6 @@ export const C = {
 
 /** Append an alpha byte to a #rrggbb hue (tints: 1f backgrounds, 80 borders, 1c glow). */
 export const tint = (hex: string, alpha: string): string => `${hex}${alpha}`;
-
-export interface StatusStyle {
-  label: string;
-  c: string;
-  ink: string;
-}
-/** Planning states (their full titles, with a phase's years, are `lib/plan.statusTitle`). "Prelim" is a
- * project added to the branch but not yet in a run. */
-export const ST: Record<Status | "Prelim", StatusStyle> = {
-  Phase1: { label: "Phase 1", c: C.phase1, ink: C.greenInk },
-  Phase2: { label: "Phase 2", c: C.phase2, ink: "#b5ccff" },
-  Deferred: { label: "Deferred", c: C.amber, ink: C.amberInk },
-  Rejected: { label: "Rejected", c: C.rejected, ink: C.mute },
-  Prelim: { label: "Preliminary", c: C.accent, ink: C.accent },
-};
-
-/** Where a year sits in the plan (`lib/plan.lensOf`), as the roadmap colours it (its title: `lib/plan.lensTitle`). */
-export const LENS: Record<Lens, { c: string }> = {
-  today: { c: C.mute },
-  Phase1: { c: C.phase1 },
-  Phase2: { c: C.phase2 },
-};
-
-export const ORDER: Record<Status, number> = { Phase1: 0, Phase2: 1, Deferred: 2, Rejected: 3 };
-
 
 // ---- technologies -------------------------------------------------------------------------------
 export interface TechMeta {
@@ -87,8 +59,8 @@ export const isTech = (t: string | null | undefined): t is Tech => !!t && t in T
 export const techLabel = (t: string | null | undefined): string => (isTech(t) ? TECH[t].label : t ? t : "Unknown");
 
 // ---- demand profiles ----------------------------------------------------------------------------
-/** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's IMPORT_PATHWAYS and the
- * labels mirror config.FORECASTS[*].short (served on /forecasts and the file inspection): change both together. */
+/** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's FORECASTS pathways and the
+ * labels mirror config.FORECASTS[*].short (served on /forecasts): change both together. */
 export interface Profile {
   id: string;
   label: string;
@@ -111,8 +83,6 @@ export const MAIN_HUE = "#c9d6e8";
 export const BRANCH_HUES = ["#7ce3ff", "#ff9f7a", "#c3a6ff", "#f2d06b"];
 
 // ---- formatting ---------------------------------------------------------------------------------
-export const fmtMw = (x: number | null | undefined): string =>
-  x == null ? "–" : (Math.round(x * 10) / 10).toString();
 export const signed = (x: number): string => `${x > 0 ? "+" : ""}${Math.round(x * 10) / 10}`;
 
 /** Loading colour on the map and in readings. */

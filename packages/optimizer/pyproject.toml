@@ -1,12 +1,11 @@
 [project]
 name = "gridforge-optimizer"
 version = "0.1.0"
-description = "Deterministic connection-queue optimizer + LLM narration for GridForge"
+description = "Deterministic grid engine for GridForge: AC power flow through the plan years"
 requires-python = ">=3.10,<3.15"
 dependencies = [
     "pandapower>=3.5.5",
     "networkx>=3.4.2",
-    "openai>=3.22.1",
     "pydantic>=2.11",
     "numba>=0.60",
     "lxml>=6.1.3",
@@ -21,9 +20,6 @@ dev = [
 
 [tool.pytest.ini_options]
 addopts = "-n 4"  # modules in parallel (pytest-xdist); each worker pays numba's JIT once
-markers = [
-    "n1: runs the real N-1 screen inside optimize (stubbed elsewhere for speed)",
-]
 
 [build-system]
 requires = ["hatchling"]

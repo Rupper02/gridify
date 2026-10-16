@@ -10,10 +10,8 @@ export type FeatureKey =
   | "substations"
   | "buses"
   | "generation"
-  | "projects"
-  | "works"
-  | "loads"
-  | "demand";
+  | "connections"
+  | "loads";
 
 export type FeatureGroup = "Network" | "Generation and plan" | "Customers";
 
@@ -52,10 +50,8 @@ export const MAP_FEATURES: Record<FeatureKey, FeatureSpec> = {
   substations: { label: "Substation names", group: "Network" },
   buses: { label: "Busbars", group: "Network" },
   generation: { label: "Generation today", group: "Generation and plan" },
-  projects: { label: "Projects", group: "Generation and plan" },
-  works: { label: "Planned works", group: "Generation and plan" },
+  connections: { label: "Connections", group: "Generation and plan" },
   loads: { label: "Loads", group: "Customers" },
-  demand: { label: "Demand groups", group: "Customers", offByDefault: true },
 };
 
 export const FEATURE_KEYS = Object.keys(MAP_FEATURES) as FeatureKey[];
@@ -81,19 +77,14 @@ export const toggleFeature = (visible: readonly FeatureKey[], key: FeatureKey): 
 export const onlyFeature = (visible: readonly FeatureKey[], key: FeatureKey): FeatureKey[] =>
   visible.length === 1 && visible[0] === key ? [...DEFAULT_VISIBLE] : [key];
 
-/** Make sure a feature shows (a layer that needs it, e.g. the Demand layer and its groups). */
-export const withFeature = (visible: readonly FeatureKey[], key: FeatureKey): FeatureKey[] =>
-  visible.includes(key) ? [...visible] : toggleFeature(visible, key);
-
 // ---- remembered per viewer (a convenience: losing it only resets to the defaults) ----------------
-const STORE_KEY = "gridforge.mapFeatures";
-/** Keys saved before the line features were tiers. */
-const RENAMED: Record<string, FeatureKey> = { lines132: "linesHigh", lines33: "linesMid" };
+const STORE_KEY = "gridforge.mapFeatures.v2"; // v2: the backbone planner (connections replaced projects, works and demand groups)
+
 
 export function loadVisible(): FeatureKey[] {
   try {
     const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null");
-    const keys = Array.isArray(raw) ? raw.map((k) => RENAMED[k] ?? k) : [];
+    const keys: unknown[] = Array.isArray(raw) ? raw : [];
     const saved = FEATURE_KEYS.filter((k) => keys.includes(k));
     // an empty map on opening looks broken, so a saved "nothing" starts from the defaults
     if (saved.length) return saved;

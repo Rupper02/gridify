@@ -1,11 +1,10 @@
-"""The geolocated model of a network for the map and the API (`GridModel`), shaped from a pandapower
-net the same way for every source: NGED's builder and an imported file both end here. Pure."""
+"""The geolocated model of a network for the map and the API (`GridModel`), shaped from a pandapower net the same way
+for every source. Pure."""
 
 from __future__ import annotations
 
 import math
 
-from .dispatch import FLEET_TABLES
 from .naming import name_model
 from .network import voltage_limits
 from .types import GridModel, ModelBus, ModelGenerator, ModelLine, ModelLoad, ModelTransformer
@@ -15,31 +14,9 @@ def _name(v, fallback: str) -> str:
     return fallback if v is None or (isinstance(v, float) and math.isnan(v)) or str(v).strip() in ("", "nan", "None") else str(v)
 
 
-def fleet_of(net) -> list[dict]:
-    """The existing generators of a net (rows with a `fleet_id`, fixed-power-factor `sgen` and voltage-controlled
-    `gen` alike), one entry per fleet id (a site split across busbars sums its shares), shaped as the model's
-    `generators`."""
-    out: dict[str, dict] = {}
-    for t in (net[name] for name in FLEET_TABLES):
-        if not len(t) or "fleet_id" not in t.columns:
-            continue
-        for i in t.index:
-            fid = t.at[i, "fleet_id"]
-            if fid is None or (isinstance(fid, float) and math.isnan(fid)):
-                continue
-            rating = t.at[i, "p_rated_mw"] if "p_rated_mw" in t.columns else t.at[i, "p_mw"]
-            rating = float(rating) if rating == rating else float(t.at[i, "p_mw"])
-            g = out.setdefault(str(fid), {"request_id": str(fid), "bus_id": int(t.at[i, "bus"]), "rating_mw": 0.0,
-                                          "technology": _name(t.at[i, "type"], "other") if "type" in t.columns else "other",
-                                          "applicant": _name(t.at[i, "name"], str(fid))})
-            g["rating_mw"] = round(g["rating_mw"] + rating, 3)
-    return list(out.values())
-
-
 def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict], crs: str = "wgs84") -> GridModel:
-    """Buses, lines, transformers, loads and the existing fleet with their positions, plus the demand
-    groups when the net carries them (`demand.regions_of`). `existing` is the fleet as the source
-    describes it (NGED's builder keeps its own list; `fleet_of` derives one from any net)."""
+    """Buses, lines, transformers, loads and the existing fleet with their positions. `existing` is the fleet as the
+    source describes it (NGED's builder keeps its own list)."""
     vmin, vmax = voltage_limits(net)
     buses = [ModelBus(bus_id=int(i), name=_name(net.bus.at[i, "name"], f"bus {i}"), vn_kv=float(net.bus.at[i, "vn_kv"]),
                       lon=xy[int(i)][0], lat=xy[int(i)][1], vmin_pu=float(vmin[i]), vmax_pu=float(vmax[i])) for i in net.bus.index]
@@ -74,10 +51,6 @@ def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict]
         b = int(g["bus_id"])
         generators.append(ModelGenerator(request_id=g["request_id"], bus_id=b, rating_mw=float(g["rating_mw"]),
                                          technology=g["technology"], applicant=g["applicant"], lon=xy[b][0], lat=xy[b][1]))
-    regions: list[dict] = []
-    if has_regions and net.load["region_id"].notna().any():
-        from .demand import regions_of  # the demand groups (LTDS Table 3 rows), as the engine judges them
-        regions = regions_of(net)
-    model = GridModel(buses=buses, lines=lines, transformers=transformers, loads=loads, generators=generators, regions=regions, crs=crs)
-    name_model(model)  # every element by the name people use for it, so the map and every text an agent reads say the same thing
+    model = GridModel(buses=buses, lines=lines, transformers=transformers, loads=loads, generators=generators, crs=crs)
+    name_model(model)  # every element by the name people use for it
     return model

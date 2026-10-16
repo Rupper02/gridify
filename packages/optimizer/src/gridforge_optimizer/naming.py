@@ -1,7 +1,6 @@
 """What people call a network's elements: a bus by its place, a line by the places it joins (parallel circuits
 numbered), a transformer by its substation and ratio. The engine reports elements by index ("line 1",
-"transformer 29", "bus 19"); this is the one place those become names, for the map (`GridModel`) and for every
-text an agent reads. Grid-agnostic and pure.
+"transformer 29", "bus 19"); this is the one place those become names, for the map (`GridModel`). Grid-agnostic and pure.
 
 The rules: a busbar's place is its name without the voltage and bay suffix ("BOSTON 33kV MAIN1" -> "Boston"),
 its abbreviations spelled out ("Slr Pk" -> "Solar Park") and its acronyms kept ("RAF", "PV"); a coded busbar
@@ -180,44 +179,3 @@ def name_model(model) -> Names:
     for t in model.transformers:
         t.display_name = names.trafo[t.trafo_id]
     return names
-
-
-# "line 12", "Lines 0 and 1", "transformers 29, 30 and 31", "bus 19": not one already named "(line 12)", and not a
-# figure written after the word ("worst line 93%", "a line 4 km long", "line 4.5 MW"): a number followed by a percent
-# sign, a decimal or a unit is a value, not an element
-_REF = re.compile(r"(?<!\()\b(line|transformer|trafo|bus)(?:s|es)? (\d+(?:(?:,? and |, )\d+)*)\b"
-                  r"(?![.,]\d)(?!\s*%)(?!\s*(?:km|MW|MVAr|MVA|kV|kA|pu)\b)", re.IGNORECASE)
-
-
-def name_text(text: str, names: Names) -> str:
-    """Element references in a text named by place, the id kept in brackets for whoever acts on it:
-    "lines 0 and 1" -> "Bicker Fen to Boston 132 kV, circuit 1 (line 0) and ... (line 1)". A reference with an
-    id the model does not know is left as it was; a text already named is not named again."""
-
-    def one(m: re.Match) -> str:
-        kind = m.group(1).lower()
-        kind = "transformer" if kind == "trafo" else kind
-        ids = [int(x) for x in re.findall(r"\d+", m.group(2))]
-        named = [names.of(kind, i) for i in ids]
-        if not all(named):
-            return m.group(0)
-        parts = [f"{nm} ({kind} {i})" for nm, i in zip(named, ids)]
-        return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
-
-    return _REF.sub(one, text)
-
-
-def name_payload(value, names: Names):
-    """`name_text` through a tool's payload (dicts, lists, strings). An N-1 record's `outage_name` (the net's own,
-    often a code such as "L1") is replaced by the name of its `outage_type` / `outage_id`."""
-    if isinstance(value, str):
-        return name_text(value, names)
-    if isinstance(value, list):
-        return [name_payload(v, names) for v in value]
-    if not isinstance(value, dict):
-        return value
-    out = {k: name_payload(v, names) for k, v in value.items()}
-    kind, eid = value.get("outage_type"), value.get("outage_id")
-    if "outage_name" in value and isinstance(kind, str) and isinstance(eid, int) and names.of(kind, eid):
-        out["outage_name"] = f"{names.of(kind, eid)} ({'transformer' if kind == 'trafo' else kind} {eid})"
-    return out

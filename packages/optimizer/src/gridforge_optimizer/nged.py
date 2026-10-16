@@ -35,12 +35,10 @@ import pandas as pd
 from .cim import CgmesMeta
 from .config import (
     DFES_BASE_YEAR,
-    FAULT_INVERTER_K,
-    FAULT_SYNC_XDSS_PU,
     FORECASTS,
     GSP_INFEED_VM_PU,
     LTDS_FORECAST_FIRST_YEAR,
-    N1_MIN_KV,
+    EHV_MIN_KV,
     OLTC_DEADBAND_PU,
     OLTC_SETPOINT_PU,
     OLTC_TAP_STEP_PERCENT,
@@ -76,13 +74,12 @@ _RATING_FALLBACK_KA = {132: 1.0, 66: 0.7, 33: 0.6, 20: 0.5, 11: 0.4}
 # resource 288e7abd-a45d-4592-b257-064d85d99d8b) gives each SGT an export limit of 263.5 MW in every
 # season, and an import limit of 160.1 MW (winter) / 110.8 MW (summer). The sign convention isn't
 # documented; we read "export" as distribution → transmission, as the name and this net-exporting
-# region suggest. We enforce the INTACT limit (both SGTs) and report the firm (N-1) figure as context:
-# beyond it, an SGT outage would force generation curtailment.
+# region suggest. We enforce the INTACT limit (both SGTs); the firm figure (one SGT out) is kept as context.
 GSP_BOUNDARY = {
     "gsp_name": "Bicker Fen GSP",
     "sgt_count": 2,
     "export_limit_mw": 2 * 263.5,       # intact: both SGTs in service
-    "firm_export_mw": 263.5,            # N-1: one SGT out
+    "firm_export_mw": 263.5,            # one SGT out
     "import_limit_mw": {"winter": 2 * 160.1, "summer": 2 * 110.8},
     "source": "NGED Connected Data Portal — Bicker Fen Td Limits (resource 288e7abd-a45d-4592-b257-064d85d99d8b)",
 }
@@ -263,31 +260,25 @@ def _add_buses(net, groups, node_v, name_by_code) -> tuple[dict[str, int], dict[
 _PF_DEFAULT = 0.95  # LTDS left a demand group's power factor blank: lagging, assumed (registered: pf_default)
 
 # what the builder had to assume, by key: one record per kind of fallback, with the elements it touched.
-# Stated, never hidden: studies.data_quality reports them and the Sources register cites each.
+# Stated, never hidden: the planner lists them and the Sources register cites each.
 _ASSUMPTION_TEXT = {
     "rating_fallback": "LTDS left the winter rating blank: a conservative typical rating for the voltage was used (nged._RATING_FALLBACK_KA)",
-    "firm_capacity_unpublished": "LTDS Table 3 gives no firm capacity for this substation: its demand group raises no firm-capacity or headroom alert (the map says 'no firm figure'), and nothing is assumed in its place",
+    "firm_capacity_unpublished": "LTDS Table 3 gives no firm capacity for this substation: nothing is assumed in its place",
     "length_default": "LTDS gave no usable circuit length: 1 km assumed (impedance comes from %Z, so only the per-km split changes)",
     "summer_ratio_median": "LTDS left the summer rating blank: this network's median summer/winter ratio was used",
-    "intermediate_ratio_median": "LTDS left the intermediate-warm rating blank: this network's median ratio was used",
     "tap_step_assumed": f"LTDS gives the tap range but not the step: {OLTC_TAP_STEP_PERCENT:g}% per tap assumed, regulated towards {OLTC_SETPOINT_PU:g} pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
     "pf_default": f"LTDS left the power factor blank: {_PF_DEFAULT:g} lagging assumed (nged._pf)",
-    "fault_impedance_pu": "LTDS Table 4's system impedance is read as per unit on 100 MVA, not the percent the form names: 0.0346 at the GSP gives 12.6 kA against the published 14.3 kA break, a percent reading 290 GVA",
-    "fault_infeed_table4": "The transmission infeed's short-circuit power is the GSP busbar's published system impedance, which already holds today's embedded generation: its contribution is counted a second time, small against the infeed",
-    "fault_published_over_rating": "NGED's own published fault current at this busbar exceeds the published switchgear rating: reported as published, never corrected",
-    "fault_no_rating": "No break rating published for this busbar: its fault level is reported without a utilisation",
     "forecast_ltds_only": f"No DFES supply area matches this connection: its LTDS five-year maximum-demand forecast applies (Forecast Year 1 = {LTDS_FORECAST_FIRST_YEAR}), then holds",
     "charging_blank": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging",
-    "emergency_rating_blank": "LTDS gave no emergency rating: the nominal rating is used for post-fault loading too",
-    "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (the N-1 screen reads that as it is; NGED publishes the connectivity, not the running arrangement)",
+    "bus_sections_split": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (NGED publishes the connectivity, not the running arrangement)",
     "small_embedded": "Connected ECR sites under 1 MW (most at 0.4 kV) are aggregated per primary and technology at its 11 kV busbar (the "
                       "model's lowest level), so voltage rise inside the LV network behind it is not modelled; they are added, not netted, "
                       "because the LTDS minimum demand behaves as gross of generation (no negative minimum in 2,294 rows, ~33-36% even "
                       "where generation is twice a primary's peak). Domestic rooftop PV is in no register (the ECR and LTDS Table 5 list "
                       "connections that applied to NGED) and is not modelled",
     "small_embedded_unmodelled": "Connected ECR sites under 1 MW that publish no export capacity or no technology are not modelled",
-    "mv_mesh_closed": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and a 132 kV outage routes power through it (post-fault 33 kV and grid-transformer loadings read as that mesh carries them)",
+    "mv_mesh_closed": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and shares its flows",
 }
 
 
@@ -301,7 +292,6 @@ def _assume(net, key: str, element_kind: str, element_id: int) -> None:
 def _add_lines(net, circ, gb) -> None:
     """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with a summer rating."""
     summer_ratio: dict[int, float | None] = {}  # line idx -> LTDS summer / winter rating
-    inter_ratio: dict[int, float | None] = {}  # line idx -> LTDS intermediate-warm / winter rating
     for c in circ:
         if not _is_line(c):
             continue
@@ -334,13 +324,9 @@ def _add_lines(net, circ, gb) -> None:
             _assume(net, "length_default", "line", int(li))
         w, s = _num(c["Winter"]), _num(c.get("Summer"))
         summer_ratio[int(li)] = (s / w) if (w and s and w > 0) else None
-        iw = _num(c.get("Intermediate Warm"))
-        inter_ratio[int(li)] = (iw / w) if (w and iw and w > 0) else None
     # summer ratings run lower (warm ambient, no wind cooling). Where LTDS leaves a circuit's
     # summer rating blank, use this network's own median summer/winter ratio rather than assume none.
     net.line["summer_ratio"] = _ratio_column(net, summer_ratio, "summer_ratio_median")
-    # spring/autumn (LTDS "Intermediate Warm"): used only to study planned outages in those seasons
-    net.line["intermediate_ratio"] = _ratio_column(net, inter_ratio, "intermediate_ratio_median")
 
 
 def _ratio_column(net, ratio: dict[int, float | None], key: str) -> list[float]:
@@ -390,13 +376,6 @@ def _add_transformers(net, t2a, gb) -> None:
             tap_changer_type="Ratio" if has_oltc else None,  # pandapower 3: taps are inert without a changer type
         )
         _assume(net, "tap_step_assumed" if has_oltc else "no_oltc", "trafo", int(ti))
-        # LTDS Table 2a's emergency rating: what the transformer may carry post-fault (a two-transformer
-        # site's firm capacity); the N-1 screen judges post-fault loading against it, planned works against the nominal
-        emergency = _num(t.get("Emergency Rating"))
-        ratio = emergency / sn if emergency and emergency > 0 else 1.0
-        net.trafo.at[ti, "emergency_ratio"] = max(ratio, 1.0)
-        if not (emergency and emergency > 0):
-            _assume(net, "emergency_rating_blank", "trafo", int(ti))
 
 
 def _demand_group(d: dict) -> str:
@@ -575,7 +554,7 @@ def dfes_pathways(tables: LtdsTables | None = None) -> dict[str, dict[int, float
 
 def _add_loads(net, dem, gb, dfes_rows=()) -> None:
     """LTDS Table 3 demand at the GSP's winter peak, with each load's summer-minimum scaling and the demand
-    groups it belongs to (demand.py's regions). LTDS Table 3 (NGED Connected Data Portal, LTDS
+    group it belongs to. LTDS Table 3 (NGED Connected Data Portal, LTDS
     dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
     maximum demand (MW), its power factor and the "Firm Capacity of Substation". We read the firm
     capacity as MVA (the usual unit for a transformer group's firm rating; the table does not state
@@ -665,7 +644,7 @@ def _add_existing_fleet(net, tables) -> list[dict]:
             idx = pp.create_sgen(net, bus=int(bus), p_mw=share, q_mvar=0.0, name=f"EX-{n}" + (f"-{k}" if k else ""), type=tech)
             net.sgen.at[idx, "p_rated_mw"] = share
             net.sgen.at[idx, "import_mw"] = share
-            net.sgen.at[idx, "fleet_id"] = f"EX-{3000 + n}"  # the model's generator id (planned outages)
+            net.sgen.at[idx, "fleet_id"] = f"EX-{3000 + n}"  # the model's generator id
         bus = buses[0]
         site = primary or bsp
         existing.append({"request_id": f"EX-{3000 + n}", "bus_id": int(bus), "rating_mw": r,
@@ -745,8 +724,7 @@ def _add_gsp_infeed(net) -> int:
 
 
 def _assume_structure(net) -> None:
-    """Two things the LTDS connectivity leaves to the reader, recorded so the N-1 figures are read right
-    (and never filled in): EHV substations whose busbars are separate nodes with no coupler or section
+    """Two things the LTDS connectivity leaves to the reader, recorded (and never filled in): EHV substations whose busbars are separate nodes with no coupler or section
     circuit between them run split, and the 33 kV circuits that close a loop make the 33 kV network a
     closed mesh in parallel with the 132 kV (no normal-open points are published)."""
     import networkx as nx
@@ -755,7 +733,7 @@ def _assume_structure(net) -> None:
     joined |= {frozenset((int(a), int(b))) for a, b in zip(net.trafo["hv_bus"], net.trafo["lv_bus"])}
     by_site: dict[tuple[str, float], list[int]] = {}
     for b in net.bus.index:
-        if kv.loc[b] >= N1_MIN_KV:
+        if kv.loc[b] >= EHV_MIN_KV:
             by_site.setdefault((_substation(net.bus.at[b, "name"]).lower(), float(kv.loc[b])), []).append(int(b))
     for buses in by_site.values():
         site = nx.Graph()
@@ -769,7 +747,7 @@ def _assume_structure(net) -> None:
     lines_by_pair: dict[frozenset, list[int]] = {}
     for i in net.line.index:
         a, b = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
-        if bool(net.line.at[i, "in_service"]) and floor < kv.loc[a] < N1_MIN_KV:
+        if bool(net.line.at[i, "in_service"]) and floor < kv.loc[a] < EHV_MIN_KV:
             g.add_edge(a, b)
             lines_by_pair.setdefault(frozenset((a, b)), []).append(int(i))
     bridges = {frozenset(e) for e in nx.bridges(g)} if g.number_of_edges() else set()
@@ -777,50 +755,6 @@ def _assume_structure(net) -> None:
         if len(ids) > 1 or pair not in bridges:  # a parallel pair is a loop of its own
             for i in ids:
                 _assume(net, "mv_mesh_closed", "line", i)
-
-
-def _add_fault_data(net, rows, busid, uf, slack_bus: int) -> None:
-    """LTDS Table 4 onto the buses: the published three-phase break current (the highest row at the busbar), the
-    switchgear's break rating (the lowest published), the same for peak make; the transmission infeed's short-circuit
-    power from the GSP busbar's system impedance; and today's modelled Ik'' per bus as the anchor the plan years are
-    scaled from (faults.py)."""
-    from .faults import today_levels
-    for col in ("fault_rating_ka", "fault_published_ka", "fault_make_rating_ka", "fault_published_make_ka"):
-        net.bus[col] = float("nan")
-    gsp_z = None
-    for r in rows:
-        node = str(r.get("Node A") or "")
-        root = uf.find(node) if node in uf.p else None
-        if root is None or root not in busid:
-            continue
-        b = busid[root]
-        if b not in net.bus.index:
-            continue
-        for src, col, pick in (("3ph RMS Break", "fault_published_ka", max), ("3ph RMS Break Rating", "fault_rating_ka", min),
-                               ("3ph Peak Make", "fault_published_make_ka", max), ("3ph Peak Make Rating", "fault_make_rating_ka", min)):
-            v = _num(r.get(src))
-            if v is None or v <= 0:
-                continue
-            cur = net.bus.at[b, col]
-            net.bus.at[b, col] = v if cur != cur else pick(cur, v)
-        if b == slack_bus and gsp_z is None and _num(r.get("X1")):
-            gsp_z = (float(_num(r.get("R1")) or 0.0), float(_num(r.get("X1"))))
-    if gsp_z is not None:
-        r1, x1 = gsp_z
-        z = math.hypot(r1, x1)  # pu on 100 MVA (fault_impedance_pu)
-        net.ext_grid["s_sc_max_mva"] = 100.0 / z
-        net.ext_grid["s_sc_min_mva"] = 100.0 / z
-        net.ext_grid["rx_max"] = r1 / x1
-        net.ext_grid["rx_min"] = r1 / x1
-        _assume(net, "fault_impedance_pu", "bus", slack_bus)
-        _assume(net, "fault_infeed_table4", "bus", slack_bus)
-    for b in net.bus.index:
-        pub, rat = net.bus.at[b, "fault_published_ka"], net.bus.at[b, "fault_rating_ka"]
-        if pub == pub and rat == rat and pub > rat:
-            _assume(net, "fault_published_over_rating", "bus", int(b))
-        elif pub == pub and rat != rat:
-            _assume(net, "fault_no_rating", "bus", int(b))
-    net["fault_today_ka"] = today_levels(net)
 
 
 def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
@@ -843,7 +777,7 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
 
     uf, groups, node_v = _merge_nodes(circ, t2a, dem)
     net = pp.create_empty_network(name="NGED Bicker Fen 132kV (LTDS)")
-    net["assumptions"] = {}  # what the builder had to assume, per element (_assume; studies.data_quality reads it)
+    net["assumptions"] = {}  # what the builder had to assume, per element (_assume)
     busid, bus_code = _add_buses(net, groups, node_v, name_by_code)
     gb = lambda n: busid[uf.find(n)]
 
@@ -854,7 +788,6 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     existing += _add_small_embedded(net, tables, 4000)  # ids after Table 5's (EX-3000...)
     slack = _add_gsp_infeed(net)
     _assume_structure(net)  # after the unreachable buses are dropped
-    _add_fault_data(net, [r for r in tables.get("fault", []) if _in_edition(r.get("Status"), edition)], busid, uf, slack)
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
             "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}
@@ -893,8 +826,8 @@ def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURR
     return copy.deepcopy(_ctx(tables, edition)["net"])
 
 
-# the planning assumptions this network is judged under (the README's register, as records the data-quality
-# study and an import report list alongside the builder's own)
+# the planning assumptions this network is judged under (the README's register, as records the planner lists
+# alongside the builder's own)
 PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="tap_target", message=f"Tap changers step {OLTC_TAP_STEP_PERCENT:g}% and regulate towards {OLTC_SETPOINT_PU:g} pu with a {OLTC_DEADBAND_PU:g} pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),
     ModelAssumption(key="dispatch_factors", message="Per-case dispatch is assumed: PV and wind at nil and batteries charging at winter peak; everything at full export at summer minimum (config.GENERATION_FACTORS)"),
@@ -902,7 +835,6 @@ PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="forecast_basis", message=f"Demand grows per primary on NGED's DFES 2025 winter-peak projections for the pathway chosen, as a ratio to their {DFES_BASE_YEAR} value (the LTDS edition's current year), so every plan year is NGED's own figure for that substation; connections with no supply area follow their LTDS five-year forecast, then hold"),
     ModelAssumption(key="gsp_sign", message="The GSP export limit's direction is assumed: 'export' read as distribution to transmission (NGED does not document the sign)"),
     ModelAssumption(key="firm_capacity_units", message="LTDS Table 3 firm capacity is read as MVA and converted to MW at the row's power factor (the table states no unit)"),
-    ModelAssumption(key="fault_levels_method", message=f"Fault levels are an informational IEC 60909 screen (initial symmetrical current, maximum case): NGED's published Table 4 break current scaled by the modelled change from today's network, against the published switchgear rating; inverter units contribute {FAULT_INVERTER_K:g} × rated current, other units a synchronous machine with x''d {FAULT_SYNC_XDSS_PU:g} pu (config.FAULT_*); the DNO's own decremented currents and the model's differ in the absolute"),
     ModelAssumption(key="transmission_context", message="The 400 kV network and wider transmission boundaries are context only; the GSP export limit is the only transmission constraint"),
 )
 
@@ -984,7 +916,7 @@ def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None) -> di
 def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
     """Geolocated canonical model (buses/lines/transformers/loads) with bus_id = pandapower index.
 
-    Matches build_nged_net() exactly, so the API/map and the optimizer share one network.
+    Matches build_nged_net() exactly, so the map and the engine share one network.
     """
     ctx = _ctx(tables, edition)
     net = ctx["net"]

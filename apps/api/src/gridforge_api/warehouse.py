@@ -164,7 +164,7 @@ class Warehouse:
         return sid
 
     def baseline_model(self) -> dict:
-        """The geolocated grid (buses, lines, transformers, loads, generators, regions) for the map, read as one
+        """The geolocated grid (buses, lines, transformers, loads, generators) for the map, read as one
         committed version. A table or column an older warehouse lacks is checked for, never guessed from an error."""
         return self.read("baseline_model", self._model)
 
@@ -203,19 +203,8 @@ class Warehouse:
             FROM generators g JOIN buses b ON g.bus_id = b.bus_id
             WHERE b.lon IS NOT NULL
             """) if has_table(con, "generators") else []  # older: no existing-fleet table
-        return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads,
-                "generators": generators, "regions": Warehouse._regions(con)}
-
-    @staticmethod
-    def _regions(con) -> list[dict]:
-        if not has_table(con, "regions"):  # a warehouse that predates them (re-materialise the pipeline)
-            return []
-        nan_to_none = lambda v: None if isinstance(v, float) and v != v else v  # noqa: E731 (JSON has no NaN)
-        return [{**{k: nan_to_none(v) for k, v in r.items()},
-                 "buses": [int(b) for b in str(r.get("buses") or "").split(",") if b.strip()]}
-                for r in rows(con, "SELECT * FROM regions ORDER BY region_id")]
+        return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads, "generators": generators}
 
     def registry_rows(self) -> list[dict]:
-        """The REGISTRY: the pool of projected connection projects, available to add to a branch.
-        main does not auto-include these: you pull them onto a branch as they come along."""
+        """The registry: the not-yet-built projects, available to pull onto a branch (main never includes them)."""
         return self.query("SELECT * FROM candidate_projects")
