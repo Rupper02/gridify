@@ -358,8 +358,16 @@ def _require_known(kind: str, element_id, element_ids: dict[str, set]) -> None:
 
 
 def insert_outage(con: Cursor, branch_id: str, body: OutageCreate, element_ids: dict[str, set]) -> dict:
-    """Store a works window; UnknownElement when its element is not in the network (`Projects.element_ids`)."""
+    """Store a works window; UnknownElement when its element is not in the network (`Projects.element_ids`), Conflict
+    when the element already has a window that season and year: windows of one season are studied together (the weeks
+    are not placed in the calendar), so a second one would take the same element out twice at once."""
     _require_known(body.element_kind, body.element_id, element_ids)
+    clash = next((o for o in outage_rows(con, branch_id) if o["element_kind"] == body.element_kind and str(o["element_id"]) == str(body.element_id)
+                  and o["season"] == body.season and int(o["year"]) == body.year), None)
+    if clash is not None:
+        raise Conflict(f"{body.element_kind} {body.element_id} already has a {clash.get('work') or 'works'} window in "
+                       f"{body.season.lower()} {body.year} ({clash['outage_id']}): one window per element per season. "
+                       "Remove that one first, or pick another season or year.")
     row = {"outage_id": "mw-" + uuid.uuid4().hex[:8], **body.model_dump(), "created_at": now()}
     _insert_rows(con, "works", branch_id, [row])
     return row
