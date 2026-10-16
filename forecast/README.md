@@ -1,70 +1,67 @@
 # forecast: learning how the grid actually behaves
 
 A side project inside the Gridify repo, kept apart from the backbone (`packages/optimizer`, `apps/*`) until it earns its
-place. **Status: not started. This file is the kickoff brief: the first session decides the open questions below and
-rewrites this file as the project's README.**
+place. **Status: not started.** This brief states the problem, the data that exists and the open questions. It does not
+answer them: the first session does, and rewrites this file with the decisions and their reasons.
 
-## Why
+## The problem
 
-Gridify solves every plan year in two planning snapshots (winter peak, summer minimum) built from assumptions: DFES growth
-factors, PV and wind at nil in winter, everything at full export in summer, demand connections at 50% of their import. A
-planning engineer already has that picture. What nobody gives them is **how the grid really behaves**: when each element
-binds, for how many hours, in which season, and how that changes as connections land.
+Gridify judges a plan on two assumed snapshots per year (winter peak, summer minimum), built from published growth
+factors and planning dispatch rules. Planners already have that picture. What they lack is **how the grid really behaves**:
+when an element is close to its limit, how often, why, and how that changes as connections land and demand grows.
 
-The idea: a model that learns the patterns of demand and generation on a real network from observed data (open data first,
-live sensors later) and produces the profiles Gridify's physics runs on. The prediction should change three decisions:
-**what to connect, when, and where the grid is fragile.** The headline it could produce: "you can connect 15 MW here on a
-flexible connection and be curtailed ~120 hours a year, mostly summer middays", instead of "full" from one assumed peak.
+The idea is a model that learns those patterns from observed data. It is only worth building if a prediction **changes a
+decision**, so start from the decision, not the model.
 
-The owner's goal: a fun project that impresses.
+## Open question 1: what do we forecast, for whom, and what decision does it change?
 
-## Ground rules (from the Gridify `AGENTS.md`, still true here)
+Candidate targets (not exclusive; pick a first one):
 
-- The ML model produces **inputs** (demand and generation profiles, with uncertainty). Feasibility stays deterministic AC
-  power flow in Gridify. The model never judges a limit.
-- Honesty over fake precision: every forecast carries its uncertainty and its training window; state what is not modelled.
-- Real data, real units, sources cited (resource ids next to the code that fetches them).
-- Lean: the smallest thing that shows the idea working on Bicker Fen.
+| Target | Who decides | Decision it changes | How it could be validated |
+|---|---|---|---|
+| Hours each circuit / transformer is near or over its limit, year ahead | DNO planner | Where and when to reinforce | Year-ahead backtest (GSP level only today, see below) |
+| Curtailment hours for a new connection on a flexible offer | Developer, DNO connections team | Connect now on a flexible offer vs wait for reinforcement | Indirect: the flows it is computed from |
+| Hidden demand and generation behind a net flow (disaggregation) | Planner, DFES | What drives the peaks; growth masked by rooftop solar | The live feed's solar / demand split |
+| Next-day net flow at a substation | Control room | Operations, not planning (crowded field) | Easy, but low novelty |
 
-## Data we already know exists (NGED Connected Data Portal, CKAN API)
+Ground rules that hold whatever is chosen: the model produces **inputs or estimates with uncertainty**; network feasibility
+stays deterministic power flow (Gridify); every figure states its training window; real data, sources cited.
 
-| What | Resource | Notes |
-|---|---|---|
-| Bicker Fen **substation loading**, derived half-hourly net flow per substation node, 2024 | `c95d6700-9728-42b3-ac99-f8762b17954c` | "calculated using the substation loading and sensitivity factors ... PSS/E": derived, not raw metering |
-| Bicker Fen **branch loading**, half-hourly per circuit, 2024 | `d82aeab2-25f2-4157-98ac-ae0412a8b97d` | Already checked against the engine: GSP export max 278 MW observed vs 301 MW planning case |
-| Bicker Fen **bus index** (maps the series to nodes) | `6ba4ccd6-a9f8-405e-a3cf-45c79de9f16e` | |
-| DFES 2025 power projections per supply area | `7686c0a8-bde8-4a4b-8f26-50a3317882ee` | Already bundled (`packages/optimizer/src/gridify_optimizer/data/nged/dfes.json`) |
-| LTDS (network, max/min demand per primary), ECR (connected and accepted sites) | see `nged.py` | Already bundled; the builder is `gridify_optimizer.nged` |
+## The data (checked on NGED's Connected Data Portal, 2026-10-16)
 
-Candidates to look for: weather history (temperature, irradiance, wind) for Lincolnshire (e.g. Open-Meteo, ERA5, Met
-Office), longer flow history than 2024, NESO national demand and embedded solar/wind estimates, smart-meter aggregates.
-CKAN `/download/` URLs sometimes return 403 while the `datastore_search` API works.
+| Dataset | Span | Resolution | Nature | CKAN |
+|---|---|---|---|---|
+| Substation loading, every node of the Bicker Fen group | 2024 only | half-hourly | Derived by NGED (PSS/E + sensitivity factors), cleansed, outages imputed; MW and MVAr per bus; demand +, generation − | dataset `substation-loading`, resource `c95d6700-9728-42b3-ac99-f8762b17954c` (CSV download) |
+| Branch loading, 164 circuits | 2024 only | half-hourly | Derived from the substation loading | dataset `branch-loading`, resource `d82aeab2-25f2-4157-98ac-ae0412a8b97d` |
+| Bus index (bus numbers ↔ LTDS names) | n/a | n/a | | dataset `curtailment_buses`, resource `6ba4ccd6-a9f8-405e-a3cf-45c79de9f16e` |
+| Supergrid transformer flows, Bicker Fen GSP | 31 Mar 2022 to 31 Mar 2023 | half-hourly | Per transformer: import, generation, demand, voltage. The download URL is redacted; read it through `datastore_search` | dataset `super-grid-transformer-flows-east-midlands`, resource `9ab7426c-e0a9-49bd-9e9e-611ff902b5a6` |
+| Live GSP data, Bicker Fen | rolling last ~6 hours | 5-minute | Net demand, generation, import, solar, wind, STOR | dataset `live-gsp-data-east-midlands`, resource `6808c948-f326-43a4-9095-85a1f31fd123` |
+| Generic generator profiles, Bicker Fen | 2024 | half-hourly | NGED's own per-unit profiles (wind, PV, BESS, other): an assumption, not an observation | dataset `generic-generator-profiles`, resource `29fcc7f5-cea6-4b8f-8b50-57b61e2b8939` |
+| LTDS, ECR, DFES | editions | | Already bundled in Gridify (`gridify_optimizer.nged`) | |
 
-## Decisions for the first session
+The same curtailment datasets exist for 45 GSP groups; the live and SGT datasets for the 15 East Midlands GSPs. Guidance:
+https://dso.nationalgrid.co.uk/downloads/15104/nged-curtailment-analysis-data-usage-guidance.pdf. Not yet looked for:
+weather history (Open-Meteo, ERA5, Met Office), NESO GSP-level or national demand and embedded-generation estimates, older
+NGED editions.
 
-Decide each, with the reason, and write it here:
+## Open question 2: how do we validate?
 
-1. **Dataset.** Which series, which years, which substations. Start: the 2024 half-hourly substation and branch loading
-   for Bicker Fen + weather for the same period. Check coverage, gaps and how the series are derived before trusting them.
-2. **Inputs (features).** Calendar (hour, weekday, season, holidays), weather, the connected fleet per substation (from the
-   ECR), lagged values. Open question: can we separate gross demand from embedded generation in a net flow (the
-   disaggregation problem behind-the-meter PV creates)? That is the hard, valuable part.
-3. **Model.** Start with an honest baseline (seasonal profile or last-year-same-period, which is what DNOs use), then a
-   gradient-boosted model per substation, then something richer only if it beats both. Probabilistic output (quantiles)
-   from the start.
-4. **Structure.** A Python package under `forecast/` (uv, like the other packages), with fetch → features → train →
-   evaluate → export as separate steps; whether it becomes Dagster assets in `apps/pipeline` later is a later decision.
-5. **Output.** What Gridify would consume: per substation (primary/BSP node) and plan year, a set of representative
-   half-hourly profiles or a full year of half-hours, demand and generation separately, with quantiles. Agree the shape
-   before training anything.
-6. **Results.** How we know it works: backtest on held-out months against the baselines (MAE / pinball loss on the peak and
-   minimum periods that matter for planning, not just average error), and one end-to-end demo: Bicker Fen through Gridify
-   with learned profiles vs the planning snapshots, showing hours over limit per element and a curtailment estimate for a
-   new connection.
+What the data allows, honestly:
+- **Across years, at node level: not with open data.** Substation and branch loading cover 2024 only.
+- **Across years, at the GSP: yes.** Train on the SGT flows (2022/23), predict 2024, with the ECR telling what connected in
+  between: a true year-ahead backtest. Caveat: metered transformer flow vs NGED's derived series are not the same quantity,
+  so reconcile them first.
+- **Across places:** the same datasets for 45 GSPs. Train elsewhere, test on Bicker Fen (and the reverse): does the model
+  learn grids, or memorise one?
+- **Within 2024:** blocked by month (leave-one-month-out), never random half-hours (neighbouring half-hours leak).
+- **Going forward:** archive the live 5-minute feed from now on; in a year it is a genuine out-of-sample test set.
+- **Against baselines:** last year's profile (what DNOs use) and NGED's generic profiles. Error measured where planning
+  cares (peaks, minimums, hours over a threshold), not only on average.
 
-## How it would plug into Gridify (later)
+## The other open questions
 
-Today a year is `years.evaluate_year`: `plan_net` grows demand (`network.grow_for`) and dispatches by case factors
-(`config.GENERATION_FACTORS`). The forecast would add a time-series mode: the same network solved over a profile's
-half-hours, loads and generation set from the forecast, reporting hours over each limit. That is a change to the engine
-and needs its own decision; the forecast project only has to produce the profiles in the agreed shape.
+3. **Inputs.** Calendar, weather, the connected fleet per substation (ECR), lags; what is knowable at forecast time.
+4. **Model.** Baselines first; anything richer only if it beats them on the chosen metric.
+5. **Output.** Follows from question 1: a number, a profile, a distribution, hours over a limit.
+6. **Structure.** Where the code lives under `forecast/` and how it is run; whether it ever joins the pipeline or the
+   engine is a later decision.
