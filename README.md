@@ -2,7 +2,9 @@
 
 **A grid planning backbone: a real UK distribution network, AC power flow through the plan years, and branches to try changes on.**
 
-![The planner: Bicker Fen's network on the map, coloured by hours above rating in a grown 2035, with the plan years 2026–2035 along the bottom](docs/images/planner.jpg)
+![The planner: today's network coloured by loading; 2035 shows where growth breaches limits; a 248 MW battery from the registry opens a branch, every plan year re-solves, and Compare lists the new breaches against main](docs/images/planner.gif)
+
+*Today's network coloured by loading, then 2035, where demand growth breaches limits. Pulling a 248 MW battery from the registry opens a branch; every plan year is solved again, and Compare shows what it breaks against `main`: the worst line at 282% of its rating and the GSP's export over its 527 MW limit from 2026.*
 
 Gridify models one real Grid Supply Point, **Bicker Fen 132 kV, Lincolnshire**, operated by National Grid Electricity Distribution (NGED), built entirely from open data. `main` is the network **as it exists today**. You open a branch, connect generation, storage or demand at a busbar and choose the year it energises, and the engine solves every plan year (2026 to 2035) with AC power flow in the two planning cases a DNO studies. Every year reports each line's and transformer's loading, every busbar's voltage, the GSP's export, and every limit breached, with its element, figure and case. You compare the branch with its parent year by year and merge it, or throw it away.
 
