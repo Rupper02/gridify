@@ -362,7 +362,7 @@ they have not yet been reviewed as a set. Supported by NGED Open Data.*
       8 January 2025), and both growth sources take it to about 2.5 times by 2030.
     - *Commissioning, 2025:* closure 100%, radial 32 of 32, rule 2 22 of 26, rule 3 59 of 74 (one group short of 80%).
     - *Study basis:* firm plant at full output halves Staythorpe's winter-peak import (70.8 against 143.6 MW at nil;
-      the measured 2025 maximum is 142.1). Left for the owner; nothing changed.
+      the measured 2025 maximum is 142.1). Left open; nothing changed.
     - *Plan years:* Tuxford alone breaches 2028–2031; six transformers 2032–2033. Under Holistic Transition growth
       2034 has no valid operating point (the solver's solution is a voltage collapse, Tuxford 11 kV at 0.26 pu at winter peak; no loading
       from it is quoted) and 2035 does not converge.
@@ -442,7 +442,7 @@ so it has not arisen there.
 **Open choices (no recommendation made):**
 - Whether and where to widen to a second supply point: Walpole or Staythorpe (item 29; the scoping note's section 5
   gives the first step).
-- *Decided by the guide overnight, for the owner to confirm:* the reference run for the planner's agreement labels
+- *Decided:* the reference run for the planner's agreement labels
   **stays 2024 for now**. Two different things share that one reference today, and they should not:
   - *agreement with NGED's model* is a property of our network, and 2025 is the better year to judge it on (it closes
     on 94% of half-hours);
