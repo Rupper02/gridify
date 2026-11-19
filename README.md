@@ -14,6 +14,7 @@ Stack: pandapower (power flow), Dagster + DuckDB (data pipeline), FastAPI (API),
 
 - [Purpose](#purpose)
 - [Status](#status)
+- [Roadmap](#roadmap)
 - [What you can do](#what-you-can-do)
 - [The network and the data](#the-network-and-the-data)
 - [How a year is solved](#how-a-year-is-solved)
@@ -52,11 +53,18 @@ built on.
 | Day-ahead demand forecasting ([`forecast/`](forecast/README.md)) | Research, separate from the product; a held-out result exists |
 | Decisions recorded in `docs/reports/overnight-decisions-2026-11-13.md` | Applied in the code; awaiting final review |
 
-**No AI in the product.** An earlier version had a language-model layer (agents that explained results and proposed
-changes, a connection-queue optimiser, N-1 contingency screening, maintenance windows and a merge gate). It was removed
-in commit `0c9967f` to get to a clean, verifiable backbone; it remains in the history (the parent of `0c9967f`).
-Nothing in the current code calls a language model, and no physical figure is estimated by a model: feasibility comes from the power
-flow alone.
+## Roadmap
+
+- **A planning agent.** An AI agent that reads the solved years and the half-hourly flows, explains what binds, where,
+  in which season and from which year, and suggests planning options: where and when a connection fits, which
+  reinforcement or flexibility would clear a breach, and what each option changes. The engine stays the judge: every
+  figure the agent quotes comes from a power flow, and every suggestion is a branch the engineer can run, compare and
+  merge or discard.
+- **Learned demand and generation profiles.** Plan years solved on forecast half-hourly profiles per substation instead
+  of two snapshot cases, building on the [demand forecasting research](#demand-forecasting-research).
+- **Security of supply.** N-1 contingency studies and planned outages, so a plan is judged with equipment out of service.
+- **More grids.** Further supply points (Staythorpe is built) and networks from other operators, through the `GridSource`
+  seam.
 
 ---
 
