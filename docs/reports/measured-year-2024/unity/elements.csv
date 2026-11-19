@@ -1,0 +1,173 @@
+kind,id,name,kv,label,offset_mw,offset_pct_of_rating,cls,bsp_group,peak_pct,peak_at,h80,h90,h100,peak_pct_unflagged,h80_unflagged,h100_unflagged,unflagged_half_hours,peak_pct_summer_rating,h100_summer_rating,plan_winter_peak_pct,plan_summer_min_pct
+line,13,Skegness 132kV 103 - Middlemarsh 132kV 103,132/132,input: carries NGED's own flow by construction,0.01,0.01,excluded,ANY,93.13,2024-03-01 15:30:00,820.00,123.50,0.00,91.61,207.00,0.00,4678,93.24,0.00,3.21,92.86
+line,14,Skegness 132kV 203 - Middlemarsh 132kV 203,132/132,input: carries NGED's own flow by construction,0.01,0.01,excluded,ANY,93.06,2024-03-01 15:30:00,815.00,139.50,0.00,91.54,206.00,0.00,4678,93.16,0.00,3.21,92.86
+trafo,43,Wrangle 33kV 2H3 - Wrangle 11kV #3T0,33/11,flow agrees with NGED's model,-0.00,-0.05,radial,Skegness,84.49,2024-01-25 23:00:00,0.50,0.00,0.00,84.49,0.50,0.00,10251,84.49,0.00,32.49,20.68
+line,112,Sleaford 33kV #6L5 - White Cross La Sleaford 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Sleaford,84.33,2024-04-26 11:30:00,231.00,0.00,0.00,84.25,89.50,0.00,11995,84.33,0.00,1.02,1.13
+line,117,Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #1L5,33/33,input: carries NGED's own flow by construction,-0.00,-0.00,input,Sleaford,77.04,2024-08-13 13:00:00,0.00,0.00,0.00,77.04,0.00,0.00,11995,77.04,0.00,1.47,1.60
+line,113,Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #2L5,33/33,input: carries NGED's own flow by construction,-0.00,-0.00,input,Sleaford,77.04,2024-08-13 13:00:00,0.00,0.00,0.00,77.04,0.00,0.00,11995,77.04,0.00,1.47,1.61
+line,63,Horncastle 33kV 1L3 - Spilsby 33kV 6L5,33/33,flow differs,1.44,8.27,meshed,Skegness,75.02,2024-12-17 16:30:00,0.00,0.00,0.00,69.28,0.00,0.00,10251,83.59,0.00,46.35,27.47
+trafo,26,Skegness 132kV 103 - Skegness 33kV GT1,132/33,flow differs,1.22,2.71,backbone,Skegness,73.74,2024-01-19 18:00:00,0.00,0.00,0.00,73.74,0.00,0.00,10251,73.74,0.00,58.30,31.88
+trafo,27,Skegness 132kV 203 - Skegness 33kV GT2,132/33,flow differs,1.40,3.11,backbone,Skegness,73.46,2024-01-19 18:00:00,0.00,0.00,0.00,73.46,0.00,0.00,10251,73.46,0.00,58.47,32.22
+trafo,14,Horncastle 33kV 1L3 - Horncastle 11kV 1T0,33/11,flow agrees with NGED's model,0.03,0.14,meshed,Skegness,71.36,2024-12-17 13:30:00,0.00,0.00,0.00,63.76,0.00,0.00,10251,71.36,0.00,41.01,19.16
+trafo,15,Horncastle 33kV 1L3 - Horncastle 11kV 1T0,33/11,flow agrees with NGED's model,0.03,0.14,meshed,Skegness,71.32,2024-12-17 13:30:00,0.00,0.00,0.00,63.72,0.00,0.00,10251,71.32,0.00,40.99,19.14
+line,89,Cranwell 33kV 4L3 - Leadenham 33kV 2H3,33/33,flow differs,2.11,12.01,meshed,Grantham,70.04,2024-08-11 13:30:00,0.00,0.00,0.00,70.04,0.00,0.00,17568,70.04,0.00,22.05,66.03
+trafo,18,Leadenham 33kV 2H3 - Leadenham 11kV 2T0,33/11,flow agrees with NGED's model,0.01,0.05,meshed,Grantham,68.18,2024-03-20 08:00:00,0.00,0.00,0.00,68.18,0.00,0.00,17568,68.18,0.00,37.84,8.45
+trafo,42,Woodhall Spa 33kV 2H3 - Woodhall Spa 11kV T2,33/11,flow agrees with NGED's model,-0.00,-0.07,radial,Sleaford,67.64,2024-11-21 17:30:00,0.00,0.00,0.00,67.64,0.00,0.00,11995,67.64,0.00,73.63,33.13
+trafo,19,Leadenham 33kV 2H3 - Leadenham 11kV 2T0,33/11,flow agrees with NGED's model,0.01,0.05,meshed,Grantham,66.24,2024-03-20 08:00:00,0.00,0.00,0.00,66.24,0.00,0.00,17568,66.24,0.00,36.77,8.21
+trafo,0,Alford 33kV 1L3 - Alford 11kV 1T0,33/11,flow differs,-0.21,-3.50,meshed,Skegness,64.57,2024-11-20 17:30:00,0.00,0.00,0.00,63.15,0.00,0.00,10251,64.57,0.00,40.99,18.09
+line,77,Skegness 33kV #1L5 - Pole 90ZB1E17,33/33,flow differs,0.05,0.21,meshed,Skegness,61.92,2024-05-19 13:30:00,0.00,0.00,0.00,61.92,0.00,0.00,10251,61.92,0.00,29.84,15.54
+trafo,22,New Beacon Road 33kV 1L3 - New Beacon Road 11kV 1T0,33/11,flow agrees with NGED's model,0.01,0.08,meshed,Grantham,60.93,2024-01-15 18:00:00,0.00,0.00,0.00,60.93,0.00,0.00,17568,60.93,0.00,47.30,28.53
+trafo,30,Sleaford 132kV 203 - Sleaford 33kV #6L5,132/33,flow differs,1.97,4.39,backbone,Sleaford,60.85,2024-05-19 13:30:00,0.00,0.00,0.00,56.74,0.00,0.00,11995,60.85,0.00,58.32,79.15
+trafo,29,Sleaford 132kV 103 - Sleaford 33kV #6L5,132/33,flow differs,1.99,4.42,backbone,Sleaford,60.73,2024-05-19 13:30:00,0.00,0.00,0.00,56.62,0.00,0.00,11995,60.73,0.00,58.16,77.73
+line,1,Bicker Fen 132kV 405 - Boston 132kV 503,132/132,flow agrees with NGED's model,-0.65,-0.42,backbone,ANY,58.32,2024-08-23 14:00:00,0.00,0.00,0.00,47.04,0.00,0.00,4678,58.32,0.00,16.26,68.91
+trafo,23,New Beacon Road 33kV 2L3 - New Beacon Road 11kV 1T0,33/11,flow agrees with NGED's model,-0.00,-0.03,meshed,Grantham,57.97,2024-01-15 18:00:00,0.00,0.00,0.00,57.97,0.00,0.00,17568,57.97,0.00,44.80,27.17
+line,0,Bicker Fen 132kV 405 - Boston 132kV 603,132/132,flow agrees with NGED's model,-1.08,-0.70,backbone,ANY,57.95,2024-08-23 14:00:00,0.00,0.00,0.00,47.15,0.00,0.00,4678,57.95,0.00,16.23,69.06
+trafo,31,Sleaford 33kV #6L5 - Sleaford 11kV 1T0,33/11,flow agrees with NGED's model,-0.02,-0.06,meshed,Sleaford,57.59,2024-01-18 18:00:00,0.00,0.00,0.00,57.59,0.00,0.00,11995,57.59,0.00,50.24,25.81
+trafo,32,Sleaford 33kV #6L5 - Sleaford 11kV 1T0,33/11,flow agrees with NGED's model,-0.02,-0.06,meshed,Sleaford,57.45,2024-01-18 18:00:00,0.00,0.00,0.00,57.45,0.00,0.00,11995,57.45,0.00,50.12,25.75
+line,99,Nth Rauceby Switching Stn 33kV #2L5 - Ermine Farm Solar Farm 33kV #2H0,33/33,input: carries NGED's own flow by construction,-0.00,-0.00,input,Sleaford,57.26,2024-09-08 13:00:00,0.00,0.00,0.00,57.26,0.00,0.00,11995,57.26,0.00,0.49,0.57
+trafo,39,Warth Lane 33kV 2L3 - Warth Lane 11kV 1T0,33/11,flow agrees with NGED's model,-0.14,-0.58,meshed,Skegness,56.96,2024-11-21 17:00:00,0.00,0.00,0.00,55.45,0.00,0.00,10251,56.96,0.00,44.66,14.39
+trafo,34,Spilsby 33kV 6L5 - Spilsby 11kV 2T0,33/11,reactive input unreliable,0.00,0.02,meshed,Skegness,55.56,2024-11-20 17:30:00,0.00,0.00,0.00,44.42,0.00,0.00,10251,55.56,0.00,33.52,11.42
+line,98,Grange Fm Slr Kirkby on Bn 33kV Tee - Horncastle 33kV 1L3,33/33,flow differs,-1.52,-8.68,meshed,Skegness,54.61,2024-04-30 11:00:00,0.00,0.00,0.00,54.61,0.00,0.00,10251,59.71,0.00,8.95,6.54
+trafo,33,Spilsby 33kV 6L5 - Spilsby 11kV 2T0,33/11,reactive input unreliable,0.00,0.02,meshed,Skegness,54.03,2024-11-20 17:30:00,0.00,0.00,0.00,43.19,0.00,0.00,10251,54.03,0.00,32.59,11.10
+trafo,16,Ingoldmells 33kV 2H3 - Ingoldmells 11kV 2T0,33/11,flow agrees with NGED's model,0.01,0.02,meshed,Skegness,50.00,2024-03-31 22:30:00,0.00,0.00,0.00,50.00,0.00,0.00,10251,50.00,0.00,24.47,13.01
+trafo,40,Warth Lane 33kV 2L3 - Warth Lane 11kV 1T0,33/11,flow agrees with NGED's model,-0.14,-0.58,meshed,Skegness,49.57,2024-11-21 17:00:00,0.00,0.00,0.00,48.26,0.00,0.00,10251,49.57,0.00,38.87,12.53
+trafo,21,Metheringham 33kV 2L3 - Metheringham 11kV 6T0,33/11,flow agrees with NGED's model,-0.01,-0.04,radial,Sleaford,49.45,2024-01-15 18:00:00,0.00,0.00,0.00,49.45,0.00,0.00,11995,49.45,0.00,36.87,19.20
+trafo,17,Ingoldmells 33kV 2H3 - Ingoldmells 11kV 2T0,33/11,flow agrees with NGED's model,0.01,0.02,meshed,Skegness,49.22,2024-03-31 22:30:00,0.00,0.00,0.00,49.22,0.00,0.00,10251,49.22,0.00,24.09,12.81
+trafo,41,Warth Lane 33kV 3L3 - Warth Lane 11kV 1T0,33/11,flow agrees with NGED's model,-0.01,-0.10,meshed,Skegness,49.05,2024-11-21 17:00:00,0.00,0.00,0.00,47.85,0.00,0.00,10251,49.05,0.00,37.38,11.46
+line,119,Tattershall 33kV #8L5 - Woodhall Spa 33kV Tee,33/33,flow differs,1.40,8.04,meshed,Sleaford,48.79,2024-06-15 15:00:00,0.00,0.00,0.00,47.27,0.00,0.00,11995,52.67,0.00,37.01,15.93
+line,23,Tower 91ZB9F9 - Tower 91ZB9F10,33/33,flow agrees with NGED's model,0.04,0.18,meshed,Grantham,48.74,2024-11-21 18:00:00,0.00,0.00,0.00,48.74,0.00,0.00,17568,50.34,0.00,36.31,23.27
+trafo,2,Billingborough 33kV 2L3 - Billingborough 11kV 1T0,33/11,flow agrees with NGED's model,0.00,0.03,meshed,Grantham,48.68,2024-02-08 18:00:00,0.00,0.00,0.00,48.68,0.00,0.00,17568,48.68,0.00,39.06,19.34
+trafo,36,Tattershall 33kV #8L5 - Tattershall 11kV 2T0,33/11,flow agrees with NGED's model,-0.01,-0.05,meshed,Sleaford,48.60,2024-11-20 18:00:00,0.00,0.00,0.00,48.60,0.00,0.00,11995,48.60,0.00,44.88,21.00
+trafo,35,Tattershall 33kV #8L5 - Tattershall 11kV 2T0,33/11,flow agrees with NGED's model,-0.01,-0.05,meshed,Sleaford,48.52,2024-11-20 18:00:00,0.00,0.00,0.00,48.52,0.00,0.00,11995,48.52,0.00,44.81,20.96
+trafo,5,Chapel St Leonards 33kV 1H3 - Chapel St Leonards 11kV 1T0,33/11,flow agrees with NGED's model,0.00,0.02,meshed,Skegness,48.27,2024-03-29 21:30:00,0.00,0.00,0.00,48.27,0.00,0.00,10251,48.27,0.00,38.45,22.47
+trafo,4,Chapel St Leonards 33kV 1H3 - Chapel St Leonards 11kV 1T0,33/11,flow agrees with NGED's model,0.00,0.02,meshed,Skegness,47.91,2024-03-29 21:30:00,0.00,0.00,0.00,47.91,0.00,0.00,10251,47.91,0.00,38.16,22.30
+line,73,Skegness 33kV #1L5 - Skegness 33kV GT1,33/33,flow agrees with NGED's model,-1.21,-1.48,meshed,Skegness,47.40,2024-09-09 09:30:00,0.00,0.00,0.00,45.49,0.00,0.00,10251,47.40,0.00,28.24,4.98
+line,4,Boston 132kV 503 - Low Farm PV Friskney 132kV Tee,132/132,flow agrees with NGED's model,-1.22,-0.65,backbone,ANY,46.40,2024-08-23 14:00:00,0.00,0.00,0.00,38.02,0.00,0.00,4678,46.40,0.00,13.68,54.88
+line,12,Low Farm PV Friskney 132kV Tee - Skegness 132kV 103,132/132,flow agrees with NGED's model,1.18,0.63,backbone,ANY,46.39,2024-08-23 14:00:00,0.00,0.00,0.00,38.03,0.00,0.00,4678,46.39,0.00,13.65,54.91
+line,72,Skegness 33kV #1L5 - Skegness 33kV GT2,33/33,flow agrees with NGED's model,-1.39,-1.72,meshed,Skegness,46.33,2024-06-13 19:00:00,0.00,0.00,0.00,46.33,0.00,0.00,10251,46.33,0.00,28.32,4.86
+line,5,Boston 132kV 603 - Skegness 132kV 203,132/132,flow agrees with NGED's model,-1.44,-0.76,backbone,ANY,46.13,2024-08-23 14:00:00,0.00,0.00,0.00,38.12,0.00,0.00,4678,46.13,0.00,13.69,55.00
+trafo,9,Great Hale 33kV T1 - Great Hale 11kV #2T0,33/11,flow agrees with NGED's model,-0.00,-0.02,radial,Sleaford,46.06,2024-11-20 17:30:00,0.00,0.00,0.00,46.06,0.00,0.00,11995,46.06,0.00,46.15,21.79
+line,83,Trusthorpe 11kV T2 - Trusthorpe 11kV 3T0,11/11,not compared (not in NGED's file),,,,Skegness,45.24,2024-08-25 12:30:00,0.00,0.00,0.00,42.59,0.00,0.00,10251,47.08,0.00,27.56,17.11
+line,82,Trusthorpe 11kV T1 - Trusthorpe 11kV 3T0,11/11,not compared (not in NGED's file),,,,Skegness,44.76,2024-09-27 13:00:00,0.00,0.00,0.00,42.58,0.00,0.00,10251,47.06,0.00,27.55,17.11
+line,67,Manor Farm Irby PV 33kV Tee - Spilsby 33kV 6L5,33/33,flow differs,2.09,8.81,meshed,Skegness,44.63,2024-11-20 18:00:00,0.00,0.00,0.00,37.44,0.00,0.00,10251,46.20,0.00,28.08,14.09
+line,76,Skegness 33kV #1L5 - Manor Farm Irby PV 33kV Tee,33/33,flow differs,-2.11,-8.75,meshed,Skegness,42.21,2024-11-20 18:00:00,0.00,0.00,0.00,37.59,0.00,0.00,10251,46.34,0.00,30.82,16.05
+line,40,Mill Farm Battery Storage 33kV Tee - Leadenham 33kV 2H3,33/33,flow differs,2.13,8.77,meshed,Grantham,41.57,2024-01-04 17:00:00,0.00,0.00,0.00,41.57,0.00,0.00,17568,46.58,0.00,18.51,49.84
+trafo,25,Ruskington 33kV 2H3 - Ruskington 11kV 2T0,33/11,flow agrees with NGED's model,-0.16,-1.30,meshed,Sleaford,41.32,2024-01-09 17:30:00,0.00,0.00,0.00,41.32,0.00,0.00,11995,41.32,0.00,40.96,17.64
+line,75,Skegness 33kV #1L5 - Warth Lane 33kV Tee,33/33,flow agrees with NGED's model,0.11,0.45,meshed,Skegness,40.69,2024-03-29 18:30:00,0.00,0.00,0.00,40.69,0.00,0.00,10251,42.73,0.00,32.94,15.18
+trafo,37,Trusthorpe 33kV #4L5 - Trusthorpe 11kV T2,33/11,flow agrees with NGED's model,-0.00,-0.04,meshed,Skegness,40.20,2024-02-01 10:00:00,0.00,0.00,0.00,40.20,0.00,0.00,10251,40.20,0.00,27.85,10.21
+trafo,38,Trusthorpe 33kV #4L5 - Trusthorpe 11kV T1,33/11,flow agrees with NGED's model,-0.00,-0.00,meshed,Skegness,40.18,2024-02-01 10:00:00,0.00,0.00,0.00,40.18,0.00,0.00,10251,40.18,0.00,27.84,10.20
+line,34,Grantham 33kV #1L5 - Tower 91ZB9F2,33/33,flow agrees with NGED's model,-0.05,-0.17,meshed,Grantham,39.70,2024-01-18 18:30:00,0.00,0.00,0.00,39.70,0.00,0.00,17568,44.58,0.00,32.33,20.61
+trafo,24,Ruskington 33kV 1H3 - Ruskington 11kV 2T0,33/11,flow agrees with NGED's model,0.15,1.22,meshed,Sleaford,39.09,2024-01-31 17:30:00,0.00,0.00,0.00,39.09,0.00,0.00,11995,39.09,0.00,38.22,16.45
+trafo,1,Alford 33kV 2L3 - Alford 11kV 1T0,33/11,flow differs,0.20,3.34,meshed,Skegness,38.86,2024-01-18 10:30:00,0.00,0.00,0.00,38.86,0.00,0.00,10251,38.86,0.00,36.52,15.51
+line,36,Grantham 33kV #1L5 - Mill Farm Battery Storage 33kV Tee,33/33,flow differs,2.21,9.25,meshed,Grantham,38.45,2024-05-19 13:00:00,0.00,0.00,0.00,38.45,0.00,0.00,17568,42.85,0.00,37.36,40.13
+line,127,Woodhall Spa 11kV #2T0 - Woodhall Spa 11kV T2,11/11,not compared (not in NGED's file),,,,Sleaford,38.42,2024-11-21 17:30:00,0.00,0.00,0.00,38.42,0.00,0.00,11995,38.42,0.00,37.36,20.45
+line,100,Nth Rauceby Switching Stn 33kV #2L5 - Cranwell 33kV 4L3,33/33,flow differs,-1.74,-4.55,meshed,Sleaford,38.04,2024-04-30 12:30:00,0.00,0.00,0.00,37.95,0.00,0.00,11995,38.04,0.00,10.96,21.52
+line,71,Skegness 33kV #1L5 - Chapel St Leonards 33kV Tee,33/33,flow agrees with NGED's model,-0.65,-2.77,meshed,Skegness,37.99,2024-08-15 18:00:00,0.00,0.00,0.00,33.64,0.00,0.00,10251,37.99,0.00,34.64,17.33
+line,74,Skegness 33kV #1L5 - Wrangle 33kV Tee,33/33,flow agrees with NGED's model,0.17,0.71,meshed,Skegness,37.77,2024-01-15 17:30:00,0.00,0.00,0.00,37.77,0.00,0.00,10251,42.32,0.00,27.27,11.86
+line,110,Sleaford 33kV #6L5 - Tattershall 33kV #8L5,33/33,flow differs,-2.53,-6.46,meshed,Sleaford,37.71,2024-11-28 18:00:00,0.00,0.00,0.00,37.71,0.00,0.00,11995,37.71,0.00,30.31,15.54
+line,50,Skillington 33kV Tee - Skillington 33kV A,33/33,flow agrees with NGED's model,-0.04,-0.31,radial,Grantham,36.81,2024-11-21 19:00:00,0.00,0.00,0.00,36.81,0.00,0.00,17568,39.05,0.00,29.70,17.46
+line,95,Pole 90ZTAD31 - Grange Fm Slr Kirkby on Bn 33kV Tee,33/33,flow differs,-1.48,-8.45,meshed,Sleaford,36.57,2024-04-15 15:00:00,0.00,0.00,0.00,35.51,0.00,0.00,11995,39.98,0.00,7.43,3.52
+line,96,Pole 90ZTAD30 - Pole 90ZTAD31,33/33,flow differs,1.48,8.46,meshed,Sleaford,36.43,2024-04-15 15:00:00,0.00,0.00,0.00,35.31,0.00,0.00,11995,39.83,0.00,7.08,2.73
+line,126,Woodhall Spa 33kV Tee - Pole 90ZTAD30,33/33,flow differs,1.48,8.45,meshed,Sleaford,36.43,2024-04-15 15:00:00,0.00,0.00,0.00,35.31,0.00,0.00,11995,39.83,0.00,7.08,2.73
+line,114,Sleaford 33kV #6L5 - Tattershall 33kV Tee,33/33,flow differs,1.18,3.04,meshed,Sleaford,36.41,2024-11-28 18:00:00,0.00,0.00,0.00,36.41,0.00,0.00,11995,36.71,0.00,30.49,15.14
+line,69,Skegness 33kV #1L5 - Warth Lane 33kV 2L3,33/33,flow agrees with NGED's model,0.35,2.16,meshed,Skegness,35.91,2024-01-19 17:00:00,0.00,0.00,0.00,35.91,0.00,0.00,10251,40.37,0.00,28.37,10.69
+trafo,3,Billingborough 33kV 2L3 - Billingborough 11kV 1T0,33/11,flow agrees with NGED's model,0.00,0.03,meshed,Grantham,35.76,2024-02-08 18:00:00,0.00,0.00,0.00,35.76,0.00,0.00,17568,35.76,0.00,28.69,14.21
+line,49,Skillington 33kV Tee - New Beacon Road 33kV 2L3,33/33,flow agrees with NGED's model,-0.00,-0.02,meshed,Grantham,35.34,2024-11-21 18:00:00,0.00,0.00,0.00,35.34,0.00,0.00,17568,36.01,0.00,24.56,16.88
+line,52,Pole 90ZB1E17 - The Hollies Wind Farm 33kV Tee,33/33,flow agrees with NGED's model,0.05,0.13,meshed,Skegness,35.31,2024-05-19 13:30:00,0.00,0.00,0.00,35.31,0.00,0.00,10251,36.33,0.00,18.05,9.12
+line,47,Skillington 33kV B - Skillington 33kV 3L5,33/33,flow agrees with NGED's model,-0.02,-0.17,radial,Grantham,35.16,2024-01-18 18:30:00,0.00,0.00,0.00,35.16,0.00,0.00,17568,39.47,0.00,30.50,17.72
+line,70,Skegness 33kV #1L5 - Ingoldmells 33kV 2H3,33/33,flow agrees with NGED's model,-0.04,-0.15,meshed,Skegness,35.05,2024-03-29 21:30:00,0.00,0.00,0.00,35.05,0.00,0.00,10251,35.05,0.00,25.60,13.48
+line,87,Wrangle 33kV Tee - Warth Lane 33kV 2L3,33/33,flow agrees with NGED's model,-0.21,-1.07,meshed,Skegness,34.91,2024-11-21 17:00:00,0.00,0.00,0.00,28.01,0.00,0.00,10251,34.91,0.00,23.00,8.11
+line,94,Great Hale 33kV #1H0 - Billingborough 33kV 2L3,33/33,flow differs,-0.56,-3.07,meshed,Grantham,34.74,2024-07-05 13:00:00,0.00,0.00,0.00,34.74,0.00,0.00,17568,35.83,0.00,8.76,40.64
+line,55,Bambers Fm Wind Generation 33kV Tee - Trusthorpe 33kV #4L5,33/33,flow agrees with NGED's model,0.25,0.95,meshed,Skegness,33.78,2024-09-27 13:00:00,0.00,0.00,0.00,31.31,0.00,0.00,10251,34.79,0.00,9.71,4.05
+line,56,Bambers Fm Wind Generation 33kV Tee - Bambers Fm Wind Generation 33kV 1L3,33/33,input: carries NGED's own flow by construction,-0.00,-0.00,input,Skegness,33.70,2024-09-27 12:30:00,0.00,0.00,0.00,33.25,0.00,0.00,10251,33.70,0.00,0.13,0.09
+trafo,8,Easton 33kV 1H3 - Easton 11kV 1T0,33/11,flow agrees with NGED's model,-0.00,-0.01,radial,Grantham,33.13,2024-01-06 18:30:00,0.00,0.00,0.00,33.13,0.00,0.00,17568,33.13,0.00,12.54,4.45
+line,118,Tattershall 33kV #8L5 - Metheringham 33kV 2L3,33/33,flow agrees with NGED's model,0.02,0.12,radial,Sleaford,32.24,2024-01-15 18:00:00,0.00,0.00,0.00,32.24,0.00,0.00,11995,35.92,0.00,24.04,13.96
+line,28,Pole 91ZB9CA5 - Billingborough 33kV 2L3,33/33,flow differs,-0.58,-3.25,meshed,Grantham,32.07,2024-05-29 13:00:00,0.00,0.00,0.00,32.07,0.00,0.00,17568,34.40,0.00,29.99,29.71
+trafo,12,Grantham 132kV #110 - Grantham 33kV GT1,132/33,flow differs,1.48,3.28,backbone,Grantham,31.52,2024-12-03 17:30:00,0.00,0.00,0.00,31.52,0.00,0.00,17568,31.52,0.00,28.41,15.65
+line,26,Tower 91ZB9G9 - New Beacon Road 33kV 1L3,33/33,flow agrees with NGED's model,-0.01,-0.05,meshed,Grantham,30.95,2024-11-21 18:00:00,0.00,0.00,0.00,30.95,0.00,0.00,17568,31.51,0.00,21.68,14.79
+trafo,13,Grantham 132kV #210 - Grantham 33kV GT2,132/33,flow differs,-1.44,-3.20,backbone,Grantham,30.79,2024-12-03 17:30:00,0.00,0.00,0.00,30.79,0.00,0.00,17568,30.79,0.00,27.77,18.63
+line,97,Grange Fm Slr Kirkby on B 33kV #1L5 - Grange Fm Slr Kirkby on Bn 33kV Tee,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Sleaford,29.29,2024-05-13 13:00:00,0.00,0.00,0.00,28.86,0.00,0.00,11995,29.29,0.00,0.15,0.10
+line,33,Grantham 33kV #1L5 - Tower 91ZB9G2,33/33,flow agrees with NGED's model,-0.01,-0.04,meshed,Grantham,29.24,2024-11-21 18:00:00,0.00,0.00,0.00,29.24,0.00,0.00,17568,29.77,0.00,18.20,14.00
+line,65,Lincoln Farm Solar Park 33kV Tee - Lincoln Farm Solar Park 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Skegness,28.79,2024-05-13 13:30:00,0.00,0.00,0.00,28.79,0.00,0.00,10251,28.79,0.00,0.11,0.12
+line,18,Sleaford 132kV Tee 2 - Sleaford 132kV 203,132/132,flow agrees with NGED's model,-1.82,-1.81,backbone,ANY,28.34,2024-08-11 13:00:00,0.00,0.00,0.00,26.46,0.00,0.00,4678,30.38,0.00,23.62,39.46
+line,16,Sleaford 132kV Tee 1 - Sleaford 132kV 103,132/132,flow agrees with NGED's model,-1.84,-1.82,backbone,ANY,28.29,2024-08-11 13:00:00,0.00,0.00,0.00,26.40,0.00,0.00,4678,30.32,0.00,23.55,38.75
+line,2,Bicker Fen 132kV 405 - Sleaford 132kV Tee 1,132/132,flow agrees with NGED's model,0.74,0.56,backbone,ANY,28.28,2024-11-21 17:30:00,0.00,0.00,0.00,27.76,0.00,0.00,4678,29.90,0.00,30.63,36.67
+line,3,Bicker Fen 132kV 405 - Sleaford 132kV Tee 2,132/132,flow agrees with NGED's model,0.75,0.57,backbone,ANY,28.12,2024-11-21 17:30:00,0.00,0.00,0.00,27.60,0.00,0.00,4678,29.73,0.00,30.48,32.26
+trafo,20,Market Overton 33kV 2H3 - Market Overton 11kV 2T0,33/11,flow agrees with NGED's model,0.00,0.01,radial,Grantham,27.55,2024-11-21 18:00:00,0.00,0.00,0.00,27.55,0.00,0.00,17568,27.55,0.00,23.08,13.95
+line,111,Sleaford 33kV #6L5 - Nth Rauceby Switching Stn 33kV #2L5,33/33,flow differs,-1.69,-4.26,meshed,Sleaford,27.46,2024-07-04 13:00:00,0.00,0.00,0.00,26.55,0.00,0.00,11995,27.46,0.00,8.95,21.96
+line,35,Grantham 33kV #1L5 - Easton 33kV Tee,33/33,flow agrees with NGED's model,0.66,2.17,meshed,Grantham,26.89,2024-11-21 18:00:00,0.00,0.00,0.00,26.89,0.00,0.00,17568,27.42,0.00,20.47,16.57
+trafo,28,Skillington 33kV 3L5 - Skillington 11kV 2T0,33/11,flow agrees with NGED's model,-0.00,-0.01,radial,Grantham,26.73,2024-01-16 17:00:00,0.00,0.00,0.00,26.73,0.00,0.00,17568,26.73,0.00,23.14,10.76
+line,102,Burton Pedwardine Slr Pk 1 33kV Tee - Great Hale 33kV #1H0,33/33,flow differs,0.55,2.12,meshed,Sleaford,26.44,2024-08-18 13:30:00,0.00,0.00,0.00,26.44,0.00,0.00,11995,26.44,0.00,11.61,32.90
+trafo,7,Cranwell 33kV 4L3 - Cranwell 11kV 3T0,33/11,flow agrees with NGED's model,-0.00,-0.01,meshed,Sleaford,26.00,2024-01-16 11:00:00,0.00,0.00,0.00,23.90,0.00,0.00,11995,26.00,0.00,22.83,12.07
+trafo,6,Cranwell 33kV 4L3 - Cranwell 11kV 3T0,33/11,flow agrees with NGED's model,-0.00,-0.01,meshed,Sleaford,25.96,2024-01-16 11:00:00,0.00,0.00,0.00,23.87,0.00,0.00,11995,25.96,0.00,22.79,12.05
+line,62,The Hollies Wind Farm 33kV Tee - Croft End Solar Farm 33kV #1L5,33/33,input: carries NGED's own flow by construction,-0.00,-0.00,input,Skegness,25.94,2024-04-19 14:00:00,0.00,0.00,0.00,25.94,0.00,0.00,10251,25.94,0.00,0.12,0.13
+line,79,Spilsby 33kV Tee - Spilsby 33kV 6L5,33/33,flow agrees with NGED's model,-0.08,-0.20,meshed,Skegness,25.31,2024-11-20 18:00:00,0.00,0.00,0.00,22.98,0.00,0.00,10251,27.22,0.00,17.47,8.74
+line,81,Pole 90ZB1E25M - Lincoln Farm Solar Park 33kV Tee,33/33,flow agrees with NGED's model,-0.06,-0.15,meshed,Skegness,25.31,2024-11-20 18:00:00,0.00,0.00,0.00,22.99,0.00,0.00,10251,27.22,0.00,17.35,8.63
+line,60,The Hollies Wind Farm 33kV Tee - Pole 90ZB1E25M,33/33,flow agrees with NGED's model,-0.06,-0.14,meshed,Skegness,25.31,2024-11-20 18:00:00,0.00,0.00,0.00,22.99,0.00,0.00,10251,27.22,0.00,17.35,8.63
+line,51,Pole 90ZB1E116 - Spilsby 33kV Tee,33/33,flow agrees with NGED's model,0.08,0.20,meshed,Skegness,25.30,2024-11-20 18:00:00,0.00,0.00,0.00,22.97,0.00,0.00,10251,27.20,0.00,17.39,8.66
+line,66,Lincoln Farm Solar Park 33kV Tee - Pole 90ZB1E116,33/33,flow agrees with NGED's model,-0.07,-0.17,meshed,Skegness,25.30,2024-11-20 18:00:00,0.00,0.00,0.00,22.97,0.00,0.00,10251,27.20,0.00,17.39,8.66
+line,37,Grantham 33kV GT1 - Grantham 33kV #1L5,33/33,flow agrees with NGED's model,-1.47,-2.08,meshed,Grantham,23.42,2024-11-21 18:00:00,0.00,0.00,0.00,23.42,0.00,0.00,17568,24.16,0.00,20.29,7.18
+line,121,Tattershall 33kV Tee - Tattershall 33kV #8L5,33/33,flow differs,-1.20,-2.92,meshed,Sleaford,23.00,2024-11-28 18:00:00,0.00,0.00,0.00,23.00,0.00,0.00,11995,24.56,0.00,20.11,9.81
+line,38,Grantham 33kV GT2 - Grantham 33kV #1L5,33/33,flow agrees with NGED's model,-1.44,-2.02,meshed,Grantham,22.87,2024-11-21 18:00:00,0.00,0.00,0.00,22.87,0.00,0.00,17568,23.59,0.00,19.90,7.84
+line,120,Tattershall 33kV Tee - Ruskington 33kV 1H3,33/33,flow agrees with NGED's model,-0.14,-0.65,meshed,Sleaford,22.61,2024-10-16 20:00:00,0.00,0.00,0.00,22.61,0.00,0.00,11995,22.73,0.00,19.48,9.57
+line,101,Burton Pedwardine Slr Pk 1 33kV Tee - Burton Pedw'dine Slr Pk 1 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Sleaford,22.01,2024-09-11 13:30:00,0.00,0.00,0.00,22.01,0.00,0.00,11995,22.01,0.00,0.09,0.08
+line,85,Warth Lane 33kV Tee - Warth Lane 33kV 3L3,33/33,flow agrees with NGED's model,0.01,0.06,meshed,Skegness,22.00,2024-11-21 17:00:00,0.00,0.00,0.00,21.11,0.00,0.00,10251,23.73,0.00,16.48,5.54
+line,84,Warth Lane 33kV Tee - Ingoldmells 33kV 2H3,33/33,flow agrees with NGED's model,-0.28,-1.08,meshed,Skegness,21.66,2024-03-31 22:30:00,0.00,0.00,0.00,21.66,0.00,0.00,10251,21.71,0.00,14.58,8.82
+line,91,Deepdale Solar Farm 33kV Tee - Sleaford 33kV #6L5,33/33,flow agrees with NGED's model,-0.16,-0.66,meshed,Sleaford,20.85,2024-10-16 20:00:00,0.00,0.00,0.00,20.85,0.00,0.00,11995,21.35,0.00,18.85,9.12
+line,86,Wrangle 33kV Tee - Wrangle 33kV 2H3,33/33,flow agrees with NGED's model,-0.01,-0.04,radial,Skegness,19.89,2024-01-25 23:00:00,0.00,0.00,0.00,19.89,0.00,0.00,10251,22.28,0.00,7.65,5.45
+line,53,Pole 90ZB1H50 - Alford 33kV 1L3,33/33,flow agrees with NGED's model,-0.02,-0.09,meshed,Skegness,19.31,2024-08-15 18:00:00,0.00,0.00,0.00,17.38,0.00,0.00,10251,19.31,0.00,18.83,8.46
+line,59,Chapel St Leonards 33kV Tee - Pole 90ZB1H50,33/33,flow agrees with NGED's model,0.05,0.21,meshed,Skegness,19.30,2024-08-15 18:00:00,0.00,0.00,0.00,17.38,0.00,0.00,10251,19.30,0.00,18.80,8.42
+line,54,Bambers Fm Wind Generation 33kV Tee - Alford 33kV 1L3,33/33,flow agrees with NGED's model,-0.25,-0.97,meshed,Skegness,19.02,2024-06-10 04:00:00,0.00,0.00,0.00,19.02,0.00,0.00,10251,19.02,0.00,9.84,4.13
+line,124,Pole 90ZTADA3 - Woodhall Spa 33kV 2H3,33/33,flow agrees with NGED's model,0.00,0.02,radial,Sleaford,18.96,2024-11-21 17:30:00,0.00,0.00,0.00,18.96,0.00,0.00,11995,20.45,0.00,20.30,10.02
+line,125,Woodhall Spa 33kV Tee - Pole 90ZTADA3,33/33,flow agrees with NGED's model,-0.00,-0.02,radial,Sleaford,18.96,2024-11-21 17:30:00,0.00,0.00,0.00,18.96,0.00,0.00,11995,20.45,0.00,20.29,10.01
+line,39,Mill Farm Battery Storage 33kV Tee - Mill Farm Battery Storage 33kV #2H0,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Grantham,18.84,2024-05-21 10:30:00,0.00,0.00,0.00,18.84,0.00,0.00,17568,18.84,0.00,13.87,9.01
+line,57,Chapel St Leonards 33kV 1H3 - Trusthorpe 33kV #4L5,33/33,flow agrees with NGED's model,-0.26,-0.99,meshed,Skegness,18.08,2024-06-10 04:00:00,0.00,0.00,0.00,18.08,0.00,0.00,10251,18.08,0.00,14.86,5.83
+line,92,Deepdale Solar Farm 33kV Tee - Ruskington 33kV 2H3,33/33,flow agrees with NGED's model,0.16,0.57,meshed,Sleaford,17.94,2024-10-16 20:00:00,0.00,0.00,0.00,17.94,0.00,0.00,11995,18.46,0.00,15.96,7.88
+line,58,Chapel St Leonards 33kV Tee - Chapel St Leonards 33kV 1H3,33/33,flow agrees with NGED's model,0.58,2.27,meshed,Skegness,17.72,2024-03-29 21:30:00,0.00,0.00,0.00,17.72,0.00,0.00,10251,17.76,0.00,13.32,7.32
+line,115,Sleaford 33kV #6L5 - Whitecross La Slr Pk 33kV Tee,33/33,flow differs,-0.54,-2.09,meshed,Sleaford,17.58,2024-05-13 14:00:00,0.00,0.00,0.00,15.55,0.00,0.00,11995,18.10,0.00,11.66,33.12
+line,123,Whitecross La Slr Pk 33kV Tee - Burton Pedwardine Slr Pk 1 33kV Tee,33/33,flow differs,0.56,2.16,meshed,Sleaford,16.30,2024-03-28 09:30:00,0.00,0.00,0.00,14.24,0.00,0.00,11995,17.58,0.00,11.60,32.97
+line,19,Tower 91ZB9F10 - Skillington 33kV Tee,33/33,flow agrees with NGED's model,0.04,0.06,meshed,Grantham,16.27,2024-01-18 18:30:00,0.00,0.00,0.00,16.27,0.00,0.00,17568,17.43,0.00,13.25,8.05
+line,22,Tower 91ZB9F2 - Tower 91ZB9F9,33/33,flow agrees with NGED's model,0.05,0.07,meshed,Grantham,16.26,2024-01-18 18:30:00,0.00,0.00,0.00,16.26,0.00,0.00,17568,17.42,0.00,13.24,8.05
+line,21,Tower 91ZB9F2 - Tower 91ZB9F9,33/33,flow agrees with NGED's model,0.05,0.07,meshed,Grantham,16.26,2024-01-18 18:30:00,0.00,0.00,0.00,16.26,0.00,0.00,17568,17.42,0.00,13.24,8.05
+line,20,Tower 91ZB9F10 - Skillington 33kV Tee,33/33,flow agrees with NGED's model,0.04,0.06,meshed,Grantham,16.25,2024-01-18 18:30:00,0.00,0.00,0.00,16.25,0.00,0.00,17568,17.41,0.00,13.24,8.04
+line,64,Ingoldmells 33kV 2H3 - Chapel St Leonards 33kV 1H3,33/33,flow agrees with NGED's model,-0.28,-1.11,meshed,Skegness,16.22,2024-08-15 18:00:00,0.00,0.00,0.00,16.12,0.00,0.00,10251,17.25,0.00,18.30,9.27
+line,88,Pole 91ZF1F89 - Cranwell 33kV 4L3,33/33,flow differs,0.58,2.54,meshed,Sleaford,15.35,2024-02-27 14:00:00,0.00,0.00,0.00,12.81,0.00,0.00,11995,16.91,0.00,12.00,24.79
+line,116,Sleaford 33kV #6L5 - Breech joint north of Manor Road,33/33,flow differs,-0.59,-2.55,meshed,Sleaford,15.35,2024-02-27 14:00:00,0.00,0.00,0.00,13.64,0.00,0.00,11995,17.34,0.00,10.67,25.50
+line,30,Pole 91ZB9C88 - Easton 33kV 1H3,33/33,flow agrees with NGED's model,0.00,0.02,radial,Grantham,15.19,2024-01-06 18:30:00,0.00,0.00,0.00,15.19,0.00,0.00,17568,17.13,0.00,5.75,2.30
+line,31,Easton 33kV Tee - Mill Fm Slr Boothby Gt Wd 33kV Tee,33/33,flow agrees with NGED's model,-0.01,-0.05,radial,Grantham,14.64,2024-01-06 18:30:00,0.00,0.00,0.00,14.64,0.00,0.00,17568,16.05,0.00,5.09,1.28
+line,42,Mill Fm Slr Boothby Gt Wd 33kV Tee - Pole 91ZB9C88,33/33,flow agrees with NGED's model,-0.00,-0.02,radial,Grantham,14.60,2024-01-06 18:30:00,0.00,0.00,0.00,14.60,0.00,0.00,17568,16.01,0.00,5.36,1.84
+line,41,Mill Fm Slr Boothby Gt Wd 33kV Tee - Mill Fm Slr Boothby Gt Wd 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Grantham,14.45,2024-04-30 13:00:00,0.00,0.00,0.00,14.45,0.00,0.00,17568,14.45,0.00,0.57,0.65
+line,107,Breech joint south of Priory Way - RAF Cranwell High G Fac'ty 33kV Tee,33/33,flow differs,0.58,2.28,meshed,Sleaford,13.72,2024-02-27 14:00:00,0.00,0.00,0.00,11.82,0.00,0.00,11995,15.49,0.00,9.82,22.70
+line,29,Pole 91ZB9CA4 - Pole 91ZB9CA5,33/33,flow agrees with NGED's model,-0.60,-1.46,meshed,Grantham,13.66,2024-05-29 13:00:00,0.00,0.00,0.00,13.66,0.00,0.00,17568,14.56,0.00,12.95,12.52
+line,32,Easton 33kV Tee - Pole 91ZB9CA4,33/33,flow agrees with NGED's model,-0.60,-1.46,meshed,Grantham,13.66,2024-05-29 13:00:00,0.00,0.00,0.00,13.66,0.00,0.00,17568,14.57,0.00,12.96,12.52
+line,90,Deepdale Solar Farm 33kV Tee - Deepdale Solar Farm 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Sleaford,13.28,2024-04-19 14:00:00,0.00,0.00,0.00,12.77,0.00,0.00,11995,13.28,0.00,0.13,0.13
+line,93,Great Hale 33kV #1H0 - Great Hale 33kV T1,33/33,flow agrees with NGED's model,-0.00,-0.00,radial,Sleaford,12.86,2024-11-20 17:30:00,0.00,0.00,0.00,12.86,0.00,0.00,11995,12.86,0.00,11.23,6.08
+line,78,Spilsby 33kV 6L5 - Alford 33kV 2L3,33/33,flow agrees with NGED's model,-0.20,-1.02,meshed,Skegness,11.87,2024-07-31 10:00:00,0.00,0.00,0.00,11.87,0.00,0.00,10251,12.07,0.00,10.01,4.82
+line,43,Market Overton 33kV 2H3 - Skillington 33kV 3L5,33/33,flow agrees with NGED's model,0.00,0.01,radial,Grantham,11.44,2024-11-21 18:00:00,0.00,0.00,0.00,11.44,0.00,0.00,17568,12.51,0.00,9.41,6.33
+line,15,Sleaford 132kV Tee 1 - Grantham 132kV 303,132/132,flow agrees with NGED's model,-1.46,-1.10,backbone,ANY,10.57,2024-11-21 17:00:00,0.00,0.00,0.00,10.15,0.00,0.00,4678,11.19,0.00,11.91,10.31
+line,122,Whitecross La Slr Pk 33kV Tee - Whitecross La Slr Pk 33kV #1L5,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Sleaford,10.54,2024-07-29 14:30:00,0.00,0.00,0.00,10.54,0.00,0.00,11995,10.54,0.00,0.15,0.13
+line,27,Tower 91ZB9G9 - Tower 91ZB9G9A,33/33,not compared (not in NGED's file),,,,Grantham,10.53,2024-11-21 18:00:00,0.00,0.00,0.00,10.53,0.00,0.00,17568,11.52,0.00,8.03,5.41
+line,17,Sleaford 132kV Tee 2 - Grantham 132kV 403,132/132,flow agrees with NGED's model,-1.44,-1.08,backbone,ANY,10.35,2024-11-21 17:00:00,0.00,0.00,0.00,9.94,0.00,0.00,4678,10.95,0.00,11.70,5.70
+line,9,Grantham 132kV 303 - Grantham 132kV #110,132/132,not compared (not in NGED's file),,,,ANY,10.28,2024-11-18 17:30:00,0.00,0.00,0.00,9.04,0.00,0.00,4678,10.31,0.00,8.27,5.12
+line,61,The Hollies Wind Farm 33kV Tee - The Hollies Wind Farm 33kV 2M3,33/33,input: carries NGED's own flow by construction,0.00,0.00,input,Skegness,10.22,2024-11-23 10:00:00,0.00,0.00,0.00,9.99,0.00,0.00,10251,10.31,0.00,1.09,0.77
+line,24,Tower 91ZB9G2 - Tower 91ZB9G9,33/33,flow agrees with NGED's model,0.04,0.12,meshed,Grantham,10.15,2024-01-15 18:00:00,0.00,0.00,0.00,10.15,0.00,0.00,17568,10.87,0.00,7.88,5.11
+line,10,Grantham 132kV 403 - Grantham 132kV #210,132/132,flow agrees with NGED's model,-1.44,-1.02,backbone,ANY,10.04,2024-11-18 17:30:00,0.00,0.00,0.00,8.83,0.00,0.00,4678,10.07,0.00,8.08,6.09
+line,25,Tower 91ZB9G2 - Tower 91ZB9G9A,33/33,flow agrees with NGED's model,-0.04,-0.10,meshed,Grantham,9.59,2024-01-15 18:00:00,0.00,0.00,0.00,9.59,0.00,0.00,17568,10.27,0.00,7.44,4.83
+line,45,Skillington 33kV A - Skillington 33kV B,33/33,flow agrees with NGED's model,0.06,0.21,meshed,Grantham,8.81,2024-11-21 19:00:00,0.00,0.00,0.00,8.81,0.00,0.00,17568,9.35,0.00,7.05,4.16
+line,109,RAF Cranwell High G Fac'ty 33kV Tee - Pole 91ZF1F89,33/33,flow agrees with NGED's model,0.58,1.41,meshed,Sleaford,8.78,2024-02-27 14:00:00,0.00,0.00,0.00,7.07,0.00,0.00,11995,9.60,0.00,6.17,14.08
+line,46,Skillington 33kV A1 - Skillington 33kV B1,33/33,flow agrees with NGED's model,-0.02,-0.07,meshed,Grantham,8.19,2024-11-21 19:00:00,0.00,0.00,0.00,8.19,0.00,0.00,17568,8.69,0.00,6.56,3.87
+line,48,Skillington 33kV B1 - Skillington 33kV B,33/33,not compared (not in NGED's file),,,,Grantham,7.23,2024-01-18 18:30:00,0.00,0.00,0.00,7.23,0.00,0.00,17568,8.06,0.00,6.23,3.59
+line,44,Skillington 33kV A - Skillington 33kV A1,33/33,not compared (not in NGED's file),,,,Grantham,7.23,2024-01-18 18:30:00,0.00,0.00,0.00,7.23,0.00,0.00,17568,8.06,0.00,6.23,3.59
+line,105,Breech joint north of Manor Road - Breech joint south of Priory Way,33/33,not compared (not in NGED's file),,,,Sleaford,5.76,2024-02-27 14:00:00,0.00,0.00,0.00,5.07,0.00,0.00,11995,6.64,0.00,4.05,9.74
+line,108,Breech joint south of Priory Way - Breech joint south of Priory Way,33/33,not compared (not in NGED's file),,,,Sleaford,2.70,2024-02-27 14:00:00,0.00,0.00,0.00,2.23,0.00,0.00,11995,3.01,0.00,1.90,4.41
+line,104,Breech joint north of Manor Road - Breech joint north of Manor Road,33/33,not compared (not in NGED's file),,,,Sleaford,2.70,2024-02-27 14:00:00,0.00,0.00,0.00,2.23,0.00,0.00,11995,3.01,0.00,1.90,4.41
+line,106,Breech joint north of Manor Road - Breech joint south of Priory Way,33/33,not compared (not in NGED's file),,,,Sleaford,1.80,2024-02-27 14:00:00,0.00,0.00,0.00,1.59,0.00,0.00,11995,2.08,0.00,1.27,3.05
+line,68,Manor Farm Irby PV 33kV Tee - Manor Farm Irby PV 33kV #1L5,33/33,flow agrees with NGED's model,-0.00,-0.00,radial,Skegness,0.46,2024-05-11 15:00:00,0.00,0.00,0.00,0.46,0.00,0.00,10251,0.46,0.00,1.86,1.39
+line,103,RAF Cranwell High G Fac'ty 33kV Tee - RAF Cranwell High G Fac'ty 33kV #1L,33/33,flow agrees with NGED's model,0.00,0.00,radial,Sleaford,0.43,2024-08-12 14:30:00,0.00,0.00,0.00,0.43,0.00,0.00,11995,0.43,0.00,0.36,0.21
+line,80,Stickney 33kV 1L3 - Spilsby 33kV Tee,33/33,not compared (not in NGED's file),,,,Skegness,0.26,2024-06-27 15:30:00,0.00,0.00,0.00,0.26,0.00,0.00,10251,0.26,0.00,0.24,0.26
+line,7,Grantham 132kV 303 - Grantham North 132kV 103,132/132,not compared (railway input held at 0),-0.01,-0.01,excluded,ANY,0.20,2024-08-15 11:30:00,0.00,0.00,0.00,0.19,0.00,0.00,4678,0.20,0.00,2.89,5.91
+line,8,Grantham 132kV 403 - Grantham North 132kV 203,132/132,not compared (railway input held at 0),-0.01,-0.01,excluded,ANY,0.19,2024-08-11 08:30:00,0.00,0.00,0.00,0.19,0.00,0.00,4678,0.19,0.00,2.89,1.24
+line,11,Low Farm PV Friskney 132kV Tee - Low Farm PV Friskney 132kV 103,132/132,not compared (not in NGED's file),,,,ANY,0.07,2024-08-15 14:30:00,0.00,0.00,0.00,0.06,0.00,0.00,4678,0.07,0.00,0.08,0.04
+trafo,11,Grantham North 132kV 203 - Grantham North 25kV 1T0,132/25,not compared (railway input held at 0),-0.01,-0.03,excluded,ANY,0.05,2024-12-03 17:30:00,0.00,0.00,0.00,0.05,0.00,0.00,4678,0.05,0.00,15.37,6.10
+trafo,10,Grantham North 132kV 103 - Grantham North 25kV 1T0,132/25,not compared (railway input held at 0),0.01,0.03,excluded,ANY,0.05,2024-12-03 17:30:00,0.00,0.00,0.00,0.05,0.00,0.00,4678,0.05,0.00,15.37,8.91
+line,6,BOST1_MAIN1 - Boston 132kV 503,132/132,not compared (not in NGED's file),,,,ANY,0.00,2024-07-16 01:30:00,0.00,0.00,0.00,0.00,0.00,0.00,4678,0.00,0.00,0.00,0.00

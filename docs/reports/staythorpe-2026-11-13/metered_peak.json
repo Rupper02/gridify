@@ -1,0 +1,81 @@
+{
+ "bicker-fen": {
+  "neso_peak_mw": 149.235,
+  "2024": {
+   "primary_nodes": 25,
+   "peak_mw": 142.16,
+   "at": "2024-11-20 18:00:00",
+   "ratio_to_neso": 0.953,
+   "left_out": {
+    "MW_420602": "SKEG3_MAIN1 (level 3)",
+    "MW_420604": "SKEG3_MAIN3 (level 3)",
+    "MW_427900": "SLEA3_MAIN1 (level 3)",
+    "MW_427901": "SLEA3_MAIN2 (level 3)",
+    "MW_433900": "GRTH3_MAIN1 (level 3)",
+    "MW_433901": "GRTH3_MAIN2 (level 3)",
+    "MW_489900": "BICF1_MAIN1 (level 1)",
+    "MW_489902": "BICF1_MAIN2 (level 1)",
+    "MW_489903": "BICF1_RES2 (level 1)"
+   },
+   "nodes_net_negative_at_peak": {},
+   "mean_mw": 87.45
+  },
+  "2025": {
+   "primary_nodes": 25,
+   "peak_mw": 143.28,
+   "at": "2025-01-09 17:30:00",
+   "ratio_to_neso": 0.96,
+   "left_out": {
+    "MW_420602": "SKEG3_MAIN1 (level 3)",
+    "MW_420604": "SKEG3_MAIN3 (level 3)",
+    "MW_427900": "SLEA3_MAIN1 (level 3)",
+    "MW_427901": "SLEA3_MAIN2 (level 3)",
+    "MW_433900": "GRTH3_MAIN1 (level 3)",
+    "MW_433901": "GRTH3_MAIN2 (level 3)",
+    "MW_489900": "BICF1_MAIN1 (level 1)",
+    "MW_489902": "BICF1_MAIN2 (level 1)",
+    "MW_489903": "BICF1_RES2 (level 1)"
+   },
+   "nodes_net_negative_at_peak": {},
+   "mean_mw": 86.18
+  }
+ },
+ "staythorpe": {
+  "neso_peak_mw": 261.169,
+  "2024": {
+   "primary_nodes": 26,
+   "peak_mw": 138.22,
+   "at": "2024-01-18 17:30:00",
+   "ratio_to_neso": 0.529,
+   "left_out": {
+    "MW_430702": "BYTH8_MAIN2 (level 8)",
+    "MW_432100": "HAWT3_MAIN1 (level 3)",
+    "MW_432101": "HAWT3_MAIN2 (level 3)",
+    "MW_466401": "CHEC3_MAIN1 (level 3)",
+    "MW_466402": "CHEC3_MAIN2 (level 3)",
+    "MW_473503": "BOUW8_#2T0 (level 8)",
+    "MW_490400": "STAY1_MAIN1 (level 1)",
+    "MW_490401": "STAY1_RES1 (level 1)"
+   },
+   "nodes_net_negative_at_peak": {},
+   "mean_mw": 78.51
+  },
+  "2025": {
+   "primary_nodes": 26,
+   "peak_mw": 147.82,
+   "at": "2025-01-08 17:30:00",
+   "ratio_to_neso": 0.566,
+   "left_out": {
+    "MW_430702": "BYTH8_MAIN2 (level 8)",
+    "MW_432100": "HAWT3_MAIN1 (level 3)",
+    "MW_432101": "HAWT3_MAIN2 (level 3)",
+    "MW_466401": "CHEC3_MAIN1 (level 3)",
+    "MW_466402": "CHEC3_MAIN2 (level 3)",
+    "MW_490400": "STAY1_MAIN1 (level 1)",
+    "MW_490401": "STAY1_RES1 (level 1)"
+   },
+   "nodes_net_negative_at_peak": {},
+   "mean_mw": 80.88
+  }
+ }
+}

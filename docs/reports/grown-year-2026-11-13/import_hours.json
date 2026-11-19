@@ -1,0 +1,358 @@
+{
+ "limits_both_sgts_mw": {
+  "winter": 320.2,
+  "intermediate_cool": 358.2,
+  "intermediate_warm": 358.2,
+  "summer": 221.6
+ },
+ "2024-published": {
+  "label": "2024, NGED's flows as published",
+  "import_peak_mw": 137.1,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 0.0,
+   "before_summer_limit_all_year": 96.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  }
+ },
+ "2024-screened": {
+  "label": "2024, reactive power screened",
+  "import_peak_mw": 137.1,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 0.0,
+   "before_summer_limit_all_year": 99.5,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  }
+ },
+ "2025-screened": {
+  "label": "2025, reactive power screened",
+  "import_peak_mw": 143.1,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 0.0,
+   "before_summer_limit_all_year": 86.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  }
+ },
+ "2030-ht": {
+  "label": "2030, Holistic Transition (grown)",
+  "import_peak_mw": 172.3,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 9.5,
+   "before_summer_limit_all_year": 532.5,
+   "after_own_season": 20.0,
+   "after_by_season": {
+    "winter": 4.5,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 15.5
+   }
+  }
+ },
+ "2035-ht": {
+  "label": "2035, Holistic Transition (grown)",
+  "import_peak_mw": 261.5,
+  "both_sgts": {
+   "before_summer_limit_all_year": 56.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 865.0,
+   "before_summer_limit_all_year": 3091.0,
+   "after_own_season": 1127.5,
+   "after_by_season": {
+    "winter": 347.0,
+    "intermediate_cool": 177.0,
+    "intermediate_warm": 55.5,
+    "summer": 548.0
+   }
+  }
+ },
+ "2035-fb": {
+  "label": "2035, Falling Behind (grown)",
+  "import_peak_mw": 184.0,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 35.0,
+   "before_summer_limit_all_year": 776.0,
+   "after_own_season": 61.5,
+   "after_by_season": {
+    "winter": 19.5,
+    "intermediate_cool": 3.0,
+    "intermediate_warm": 0.0,
+    "summer": 39.0
+   }
+  }
+ },
+ "2030-ee": {
+  "label": "2030, Electric Engagement (grown)",
+  "import_peak_mw": 172.9,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 10.5,
+   "before_summer_limit_all_year": 551.0,
+   "after_own_season": 22.5,
+   "after_by_season": {
+    "winter": 5.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 17.5
+   }
+  }
+ },
+ "2035-ee": {
+  "label": "2035, Electric Engagement (grown)",
+  "import_peak_mw": 258.7,
+  "both_sgts": {
+   "before_summer_limit_all_year": 47.5,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 820.5,
+   "before_summer_limit_all_year": 3009.5,
+   "after_own_season": 1068.0,
+   "after_by_season": {
+    "winter": 331.0,
+    "intermediate_cool": 159.0,
+    "intermediate_warm": 52.0,
+    "summer": 526.0
+   }
+  }
+ },
+ "2030-fb": {
+  "label": "2030, Falling Behind (grown)",
+  "import_peak_mw": 153.0,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 0.0,
+   "before_summer_limit_all_year": 247.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  }
+ },
+ "2035-ht-flows-2025": {
+  "label": "2035, Holistic Transition, grown on 2025's flows",
+  "import_peak_mw": 268.0,
+  "both_sgts": {
+   "before_summer_limit_all_year": 54.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 709.5,
+   "before_summer_limit_all_year": 2712.5,
+   "after_own_season": 973.0,
+   "after_by_season": {
+    "winter": 445.0,
+    "intermediate_cool": 58.0,
+    "intermediate_warm": 35.5,
+    "summer": 434.5
+   }
+  }
+ },
+ "2030-ht-warth-ltds": {
+  "label": "2030, Holistic Transition, Warth Lane at NGED's LTDS forecast",
+  "import_peak_mw": 231.9,
+  "both_sgts": {
+   "before_summer_limit_all_year": 5.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 425.0,
+   "before_summer_limit_all_year": 2057.5,
+   "after_own_season": 558.5,
+   "after_by_season": {
+    "winter": 198.0,
+    "intermediate_cool": 62.0,
+    "intermediate_warm": 14.5,
+    "summer": 284.0
+   }
+  }
+ },
+ "2030-ht-grantham": {
+  "label": "2030 HT + branch: 240 MW solar at Grantham 132 kV",
+  "import_peak_mw": 172.3,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 9.5,
+   "before_summer_limit_all_year": 415.5,
+   "after_own_season": 16.0,
+   "after_by_season": {
+    "winter": 4.5,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 11.5
+   }
+  }
+ },
+ "2030-ht-grantham-tied": {
+  "label": "2030 HT + branch: Grantham 240 MW, 132 kV sections tied",
+  "import_peak_mw": 172.3,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 9.5,
+   "before_summer_limit_all_year": 415.5,
+   "after_own_season": 16.0,
+   "after_by_season": {
+    "winter": 4.5,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 11.5
+   }
+  }
+ },
+ "2030-ht-thorns": {
+  "label": "2030 HT + branch: 40 MW solar at Thorns Farm 33 kV",
+  "import_peak_mw": 172.3,
+  "both_sgts": {
+   "before_summer_limit_all_year": 0.0,
+   "after_own_season": 0.0,
+   "after_by_season": {
+    "winter": 0.0,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 0.0
+   }
+  },
+  "one_sgt_out": {
+   "before_winter_limit_all_year": 9.5,
+   "before_summer_limit_all_year": 505.0,
+   "after_own_season": 19.5,
+   "after_by_season": {
+    "winter": 4.5,
+    "intermediate_cool": 0.0,
+    "intermediate_warm": 0.0,
+    "summer": 15.0
+   }
+  }
+ }
+}

@@ -1,0 +1,493 @@
+{
+ "2025-screened": {
+  "half_hours": 17520,
+  "solved": 17520,
+  "solved_share": 1.0,
+  "unsolved_months": {},
+  "unsolved_hours_of_day": {},
+  "over_rating": [
+   {
+    "kind": "trafo",
+    "id": 37,
+    "name": "Tuxford 33kV 1H3 - Tuxford 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 125.2,
+    "h100": 166.0,
+    "h90": 415.5
+   }
+  ],
+  "not_findings_over": [],
+  "buses_out_of_band": [],
+  "above_firm": [
+   {
+    "name": "Hawton 11",
+    "firm_mva": 15.0,
+    "peak_mva": 15.04,
+    "hours": 0.5
+   }
+  ],
+  "import_peak_mw": 142.3,
+  "export_peak_mw": 97.8,
+  "import_above_season_limit_h": 0.0,
+  "import_above_one_sgt_season_limit_h": 0.0,
+  "export_above_limit_h": 0.0
+ },
+ "2030-ht": {
+  "half_hours": 17520,
+  "solved": 17520,
+  "solved_share": 1.0,
+  "unsolved_months": {},
+  "unsolved_hours_of_day": {},
+  "over_rating": [
+   {
+    "kind": "trafo",
+    "id": 37,
+    "name": "Tuxford 33kV 1H3 - Tuxford 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 343.6,
+    "h100": 4911.0,
+    "h90": 5402.5
+   },
+   {
+    "kind": "trafo",
+    "id": 20,
+    "name": "Hawton 132kV 113 - Hawton 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 136.2,
+    "h100": 618.0,
+    "h90": 1127.5
+   },
+   {
+    "kind": "trafo",
+    "id": 21,
+    "name": "Hawton 132kV 213 - Hawton 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 136.0,
+    "h100": 613.5,
+    "h90": 1119.0
+   },
+   {
+    "kind": "trafo",
+    "id": 39,
+    "name": "Westborough 33kV 1H3 - Westborough 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 115.0,
+    "h100": 15.5,
+    "h90": 74.5
+   },
+   {
+    "kind": "trafo",
+    "id": 18,
+    "name": "Hallcroft Road 33kV 3L3 - Hallcroft Road 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 105.2,
+    "h100": 5.5,
+    "h90": 107.0
+   },
+   {
+    "kind": "trafo",
+    "id": 19,
+    "name": "Hallcroft Road 33kV 2L3 - Hallcroft Road 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 106.0,
+    "h100": 4.5,
+    "h90": 117.5
+   },
+   {
+    "kind": "line",
+    "id": 5,
+    "name": "Bevercotes 33kV 3L3 - Tuxford 33kV 1H3",
+    "label": "flow differs",
+    "peak_pct": 103.7,
+    "h100": 1.5,
+    "h90": 43.5
+   }
+  ],
+  "not_findings_over": [],
+  "buses_out_of_band": [],
+  "above_firm": [
+   {
+    "name": "Hawton 11",
+    "firm_mva": 15.0,
+    "peak_mva": 25.86,
+    "hours": 1784.5
+   },
+   {
+    "name": "Hallcroft Road",
+    "firm_mva": 9.5,
+    "peak_mva": 12.67,
+    "hours": 625.5
+   },
+   {
+    "name": "Newark Junction",
+    "firm_mva": 32.0,
+    "peak_mva": 32.62,
+    "hours": 1.5
+   },
+   {
+    "name": "Southwell",
+    "firm_mva": 9.5,
+    "peak_mva": 9.5,
+    "hours": 0.5
+   }
+  ],
+  "import_peak_mw": 211.5,
+  "export_peak_mw": 81.2,
+  "import_above_season_limit_h": 0.0,
+  "import_above_one_sgt_season_limit_h": 496.0,
+  "export_above_limit_h": 0.0
+ },
+ "2035-ht": {
+  "half_hours": 17520,
+  "solved": 17372,
+  "solved_share": 0.9916,
+  "unsolved_months": {
+   "1": 78,
+   "2": 29,
+   "11": 29,
+   "12": 12
+  },
+  "unsolved_hours_of_day": {
+   "7": 16,
+   "8": 37,
+   "9": 35,
+   "10": 18,
+   "11": 10,
+   "12": 8,
+   "13": 4,
+   "14": 4,
+   "15": 2,
+   "16": 2,
+   "17": 5,
+   "18": 5,
+   "19": 2
+  },
+  "over_rating": [
+   {
+    "kind": "trafo",
+    "id": 37,
+    "name": "Tuxford 33kV 1H3 - Tuxford 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 871.4,
+    "h100": 7484.5,
+    "h90": 7719.0
+   },
+   {
+    "kind": "trafo",
+    "id": 20,
+    "name": "Hawton 132kV 113 - Hawton 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 225.9,
+    "h100": 4151.5,
+    "h90": 5317.0
+   },
+   {
+    "kind": "trafo",
+    "id": 21,
+    "name": "Hawton 132kV 213 - Hawton 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 225.6,
+    "h100": 4139.0,
+    "h90": 5305.5
+   },
+   {
+    "kind": "trafo",
+    "id": 39,
+    "name": "Westborough 33kV 1H3 - Westborough 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 226.8,
+    "h100": 3018.5,
+    "h90": 3915.0
+   },
+   {
+    "kind": "line",
+    "id": 5,
+    "name": "Bevercotes 33kV 3L3 - Tuxford 33kV 1H3",
+    "label": "flow differs",
+    "peak_pct": 225.3,
+    "h100": 2498.0,
+    "h90": 3312.5
+   },
+   {
+    "kind": "trafo",
+    "id": 19,
+    "name": "Hallcroft Road 33kV 2L3 - Hallcroft Road 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 170.2,
+    "h100": 2247.0,
+    "h90": 3312.5
+   },
+   {
+    "kind": "trafo",
+    "id": 18,
+    "name": "Hallcroft Road 33kV 3L3 - Hallcroft Road 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 172.4,
+    "h100": 2215.5,
+    "h90": 3222.0
+   },
+   {
+    "kind": "trafo",
+    "id": 2,
+    "name": "Bingham 33kV T2 - Bingham 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 132.5,
+    "h100": 645.5,
+    "h90": 1239.5
+   },
+   {
+    "kind": "trafo",
+    "id": 23,
+    "name": "Hawton 33kV #1L5 - Hawton 11kV 3T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 142.7,
+    "h100": 610.5,
+    "h90": 1118.0
+   },
+   {
+    "kind": "trafo",
+    "id": 22,
+    "name": "Hawton 33kV #1L5 - Hawton 11kV 3T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 139.7,
+    "h100": 522.5,
+    "h90": 998.0
+   },
+   {
+    "kind": "trafo",
+    "id": 9,
+    "name": "Checkerhouse 132kV 103 - Checkerhouse 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 134.9,
+    "h100": 501.0,
+    "h90": 902.5
+   },
+   {
+    "kind": "trafo",
+    "id": 10,
+    "name": "Checkerhouse 132kV 203 - Checkerhouse 33kV #1L5",
+    "label": "flow differs",
+    "peak_pct": 134.5,
+    "h100": 494.5,
+    "h90": 888.5
+   },
+   {
+    "kind": "trafo",
+    "id": 5,
+    "name": "Carlton-on-Trent 33kV 2L3 - Carlton-on-Trent 11kV 2T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 138.6,
+    "h100": 177.0,
+    "h90": 486.0
+   },
+   {
+    "kind": "trafo",
+    "id": 34,
+    "name": "Southwell 33kV 2H3 - Southwell 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 121.6,
+    "h100": 169.0,
+    "h90": 533.5
+   },
+   {
+    "kind": "trafo",
+    "id": 6,
+    "name": "Carlton-on-Trent 33kV 2L3 - Carlton-on-Trent 11kV 2T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 137.4,
+    "h100": 153.5,
+    "h90": 456.0
+   },
+   {
+    "kind": "trafo",
+    "id": 27,
+    "name": "Newark Junction 33kV T1 - Newark Junction 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 116.1,
+    "h100": 95.0,
+    "h90": 518.0
+   },
+   {
+    "kind": "trafo",
+    "id": 28,
+    "name": "Newark Junction 33kV T2 - Newark Junction 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 114.5,
+    "h100": 72.0,
+    "h90": 419.0
+   },
+   {
+    "kind": "trafo",
+    "id": 32,
+    "name": "Sibthorpe 33kV #3L5 - Sibthorpe 11kV 3T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 140.7,
+    "h100": 63.5,
+    "h90": 158.0
+   },
+   {
+    "kind": "trafo",
+    "id": 33,
+    "name": "Southwell 33kV 1H3 - Southwell 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 114.2,
+    "h100": 38.0,
+    "h90": 186.5
+   },
+   {
+    "kind": "trafo",
+    "id": 29,
+    "name": "North Wheatley 33kV T1 - North Wheatley 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 122.7,
+    "h100": 15.5,
+    "h90": 92.5
+   },
+   {
+    "kind": "line",
+    "id": 11,
+    "name": "Checkerhouse 33kV #1L5 - Bevercotes 33kV 1L3",
+    "label": "flow differs",
+    "peak_pct": 110.0,
+    "h100": 5.5,
+    "h90": 42.5
+   },
+   {
+    "kind": "line",
+    "id": 121,
+    "name": "Hawton 132kV Tee 1 - Hawton 132kV 113",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 101.0,
+    "h100": 0.5,
+    "h90": 43.0
+   },
+   {
+    "kind": "line",
+    "id": 123,
+    "name": "Hawton 132kV Tee 2 - Hawton 132kV 213",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 100.9,
+    "h100": 0.5,
+    "h90": 42.0
+   }
+  ],
+  "not_findings_over": [],
+  "buses_out_of_band": [
+   {
+    "bus": 24,
+    "name": "Tuxford 33kV 1H3",
+    "hours": 293.0,
+    "vmin": 0.8735,
+    "vmax": 1.0302
+   },
+   {
+    "bus": 66,
+    "name": "Tuxford 11kV 1T0",
+    "hours": 278.0,
+    "vmin": 0.7328,
+    "vmax": 1.0929
+   },
+   {
+    "bus": 38,
+    "name": "Cobb Farm Solar Generation 33kV Tee",
+    "hours": 133.0,
+    "vmin": 0.8894,
+    "vmax": 1.0322
+   },
+   {
+    "bus": 39,
+    "name": "Cobb Farm Solar Generat'n 33kV #1L5",
+    "hours": 133.0,
+    "vmin": 0.8894,
+    "vmax": 1.0326
+   },
+   {
+    "bus": 21,
+    "name": "Pole 89ZTXA41",
+    "hours": 95.5,
+    "vmin": 0.8944,
+    "vmax": 1.0316
+   },
+   {
+    "bus": 97,
+    "name": "Swinderby 33kV T1",
+    "hours": 10.5,
+    "vmin": 0.917,
+    "vmax": 1.0319
+   },
+   {
+    "bus": 27,
+    "name": "Carlton-on-Trent 33kV 2L3",
+    "hours": 9.0,
+    "vmin": 0.9157,
+    "vmax": 1.0284
+   },
+   {
+    "bus": 96,
+    "name": "Carlton-on-Trent 33kV 1L3",
+    "hours": 9.0,
+    "vmin": 0.9157,
+    "vmax": 1.0284
+   },
+   {
+    "bus": 91,
+    "name": "Bingham 11kV 1T0",
+    "hours": 1.5,
+    "vmin": 0.924,
+    "vmax": 1.0728
+   },
+   {
+    "bus": 89,
+    "name": "Bingham 33kV Tee 2",
+    "hours": 1.0,
+    "vmin": 0.9291,
+    "vmax": 1.0164
+   },
+   {
+    "bus": 90,
+    "name": "Bingham 33kV T2",
+    "hours": 1.0,
+    "vmin": 0.9262,
+    "vmax": 1.0153
+   },
+   {
+    "bus": 118,
+    "name": "Newark Junction 11kV 1T0",
+    "hours": 1.0,
+    "vmin": 0.9378,
+    "vmax": 1.0604
+   }
+  ],
+  "above_firm": [
+   {
+    "name": "Hawton 11",
+    "firm_mva": 15.0,
+    "peak_mva": 42.35,
+    "hours": 5744.0
+   },
+   {
+    "name": "Hallcroft Road",
+    "firm_mva": 9.5,
+    "peak_mva": 20.44,
+    "hours": 5093.5
+   },
+   {
+    "name": "Newark Junction",
+    "firm_mva": 32.0,
+    "peak_mva": 46.13,
+    "hours": 1373.0
+   },
+   {
+    "name": "Southwell",
+    "firm_mva": 9.5,
+    "peak_mva": 14.15,
+    "hours": 977.0
+   }
+  ],
+  "import_peak_mw": 316.0,
+  "export_peak_mw": 65.8,
+  "import_above_season_limit_h": 0.5,
+  "import_above_one_sgt_season_limit_h": 3457.5,
+  "export_above_limit_h": 0.0
+ }
+}

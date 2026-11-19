@@ -1,0 +1,60 @@
+{
+ "plan_years": {
+  "2033": {
+   "converged": true,
+   "violations": 6,
+   "first": {
+    "type": "trafo",
+    "element_id": 37,
+    "value": 258.1,
+    "limit": 100.0,
+    "message": "transformer 37 overloaded at 258.1% at winter peak demand",
+    "case": "winter_peak"
+   },
+   "min_vm_pu": 0.9513
+  },
+  "2034": {
+   "converged": false,
+   "violations": 1,
+   "first": {
+    "type": "voltage_collapse",
+    "element_id": 66,
+    "value": 0.2643,
+    "limit": 0.5,
+    "message": "no valid operating point at winter peak demand: the solver's solution is a voltage collapse (Tuxford 11kV 1T0 at 0.26 pu, below the 0.5 pu floor)",
+    "case": "winter_peak"
+   },
+   "min_vm_pu": 0.0
+  },
+  "2035": {
+   "converged": false,
+   "violations": 1,
+   "first": {
+    "type": "non_convergent",
+    "element_id": null,
+    "value": null,
+    "limit": null,
+    "message": "power flow did not converge at winter peak demand",
+    "case": "winter_peak"
+   },
+   "min_vm_pu": 0.0
+  }
+ },
+ "grown_files": {
+  "measured-year-2025-screened.npz": {
+   "solved": 17520,
+   "converged_below_floor": 0,
+   "lowest_solved_vm_pu": 0.9867
+  },
+  "grown-2030-ht.npz": {
+   "solved": 17520,
+   "converged_below_floor": 0,
+   "lowest_solved_vm_pu": 0.9696
+  },
+  "grown-2035-ht.npz": {
+   "solved": 17372,
+   "converged_below_floor": 0,
+   "lowest_solved_vm_pu": 0.7328
+  }
+ }
+}

@@ -1,0 +1,590 @@
+{
+ "l0_rows": [
+  {
+   "Node 1": "91ZB9F10A",
+   "Node 2": "91ZB9F10",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "91ZB9F2A",
+   "Node 2": "91ZB9F2",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "91ZB9F9A",
+   "Node 2": "91ZB9F9",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "91ZB9G2A",
+   "Node 2": "91ZB9G2",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "91ZB9G9",
+   "Node 2": "91ZB9G9A",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "SKIL3A",
+   "Node 2": "SKIL3A_1",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "SKIL3B_1",
+   "Node 2": "SKIL3B",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "RAFC33A",
+   "Node 2": "RAFC33A1",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "RAFC33B1",
+   "Node 2": "RAFC33B",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  }
+ ],
+ "rules": {
+  "radial_rule": {
+   "built": {
+    "groups": 18,
+    "pass": 18,
+    "verdict": true,
+    "fail": []
+   },
+   "l0": {
+    "groups": 18,
+    "pass": 18,
+    "verdict": true,
+    "fail": []
+   }
+  },
+  "rule1": {
+   "built": {
+    "share_within": 0.9394,
+    "verdict": false,
+    "abs_gap_p50": 0.284,
+    "abs_gap_p95": 2.667,
+    "abs_gap_max": 7.172,
+    "gap_median_signed": 0.202
+   },
+   "l0": {
+    "share_within": 0.9394,
+    "verdict": false,
+    "abs_gap_p50": 0.284,
+    "abs_gap_p95": 2.667,
+    "abs_gap_max": 7.172,
+    "gap_median_signed": 0.202
+   }
+  },
+  "rule2": {
+   "built": {
+    "groups": 23,
+    "pass": 12,
+    "verdict": false
+   },
+   "l0": {
+    "groups": 23,
+    "pass": 12,
+    "verdict": false
+   }
+  },
+  "rule3": {
+   "built": {
+    "groups": 90,
+    "pass": 59,
+    "share": 0.6556,
+    "verdict": false
+   },
+   "l0": {
+    "groups": 87,
+    "pass": 56,
+    "share": 0.6437,
+    "verdict": false
+   }
+  },
+  "input_check": {
+   "built": {
+    "groups": 21,
+    "within_0.5+2%_every_half_hour": 21,
+    "fail": []
+   },
+   "l0": {
+    "groups": 21,
+    "within_0.5+2%_every_half_hour": 21,
+    "fail": []
+   }
+  }
+ },
+ "label_changes": [
+  {
+   "col": "423505_423507_0_L1",
+   "name": "Breech joint north of Manor Road - Breech joint south of Priory Way",
+   "built": "meshed:pass",
+   "l0": "n/a",
+   "offset_built": -0.531,
+   "offset_l0": NaN
+  },
+  {
+   "col": "461107_461115_0_L1",
+   "name": "Tower 91ZB9G2 - Tower 91ZB9G9",
+   "built": "meshed:pass",
+   "l0": "n/a",
+   "offset_built": 0.003,
+   "offset_l0": NaN
+  },
+  {
+   "col": "465607_465609_0_L1",
+   "name": "Skillington 33kV A1 - Skillington 33kV B1",
+   "built": "meshed:pass",
+   "l0": "n/a",
+   "offset_built": -0.04,
+   "offset_l0": NaN
+  }
+ ],
+ "sleaford_grantham_cluster": [
+  {
+   "key": "42170_473111_0_L1",
+   "name_b": "Tattershall 33kV #8L5 - Woodhall Spa 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": 1.13,
+   "offset_mw_l": 1.13,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "42351_423506_0_L1",
+   "name_b": "Breech joint south of Priory Way - RAF Cranwell High G Fac'ty 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.558,
+   "offset_mw_l": 0.558,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "42351_494100_0_L1",
+   "name_b": "RAF Cranwell High G Fac'ty 33kV Tee - Pole 91ZF1F89",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.559,
+   "offset_mw_l": -0.558,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "42430_433904_0_L1",
+   "name_b": "Grantham 33kV #1L5 - Easton 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": -1.262,
+   "offset_mw_l": -1.262,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "42520_427911_0_L1",
+   "name_b": "Deepdale Solar Farm 33kV Tee - Sleaford 33kV #6L5",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.029,
+   "offset_mw_l": -0.029,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "43930_427906_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Whitecross La Slr Pk 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": 1.322,
+   "offset_mw_l": 1.322,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "43960_433907_0_L1",
+   "name_b": "Grantham 33kV #1L5 - Mill Farm Battery Storage 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": -2.29,
+   "offset_mw_l": -2.29,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "43960_471406_0_L1",
+   "name_b": "Mill Farm Battery Storage 33kV Tee - Leadenham 33kV 2H3",
+   "cls_b": "meshed",
+   "offset_mw_b": 2.261,
+   "offset_mw_l": 2.261,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "44030_429610_0_L1",
+   "name_b": "Sleaford 132kV Tee 2 - Grantham 132kV 403",
+   "cls_b": "backbone",
+   "offset_mw_b": 1.686,
+   "offset_mw_l": 1.686,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "44030_440305_0_L1",
+   "name_b": "Sleaford 132kV Tee 2 - Sleaford 132kV 203",
+   "cls_b": "backbone",
+   "offset_mw_b": -2.477,
+   "offset_mw_l": -2.477,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "44030_489906_0_L1",
+   "name_b": "Bicker Fen 132kV 405 - Sleaford 132kV Tee 2",
+   "cls_b": "backbone",
+   "offset_mw_b": 0.573,
+   "offset_mw_l": 0.573,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "44033_429608_0_L1",
+   "name_b": "Sleaford 132kV Tee 1 - Grantham 132kV 303",
+   "cls_b": "backbone",
+   "offset_mw_b": 1.715,
+   "offset_mw_l": 1.715,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "44033_440302_0_L1",
+   "name_b": "Sleaford 132kV Tee 1 - Sleaford 132kV 103",
+   "cls_b": "backbone",
+   "offset_mw_b": -2.475,
+   "offset_mw_l": -2.475,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "44033_489910_0_L1",
+   "name_b": "Bicker Fen 132kV 405 - Sleaford 132kV Tee 1",
+   "cls_b": "backbone",
+   "offset_mw_b": 0.541,
+   "offset_mw_l": 0.541,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "47311_424700_0_L1",
+   "name_b": "Tattershall 33kV Tee - Ruskington 33kV 1H3",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.029,
+   "offset_mw_l": -0.029,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "47311_427905_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Tattershall 33kV Tee",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.956,
+   "offset_mw_l": -0.956,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "47311_473105_0_L1",
+   "name_b": "Tattershall 33kV Tee - Tattershall 33kV #8L5",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.97,
+   "offset_mw_l": 0.97,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "421600_471405_0_T2",
+   "name_b": "Leadenham 33kV 2H3 - Leadenham 11kV 2T0",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.006,
+   "offset_mw_l": -0.006,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "422903_493903_0_L1",
+   "name_b": "Nth Rauceby Switching Stn 33kV #2L5 - Cranwell 33kV 4L3",
+   "cls_b": "meshed",
+   "offset_mw_b": 1.883,
+   "offset_mw_l": 1.883,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "422904_471404_0_L1",
+   "name_b": "Cranwell 33kV 4L3 - Leadenham 33kV 2H3",
+   "cls_b": "meshed",
+   "offset_mw_b": -2.257,
+   "offset_mw_l": -2.257,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "422905_472900_0_T1",
+   "name_b": "Cranwell 33kV 4L3 - Cranwell 11kV 3T0",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.001,
+   "offset_mw_l": 0.001,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "422907_422908_0_L1",
+   "name_b": "Pole 91ZF1F89 - Cranwell 33kV 4L3",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.558,
+   "offset_mw_l": 0.558,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "423500_423502_0_L1",
+   "name_b": "RAF Cranwell High G Fac'ty 33kV Tee - RAF Cranwell High G Fac'ty 33kV #1L",
+   "cls_b": "input",
+   "offset_mw_b": 0.0,
+   "offset_mw_l": 0.0,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "423504_427912_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Breech joint north of Manor Road",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.559,
+   "offset_mw_l": 0.559,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "424200_427914_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - White Cross La Sleaford 33kV #1L5",
+   "cls_b": "input",
+   "offset_mw_b": -0.0,
+   "offset_mw_l": -0.0,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "427903_493901_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Nth Rauceby Switching Stn 33kV #2L5",
+   "cls_b": "meshed",
+   "offset_mw_b": -1.888,
+   "offset_mw_l": -1.888,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "427904_476901_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #1L5",
+   "cls_b": "input",
+   "offset_mw_b": 0.0,
+   "offset_mw_l": 0.0,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "427907_468301_0_T1",
+   "name_b": "Sleaford 33kV #6L5 - Sleaford 11kV 1T0",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.0,
+   "offset_mw_l": -0.0,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "427908_440301_0_G1",
+   "name_b": "Sleaford 132kV 103 - Sleaford 33kV #6L5",
+   "cls_b": "backbone",
+   "offset_mw_b": 2.46,
+   "offset_mw_l": 2.46,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "427909_440304_0_G2",
+   "name_b": "Sleaford 132kV 203 - Sleaford 33kV #6L5",
+   "cls_b": "backbone",
+   "offset_mw_b": 2.461,
+   "offset_mw_l": 2.461,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "427913_473109_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Tattershall 33kV #8L5",
+   "cls_b": "meshed",
+   "offset_mw_b": -2.193,
+   "offset_mw_l": -2.193,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "427916_476902_0_L1",
+   "name_b": "Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #2L5",
+   "cls_b": "input",
+   "offset_mw_b": 0.0,
+   "offset_mw_l": 0.0,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "429600_429605_0_L1",
+   "name_b": "Grantham 132kV 303 - Grantham 132kV #110",
+   "cls_b": "backbone",
+   "offset_mw_b": -1.809,
+   "offset_mw_l": -1.809,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "429602_429606_0_L1",
+   "name_b": "Grantham 132kV 403 - Grantham 132kV #210",
+   "cls_b": "backbone",
+   "offset_mw_b": -1.764,
+   "offset_mw_l": -1.764,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "429603_433910_0_G1",
+   "name_b": "Grantham 132kV #110 - Grantham 33kV GT1",
+   "cls_b": "backbone",
+   "offset_mw_b": 1.809,
+   "offset_mw_l": 1.809,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "429604_433911_0_G2",
+   "name_b": "Grantham 132kV #210 - Grantham 33kV GT2",
+   "cls_b": "backbone",
+   "offset_mw_b": 1.764,
+   "offset_mw_l": 1.764,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "429607_443408_0_L1",
+   "name_b": "Grantham 132kV 303 - Grantham North 132kV 103",
+   "cls_b": "backbone",
+   "offset_mw_b": -0.008,
+   "offset_mw_l": -0.008,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "429609_443410_0_L1",
+   "name_b": "Grantham 132kV 403 - Grantham North 132kV 203",
+   "cls_b": "backbone",
+   "offset_mw_b": 0.007,
+   "offset_mw_l": 0.007,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "433903_433910_0_L1",
+   "name_b": "Grantham 33kV GT1 - Grantham 33kV #1L5",
+   "cls_b": "meshed",
+   "offset_mw_b": -1.806,
+   "offset_mw_l": -1.806,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "433905_461107_0_L1",
+   "name_b": "Grantham 33kV #1L5 - Tower 91ZB9G2",
+   "cls_b": "meshed",
+   "offset_mw_b": 0.001,
+   "offset_mw_l": 0.001,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "433906_461110_0_L1",
+   "name_b": "Grantham 33kV #1L5 - Tower 91ZB9F2",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.002,
+   "offset_mw_l": -0.002,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "433908_433911_0_L1",
+   "name_b": "Grantham 33kV GT2 - Grantham 33kV #1L5",
+   "cls_b": "meshed",
+   "offset_mw_b": -1.761,
+   "offset_mw_l": -1.761,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "443409_475600_0_G1",
+   "name_b": "Grantham North 132kV 103 - Grantham North 25kV 1T0",
+   "cls_b": "backbone",
+   "offset_mw_b": -0.008,
+   "offset_mw_l": -0.008,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "443411_475601_0_G2",
+   "name_b": "Grantham North 132kV 203 - Grantham North 25kV 1T0",
+   "cls_b": "backbone",
+   "offset_mw_b": 0.007,
+   "offset_mw_l": 0.007,
+   "ok_b": false,
+   "ok_l": false
+  },
+  {
+   "key": "462200_473107_0_T1",
+   "name_b": "Tattershall 33kV #8L5 - Tattershall 11kV 2T0",
+   "cls_b": "meshed",
+   "offset_mw_b": -0.012,
+   "offset_mw_l": -0.012,
+   "ok_b": true,
+   "ok_l": true
+  },
+  {
+   "key": "463005_473110_0_L1",
+   "name_b": "Tattershall 33kV #8L5 - Metheringham 33kV 2L3",
+   "cls_b": "radial",
+   "offset_mw_b": -0.035,
+   "offset_mw_l": -0.035,
+   "ok_b": true,
+   "ok_l": true
+  }
+ ]
+}

@@ -1,0 +1,212 @@
+{
+ "l0_rows": [
+  {
+   "Node 1": "BEVC3_3L4",
+   "Node 2": "BEVC3_#3L5",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "88ZXKA18",
+   "Node 2": "ZXKA18 A",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "CART3_1L4",
+   "Node 2": "CART3_#1L5",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "ZXKA19 A",
+   "Node 2": "88ZXKA19",
+   "Operating Voltage (kV)": 33,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAB1_705_A",
+   "Node 2": "STAB1_705",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAB1_RES1",
+   "Node 2": "STAB1_RES1W",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAB1_RES2W",
+   "Node 2": "STAB1_RES2",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAY1_2005",
+   "Node 2": "STAY1_2005_A",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAY1_MAIN1W",
+   "Node 2": "STAY1_MAIN1",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  },
+  {
+   "Node 1": "STAY1_MAIN2",
+   "Node 2": "STAY1_MAIN2W",
+   "Operating Voltage (kV)": 132,
+   "R1": "0",
+   "X1": "0.01",
+   "Winter": "0"
+  }
+ ],
+ "rules": {
+  "radial_rule": {
+   "built": {
+    "groups": 32,
+    "pass": 32,
+    "verdict": true,
+    "fail": []
+   },
+   "l0": {
+    "groups": 32,
+    "pass": 32,
+    "verdict": true,
+    "fail": []
+   }
+  },
+  "rule1": {
+   "built": {
+    "share_within": 1.0,
+    "verdict": true,
+    "abs_gap_p50": 0.062,
+    "abs_gap_p95": 0.192,
+    "abs_gap_max": 1.86,
+    "gap_median_signed": 0.061
+   },
+   "l0": {
+    "share_within": 1.0,
+    "verdict": true,
+    "abs_gap_p50": 0.062,
+    "abs_gap_p95": 0.192,
+    "abs_gap_max": 1.86,
+    "gap_median_signed": 0.061
+   }
+  },
+  "rule2": {
+   "built": {
+    "groups": 26,
+    "pass": 20,
+    "verdict": false
+   },
+   "l0": {
+    "groups": 25,
+    "pass": 21,
+    "verdict": false
+   }
+  },
+  "rule3": {
+   "built": {
+    "groups": 74,
+    "pass": 59,
+    "share": 0.7973,
+    "verdict": false
+   },
+   "l0": {
+    "groups": 73,
+    "pass": 58,
+    "share": 0.7945,
+    "verdict": false
+   }
+  },
+  "input_check": {
+   "built": {
+    "groups": 27,
+    "within_0.5+2%_every_half_hour": 27,
+    "fail": []
+   },
+   "l0": {
+    "groups": 27,
+    "within_0.5+2%_every_half_hour": 27,
+    "fail": []
+   }
+  }
+ },
+ "label_changes": [
+  {
+   "col": "300302_300303_0_L1",
+   "name": "Pole 88ZXKA18 - Pole 88ZXKA19",
+   "built": "meshed:pass",
+   "l0": "n/a",
+   "offset_built": -0.018,
+   "offset_l0": NaN
+  },
+  {
+   "col": "348709_490429_0_L1",
+   "name": "Staythorpe C 132kV 105 - Staythorpe B 132kV 405",
+   "built": "backbone:fail",
+   "l0": "backbone:pass",
+   "offset_built": -8.283,
+   "offset_l0": -1.234
+  },
+  {
+   "col": "348711_490431_0_L1",
+   "name": "Staythorpe C 132kV 2005 A - Staythorpe B 132kV 705 A",
+   "built": "backbone:fail",
+   "l0": "n/a",
+   "offset_built": 7.463,
+   "offset_l0": NaN
+  }
+ ],
+ "b_c_sharing": {
+  "built": {
+   "348709_490429_0_L1": {
+    "nged_mean": -8.81,
+    "engine_mean": -20.29
+   },
+   "348711_490431_0_L1": {
+    "nged_mean": -8.8,
+    "engine_mean": -3.81
+   },
+   "490309_490427_0_L1": {
+    "nged_mean": -4.43,
+    "engine_mean": -20.29
+   }
+  },
+  "l0": {
+   "348709_490429_0_L1": {
+    "nged_mean": -8.81,
+    "engine_mean": -24.09
+   },
+   "348711_490431_0_L1": {
+    "nged_mean": -8.8,
+    "engine_mean": -24.09
+   },
+   "490309_490427_0_L1": {
+    "nged_mean": -4.43,
+    "engine_mean": -24.09
+   }
+  }
+ }
+}

@@ -1,0 +1,437 @@
+{
+ "variant": "grantham",
+ "connections": [
+  {
+   "request_id": "ECR-5812F",
+   "bus_id": 11,
+   "technology": "solar",
+   "rating_mw": 240.0,
+   "import_mw": 240.0,
+   "control": null,
+   "year": 2027
+  }
+ ],
+ "in_service": [
+  "ECR-5812F"
+ ],
+ "voltage_control_at_unity": [],
+ "connection_output": {
+  "peak_mw": 240.0,
+  "min_mw": 0.0,
+  "energy_gwh": 309.9
+ },
+ "changed": [
+  {
+   "kind": "line",
+   "id": 2,
+   "name": "Bicker Fen 132kV 405 - Sleaford 132kV Tee 1",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 163.0,
+   "peak_at": "2024-08-11 14:00:00",
+   "h90": 688.5,
+   "h100": 568.5,
+   "plan_envelope_pct": 179.8,
+   "plan_breach_cases": "summer_min",
+   "peak_pct_main": 37.8,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 41.3,
+   "d_h100": 568.5
+  },
+  {
+   "kind": "line",
+   "id": 15,
+   "name": "Sleaford 132kV Tee 1 - Grantham 132kV 303",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 149.8,
+   "peak_at": "2024-06-29 14:00:00",
+   "h90": 662.5,
+   "h100": 527.0,
+   "plan_envelope_pct": 157.7,
+   "plan_breach_cases": "summer_min",
+   "peak_pct_main": 14.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 17.3,
+   "d_h100": 527.0
+  },
+  {
+   "kind": "trafo",
+   "id": 12,
+   "name": "Grantham 132kV #110 - Grantham 33kV GT1",
+   "label": "flow differs",
+   "peak_pct": 90.7,
+   "peak_at": "2024-03-06 13:30:00",
+   "h90": 0.5,
+   "h100": 0.0,
+   "plan_envelope_pct": 62.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 42.3,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 44.7,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 98,
+   "name": "Grange Fm Slr Kirkby on Bn 33kV Tee - Horncastle 33kV 1L3",
+   "label": "flow differs",
+   "peak_pct": 70.2,
+   "peak_at": "2024-05-13 10:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 16.7,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 62.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 15.8,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "trafo",
+   "id": 13,
+   "name": "Grantham 132kV #210 - Grantham 33kV GT2",
+   "label": "flow differs",
+   "peak_pct": 63.2,
+   "peak_at": "2024-05-12 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 75.0,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 41.4,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 43.6,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 37,
+   "name": "Grantham 33kV GT1 - Grantham 33kV #1L5",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 58.2,
+   "peak_at": "2024-03-06 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 41.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 30.3,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 27.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 3,
+   "name": "Bicker Fen 132kV 405 - Sleaford 132kV Tee 2",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 52.1,
+   "peak_at": "2024-05-19 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 63.8,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 37.6,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 41.1,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 89,
+   "name": "Cranwell 33kV 4L3 - Leadenham 33kV 2H3",
+   "label": "flow differs",
+   "peak_pct": 48.5,
+   "peak_at": "2024-08-11 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 39.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 69.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 61.3,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 95,
+   "name": "Pole 90ZTAD31 - Grange Fm Slr Kirkby on Bn 33kV Tee",
+   "label": "flow differs",
+   "peak_pct": 47.8,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.8,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 96,
+   "name": "Pole 90ZTAD30 - Pole 90ZTAD31",
+   "label": "flow differs",
+   "peak_pct": 47.8,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.7,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.1,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 126,
+   "name": "Woodhall Spa 33kV Tee - Pole 90ZTAD30",
+   "label": "flow differs",
+   "peak_pct": 47.8,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.7,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.1,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 38,
+   "name": "Grantham 33kV GT2 - Grantham 33kV #1L5",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 38.4,
+   "peak_at": "2024-06-02 12:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 48.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 29.6,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 26.6,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 9,
+   "name": "Grantham 132kV 303 - Grantham 132kV #110",
+   "label": "not compared (not in NGED's file)",
+   "peak_pct": 29.3,
+   "peak_at": "2024-03-06 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 20.1,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 13.8,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 13.0,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "trafo",
+   "id": 10,
+   "name": "Grantham North 132kV 103 - Grantham North 25kV 1T0",
+   "label": "not compared (railway input held at 0)",
+   "peak_pct": 27.9,
+   "peak_at": "2024-03-23 12:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 36.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 0.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 15.4,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "trafo",
+   "id": 11,
+   "name": "Grantham North 132kV 203 - Grantham North 25kV 1T0",
+   "label": "not compared (railway input held at 0)",
+   "peak_pct": 27.9,
+   "peak_at": "2024-03-23 12:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 21.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 0.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 15.5,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 17,
+   "name": "Sleaford 132kV Tee 2 - Grantham 132kV 403",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 26.6,
+   "peak_at": "2024-05-12 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 29.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 13.8,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 16.9,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 94,
+   "name": "Great Hale 33kV #1H0 - Billingborough 33kV 2L3",
+   "label": "flow differs",
+   "peak_pct": 25.2,
+   "peak_at": "2024-07-05 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.8,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 36.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 38.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 10,
+   "name": "Grantham 132kV 403 - Grantham 132kV #210",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 20.4,
+   "peak_at": "2024-05-12 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 23.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 13.5,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 12.7,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 7,
+   "name": "Grantham 132kV 303 - Grantham North 132kV 103",
+   "label": "not compared (railway input held at 0)",
+   "peak_pct": 5.7,
+   "peak_at": "2024-08-13 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 2.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 0.2,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 5.9,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 8,
+   "name": "Grantham 132kV 403 - Grantham North 132kV 203",
+   "label": "not compared (railway input held at 0)",
+   "peak_pct": 5.7,
+   "peak_at": "2024-07-08 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 4.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 0.2,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 2.9,
+   "d_h100": 0.0
+  }
+ ],
+ "worst": {
+  "element": "line 2 Bicker Fen 132kV 405 - Sleaford 132kV Tee 1",
+  "hours_above_rating": 568.5,
+  "mvah_above_rating": 20464.0,
+  "largest_mva_above": 80.6,
+  "rating_mva_winter_summer": [
+   136.9,
+   127.8
+  ]
+ },
+ "voltage": {
+  "min_pu": [
+   0.9368,
+   0.9368
+  ],
+  "max_pu": [
+   1.0408,
+   1.064
+  ],
+  "changed": {}
+ },
+ "firm_changed": {
+  "New Beacon Road": [
+   1544.0,
+   1523.5
+  ],
+  "Alford": [
+   1183.5,
+   1185.5
+  ]
+ },
+ "gsp": {
+  "export_max_mw": [
+   243.7,
+   471.2
+  ],
+  "export_max_at": [
+   "2024-08-23 14:30:00",
+   "2024-08-23 13:00:00"
+  ],
+  "import_max_mw": [
+   172.3,
+   172.3
+  ],
+  "hours_above_export_limit": [
+   0.0,
+   0.0
+  ]
+ },
+ "planning_cases_with_branch": {
+  "breaches": 3,
+  "list": [
+   [
+    "line",
+    2,
+    "summer_min",
+    179.8
+   ],
+   [
+    "line",
+    15,
+    "summer_min",
+    157.7
+   ],
+   [
+    "gsp",
+    null,
+    "summer_min",
+    567.8
+   ]
+  ]
+ }
+}

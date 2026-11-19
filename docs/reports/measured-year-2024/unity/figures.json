@@ -1,0 +1,2131 @@
+{
+ "run": "unity",
+ "reactive": "unity",
+ "rows": [
+  0,
+  17568
+ ],
+ "seconds": 533.3,
+ "converged": 17568,
+ "half_hours": 17568,
+ "inputs_per_half_hour": 48,
+ "notes": {
+  "clusters": 126,
+  "multi_bus_clusters": {
+   "2": [
+    2,
+    7
+   ],
+   "15": [
+    5,
+    15
+   ],
+   "13": [
+    11,
+    13
+   ],
+   "30": [
+    29,
+    30
+   ],
+   "52": [
+    51,
+    52
+   ],
+   "53": [
+    53,
+    54
+   ],
+   "57": [
+    57,
+    89
+   ],
+   "90": [
+    90,
+    91,
+    92
+   ],
+   "125": [
+    122,
+    123,
+    124,
+    125
+   ],
+   "138": [
+    137,
+    138
+   ]
+  },
+  "metered": [
+   33,
+   37,
+   43,
+   48,
+   50,
+   55,
+   64,
+   70,
+   75,
+   77,
+   88,
+   90,
+   94,
+   96,
+   102,
+   110,
+   116,
+   127,
+   132,
+   134,
+   137
+  ],
+  "derived": [
+   15,
+   8,
+   17,
+   18,
+   38,
+   40,
+   41,
+   44,
+   45,
+   65,
+   71,
+   72,
+   79,
+   80,
+   82,
+   84,
+   85,
+   103,
+   105,
+   107,
+   111,
+   112,
+   114,
+   119,
+   120,
+   129,
+   135
+  ],
+  "unplaced": {
+   "1": 3.65,
+   "2": 3.44,
+   "3": 1.16,
+   "4": 1.15,
+   "6": 0.18,
+   "9": 0.01,
+   "13": 0.01,
+   "12": 0.01,
+   "14": 0.01,
+   "16": 1.02,
+   "19": 0.32,
+   "20": 0.32,
+   "22": 0.01,
+   "23": 0.07,
+   "24": 0.01,
+   "25": 0.02,
+   "26": 0.01,
+   "27": 0.01,
+   "28": 0.14,
+   "30": 0.14,
+   "32": 0.06,
+   "34": 0.01,
+   "35": 0.08,
+   "36": 0.01,
+   "39": 0.3,
+   "42": 0.01,
+   "46": 0.01,
+   "47": 0.01,
+   "52": 0.01,
+   "53": 0.04,
+   "56": 0.01,
+   "58": 0.01,
+   "59": 0.02,
+   "60": 0.02,
+   "61": 0.08,
+   "62": 0.13,
+   "63": 0.01,
+   "66": 0.06,
+   "67": 0.02,
+   "68": 0.11,
+   "69": 0.02,
+   "73": 0.1,
+   "74": 0.57,
+   "76": 0.09,
+   "78": 0.02,
+   "83": 0.02,
+   "86": 0.06,
+   "87": 0.24,
+   "93": 0.01,
+   "95": 0.01,
+   "97": 0.01,
+   "98": 0.01,
+   "100": 0.01,
+   "101": 0.03,
+   "104": 0.01,
+   "106": 0.01,
+   "108": 0.01,
+   "109": 0.01,
+   "113": 0.1,
+   "115": 0.04,
+   "117": 0.41,
+   "118": 0.04,
+   "121": 0.01,
+   "125": 0.02,
+   "126": 0.01,
+   "128": 0.56,
+   "130": 0.21,
+   "131": 0.05,
+   "133": 0.12,
+   "136": 0.01
+  },
+  "held_at_zero": {
+   "10": 7.36
+  },
+  "group_totals": [
+   "MW_433900",
+   "MW_433901",
+   "MW_420602",
+   "MW_420604",
+   "MW_427900",
+   "MW_427901"
+  ],
+  "reactive": {
+   "mode": "unity",
+   "implausible": {
+    "33": 1,
+    "88": 590
+   },
+   "suspect": {
+    "88": 242,
+    "90": 7
+   },
+   "guarded": [],
+   "no_capacity": [
+    15,
+    8,
+    17,
+    18,
+    38,
+    44,
+    45,
+    65,
+    71,
+    72,
+    79,
+    80,
+    82,
+    103,
+    107,
+    111,
+    112,
+    114,
+    119,
+    120,
+    129,
+    135
+   ]
+  }
+ },
+ "reactive_unreliable": {
+  "rule": "screen flags on more than 1% of the year's half-hours",
+  "nodes": {
+   "33": "1 of 17568",
+   "88": "832 of 17568",
+   "90": "7 of 17568"
+  },
+  "elements": [
+   "trafo 33",
+   "trafo 34"
+  ],
+  "buses": [
+   88
+  ]
+ },
+ "groups": {
+  "meshed": 88,
+  "radial": 20,
+  "backbone": 18,
+  "input": 14,
+  "excluded": 6
+ },
+ "rule2": {
+  "groups": 18,
+  "pass": 12,
+  "verdict": false
+ },
+ "rule3": {
+  "groups": 88,
+  "pass": 61,
+  "share": 0.6931818181818182,
+  "verdict": false
+ },
+ "rule4": {
+  "groups": 20,
+  "pass": 20,
+  "verdict": true,
+  "worst_p95_mw": 0.08636568784713743
+ },
+ "input_feeders_check": {
+  "groups": 14,
+  "within_0.5+2%_every_half_hour": 14
+ },
+ "unsolved": [],
+ "rule1": {
+  "share_within": 0.5935792349726776,
+  "verdict": false,
+  "abs_gap_p50": 1.8638702488431989,
+  "abs_gap_p95": 3.5950463831321464,
+  "abs_gap_max": 9.746017090942303
+ },
+ "decomposition": {
+  "engine_losses": {
+   "0.05": 0.674,
+   "0.5": 1.316,
+   "0.95": 3.516,
+   "mean": 1.647
+  },
+  "unplaced": {
+   "0.05": -1.62,
+   "0.5": 0.68,
+   "0.95": 6.62,
+   "mean": 1.605
+  },
+  "held_at_zero": {
+   "0.05": 0.0,
+   "0.5": 0.0,
+   "0.95": 0.0,
+   "mean": 0.103
+  },
+  "nged_losses_not_at_a_node": {
+   "0.05": -0.13,
+   "0.5": -0.07,
+   "0.95": -0.02,
+   "mean": -0.07
+  },
+  "residual": {
+   "0.05": 0.0,
+   "0.5": 0.0,
+   "0.95": 0.0,
+   "mean": -0.0
+  },
+  "residual_abs_p95": 0.0,
+  "by_season": {
+   "intermediate_cool": {
+    "gap_abs_p50": 2.123,
+    "gap_abs_p95": 3.638,
+    "engine_losses_p50": 1.58,
+    "unplaced_p50": 1.415,
+    "rule1_share": 0.544
+   },
+   "intermediate_warm": {
+    "gap_abs_p50": 1.595,
+    "gap_abs_p95": 3.435,
+    "engine_losses_p50": 1.086,
+    "unplaced_p50": 0.15,
+    "rule1_share": 0.675
+   },
+   "summer": {
+    "gap_abs_p50": 1.631,
+    "gap_abs_p95": 3.775,
+    "engine_losses_p50": 1.002,
+    "unplaced_p50": -0.13,
+    "rule1_share": 0.651
+   },
+   "winter": {
+    "gap_abs_p50": 2.215,
+    "gap_abs_p95": 3.605,
+    "engine_losses_p50": 2.033,
+    "unplaced_p50": 2.88,
+    "rule1_share": 0.503
+   }
+  }
+ },
+ "tee_tests": [
+  {
+   "cluster": 1,
+   "bus": "Boston 132kV 603",
+   "unplaced_p50": 0.36,
+   "unplaced_max": 3.65,
+   "corr_with_flow2_of_branches_ending_here": 0.911,
+   "corr_with_flow2_of_branches_starting_here": 0.911,
+   "fitted_k_ending": 0.0006477144996470278,
+   "engine_R_over_V2_ending": 0.000154
+  },
+  {
+   "cluster": 2,
+   "bus": "Boston 132kV 503",
+   "unplaced_p50": 0.35,
+   "unplaced_max": 3.44,
+   "corr_with_flow2_of_branches_ending_here": 0.911,
+   "corr_with_flow2_of_branches_starting_here": 0.911,
+   "fitted_k_ending": 0.0006334463898991419,
+   "engine_R_over_V2_ending": 0.000112
+  },
+  {
+   "cluster": 3,
+   "bus": "Sleaford 132kV Tee 1",
+   "unplaced_p50": 0.6,
+   "unplaced_max": 1.16,
+   "corr_with_flow2_of_branches_ending_here": 0.691,
+   "corr_with_flow2_of_branches_starting_here": 0.553,
+   "fitted_k_ending": 0.009503883952653495,
+   "engine_R_over_V2_ending": 0.000138
+  },
+  {
+   "cluster": 4,
+   "bus": "Sleaford 132kV Tee 2",
+   "unplaced_p50": 0.6,
+   "unplaced_max": 1.15,
+   "corr_with_flow2_of_branches_ending_here": 0.695,
+   "corr_with_flow2_of_branches_starting_here": 0.55,
+   "fitted_k_ending": 0.00999215833042997,
+   "engine_R_over_V2_ending": 0.000138
+  },
+  {
+   "cluster": 16,
+   "bus": "Skegness 132kV 103",
+   "unplaced_p50": 0.1,
+   "unplaced_max": 1.02,
+   "corr_with_flow2_of_branches_ending_here": 0.911,
+   "corr_with_flow2_of_branches_starting_here": 0.944,
+   "fitted_k_ending": 0.00018537930277118895,
+   "engine_R_over_V2_ending": 4.2e-05
+  },
+  {
+   "cluster": 74,
+   "bus": "Spilsby 33kV 6L5",
+   "unplaced_p50": -0.28,
+   "unplaced_max": 0.57,
+   "corr_with_flow2_of_branches_ending_here": -0.771,
+   "corr_with_flow2_of_branches_starting_here": -0.832,
+   "fitted_k_ending": -0.006003079286816624,
+   "engine_R_over_V2_ending": 0.000573
+  },
+  {
+   "cluster": 128,
+   "bus": "Tattershall 33kV #8L5",
+   "unplaced_p50": -0.08,
+   "unplaced_max": 0.56,
+   "corr_with_flow2_of_branches_ending_here": 0.147,
+   "corr_with_flow2_of_branches_starting_here": 0.13,
+   "fitted_k_ending": -0.0005434499054547669,
+   "engine_R_over_V2_ending": 0.001152
+  }
+ ],
+ "unplaced_per_bus_year_mwh": {
+  "unplaced@1": 6607.9,
+  "unplaced@2": 6376.8,
+  "unplaced@3": 4273.0,
+  "unplaced@4": 4317.7,
+  "unplaced@6": 331.9,
+  "unplaced@9": 0.3,
+  "held@10": 907.9,
+  "unplaced@13": -12.4,
+  "unplaced@12": 0.1,
+  "unplaced@14": -25.5,
+  "unplaced@16": 1829.6,
+  "unplaced@19": -881.4,
+  "unplaced@20": -881.4,
+  "unplaced@22": -2.3,
+  "unplaced@23": -203.6,
+  "unplaced@24": 9.2,
+  "unplaced@25": -14.2,
+  "unplaced@26": 5.5,
+  "unplaced@27": -5.5,
+  "unplaced@28": 613.8,
+  "unplaced@30": -593.3,
+  "unplaced@32": 106.7,
+  "unplaced@34": -33.4,
+  "unplaced@35": -237.4,
+  "unplaced@36": -10.6,
+  "unplaced@39": -437.5,
+  "unplaced@42": -20.6,
+  "unplaced@46": 9.7,
+  "unplaced@47": -17.5,
+  "unplaced@52": -0.9,
+  "unplaced@53": -136.2,
+  "unplaced@56": 26.0,
+  "unplaced@58": -15.8,
+  "unplaced@59": -4.2,
+  "unplaced@60": -50.6,
+  "unplaced@61": -275.3,
+  "unplaced@62": -534.0,
+  "unplaced@63": 36.2,
+  "unplaced@66": 65.6,
+  "unplaced@67": 0.3,
+  "unplaced@68": -139.1,
+  "unplaced@69": -58.7,
+  "unplaced@73": 407.8,
+  "unplaced@74": -2129.4,
+  "unplaced@76": -372.9,
+  "unplaced@78": -36.6,
+  "unplaced@83": -94.0,
+  "unplaced@86": -155.5,
+  "unplaced@87": -1195.0,
+  "unplaced@93": -18.5,
+  "unplaced@95": 13.0,
+  "unplaced@97": -11.7,
+  "unplaced@98": 4.6,
+  "unplaced@100": -11.0,
+  "unplaced@101": 98.6,
+  "unplaced@104": 0.5,
+  "unplaced@106": 6.0,
+  "unplaced@108": -12.6,
+  "unplaced@109": 6.1,
+  "unplaced@113": -300.8,
+  "unplaced@115": 205.6,
+  "unplaced@117": 38.9,
+  "unplaced@118": 112.1,
+  "unplaced@121": 9.6,
+  "unplaced@125": 38.8,
+  "unplaced@126": -22.3,
+  "unplaced@128": -1005.6,
+  "unplaced@130": -989.7,
+  "unplaced@131": -93.8,
+  "unplaced@133": -446.5,
+  "unplaced@136": 36.8
+ },
+ "closure_context": {
+  "gap_share_of_gross_p50_pct": 0.96,
+  "gap_share_of_gross_p95_pct": 2.62,
+  "smallest_backbone_circuit_summer_mva": 89.2,
+  "gap_p95_pct_of_smallest_backbone_rating": 4.03
+ },
+ "flags": {
+  "half_hours_flagged_any": 12890,
+  "by_group": {
+   "ANY": 0,
+   "Grantham": 0,
+   "Sleaford": 5573,
+   "Skegness": 7317
+  },
+  "per_node": {
+   "MW_42161": 30,
+   "MW_43500": 5517,
+   "MW_43571": 95,
+   "MW_46280": 7317,
+   "MW_47530": 22
+  }
+ },
+ "utilisation": {
+  "elements": 172,
+  "labels": {
+   "flow agrees with NGED's model": 103,
+   "flow differs": 33,
+   "input: carries NGED's own flow by construction": 16,
+   "not compared (not in NGED's file)": 14,
+   "not compared (railway input held at 0)": 4,
+   "reactive input unreliable": 2
+  },
+  "any_over_100": 0,
+  "any_over_100_summer_rating": 0,
+  "top10": [
+   {
+    "kind": "line",
+    "id": 13,
+    "name": "Skegness 132kV 103 - Middlemarsh 132kV 103",
+    "label": "input: carries NGED's own flow by construction",
+    "peak_pct": 93.1,
+    "peak_at": "2024-03-01 15:30:00",
+    "h80": 820.0,
+    "h90": 123.5,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 93.2,
+    "plan_winter_peak_pct": 3.2,
+    "plan_summer_min_pct": 92.9
+   },
+   {
+    "kind": "line",
+    "id": 14,
+    "name": "Skegness 132kV 203 - Middlemarsh 132kV 203",
+    "label": "input: carries NGED's own flow by construction",
+    "peak_pct": 93.1,
+    "peak_at": "2024-03-01 15:30:00",
+    "h80": 815.0,
+    "h90": 139.5,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 93.2,
+    "plan_winter_peak_pct": 3.2,
+    "plan_summer_min_pct": 92.9
+   },
+   {
+    "kind": "trafo",
+    "id": 43,
+    "name": "Wrangle 33kV 2H3 - Wrangle 11kV #3T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 84.5,
+    "peak_at": "2024-01-25 23:00:00",
+    "h80": 0.5,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 84.5,
+    "plan_winter_peak_pct": 32.5,
+    "plan_summer_min_pct": 20.7
+   },
+   {
+    "kind": "line",
+    "id": 112,
+    "name": "Sleaford 33kV #6L5 - White Cross La Sleaford 33kV #1L5",
+    "label": "input: carries NGED's own flow by construction",
+    "peak_pct": 84.3,
+    "peak_at": "2024-04-26 11:30:00",
+    "h80": 231.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 84.3,
+    "plan_winter_peak_pct": 1.0,
+    "plan_summer_min_pct": 1.1
+   },
+   {
+    "kind": "line",
+    "id": 117,
+    "name": "Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #1L5",
+    "label": "input: carries NGED's own flow by construction",
+    "peak_pct": 77.0,
+    "peak_at": "2024-08-13 13:00:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 77.0,
+    "plan_winter_peak_pct": 1.5,
+    "plan_summer_min_pct": 1.6
+   },
+   {
+    "kind": "line",
+    "id": 113,
+    "name": "Sleaford 33kV #6L5 - Gorse Lane Solar 33kV #2L5",
+    "label": "input: carries NGED's own flow by construction",
+    "peak_pct": 77.0,
+    "peak_at": "2024-08-13 13:00:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 77.0,
+    "plan_winter_peak_pct": 1.5,
+    "plan_summer_min_pct": 1.6
+   },
+   {
+    "kind": "line",
+    "id": 63,
+    "name": "Horncastle 33kV 1L3 - Spilsby 33kV 6L5",
+    "label": "flow differs",
+    "peak_pct": 75.0,
+    "peak_at": "2024-12-17 16:30:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 83.6,
+    "plan_winter_peak_pct": 46.4,
+    "plan_summer_min_pct": 27.5
+   },
+   {
+    "kind": "trafo",
+    "id": 26,
+    "name": "Skegness 132kV 103 - Skegness 33kV GT1",
+    "label": "flow differs",
+    "peak_pct": 73.7,
+    "peak_at": "2024-01-19 18:00:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 73.7,
+    "plan_winter_peak_pct": 58.3,
+    "plan_summer_min_pct": 31.9
+   },
+   {
+    "kind": "trafo",
+    "id": 27,
+    "name": "Skegness 132kV 203 - Skegness 33kV GT2",
+    "label": "flow differs",
+    "peak_pct": 73.5,
+    "peak_at": "2024-01-19 18:00:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 73.5,
+    "plan_winter_peak_pct": 58.5,
+    "plan_summer_min_pct": 32.2
+   },
+   {
+    "kind": "trafo",
+    "id": 14,
+    "name": "Horncastle 33kV 1L3 - Horncastle 11kV 1T0",
+    "label": "flow agrees with NGED's model",
+    "peak_pct": 71.4,
+    "peak_at": "2024-12-17 13:30:00",
+    "h80": 0.0,
+    "h90": 0.0,
+    "h100": 0.0,
+    "peak_pct_summer_rating": 71.4,
+    "plan_winter_peak_pct": 41.0,
+    "plan_summer_min_pct": 19.2
+   }
+  ]
+ },
+ "duration_curves_pct_at_0_5_10_100pct_of_year": {
+  "line 13": [
+   93.1,
+   84.8,
+   79.6,
+   75.4,
+   68.2,
+   57.3,
+   47.1,
+   39.8,
+   34.0,
+   28.4,
+   23.7,
+   19.5,
+   16.1,
+   13.1,
+   10.2,
+   7.8,
+   5.9,
+   4.6,
+   4.0,
+   3.9,
+   3.4
+  ],
+  "line 14": [
+   93.1,
+   84.8,
+   79.6,
+   75.3,
+   68.2,
+   57.3,
+   47.2,
+   39.9,
+   34.0,
+   28.5,
+   23.7,
+   19.6,
+   16.1,
+   13.1,
+   10.2,
+   7.8,
+   5.9,
+   4.6,
+   4.0,
+   3.9,
+   3.4
+  ],
+  "trafo 43": [
+   84.5,
+   50.6,
+   47.3,
+   44.9,
+   42.8,
+   41.1,
+   39.3,
+   37.5,
+   35.7,
+   33.7,
+   30.9,
+   23.8,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0
+  ],
+  "line 112": [
+   84.3,
+   71.9,
+   56.3,
+   42.8,
+   31.0,
+   22.0,
+   14.3,
+   8.7,
+   5.1,
+   2.4,
+   1.2,
+   1.2,
+   1.2,
+   1.2,
+   1.2,
+   1.2,
+   1.2,
+   1.1,
+   1.1,
+   1.1,
+   1.1
+  ],
+  "line 117": [
+   77.0,
+   54.3,
+   39.7,
+   29.5,
+   21.2,
+   14.7,
+   9.8,
+   6.0,
+   3.7,
+   2.0,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.5,
+   1.5,
+   1.5,
+   1.5
+  ],
+  "line 113": [
+   77.0,
+   54.3,
+   39.8,
+   29.5,
+   21.2,
+   14.7,
+   9.8,
+   6.0,
+   3.7,
+   2.0,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.6,
+   1.5,
+   1.5,
+   1.5,
+   1.5
+  ],
+  "line 63": [
+   75.0,
+   58.2,
+   54.6,
+   51.5,
+   48.6,
+   46.1,
+   43.9,
+   41.9,
+   40.2,
+   38.6,
+   37.1,
+   35.7,
+   34.3,
+   33.0,
+   31.7,
+   30.1,
+   28.1,
+   24.4,
+   18.1,
+   10.5,
+   0.7
+  ],
+  "trafo 26": [
+   73.7,
+   56.6,
+   52.5,
+   49.5,
+   46.9,
+   44.9,
+   43.3,
+   41.8,
+   40.3,
+   38.9,
+   37.5,
+   36.1,
+   34.4,
+   32.8,
+   31.2,
+   29.7,
+   28.2,
+   26.6,
+   23.0,
+   14.7,
+   0.1
+  ],
+  "trafo 27": [
+   73.5,
+   56.6,
+   52.6,
+   49.8,
+   47.3,
+   45.3,
+   43.6,
+   42.0,
+   40.5,
+   39.0,
+   37.6,
+   36.2,
+   34.7,
+   33.1,
+   31.5,
+   30.1,
+   28.5,
+   26.8,
+   23.4,
+   15.1,
+   0.1
+  ],
+  "trafo 14": [
+   71.4,
+   42.7,
+   39.9,
+   38.1,
+   36.8,
+   35.7,
+   34.7,
+   33.8,
+   33.0,
+   32.3,
+   31.7,
+   31.0,
+   30.5,
+   29.9,
+   29.3,
+   28.6,
+   27.9,
+   27.2,
+   26.2,
+   24.1,
+   1.3
+  ]
+ },
+ "voltage_unreliable_buses": {
+  "88": [
+   1.01,
+   1.03
+  ]
+ },
+ "voltage": {
+  "buses_ever_outside": 0,
+  "hours_outside_by_bus": {},
+  "min_pu": 0.9637,
+  "min_at": [
+   "Horncastle 33kV 1L3",
+   "2024-12-23 17:30:00"
+  ],
+  "max_pu": 1.046,
+  "max_at": [
+   "Middlemarsh 132kV 103",
+   "2024-08-23 14:00:00"
+  ]
+ },
+ "gsp": {
+  "engine_export_max_mw": 215.9,
+  "engine_import_max_mw": 136.9,
+  "nged_four_circuits_export_max": 209.0,
+  "nged_four_circuits_import_max": 131.6,
+  "export_limit_mw": 527.0
+ },
+ "firm_capacity_context": [
+  {
+   "primary": "New Beacon Road",
+   "firm_mva": 14.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 14.27,
+   "at": "2024-01-15 18:00:00",
+   "peak_share_of_firm_pct": 101.9,
+   "peak_share_of_installed_pct": 59.5,
+   "p_mw_hv_at_peak": 14.46,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "22": 7.31,
+    "23": 6.96
+   },
+   "hours_above_firm": 5.0,
+   "transformers": [
+    22,
+    23
+   ],
+   "node_input_at_peak": {
+    "50": [
+     14.4,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "461102_443200_0_T1": 7.38,
+    "461104_443201_0_T2": 7.04
+   },
+   "engine_p_hv_mw_at_peak": {
+    "22": 7.41,
+    "23": 7.05
+   }
+  },
+  {
+   "primary": "Alford",
+   "firm_mva": 6.0,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 6.09,
+   "at": "2024-11-20 17:00:00",
+   "peak_share_of_firm_pct": 101.6,
+   "peak_share_of_installed_pct": 50.8,
+   "p_mw_hv_at_peak": 6.11,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "0": 3.87,
+    "1": 2.23
+   },
+   "hours_above_firm": 0.5,
+   "transformers": [
+    0,
+    1
+   ],
+   "node_input_at_peak": {
+    "64": [
+     6.08,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "469900_470506_0_T2": -2.67,
+    "469901_470504_0_T1": -3.41
+   },
+   "engine_p_hv_mw_at_peak": {
+    "0": 3.88,
+    "1": 2.23
+   }
+  },
+  {
+   "primary": "Leadenham (T1)",
+   "firm_mva": 9.5,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 8.07,
+   "at": "2024-03-20 08:00:00",
+   "peak_share_of_firm_pct": 84.9,
+   "peak_share_of_installed_pct": 67.2,
+   "p_mw_hv_at_peak": 8.15,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "18": 4.09,
+    "19": 3.97
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    18,
+    19
+   ],
+   "node_input_at_peak": {
+    "43": [
+     8.13,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "471403_421601_0_T1": 4.84,
+    "471405_421600_0_T2": 3.28
+   },
+   "engine_p_hv_mw_at_peak": {
+    "18": 4.14,
+    "19": 4.02
+   }
+  },
+  {
+   "primary": "Leadenham (T2)",
+   "firm_mva": 9.5,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 8.07,
+   "at": "2024-03-20 08:00:00",
+   "peak_share_of_firm_pct": 84.9,
+   "peak_share_of_installed_pct": 67.2,
+   "p_mw_hv_at_peak": 8.15,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "18": 4.09,
+    "19": 3.97
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    18,
+    19
+   ],
+   "node_input_at_peak": {
+    "43": [
+     8.13,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "471403_421601_0_T1": 4.84,
+    "471405_421600_0_T2": 3.28
+   },
+   "engine_p_hv_mw_at_peak": {
+    "18": 4.14,
+    "19": 4.02
+   }
+  },
+  {
+   "primary": "Tattershall",
+   "firm_mva": 17.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 11.65,
+   "at": "2024-11-20 18:00:00",
+   "peak_share_of_firm_pct": 68.6,
+   "peak_share_of_installed_pct": 48.6,
+   "p_mw_hv_at_peak": 11.64,
+   "q_mvar_hv_at_peak_magnitude": 0.68,
+   "per_transformer_mva_at_peak": {
+    "35": 5.82,
+    "36": 5.83
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    35,
+    36
+   ],
+   "node_input_at_peak": {
+    "134": [
+     11.6,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "462200_473107_0_T1": -7.22,
+    "462201_473108_0_T2": -4.38
+   },
+   "engine_p_hv_mw_at_peak": {
+    "35": 5.81,
+    "36": 5.82
+   }
+  },
+  {
+   "primary": "Ingoldmells",
+   "firm_mva": 19.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 11.91,
+   "at": "2024-03-31 22:30:00",
+   "peak_share_of_firm_pct": 62.7,
+   "peak_share_of_installed_pct": 49.6,
+   "p_mw_hv_at_peak": 12.03,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "16": 6.0,
+    "17": 5.91
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    16,
+    17
+   ],
+   "node_input_at_peak": {
+    "77": [
+     12.0,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "470905_439400_0_T2": 5.92,
+    "470906_439401_0_T1": 6.08
+   },
+   "engine_p_hv_mw_at_peak": {
+    "16": 6.06,
+    "17": 5.97
+   }
+  },
+  {
+   "primary": "Chapel St. Leonards",
+   "firm_mva": 9.5,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 5.77,
+   "at": "2024-03-29 21:30:00",
+   "peak_share_of_firm_pct": 60.7,
+   "peak_share_of_installed_pct": 48.1,
+   "p_mw_hv_at_peak": 5.77,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "4": 2.87,
+    "5": 2.9
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    4,
+    5
+   ],
+   "node_input_at_peak": {
+    "70": [
+     5.76,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "440605_476700_0_T1": 2.54,
+    "440606_476701_0_T2": 3.23
+   },
+   "engine_p_hv_mw_at_peak": {
+    "4": 2.88,
+    "5": 2.9
+   }
+  },
+  {
+   "primary": "Sleaford 11",
+   "firm_mva": 23.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 13.81,
+   "at": "2024-01-18 18:00:00",
+   "peak_share_of_firm_pct": 60.0,
+   "peak_share_of_installed_pct": 57.5,
+   "p_mw_hv_at_peak": 14.03,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "31": 6.91,
+    "32": 6.89
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    31,
+    32
+   ],
+   "node_input_at_peak": {
+    "132": [
+     13.98,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "468300_427910_0_T2": -6.98,
+    "468301_427907_0_T1": -7.0
+   },
+   "engine_p_hv_mw_at_peak": {
+    "31": 7.03,
+    "32": 7.01
+   }
+  },
+  {
+   "primary": "Billingborough (T1)",
+   "firm_mva": 9.5,
+   "installed_mva": 13.5,
+   "peak_mva_2024": 5.6,
+   "at": "2024-02-08 18:00:00",
+   "peak_share_of_firm_pct": 59.0,
+   "peak_share_of_installed_pct": 41.5,
+   "p_mw_hv_at_peak": 5.64,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "2": 2.92,
+    "3": 2.68
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    2,
+    3
+   ],
+   "node_input_at_peak": {
+    "33": [
+     5.62,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "436104_475300_0_T1": 1.62,
+    "436106_475301_0_T2": 4.0
+   },
+   "engine_p_hv_mw_at_peak": {
+    "2": 2.94,
+    "3": 2.7
+   }
+  },
+  {
+   "primary": "Trusthorpe",
+   "firm_mva": 19.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 9.65,
+   "at": "2024-02-01 10:00:00",
+   "peak_share_of_firm_pct": 50.8,
+   "peak_share_of_installed_pct": 40.2,
+   "p_mw_hv_at_peak": 9.58,
+   "q_mvar_hv_at_peak_magnitude": 1.08,
+   "per_transformer_mva_at_peak": {
+    "37": 4.82,
+    "38": 4.82
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    37,
+    38
+   ],
+   "node_input_at_peak": {
+    "90": [
+     9.56,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "440402_428806_0_T1": -4.78,
+    "440403_428804_0_T2": -4.78
+   },
+   "engine_p_hv_mw_at_peak": {
+    "37": 4.79,
+    "38": 4.79
+   }
+  },
+  {
+   "primary": "Ruskington",
+   "firm_mva": 19.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 9.64,
+   "at": "2024-01-09 17:30:00",
+   "peak_share_of_firm_pct": 50.7,
+   "peak_share_of_installed_pct": 40.2,
+   "p_mw_hv_at_peak": 9.76,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "24": 4.68,
+    "25": 4.96
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    24,
+    25
+   ],
+   "node_input_at_peak": {
+    "127": [
+     9.74,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "427400_424702_0_T1": -4.97,
+    "427401_424703_0_T2": -4.77
+   },
+   "engine_p_hv_mw_at_peak": {
+    "24": 4.74,
+    "25": 5.02
+   }
+  },
+  {
+   "primary": "Warth Lane",
+   "firm_mva": 38.0,
+   "installed_mva": 36.0,
+   "peak_mva_2024": 18.67,
+   "at": "2024-11-21 17:00:00",
+   "peak_share_of_firm_pct": 49.1,
+   "peak_share_of_installed_pct": 51.9,
+   "p_mw_hv_at_peak": 18.98,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "39": 6.84,
+    "40": 5.95,
+    "41": 5.89
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    39,
+    40,
+    41
+   ],
+   "node_input_at_peak": {
+    "94": [
+     18.92,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "467400_425302_0_T3": -5.96,
+    "467401_425306_0_T2": -5.99,
+    "467402_425304_0_T1": -6.83
+   },
+   "engine_p_hv_mw_at_peak": {
+    "39": 6.95,
+    "40": 6.05,
+    "41": 5.98
+   }
+  },
+  {
+   "primary": "Billingborough (T2)",
+   "firm_mva": 14.0,
+   "installed_mva": 13.5,
+   "peak_mva_2024": 5.6,
+   "at": "2024-02-08 18:00:00",
+   "peak_share_of_firm_pct": 40.0,
+   "peak_share_of_installed_pct": 41.5,
+   "p_mw_hv_at_peak": 5.64,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "2": 2.92,
+    "3": 2.68
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    2,
+    3
+   ],
+   "node_input_at_peak": {
+    "33": [
+     5.62,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "436104_475300_0_T1": 1.62,
+    "436106_475301_0_T2": 4.0
+   },
+   "engine_p_hv_mw_at_peak": {
+    "2": 2.94,
+    "3": 2.7
+   }
+  },
+  {
+   "primary": "Cranwell (RAF) (T1)",
+   "firm_mva": 18.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 6.24,
+   "at": "2024-01-16 11:00:00",
+   "peak_share_of_firm_pct": 34.6,
+   "peak_share_of_installed_pct": 26.0,
+   "p_mw_hv_at_peak": 6.37,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "6": 3.12,
+    "7": 3.12
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    6,
+    7
+   ],
+   "node_input_at_peak": {
+    "102": [
+     6.36,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "472900_422905_0_T1": -3.29,
+    "472901_422906_0_T2": -3.08
+   },
+   "engine_p_hv_mw_at_peak": {
+    "6": 3.18,
+    "7": 3.19
+   }
+  },
+  {
+   "primary": "Cranwell (RAF) (T2)",
+   "firm_mva": 23.0,
+   "installed_mva": 24.0,
+   "peak_mva_2024": 6.24,
+   "at": "2024-01-16 11:00:00",
+   "peak_share_of_firm_pct": 27.1,
+   "peak_share_of_installed_pct": 26.0,
+   "p_mw_hv_at_peak": 6.37,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "6": 3.12,
+    "7": 3.12
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    6,
+    7
+   ],
+   "node_input_at_peak": {
+    "102": [
+     6.36,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "472900_422905_0_T1": -3.29,
+    "472901_422906_0_T2": -3.08
+   },
+   "engine_p_hv_mw_at_peak": {
+    "6": 3.18,
+    "7": 3.19
+   }
+  },
+  {
+   "primary": "Great Hale",
+   "firm_mva": 14.0,
+   "installed_mva": 7.5,
+   "peak_mva_2024": 3.45,
+   "at": "2024-11-20 17:30:00",
+   "peak_share_of_firm_pct": 24.7,
+   "peak_share_of_installed_pct": 46.1,
+   "p_mw_hv_at_peak": 3.49,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "9": 3.45
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    9
+   ],
+   "node_input_at_peak": {
+    "110": [
+     3.48,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "435000_43790_0_T1": -3.48
+   },
+   "engine_p_hv_mw_at_peak": {
+    "9": 3.49
+   }
+  },
+  {
+   "primary": "Skillington",
+   "firm_mva": 14.0,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 3.21,
+   "at": "2024-01-16 17:00:00",
+   "peak_share_of_firm_pct": 22.9,
+   "peak_share_of_installed_pct": 26.7,
+   "p_mw_hv_at_peak": 3.2,
+   "q_mvar_hv_at_peak_magnitude": 0.27,
+   "per_transformer_mva_at_peak": {
+    "28": 3.21
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    28
+   ],
+   "node_input_at_peak": {
+    "55": [
+     3.19,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "426200_465604_0_T2": -3.19
+   },
+   "engine_p_hv_mw_at_peak": {
+    "28": 3.2
+   }
+  },
+  {
+   "primary": "Easton",
+   "firm_mva": 18.0,
+   "installed_mva": 12.0,
+   "peak_mva_2024": 3.98,
+   "at": "2024-01-06 18:30:00",
+   "peak_share_of_firm_pct": 22.1,
+   "peak_share_of_installed_pct": 33.1,
+   "p_mw_hv_at_peak": 4.01,
+   "q_mvar_hv_at_peak_magnitude": 0.0,
+   "per_transformer_mva_at_peak": {
+    "8": 3.98
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    8
+   ],
+   "node_input_at_peak": {
+    "37": [
+     4.0,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "436300_424304_0_T1": -4.0
+   },
+   "engine_p_hv_mw_at_peak": {
+    "8": 4.01
+   }
+  },
+  {
+   "primary": "Market Overton (T2)",
+   "firm_mva": 14.0,
+   "installed_mva": 7.5,
+   "peak_mva_2024": 2.07,
+   "at": "2024-11-21 18:00:00",
+   "peak_share_of_firm_pct": 14.8,
+   "peak_share_of_installed_pct": 27.6,
+   "p_mw_hv_at_peak": 2.05,
+   "q_mvar_hv_at_peak_magnitude": 0.23,
+   "per_transformer_mva_at_peak": {
+    "20": 2.07
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    20
+   ],
+   "node_input_at_peak": {
+    "48": [
+     2.05,
+     0.0
+    ]
+   },
+   "nged_mw_at_peak": {
+    "411304_414401_0_T2": 2.06
+   },
+   "engine_p_hv_mw_at_peak": {
+    "20": 2.05
+   }
+  },
+  {
+   "primary": "Grantham Feeder Station - BR",
+   "firm_mva": 24.0,
+   "installed_mva": 48.0,
+   "peak_mva_2024": 0.02,
+   "at": "2024-12-03 17:30:00",
+   "peak_share_of_firm_pct": 0.1,
+   "peak_share_of_installed_pct": 0.1,
+   "p_mw_hv_at_peak": 0.0,
+   "q_mvar_hv_at_peak_magnitude": 0.02,
+   "per_transformer_mva_at_peak": {
+    "10": 0.01,
+    "11": 0.01
+   },
+   "hours_above_firm": 0.0,
+   "transformers": [
+    10,
+    11
+   ],
+   "node_input_at_peak": {},
+   "nged_mw_at_peak": {
+    "475600_443409_0_G1": 0.0,
+    "475601_443411_0_G2": 0.0
+   },
+   "engine_p_hv_mw_at_peak": {
+    "10": -0.01,
+    "11": 0.01
+   }
+  }
+ ],
+ "model_findings_offsets": [
+  {
+   "cols": "493903_422903_0_L1",
+   "kind": "line",
+   "ids": [
+    100
+   ],
+   "cls": "meshed",
+   "within5": 0.42,
+   "same_dir": 0.999,
+   "offset_mw": -1.744,
+   "offset_p95_mw": 6.204,
+   "offset_pct": -4.549
+  },
+  {
+   "cols": "427903_493901_0_L1",
+   "kind": "line",
+   "ids": [
+    111
+   ],
+   "cls": "meshed",
+   "within5": 0.492,
+   "same_dir": 0.985,
+   "offset_mw": -1.695,
+   "offset_p95_mw": 5.972,
+   "offset_pct": -4.261
+  },
+  {
+   "cols": "471404_422904_0_L1",
+   "kind": "line",
+   "ids": [
+    89
+   ],
+   "cls": "meshed",
+   "within5": 0.085,
+   "same_dir": 0.64,
+   "offset_mw": 2.11,
+   "offset_p95_mw": 5.409,
+   "offset_pct": 12.014
+  },
+  {
+   "cols": "43960_471406_0_L1",
+   "kind": "line",
+   "ids": [
+    40
+   ],
+   "cls": "meshed",
+   "within5": 0.131,
+   "same_dir": 0.845,
+   "offset_mw": 2.13,
+   "offset_p95_mw": 5.34,
+   "offset_pct": 8.773
+  },
+  {
+   "cols": "433907_43960_0_L1",
+   "kind": "line",
+   "ids": [
+    36
+   ],
+   "cls": "meshed",
+   "within5": 0.117,
+   "same_dir": 0.814,
+   "offset_mw": 2.206,
+   "offset_p95_mw": 5.3,
+   "offset_pct": 9.248
+  },
+  {
+   "cols": "46460_475706_0_L1",
+   "kind": "line",
+   "ids": [
+    98
+   ],
+   "cls": "meshed",
+   "within5": 0.247,
+   "same_dir": 0.752,
+   "offset_mw": -1.52,
+   "offset_p95_mw": 4.503,
+   "offset_pct": -8.676
+  },
+  {
+   "cols": "427913_473109_0_L1",
+   "kind": "line",
+   "ids": [
+    110
+   ],
+   "cls": "meshed",
+   "within5": 0.24,
+   "same_dir": 1.0,
+   "offset_mw": -2.529,
+   "offset_p95_mw": 4.461,
+   "offset_pct": -6.46
+  },
+  {
+   "cols": "475708_46460_0_L1",
+   "kind": "line",
+   "ids": [
+    95
+   ],
+   "cls": "meshed",
+   "within5": 0.266,
+   "same_dir": 0.672,
+   "offset_mw": -1.481,
+   "offset_p95_mw": 4.452,
+   "offset_pct": -8.453
+  },
+  {
+   "cols": "494202_475707_0_L1",
+   "kind": "line",
+   "ids": [
+    96
+   ],
+   "cls": "meshed",
+   "within5": 0.266,
+   "same_dir": 0.672,
+   "offset_mw": 1.481,
+   "offset_p95_mw": 4.452,
+   "offset_pct": 8.459
+  },
+  {
+   "cols": "494201_42170_0_L1",
+   "kind": "line",
+   "ids": [
+    126
+   ],
+   "cls": "meshed",
+   "within5": 0.266,
+   "same_dir": 0.672,
+   "offset_mw": 1.48,
+   "offset_p95_mw": 4.451,
+   "offset_pct": 8.45
+  },
+  {
+   "cols": "428008_475703_0_L1",
+   "kind": "line",
+   "ids": [
+    63
+   ],
+   "cls": "meshed",
+   "within5": 0.282,
+   "same_dir": 0.996,
+   "offset_mw": 1.443,
+   "offset_p95_mw": 4.421,
+   "offset_pct": 8.267
+  },
+  {
+   "cols": "42170_473111_0_L1",
+   "kind": "line",
+   "ids": [
+    119
+   ],
+   "cls": "meshed",
+   "within5": 0.297,
+   "same_dir": 0.967,
+   "offset_mw": 1.404,
+   "offset_p95_mw": 4.374,
+   "offset_pct": 8.042
+  },
+  {
+   "cols": "427908_440301_0_G1",
+   "kind": "trafo",
+   "ids": [
+    29
+   ],
+   "cls": "backbone",
+   "within5": 0.515,
+   "same_dir": 0.998,
+   "offset_mw": 1.987,
+   "offset_p95_mw": 4.146,
+   "offset_pct": 4.417
+  },
+  {
+   "cols": "427909_440304_0_G2",
+   "kind": "trafo",
+   "ids": [
+    30
+   ],
+   "cls": "backbone",
+   "within5": 0.52,
+   "same_dir": 0.998,
+   "offset_mw": 1.974,
+   "offset_p95_mw": 4.136,
+   "offset_pct": 4.386
+  },
+  {
+   "cols": "400171_420613_0_L1",
+   "kind": "line",
+   "ids": [
+    76
+   ],
+   "cls": "meshed",
+   "within5": 0.163,
+   "same_dir": 0.985,
+   "offset_mw": -2.115,
+   "offset_p95_mw": 3.918,
+   "offset_pct": -8.755
+  },
+  {
+   "cols": "400171_428004_0_L1",
+   "kind": "line",
+   "ids": [
+    67
+   ],
+   "cls": "meshed",
+   "within5": 0.163,
+   "same_dir": 0.985,
+   "offset_mw": 2.094,
+   "offset_p95_mw": 3.869,
+   "offset_pct": 8.814
+  },
+  {
+   "cols": "429603_433910_0_G1",
+   "kind": "trafo",
+   "ids": [
+    12
+   ],
+   "cls": "backbone",
+   "within5": 0.756,
+   "same_dir": 0.97,
+   "offset_mw": 1.476,
+   "offset_p95_mw": 3.405,
+   "offset_pct": 3.281
+  },
+  {
+   "cols": "433911_429604_0_G2",
+   "kind": "trafo",
+   "ids": [
+    13
+   ],
+   "cls": "backbone",
+   "within5": 0.773,
+   "same_dir": 0.97,
+   "offset_mw": -1.439,
+   "offset_p95_mw": 3.326,
+   "offset_pct": -3.197
+  },
+  {
+   "cols": "464905_420615_0_G2",
+   "kind": "trafo",
+   "ids": [
+    27
+   ],
+   "cls": "backbone",
+   "within5": 0.763,
+   "same_dir": 1.0,
+   "offset_mw": 1.402,
+   "offset_p95_mw": 3.093,
+   "offset_pct": 3.115
+  },
+  {
+   "cols": "464903_420614_0_G1",
+   "kind": "trafo",
+   "ids": [
+    26
+   ],
+   "cls": "backbone",
+   "within5": 0.822,
+   "same_dir": 1.0,
+   "offset_mw": 1.218,
+   "offset_p95_mw": 2.841,
+   "offset_pct": 2.706
+  },
+  {
+   "cols": "473105_47311_0_L1",
+   "kind": "line",
+   "ids": [
+    121
+   ],
+   "cls": "meshed",
+   "within5": 0.934,
+   "same_dir": 1.0,
+   "offset_mw": -1.2,
+   "offset_p95_mw": 2.153,
+   "offset_pct": -2.923
+  },
+  {
+   "cols": "427905_47311_0_L1",
+   "kind": "line",
+   "ids": [
+    114
+   ],
+   "cls": "meshed",
+   "within5": 0.909,
+   "same_dir": 1.0,
+   "offset_mw": 1.181,
+   "offset_p95_mw": 2.117,
+   "offset_pct": 3.04
+  },
+  {
+   "cols": "420600_420605_0_L1",
+   "kind": "line",
+   "ids": [
+    77
+   ],
+   "cls": "meshed",
+   "within5": 0.891,
+   "same_dir": 0.995,
+   "offset_mw": 0.051,
+   "offset_p95_mw": 1.45,
+   "offset_pct": 0.212
+  },
+  {
+   "cols": "436105_436108_0_L1",
+   "kind": "line",
+   "ids": [
+    28
+   ],
+   "cls": "meshed",
+   "within5": 0.741,
+   "same_dir": 0.999,
+   "offset_mw": -0.576,
+   "offset_p95_mw": 1.41,
+   "offset_pct": -3.251
+  },
+  {
+   "cols": "43451_43930_0_L1",
+   "kind": "line",
+   "ids": [
+    123
+   ],
+   "cls": "meshed",
+   "within5": 0.94,
+   "same_dir": 0.962,
+   "offset_mw": 0.561,
+   "offset_p95_mw": 1.368,
+   "offset_pct": 2.164
+  },
+  {
+   "cols": "437902_436103_0_L1",
+   "kind": "line",
+   "ids": [
+    94
+   ],
+   "cls": "meshed",
+   "within5": 0.781,
+   "same_dir": 0.974,
+   "offset_mw": -0.555,
+   "offset_p95_mw": 1.366,
+   "offset_pct": -3.07
+  },
+  {
+   "cols": "437903_43451_0_L1",
+   "kind": "line",
+   "ids": [
+    102
+   ],
+   "cls": "meshed",
+   "within5": 0.94,
+   "same_dir": 0.998,
+   "offset_mw": 0.551,
+   "offset_p95_mw": 1.365,
+   "offset_pct": 2.123
+  },
+  {
+   "cols": "427906_43930_0_L1",
+   "kind": "line",
+   "ids": [
+    115
+   ],
+   "cls": "meshed",
+   "within5": 0.945,
+   "same_dir": 0.995,
+   "offset_mw": -0.544,
+   "offset_p95_mw": 1.334,
+   "offset_pct": -2.095
+  },
+  {
+   "cols": "427912_423504_0_L1",
+   "kind": "line",
+   "ids": [
+    116
+   ],
+   "cls": "meshed",
+   "within5": 0.901,
+   "same_dir": 0.973,
+   "offset_mw": -0.586,
+   "offset_p95_mw": 1.288,
+   "offset_pct": -2.548
+  },
+  {
+   "cols": "422907_422908_0_L1",
+   "kind": "line",
+   "ids": [
+    88
+   ],
+   "cls": "meshed",
+   "within5": 0.901,
+   "same_dir": 0.972,
+   "offset_mw": 0.582,
+   "offset_p95_mw": 1.286,
+   "offset_pct": 2.541
+  },
+  {
+   "cols": "42351_423506_0_L1",
+   "kind": "line",
+   "ids": [
+    107
+   ],
+   "cls": "meshed",
+   "within5": 0.943,
+   "same_dir": 0.973,
+   "offset_mw": 0.582,
+   "offset_p95_mw": 1.283,
+   "offset_pct": 2.283
+  },
+  {
+   "cols": "469901_470504_0_T1",
+   "kind": "trafo",
+   "ids": [
+    0
+   ],
+   "cls": "meshed",
+   "within5": 0.782,
+   "same_dir": 1.0,
+   "offset_mw": -0.21,
+   "offset_p95_mw": 0.39,
+   "offset_pct": -3.503
+  },
+  {
+   "cols": "469900_470506_0_T2",
+   "kind": "trafo",
+   "ids": [
+    1
+   ],
+   "cls": "meshed",
+   "within5": 0.809,
+   "same_dir": 1.0,
+   "offset_mw": 0.2,
+   "offset_p95_mw": 0.377,
+   "offset_pct": 3.339
+  }
+ ],
+ "reactive_screen": {
+  "notes": {
+   "mode": "unity",
+   "implausible": {
+    "33": 1,
+    "88": 590
+   },
+   "suspect": {
+    "88": 242,
+    "90": 7
+   },
+   "guarded": [],
+   "no_capacity": [
+    15,
+    8,
+    17,
+    18,
+    38,
+    44,
+    45,
+    65,
+    71,
+    72,
+    79,
+    80,
+    82,
+    103,
+    107,
+    111,
+    112,
+    114,
+    119,
+    120,
+    129,
+    135
+   ]
+  },
+  "per_node": {
+   "33 Billingborough 11kV 1T0": {
+    "implausible": 1,
+    "suspect": 0
+   },
+   "88 Spilsby 11kV 2T0": {
+    "implausible": 590,
+    "suspect": 242
+   },
+   "90 Trusthorpe 11kV 3T0": {
+    "implausible": 0,
+    "suspect": 7
+   }
+  }
+ },
+ "bsp_transformer_offsets": {
+  "Sleaford": {
+   "pair_offset_132_to_33_mw": {
+    "0.05": -7.348,
+    "0.5": -3.96,
+    "0.95": 7.02,
+    "mean": -2.792
+   },
+   "corr": {
+    "unplaced in group": 0.757,
+    "held at 0 (railway)": 0.133,
+    "engine losses": -0.294
+   },
+   "candidate_medians_mw": {
+    "unplaced in group": -0.28,
+    "held at 0 (railway)": 0.0,
+    "engine losses": 1.316
+   }
+  },
+  "Skegness": {
+   "pair_offset_132_to_33_mw": {
+    "0.05": 0.249,
+    "0.5": 2.605,
+    "0.95": 5.862,
+    "mean": 2.9
+   },
+   "corr": {
+    "unplaced in group": -0.47,
+    "held at 0 (railway)": -0.047,
+    "engine losses": 0.795
+   },
+   "candidate_medians_mw": {
+    "unplaced in group": -0.53,
+    "held at 0 (railway)": 0.0,
+    "engine losses": 1.316
+   }
+  },
+  "Grantham": {
+   "pair_offset_132_to_33_mw": {
+    "0.05": -6.292,
+    "0.5": 2.914,
+    "0.95": 5.556,
+    "mean": 1.812
+   },
+   "corr": {
+    "unplaced in group": -0.73,
+    "held at 0 (railway)": -0.147,
+    "engine losses": 0.05
+   },
+   "candidate_medians_mw": {
+    "unplaced in group": -0.12,
+    "held at 0 (railway)": 0.0,
+    "engine losses": 1.316
+   }
+  }
+ },
+ "unsolved_inputs": []
+}

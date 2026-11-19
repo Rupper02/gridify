@@ -1,0 +1,1508 @@
+{
+ "built": {
+  "buses": 154,
+  "lines": 135,
+  "trafos": 40,
+  "loads": 42,
+  "load_mw": 130.45,
+  "sgens": 48,
+  "sgen_mw": 236.17,
+  "infeed": [
+   155,
+   "Staythorpe C 132kV 105"
+  ],
+  "peak_published_mw": 147.82
+ },
+ "assumptions": {
+  "connector": {
+   "count": 7,
+   "message": "An LTDS circuit row with zero resistance, negligible reactance and no rating: a connector between two named nodes (a closed bus-bus switch; the row is kept, out of service, so no element id moves)"
+  },
+  "charging_blank": {
+   "count": 5,
+   "message": "LTDS gave no susceptance (B1) for this circuit: modelled without line charging"
+  },
+  "summer_ratio_median": {
+   "count": 7,
+   "message": "LTDS left the summer rating blank: this network's median summer/winter ratio was used"
+  },
+  "intermediate_cool_ratio_median": {
+   "count": 7,
+   "message": "LTDS left the Intermediate Cool rating blank: this network's median ratio to winter was used"
+  },
+  "intermediate_warm_ratio_median": {
+   "count": 7,
+   "message": "LTDS left the Intermediate Warm rating blank: this network's median ratio to winter was used"
+  },
+  "normally_open": {
+   "count": 1,
+   "message": "A circuit run open: the supply point's named normally-open point, inferred from NGED's half-hourly flows (the LTDS publishes connectivity, not the running arrangement)"
+  },
+  "tap_step_assumed": {
+   "count": 40,
+   "message": "LTDS gives the tap range but not the step: 1.25% per tap assumed, regulated towards 1.02 pu (config.OLTC_*)"
+  },
+  "firm_capacity_unpublished": {
+   "count": 34,
+   "message": "LTDS Table 3 gives no firm capacity for this substation: nothing is assumed in its place"
+  },
+  "forecast_ltds_only": {
+   "count": 23,
+   "message": "No DFES supply area matches this connection: its LTDS five-year maximum-demand forecast applies (Forecast Year 1 = 2026), then holds"
+  },
+  "small_embedded_unmodelled": {
+   "count": 10,
+   "message": "Connected ECR sites under 1 MW that publish no export capacity or no technology are not modelled"
+  },
+  "small_embedded": {
+   "count": 33,
+   "message": "Connected ECR sites under 1 MW (most at 0.4 kV) are aggregated per primary and technology at its 11 kV busbar (the model's lowest level), so voltage rise inside the LV network behind it is not modelled; they are added, not netted, because the LTDS minimum demand behaves as gross of generation (no negative minimum in 2,294 rows, ~33-36% even where generation is twice a primary's peak). Domestic rooftop PV is in no register (the ECR and LTDS Table 5 list connections that applied to NGED) and is not modelled"
+  },
+  "unreachable_demand": {
+   "count": 3,
+   "message": "Demand on buses the GSP infeed cannot reach in the LTDS connectivity: removed with them, not rescaled onto the rest (the coincidence scaling was applied before): Asfordby Colliery 8.62 MW at ASFY5_MAIN1; Asfordby Colliery 8.62 MW at ASFY5_MAIN2; - 0.14 MW at COGR3PV (total 17.37 MW)"
+  },
+  "bus_sections_split": {
+   "count": 20,
+   "message": "EHV busbars of one substation are separate LTDS nodes with no coupler or section circuit between them: the model runs them split, so after a fault a circuit on one bar is not picked up by its pair through the substation (NGED publishes the connectivity, not the running arrangement)"
+  },
+  "mv_mesh_closed": {
+   "count": 9,
+   "message": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and shares its flows"
+  }
+ },
+ "t132_11": [
+  {
+   "from": "GRNO1_313",
+   "to": "GRNO5_3T0",
+   "sn_mva": 15.0,
+   "R1_pct_100MVA": 2.358,
+   "X1_pct_100MVA": 70.761,
+   "Z_pct_100MVA": 70.8,
+   "vk_pct_on_rating": 10.62,
+   "vkr_pct_on_rating": 0.3537,
+   "ratio": "132/11",
+   "taps": [
+    -9,
+    9
+   ],
+   "tap_span_pct": [
+    -11.25,
+    11.25
+   ],
+   "built": {
+    "id": 14,
+    "vk": 10.62,
+    "vkr": 0.3537,
+    "vn": [
+     132.0,
+     11.0
+    ],
+    "tap_side": "hv",
+    "taps": [
+     -9,
+     9
+    ],
+    "step": 1.25,
+    "lv_bus": [
+     72,
+     "Grantham North 11kV 3T0",
+     11.0
+    ]
+   }
+  },
+  {
+   "from": "GRNO1_413",
+   "to": "GRNO5_4T0",
+   "sn_mva": 15.0,
+   "R1_pct_100MVA": 2.341,
+   "X1_pct_100MVA": 71.862,
+   "Z_pct_100MVA": 71.9,
+   "vk_pct_on_rating": 10.785,
+   "vkr_pct_on_rating": 0.3512,
+   "ratio": "132/11",
+   "taps": [
+    -9,
+    9
+   ],
+   "tap_span_pct": [
+    -11.25,
+    11.25
+   ],
+   "built": {
+    "id": 15,
+    "vk": 10.785,
+    "vkr": 0.3512,
+    "vn": [
+     132.0,
+     11.0
+    ],
+    "tap_side": "hv",
+    "taps": [
+     -9,
+     9
+    ],
+    "step": 1.25,
+    "lv_bus": [
+     72,
+     "Grantham North 11kV 3T0",
+     11.0
+    ]
+   }
+  },
+  {
+   "from": "GRSO1_110",
+   "to": "GRSO5_1T0",
+   "sn_mva": 15.0,
+   "R1_pct_100MVA": 2.312,
+   "X1_pct_100MVA": 85.135,
+   "Z_pct_100MVA": 85.166,
+   "vk_pct_on_rating": 12.775,
+   "vkr_pct_on_rating": 0.3468,
+   "ratio": "132/11",
+   "taps": [
+    -12,
+    6
+   ],
+   "tap_span_pct": [
+    -15.0,
+    7.5
+   ],
+   "built": {
+    "id": 16,
+    "vk": 12.775,
+    "vkr": 0.3468,
+    "vn": [
+     132.0,
+     11.0
+    ],
+    "tap_side": "hv",
+    "taps": [
+     -12,
+     6
+    ],
+    "step": 1.25,
+    "lv_bus": [
+     73,
+     "Grantham South 11kV 1T0",
+     11.0
+    ]
+   }
+  },
+  {
+   "from": "GRSO1_210",
+   "to": "GRSO5_2T0",
+   "sn_mva": 15.0,
+   "R1_pct_100MVA": 2.211,
+   "X1_pct_100MVA": 92.007,
+   "Z_pct_100MVA": 92.034,
+   "vk_pct_on_rating": 13.805,
+   "vkr_pct_on_rating": 0.3317,
+   "ratio": "132/11",
+   "taps": [
+    -12,
+    6
+   ],
+   "tap_span_pct": [
+    -15.0,
+    7.5
+   ],
+   "built": {
+    "id": 17,
+    "vk": 13.805,
+    "vkr": 0.3317,
+    "vn": [
+     132.0,
+     11.0
+    ],
+    "tap_side": "hv",
+    "taps": [
+     -12,
+     6
+    ],
+    "step": 1.25,
+    "lv_bus": [
+     73,
+     "Grantham South 11kV 1T0",
+     11.0
+    ]
+   }
+  }
+ ],
+ "band_11kV_buses_fed_from_132": {
+  "Grantham North 11kV 3T0": [
+   0.94,
+   1.06
+  ],
+  "Grantham South 11kV 1T0": [
+   0.94,
+   1.06
+  ]
+ },
+ "tap_target_pu": 1.02,
+ "b_c_circuits": [
+  [
+   131,
+   "Staythorpe C 132kV 105",
+   "Staythorpe B 132kV 405",
+   600.0
+  ],
+  [
+   133,
+   "Staythorpe C 132kV 2005 A",
+   "Staythorpe B 132kV 705 A",
+   600.0
+  ],
+  [
+   134,
+   "Staythorpe C 132kV 105",
+   "Staythorpe B 132kV 405",
+   600.0
+  ]
+ ],
+ "planning_cases_ht": {
+  "2026": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 85.0,
+   "vm": [
+    1.0081,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 70.8,
+   "breaches": [],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 31.7,
+    "3": 30.7,
+    "4": 14.1,
+    "5": 32.1,
+    "6": 31.8,
+    "7": 31.5,
+    "8": 33.8,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 12.3,
+    "13": 14.6,
+    "14": 34.0,
+    "15": 33.5,
+    "16": 50.3,
+    "17": 45.8,
+    "18": 68.6,
+    "19": 66.0,
+    "20": 49.3,
+    "21": 49.2,
+    "22": 21.7,
+    "23": 22.2,
+    "24": 23.6,
+    "25": 15.6,
+    "26": 24.2,
+    "27": 41.5,
+    "28": 41.0,
+    "29": 41.3,
+    "30": 27.3,
+    "31": 25.5,
+    "32": 37.1,
+    "33": 47.8,
+    "34": 49.2,
+    "35": 32.0,
+    "36": 39.4,
+    "37": 85.0,
+    "38": 30.9,
+    "39": 64.5
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2027": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 87.7,
+   "vm": [
+    1.0057,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 79.1,
+   "breaches": [],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 34.6,
+    "3": 33.3,
+    "4": 14.1,
+    "5": 32.9,
+    "6": 32.6,
+    "7": 32.3,
+    "8": 34.7,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 16.8,
+    "13": 19.0,
+    "14": 35.4,
+    "15": 34.9,
+    "16": 52.5,
+    "17": 47.8,
+    "18": 71.1,
+    "19": 68.5,
+    "20": 54.5,
+    "21": 54.5,
+    "22": 26.8,
+    "23": 27.4,
+    "24": 24.2,
+    "25": 15.6,
+    "26": 25.2,
+    "27": 45.1,
+    "28": 44.4,
+    "29": 43.6,
+    "30": 28.5,
+    "31": 26.6,
+    "32": 38.3,
+    "33": 52.6,
+    "34": 52.8,
+    "35": 31.6,
+    "36": 41.2,
+    "37": 87.7,
+    "38": 31.9,
+    "39": 66.3
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2028": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 134.0,
+   "vm": [
+    1.0046,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 90.7,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     134.0,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 38.0,
+    "3": 36.1,
+    "4": 14.1,
+    "5": 34.7,
+    "6": 34.4,
+    "7": 33.5,
+    "8": 35.9,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 22.3,
+    "13": 24.5,
+    "14": 37.0,
+    "15": 36.4,
+    "16": 54.7,
+    "17": 49.8,
+    "18": 76.0,
+    "19": 73.4,
+    "20": 62.4,
+    "21": 62.4,
+    "22": 32.8,
+    "23": 33.5,
+    "24": 26.0,
+    "25": 15.6,
+    "26": 26.3,
+    "27": 48.4,
+    "28": 47.7,
+    "29": 46.3,
+    "30": 30.0,
+    "31": 28.0,
+    "32": 39.8,
+    "33": 55.2,
+    "34": 56.1,
+    "35": 33.0,
+    "36": 41.3,
+    "37": 134.0,
+    "38": 33.4,
+    "39": 69.3
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2029": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 170.8,
+   "vm": [
+    1.0039,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 103.9,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     170.8,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 41.5,
+    "3": 39.7,
+    "4": 14.1,
+    "5": 37.0,
+    "6": 36.6,
+    "7": 34.6,
+    "8": 37.1,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 27.4,
+    "13": 29.6,
+    "14": 39.1,
+    "15": 38.5,
+    "16": 60.7,
+    "17": 55.4,
+    "18": 81.6,
+    "19": 78.7,
+    "20": 70.7,
+    "21": 70.6,
+    "22": 39.5,
+    "23": 40.4,
+    "24": 27.8,
+    "25": 16.3,
+    "26": 27.7,
+    "27": 51.9,
+    "28": 51.2,
+    "29": 48.6,
+    "30": 32.2,
+    "31": 30.1,
+    "32": 41.6,
+    "33": 58.9,
+    "34": 60.2,
+    "35": 34.4,
+    "36": 41.9,
+    "37": 170.8,
+    "38": 35.5,
+    "39": 73.5
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2030": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 176.4,
+   "vm": [
+    1.0053,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 117.9,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     176.4,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 48.2,
+    "3": 42.7,
+    "4": 14.1,
+    "5": 40.0,
+    "6": 39.7,
+    "7": 35.5,
+    "8": 38.1,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 31.8,
+    "13": 34.0,
+    "14": 41.2,
+    "15": 40.6,
+    "16": 67.6,
+    "17": 61.8,
+    "18": 88.6,
+    "19": 85.5,
+    "20": 80.7,
+    "21": 80.6,
+    "22": 46.4,
+    "23": 47.4,
+    "24": 30.1,
+    "25": 17.9,
+    "26": 29.4,
+    "27": 55.4,
+    "28": 54.6,
+    "29": 51.6,
+    "30": 35.2,
+    "31": 32.9,
+    "32": 44.5,
+    "33": 62.0,
+    "34": 63.9,
+    "35": 36.2,
+    "36": 43.2,
+    "37": 176.4,
+    "38": 37.9,
+    "39": 79.2
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2031": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 184.6,
+   "vm": [
+    0.9898,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 133.4,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     184.6,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.1,
+    "2": 59.6,
+    "3": 48.0,
+    "4": 14.1,
+    "5": 44.9,
+    "6": 44.5,
+    "7": 38.2,
+    "8": 40.9,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 36.8,
+    "13": 39.2,
+    "14": 41.2,
+    "15": 40.6,
+    "16": 67.6,
+    "17": 61.8,
+    "18": 98.1,
+    "19": 94.9,
+    "20": 92.3,
+    "21": 92.2,
+    "22": 55.4,
+    "23": 56.6,
+    "24": 32.6,
+    "25": 19.3,
+    "26": 31.6,
+    "27": 60.5,
+    "28": 59.6,
+    "29": 56.8,
+    "30": 39.2,
+    "31": 36.8,
+    "32": 50.2,
+    "33": 68.4,
+    "34": 69.5,
+    "35": 37.9,
+    "36": 48.0,
+    "37": 184.6,
+    "38": 41.3,
+    "39": 91.0
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2032": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 196.9,
+   "vm": [
+    0.9899,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 150.8,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     196.9,
+     100.0
+    ],
+    [
+     "trafo",
+     18,
+     "winter_peak",
+     110.2,
+     100.0
+    ],
+    [
+     "trafo",
+     20,
+     "winter_peak",
+     107.5,
+     100.0
+    ],
+    [
+     "trafo",
+     21,
+     "winter_peak",
+     107.4,
+     100.0
+    ],
+    [
+     "trafo",
+     19,
+     "winter_peak",
+     107.0,
+     100.0
+    ],
+    [
+     "trafo",
+     39,
+     "winter_peak",
+     104.7,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.0,
+    "2": 70.7,
+    "3": 52.8,
+    "4": 14.1,
+    "5": 51.4,
+    "6": 51.0,
+    "7": 40.8,
+    "8": 43.8,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 41.4,
+    "13": 44.1,
+    "14": 41.2,
+    "15": 40.6,
+    "16": 67.6,
+    "17": 61.8,
+    "18": 110.2,
+    "19": 107.0,
+    "20": 107.5,
+    "21": 107.4,
+    "22": 65.1,
+    "23": 66.5,
+    "24": 35.9,
+    "25": 21.3,
+    "26": 34.4,
+    "27": 65.7,
+    "28": 64.8,
+    "29": 64.3,
+    "30": 44.3,
+    "31": 41.6,
+    "32": 56.8,
+    "33": 73.8,
+    "34": 75.7,
+    "35": 41.6,
+    "36": 51.6,
+    "37": 196.9,
+    "38": 46.1,
+    "39": 104.7
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2033": {
+   "converged": true,
+   "worst_line": 92.8,
+   "worst_trafo": 258.1,
+   "vm": [
+    0.9513,
+    1.0293
+   ],
+   "gsp_export": 161.8,
+   "gsp_import": 168.4,
+   "breaches": [
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     258.1,
+     100.0
+    ],
+    [
+     "trafo",
+     18,
+     "winter_peak",
+     121.9,
+     100.0
+    ],
+    [
+     "trafo",
+     20,
+     "winter_peak",
+     121.3,
+     100.0
+    ],
+    [
+     "trafo",
+     21,
+     "winter_peak",
+     121.2,
+     100.0
+    ],
+    [
+     "trafo",
+     39,
+     "winter_peak",
+     119.3,
+     100.0
+    ],
+    [
+     "trafo",
+     19,
+     "winter_peak",
+     118.7,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 38.2,
+    "133": 37.0,
+    "134": 11.7
+   },
+   "trafo": {
+    "0": 36.9,
+    "1": 29.0,
+    "2": 79.0,
+    "3": 57.9,
+    "4": 14.1,
+    "5": 57.9,
+    "6": 57.4,
+    "7": 43.9,
+    "8": 47.1,
+    "9": 78.4,
+    "10": 78.2,
+    "11": 61.1,
+    "12": 43.7,
+    "13": 46.8,
+    "14": 41.2,
+    "15": 40.6,
+    "16": 67.6,
+    "17": 61.8,
+    "18": 121.9,
+    "19": 118.7,
+    "20": 121.3,
+    "21": 121.2,
+    "22": 74.4,
+    "23": 76.1,
+    "24": 38.9,
+    "25": 23.2,
+    "26": 37.2,
+    "27": 71.6,
+    "28": 70.6,
+    "29": 71.3,
+    "30": 49.3,
+    "31": 46.4,
+    "32": 63.3,
+    "33": 79.6,
+    "34": 82.6,
+    "35": 46.1,
+    "36": 54.7,
+    "37": 258.1,
+    "38": 50.7,
+    "39": 119.3
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2034": {
+   "converged": true,
+   "worst_line": 358.0,
+   "worst_trafo": 1621.6,
+   "vm": [
+    0.05,
+    1.0934
+   ],
+   "gsp_export": 143.9,
+   "gsp_import": 203.1,
+   "breaches": [
+    [
+     "voltage",
+     66,
+     "winter_peak",
+     0.2643,
+     0.94
+    ],
+    [
+     "voltage",
+     24,
+     "winter_peak",
+     0.8239,
+     0.94
+    ],
+    [
+     "voltage",
+     39,
+     "winter_peak",
+     0.8526,
+     0.94
+    ],
+    [
+     "voltage",
+     38,
+     "winter_peak",
+     0.8526,
+     0.94
+    ],
+    [
+     "voltage",
+     21,
+     "winter_peak",
+     0.8616,
+     0.94
+    ],
+    [
+     "voltage",
+     27,
+     "winter_peak",
+     0.9006,
+     0.94
+    ],
+    [
+     "voltage",
+     96,
+     "winter_peak",
+     0.9006,
+     0.94
+    ],
+    [
+     "voltage",
+     97,
+     "winter_peak",
+     0.9045,
+     0.94
+    ],
+    [
+     "voltage",
+     58,
+     "winter_peak",
+     1.0934,
+     1.06
+    ],
+    [
+     "voltage",
+     70,
+     "winter_peak",
+     1.0884,
+     1.06
+    ],
+    [
+     "voltage",
+     54,
+     "winter_peak",
+     1.0875,
+     1.06
+    ],
+    [
+     "voltage",
+     44,
+     "winter_peak",
+     1.0843,
+     1.06
+    ],
+    [
+     "voltage",
+     62,
+     "winter_peak",
+     1.0831,
+     1.06
+    ],
+    [
+     "voltage",
+     26,
+     "winter_peak",
+     1.0816,
+     1.06
+    ],
+    [
+     "voltage",
+     37,
+     "winter_peak",
+     1.0811,
+     1.06
+    ],
+    [
+     "voltage",
+     52,
+     "winter_peak",
+     1.0807,
+     1.06
+    ],
+    [
+     "line",
+     5,
+     "winter_peak",
+     300.7,
+     100.0
+    ],
+    [
+     "line",
+     11,
+     "winter_peak",
+     139.4,
+     100.0
+    ],
+    [
+     "line",
+     39,
+     "winter_peak",
+     122.1,
+     100.0
+    ],
+    [
+     "line",
+     67,
+     "winter_peak",
+     109.2,
+     100.0
+    ],
+    [
+     "line",
+     52,
+     "winter_peak",
+     105.0,
+     100.0
+    ],
+    [
+     "line",
+     18,
+     "winter_peak",
+     105.0,
+     100.0
+    ],
+    [
+     "line",
+     7,
+     "winter_peak",
+     104.9,
+     100.0
+    ],
+    [
+     "trafo",
+     37,
+     "winter_peak",
+     1435.0,
+     100.0
+    ],
+    [
+     "trafo",
+     20,
+     "winter_peak",
+     155.1,
+     100.0
+    ],
+    [
+     "trafo",
+     21,
+     "winter_peak",
+     155.0,
+     100.0
+    ],
+    [
+     "trafo",
+     39,
+     "winter_peak",
+     136.3,
+     100.0
+    ],
+    [
+     "trafo",
+     18,
+     "winter_peak",
+     131.5,
+     100.0
+    ],
+    [
+     "trafo",
+     9,
+     "winter_peak",
+     129.3,
+     100.0
+    ],
+    [
+     "trafo",
+     10,
+     "winter_peak",
+     128.9,
+     100.0
+    ],
+    [
+     "trafo",
+     19,
+     "winter_peak",
+     128.1,
+     100.0
+    ],
+    [
+     "voltage",
+     66,
+     "summer_min",
+     0.05,
+     0.94
+    ],
+    [
+     "voltage",
+     24,
+     "summer_min",
+     0.8107,
+     0.94
+    ],
+    [
+     "voltage",
+     39,
+     "summer_min",
+     0.8427,
+     0.94
+    ],
+    [
+     "voltage",
+     38,
+     "summer_min",
+     0.8427,
+     0.94
+    ],
+    [
+     "voltage",
+     21,
+     "summer_min",
+     0.8528,
+     0.94
+    ],
+    [
+     "voltage",
+     27,
+     "summer_min",
+     0.897,
+     0.94
+    ],
+    [
+     "voltage",
+     96,
+     "summer_min",
+     0.897,
+     0.94
+    ],
+    [
+     "voltage",
+     97,
+     "summer_min",
+     0.906,
+     0.94
+    ],
+    [
+     "line",
+     5,
+     "summer_min",
+     358.0,
+     100.0
+    ],
+    [
+     "line",
+     11,
+     "summer_min",
+     166.5,
+     100.0
+    ],
+    [
+     "line",
+     52,
+     "summer_min",
+     148.2,
+     100.0
+    ],
+    [
+     "line",
+     18,
+     "summer_min",
+     148.0,
+     100.0
+    ],
+    [
+     "line",
+     7,
+     "summer_min",
+     148.0,
+     100.0
+    ],
+    [
+     "line",
+     39,
+     "summer_min",
+     146.2,
+     100.0
+    ],
+    [
+     "line",
+     67,
+     "summer_min",
+     124.4,
+     100.0
+    ],
+    [
+     "line",
+     82,
+     "summer_min",
+     112.5,
+     100.0
+    ],
+    [
+     "trafo",
+     37,
+     "summer_min",
+     1621.6,
+     100.0
+    ],
+    [
+     "trafo",
+     9,
+     "summer_min",
+     108.9,
+     100.0
+    ],
+    [
+     "trafo",
+     10,
+     "summer_min",
+     108.6,
+     100.0
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": 40.2,
+    "133": 38.9,
+    "134": 12.3
+   },
+   "trafo": {
+    "0": 43.2,
+    "1": 45.8,
+    "2": 84.3,
+    "3": 62.5,
+    "4": 14.1,
+    "5": 69.9,
+    "6": 69.3,
+    "7": 46.5,
+    "8": 49.8,
+    "9": 129.3,
+    "10": 128.9,
+    "11": 61.0,
+    "12": 44.2,
+    "13": 48.3,
+    "14": 41.2,
+    "15": 40.6,
+    "16": 67.6,
+    "17": 61.8,
+    "18": 131.5,
+    "19": 128.1,
+    "20": 155.1,
+    "21": 155.0,
+    "22": 81.4,
+    "23": 83.1,
+    "24": 42.5,
+    "25": 24.1,
+    "26": 39.4,
+    "27": 75.6,
+    "28": 74.6,
+    "29": 77.9,
+    "30": 53.7,
+    "31": 50.0,
+    "32": 69.8,
+    "33": 80.5,
+    "34": 95.3,
+    "35": 72.9,
+    "36": 78.2,
+    "37": 1621.6,
+    "38": 54.6,
+    "39": 136.3
+   },
+   "b_c_case": {
+    "winter_peak": [],
+    "summer_min": [
+     131,
+     133,
+     134
+    ]
+   }
+  },
+  "2035": {
+   "converged": false,
+   "worst_line": 0.0,
+   "worst_trafo": 0.0,
+   "vm": [
+    0.0,
+    0.0
+   ],
+   "gsp_export": 0.0,
+   "gsp_import": 0.0,
+   "breaches": [
+    [
+     "non_convergent",
+     null,
+     "winter_peak",
+     null,
+     null
+    ]
+   ],
+   "b_c_loading_pct": {
+    "131": NaN,
+    "133": NaN,
+    "134": NaN
+   },
+   "trafo": {},
+   "b_c_case": {}
+  }
+ },
+ "cases_2026_ht": {
+  "winter_peak": {
+   "b_c_loading_pct": {
+    "131": 9.1,
+    "133": 8.8,
+    "134": 2.8
+   },
+   "gsp_import_mw": 70.8,
+   "worst_line": [
+    5,
+    34.5
+   ],
+   "vm": [
+    0.9967,
+    1.0261
+   ]
+  },
+  "summer_min": {
+   "b_c_loading_pct": {
+    "131": 38.1,
+    "133": 36.9,
+    "134": 11.7
+   },
+   "gsp_import_mw": -161.8,
+   "worst_line": [
+    9,
+    91.8
+   ],
+   "vm": [
+    1.0071,
+    1.0296
+   ]
+  }
+ },
+ "tuxford_westborough": {
+  "Tuxford": {
+   "ltds_current_mw": 4.84,
+   "firm_mva": "0",
+   "trafo_mva": [
+    6.0
+   ],
+   "ltds_forecast_mw": {
+    "2026": 6.426,
+    "2027": 6.54,
+    "2028": 9.757,
+    "2029": 12.156,
+    "2030": 12.407
+   },
+   "ltds_ratio_2030": 2.563,
+   "dfes_ht_ratio": {
+    "2025": 1.0,
+    "2026": 1.32255,
+    "2030": 2.53644,
+    "2035": 5.19479
+   },
+   "dfes_ht_2030_over_2025": 2.536,
+   "plan_trafo_loading_pct": {
+    "2026": [
+     85.0
+    ],
+    "2027": [
+     87.7
+    ],
+    "2028": [
+     134.0
+    ],
+    "2029": [
+     170.8
+    ],
+    "2030": [
+     176.4
+    ],
+    "2031": [
+     184.6
+    ],
+    "2032": [
+     196.9
+    ],
+    "2033": [
+     258.1
+    ],
+    "2034": [
+     1621.6
+    ],
+    "2035": [
+     NaN
+    ]
+   }
+  },
+  "Westborough": {
+   "ltds_current_mw": 4.36,
+   "firm_mva": "0",
+   "trafo_mva": [
+    6.0
+   ],
+   "ltds_forecast_mw": {
+    "2026": 4.57,
+    "2027": 4.624,
+    "2028": 4.699,
+    "2029": 4.815,
+    "2030": 5.087
+   },
+   "ltds_ratio_2030": 1.167,
+   "dfes_ht_ratio": {
+    "2025": 1.0,
+    "2026": 1.06255,
+    "2030": 1.29441,
+    "2035": 2.45713
+   },
+   "dfes_ht_2030_over_2025": 1.294,
+   "plan_trafo_loading_pct": {
+    "2026": [
+     64.5
+    ],
+    "2027": [
+     66.3
+    ],
+    "2028": [
+     69.3
+    ],
+    "2029": [
+     73.5
+    ],
+    "2030": [
+     79.2
+    ],
+    "2031": [
+     91.0
+    ],
+    "2032": [
+     104.7
+    ],
+    "2033": [
+     119.3
+    ],
+    "2034": [
+     136.3
+    ],
+    "2035": [
+     NaN
+    ]
+   }
+  }
+ }
+}

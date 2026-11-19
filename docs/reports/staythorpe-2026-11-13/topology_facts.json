@@ -1,0 +1,272 @@
+{
+ "built": {
+  "buses": 154,
+  "lines": 135,
+  "trafos": 40,
+  "loads": 44,
+  "load_mw": 240.3,
+  "sgens": 48,
+  "sgen_mw": 236.17
+ },
+ "dropped_as_unreachable": [
+  [
+   48,
+   "MANT3_#1H0",
+   33.0
+  ],
+  [
+   59,
+   "Ollerton 33kV 1L5",
+   33.0
+  ],
+  [
+   60,
+   "THBY3_3L5",
+   33.0
+  ],
+  [
+   157,
+   "ASFY5_MAIN1",
+   33.0
+  ],
+  [
+   158,
+   "ASFY5_MAIN2",
+   33.0
+  ],
+  [
+   159,
+   "COGR3PV",
+   33.0
+  ]
+ ],
+ "infeed_staythorpe": {
+  "builder_picks": [
+   139,
+   "Staythorpe B 132kV 405"
+  ],
+  "td_landing_nodes": {
+   "STAY1_#280": null,
+   "STAY4_110": null
+  },
+  "same": false
+ },
+ "infeed_bicker_fen": {
+  "builder_picks": [
+   0,
+   "Bicker Fen 132kV 405"
+  ],
+  "td_landing_nodes": {
+   "BICF1_#180": null,
+   "BICF1_#280": null
+  },
+  "same": false
+ },
+ "stab_stay_links": [
+  {
+   "Node 1": "STAY1_2005",
+   "Node 2": "STAB1_705",
+   "Circuit Code": "L1",
+   "Circuit Status": "Updated",
+   "R1": "0.0011",
+   "X1": "0.0058",
+   "Winter": "600"
+  },
+  {
+   "Node 1": "STAY1_2005_A",
+   "Node 2": "STAB1_705_A",
+   "Circuit Code": "L1",
+   "Circuit Status": "New",
+   "R1": "0.0011",
+   "X1": "0.006",
+   "Winter": "600"
+  },
+  {
+   "Node 1": "STAY1_2205",
+   "Node 2": "STAB1_1005",
+   "Circuit Code": "L1",
+   "Circuit Status": "Updated",
+   "R1": "0.0034",
+   "X1": "0.019",
+   "Winter": "600"
+  }
+ ],
+ "stab_buses": [
+  [
+   139,
+   "Staythorpe B 132kV 405"
+  ],
+  [
+   154,
+   "Staythorpe B 132kV 705 A"
+  ]
+ ],
+ "stay_buses": [
+  [
+   155,
+   "Staythorpe C 132kV 105"
+  ],
+  [
+   156,
+   "Staythorpe C 132kV 2005 A"
+  ]
+ ],
+ "boundary_ends": [
+  {
+   "outside_node": "BOUR1_MAIN4",
+   "inside_node": "BOUR1_403",
+   "kv": 132,
+   "code": "*1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Walpole",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "CHEC1_MAIN2B",
+   "inside_node": "CHEC1_MAIN3",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "West Burton",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "GRNO1_MAIN2B",
+   "inside_node": "GRNO1_MAIN3",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Bicker Fen",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "MANT3_#1H0",
+   "inside_node": "MANT3_MAIN1",
+   "kv": 33,
+   "code": "@1",
+   "status": "New",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "West Burton",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "MANT3_#3L5",
+   "inside_node": "CHEC3_#2L5",
+   "kv": 33,
+   "code": "L1",
+   "status": "New",
+   "R1": "6.1394",
+   "X1": "20.7922",
+   "winter": "757",
+   "outside_gsp": "West Burton",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "MANT3_MAIN2",
+   "inside_node": "MANT3_MAIN1",
+   "kv": 33,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "West Burton",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "MELT1_MAIN3",
+   "inside_node": "MELT1_MAIN2",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Grendon",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "MELT1_MAIN4",
+   "inside_node": "MELT1_MAIN1",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Grendon",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "OLLE3_4L5",
+   "inside_node": "OLLE3_3L5",
+   "kv": 33,
+   "code": "L1",
+   "status": "Unchanged",
+   "R1": "6.816",
+   "X1": "24.5716",
+   "winter": "757",
+   "outside_gsp": "Chesterfield",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "STAY1_705",
+   "inside_node": "STAY1_&705",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Willington",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "STAY1_905",
+   "inside_node": "STAY1_&905",
+   "kv": 132,
+   "code": "@1",
+   "status": "Unchanged",
+   "R1": "-",
+   "X1": "-",
+   "winter": "-",
+   "outside_gsp": "Willington",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  },
+  {
+   "outside_node": "THBY3_3L5",
+   "inside_node": "OLLE3_1L5",
+   "kv": 33,
+   "code": "L1",
+   "status": "Unchanged",
+   "R1": "2.2683",
+   "X1": "3.8944",
+   "winter": "465",
+   "outside_gsp": "Chesterfield",
+   "in_file_2024": {},
+   "in_file_2025": {}
+  }
+ ]
+}

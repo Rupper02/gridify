@@ -1,0 +1,270 @@
+{
+ "run": "C:\\Users\\rober\\Desktop\\personal\\repos\\grid-simulator\\apps\\pipeline\\warehouse\\supply-points\\staythorpe\\measured-year-2025-screened.npz",
+ "half_hours": 17520,
+ "solved": 17520,
+ "notes_counts": {
+  "clusters": 143,
+  "multi_bus_clusters": 11,
+  "metered": 23,
+  "derived": 26,
+  "unplaced": 87,
+  "held_at_zero": 0,
+  "group_totals": 4,
+  "reactive": 6
+ },
+ "groups": {
+  "meshed": 78,
+  "radial": 29,
+  "input": 27,
+  "backbone": 26
+ },
+ "radial_rule": {
+  "groups": 29,
+  "pass": 29,
+  "verdict": true,
+  "fail": []
+ },
+ "input_check": {
+  "groups": 27,
+  "within_0.5+2%_every_half_hour": 27,
+  "fail": []
+ },
+ "closure_reference": [
+  [
+   "46760_490421_0_L1",
+   "HAWT1Q",
+   "STAY1_505",
+   1
+  ],
+  [
+   "46761_490425_0_L1",
+   "HAWT1P",
+   "STAY1_105",
+   1
+  ],
+  [
+   "348709_490429_0_L1",
+   "STAB1_705",
+   "STAY1_2005",
+   1
+  ],
+  [
+   "348711_490431_0_L1",
+   "STAB1_705_A",
+   "STAY1_2005_A",
+   1
+  ],
+  [
+   "490309_490427_0_L1",
+   "STAB1_1005",
+   "STAY1_2205",
+   1
+  ]
+ ],
+ "rule1": {
+  "share_within": 1.0,
+  "verdict": true,
+  "abs_gap_p50": 0.061,
+  "abs_gap_p95": 0.191,
+  "abs_gap_max": 1.857,
+  "gap_median_signed": 0.06
+ },
+ "nged_sgt_import": {
+  "max": 142.1,
+  "mean": 56.4,
+  "min": -98.0
+ },
+ "engine_import": {
+  "max": 142.3,
+  "mean": 56.5,
+  "min": -97.8
+ },
+ "rule2": {
+  "groups": 26,
+  "pass": 20,
+  "verdict": false
+ },
+ "rule3": {
+  "groups": 78,
+  "pass": 54,
+  "share": 0.6923,
+  "verdict": false
+ },
+ "backbone_fail": [
+  {
+   "name": "Staythorpe C 132kV 105 - Staythorpe B 132kV 405",
+   "within5": 0.8969,
+   "same_dir": 0.9868,
+   "offset_mw": -8.282,
+   "offset_p95_mw": 15.133
+  },
+  {
+   "name": "Staythorpe C 132kV 2005 A - Staythorpe B 132kV 705 A",
+   "within5": 0.2955,
+   "same_dir": 0.9885,
+   "offset_mw": 7.463,
+   "offset_p95_mw": 15.016
+  },
+  {
+   "name": "Hawton 132kV 113 - Hawton 33kV #1L5",
+   "within5": 0.8544,
+   "same_dir": 0.9729,
+   "offset_mw": 0.552,
+   "offset_p95_mw": 3.394
+  },
+  {
+   "name": "Hawton 132kV 213 - Hawton 33kV #1L5",
+   "within5": 0.8546,
+   "same_dir": 0.973,
+   "offset_mw": 0.552,
+   "offset_p95_mw": 3.391
+  },
+  {
+   "name": "Checkerhouse 132kV 203 - Checkerhouse 33kV #1L5",
+   "within5": 0.8543,
+   "same_dir": 0.9786,
+   "offset_mw": 0.566,
+   "offset_p95_mw": 3.395
+  },
+  {
+   "name": "Checkerhouse 132kV 103 - Checkerhouse 33kV #1L5",
+   "within5": 0.8513,
+   "same_dir": 0.978,
+   "offset_mw": 0.589,
+   "offset_p95_mw": 3.435
+  }
+ ],
+ "unmapped_branches": [
+  [
+   "41432_400908_0_L1",
+   "ASFY1P",
+   "400908"
+  ],
+  [
+   "44290_495202_0_L1",
+   "WALW3T",
+   "495202"
+  ],
+  [
+   "490411_490700_0_S1",
+   "STAY1_#180",
+   "STAY4_110"
+  ],
+  [
+   "490701_490407_43231_S2",
+   "STAY4_210",
+   "STAY1_#280"
+  ]
+ ],
+ "unplaced_mw_max": {
+  "2": 0.01,
+  "3": 0.03,
+  "4": 0.01,
+  "5": 0.22,
+  "6": 0.02,
+  "7": 0.08,
+  "8": 0.01,
+  "9": 0.01,
+  "10": 0.04,
+  "11": 0.01,
+  "14": 0.01,
+  "15": 0.01,
+  "16": 0.02,
+  "20": 0.01,
+  "21": 0.05,
+  "23": 0.09,
+  "24": 0.26,
+  "25": 0.04,
+  "96": 0.19,
+  "32": 0.16,
+  "34": 0.09,
+  "35": 0.15,
+  "36": 0.06,
+  "38": 0.05,
+  "41": 0.01,
+  "42": 0.15,
+  "43": 0.04,
+  "46": 0.1,
+  "49": 0.08,
+  "50": 0.08,
+  "51": 0.01,
+  "53": 0.09,
+  "55": 0.02,
+  "57": 0.03,
+  "65": 0.08,
+  "68": 0.08,
+  "69": 0.01,
+  "76": 0.01,
+  "75": 0.06,
+  "77": 0.01,
+  "78": 0.06,
+  "79": 0.03,
+  "80": 0.01,
+  "81": 0.01,
+  "82": 0.05,
+  "83": 0.02,
+  "84": 0.01,
+  "85": 0.01,
+  "86": 0.01,
+  "87": 0.06,
+  "88": 0.11,
+  "89": 0.08,
+  "90": 0.14,
+  "93": 0.24,
+  "94": 0.19,
+  "97": 0.06,
+  "98": 0.02,
+  "99": 0.24,
+  "100": 0.25,
+  "102": 0.09,
+  "104": 0.11,
+  "105": 0.18,
+  "106": 0.04,
+  "107": 0.05,
+  "110": 0.34,
+  "111": 0.23,
+  "112": 0.23,
+  "113": 0.03,
+  "117": 0.01,
+  "121": 0.08,
+  "122": 0.09,
+  "124": 0.16,
+  "131": 0.01,
+  "132": 0.01,
+  "138": 0.46,
+  "140": 0.5,
+  "142": 0.15,
+  "143": 0.07,
+  "144": 0.06,
+  "145": 0.25,
+  "146": 0.26,
+  "147": 0.01,
+  "148": 0.01,
+  "149": 0.5,
+  "150": 0.5,
+  "151": 0.16,
+  "152": 0.16
+ },
+ "group_totals": [
+  "MW_466401",
+  "MW_466402",
+  "MW_432100",
+  "MW_432101"
+ ],
+ "held_at_zero": {},
+ "reactive_screen": {
+  "37 Checkerhouse 11kV 3T0": {
+   "implausible": 2,
+   "suspect": 0
+  }
+ },
+ "identical_runs": {
+  "MW_34711": 13,
+  "MW_42860": 48,
+  "MW_43260": 38,
+  "MW_44120": 29,
+  "MW_430702": 17520
+ },
+ "metered_nodes": 23,
+ "derived_nodes": 26
+}

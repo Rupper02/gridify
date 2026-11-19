@@ -1,0 +1,433 @@
+{
+ "variant": "thorns",
+ "connections": [
+  {
+   "request_id": "ECR-3D6F6",
+   "bus_id": 131,
+   "technology": "solar",
+   "rating_mw": 40.0,
+   "import_mw": 0.35,
+   "control": null,
+   "year": 2027
+  }
+ ],
+ "in_service": [
+  "ECR-3D6F6"
+ ],
+ "voltage_control_at_unity": [],
+ "connection_output": {
+  "peak_mw": 40.0,
+  "min_mw": 0.0,
+  "energy_gwh": 51.6
+ },
+ "changed": [
+  {
+   "kind": "line",
+   "id": 115,
+   "name": "Sleaford 33kV #6L5 - Whitecross La Slr Pk 33kV Tee",
+   "label": "flow differs",
+   "peak_pct": 141.2,
+   "peak_at": "2024-06-06 15:30:00",
+   "h90": 561.5,
+   "h100": 402.0,
+   "plan_envelope_pct": 102.5,
+   "plan_breach_cases": "summer_min",
+   "peak_pct_main": 26.2,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 31.4,
+   "d_h100": 402.0
+  },
+  {
+   "kind": "line",
+   "id": 89,
+   "name": "Cranwell 33kV 4L3 - Leadenham 33kV 2H3",
+   "label": "flow differs",
+   "peak_pct": 90.4,
+   "peak_at": "2024-08-11 13:30:00",
+   "h90": 1.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 83.1,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 69.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 61.3,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "trafo",
+   "id": 30,
+   "name": "Sleaford 132kV 203 - Sleaford 33kV #6L5",
+   "label": "flow differs",
+   "peak_pct": 86.2,
+   "peak_at": "2024-05-19 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 109.3,
+   "plan_breach_cases": "summer_min",
+   "peak_pct_main": 75.6,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 78.8,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "trafo",
+   "id": 29,
+   "name": "Sleaford 132kV 103 - Sleaford 33kV #6L5",
+   "label": "flow differs",
+   "peak_pct": 86.0,
+   "peak_at": "2024-05-19 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 107.8,
+   "plan_breach_cases": "summer_min",
+   "peak_pct_main": 75.4,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 77.4,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 98,
+   "name": "Grange Fm Slr Kirkby on Bn 33kV Tee - Horncastle 33kV 1L3",
+   "label": "flow differs",
+   "peak_pct": 72.5,
+   "peak_at": "2024-05-13 10:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 18.3,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 62.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 15.8,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 94,
+   "name": "Great Hale 33kV #1H0 - Billingborough 33kV 2L3",
+   "label": "flow differs",
+   "peak_pct": 67.4,
+   "peak_at": "2024-06-02 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 71.7,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 36.0,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 38.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 28,
+   "name": "Pole 91ZB9CA5 - Billingborough 33kV 2L3",
+   "label": "flow differs",
+   "peak_pct": 66.1,
+   "peak_at": "2024-05-29 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 60.4,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 37.3,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 34.4,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 40,
+   "name": "Mill Farm Battery Storage 33kV Tee - Leadenham 33kV 2H3",
+   "label": "flow differs",
+   "peak_pct": 55.5,
+   "peak_at": "2024-08-11 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 62.3,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 44.4,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 46.6,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 36,
+   "name": "Grantham 33kV #1L5 - Mill Farm Battery Storage 33kV Tee",
+   "label": "flow differs",
+   "peak_pct": 53.0,
+   "peak_at": "2024-05-19 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 77.2,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.7,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 61.4,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 102,
+   "name": "Burton Pedwardine Slr Pk 1 33kV Tee - Great Hale 33kV #1H0",
+   "label": "flow differs",
+   "peak_pct": 50.9,
+   "peak_at": "2024-08-18 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 54.6,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 27.7,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 31.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 95,
+   "name": "Pole 90ZTAD31 - Grange Fm Slr Kirkby on Bn 33kV Tee",
+   "label": "flow differs",
+   "peak_pct": 50.2,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 23.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.2,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 96,
+   "name": "Pole 90ZTAD30 - Pole 90ZTAD31",
+   "label": "flow differs",
+   "peak_pct": 50.2,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 23.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.1,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 126,
+   "name": "Woodhall Spa 33kV Tee - Pole 90ZTAD30",
+   "label": "flow differs",
+   "peak_pct": 50.2,
+   "peak_at": "2024-06-15 15:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 23.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 39.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 36.1,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 100,
+   "name": "Nth Rauceby Switching Stn 33kV #2L5 - Cranwell 33kV 4L3",
+   "label": "flow differs",
+   "peak_pct": 43.1,
+   "peak_at": "2024-04-30 12:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 43.2,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 37.7,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 37.6,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 35,
+   "name": "Grantham 33kV #1L5 - Easton 33kV Tee",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 42.4,
+   "peak_at": "2024-04-30 13:30:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 46.9,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 32.6,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 27.3,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 18,
+   "name": "Sleaford 132kV Tee 2 - Sleaford 132kV 203",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 40.6,
+   "peak_at": "2024-08-11 14:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 54.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 32.9,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 39.3,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 16,
+   "name": "Sleaford 132kV Tee 1 - Sleaford 132kV 103",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 40.5,
+   "peak_at": "2024-08-11 14:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 53.7,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 32.8,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 38.6,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 123,
+   "name": "Whitecross La Slr Pk 33kV Tee - Burton Pedwardine Slr Pk 1 33kV Tee",
+   "label": "flow differs",
+   "peak_pct": 35.9,
+   "peak_at": "2024-07-18 12:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 54.6,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 26.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 31.3,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 29,
+   "name": "Pole 91ZB9CA4 - Pole 91ZB9CA5",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 28.2,
+   "peak_at": "2024-05-29 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 16.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 14.8,
+   "d_h100": 0.0
+  },
+  {
+   "kind": "line",
+   "id": 32,
+   "name": "Easton 33kV Tee - Pole 91ZB9CA4",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 28.2,
+   "peak_at": "2024-05-29 13:00:00",
+   "h90": 0.0,
+   "h100": 0.0,
+   "plan_envelope_pct": 25.5,
+   "plan_breach_cases": NaN,
+   "peak_pct_main": 16.1,
+   "h90_main": 0.0,
+   "h100_main": 0.0,
+   "plan_envelope_pct_main": 14.8,
+   "d_h100": 0.0
+  }
+ ],
+ "worst": {
+  "element": "line 115 Sleaford 33kV #6L5 - Whitecross La Slr Pk 33kV Tee",
+  "hours_above_rating": 402.0,
+  "mvah_above_rating": 1853.0,
+  "largest_mva_above": 10.2,
+  "rating_mva_winter_summer": [
+   27.2,
+   24.8
+  ]
+ },
+ "voltage": {
+  "min_pu": [
+   0.9368,
+   0.9368
+  ],
+  "max_pu": [
+   1.0408,
+   1.0531
+  ],
+  "changed": {}
+ },
+ "firm_changed": {
+  "New Beacon Road": [
+   1544.0,
+   1541.5
+  ]
+ },
+ "gsp": {
+  "export_max_mw": [
+   243.7,
+   279.8
+  ],
+  "export_max_at": [
+   "2024-08-23 14:30:00",
+   "2024-08-23 14:30:00"
+  ],
+  "import_max_mw": [
+   172.3,
+   172.3
+  ],
+  "hours_above_export_limit": [
+   0.0,
+   0.0
+  ]
+ },
+ "planning_cases_with_branch": {
+  "breaches": 3,
+  "list": [
+   [
+    "line",
+    115,
+    "summer_min",
+    102.5
+   ],
+   [
+    "trafo",
+    30,
+    "summer_min",
+    109.3
+   ],
+   [
+    "trafo",
+    29,
+    "summer_min",
+    107.8
+   ]
+  ]
+ }
+}

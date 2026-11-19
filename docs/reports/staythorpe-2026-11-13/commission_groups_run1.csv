@@ -1,0 +1,161 @@
+cols,kind,ids,name,cls,kv,within5,same_dir,within_rad,ok,offset_mw,offset_p95_mw,ng_max,eng_max
+34152_466403_0_L1,line,10,Checkerhouse 33kV #1L5 - Ollerton 33kV Tee,meshed,33.0,0.4459,0.7964,0.0697,False,1.432,5.912,9.03,4.1
+34152_469805_0_L1,line,39,Ollerton 33kV Tee - Bevercotes 33kV 1L3,meshed,33.0,0.122,0.7964,0.0697,False,-1.434,5.914,9.03,4.1
+34152_495200_0_L1,line,40,Ollerton 33kV Tee - Pole 89ZGWLA3,input,33.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+37980_37983_0_L1,line,63,Bingham 33kV Tee 2 - Bingham 33kV T2,radial,33.0,1.0,1.0,1.0,True,0.002,0.008,4.82,4.82
+37980_462704_0_L1,line,89,Sibthorpe 33kV #3L5 - Bingham 33kV Tee 2,radial,33.0,1.0,1.0,1.0,True,-0.008,0.018,4.82,4.84
+37983_389400_0_T2,trafo,2,Bingham 33kV T2 - Bingham 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,0.002,0.008,4.81,4.81
+41432_46761_0_L1,line,120,Hawton 132kV Tee 1 - Asfordby 132kV Tee 1,input,132.0,1.0,1.0,1.0,True,-0.001,0.001,9.7,9.67
+41432_414302_0_L1,line,107,Asfordby 132kV Tee 1 - Asfordby 132kV 105,input,132.0,1.0,1.0,1.0,True,0.0,0.0,9.7,9.7
+41433_46760_0_L1,line,122,Hawton 132kV Tee 2 - Asfordby 132kV Tee 2,input,132.0,1.0,1.0,1.0,True,-0.001,0.001,9.71,9.68
+41433_400901_0_L1,line,108,Asfordby 132kV Tee 2 - Melton Mowbray 132kV Main 2,input,132.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+41433_414303_0_L1,line,109,Asfordby 132kV Tee 2 - Asfordby 132kV 205,input,132.0,1.0,1.0,1.0,True,0.0,0.0,9.71,9.71
+42241_472809_0_L1,line,26,Low Farm AD 33kV Tee - Pole 89ZGWJ84,meshed,33.0,0.9585,0.9836,0.7441,True,-0.221,1.25,5.67,4.74
+42241_495203_0_L1,line,1,Pole 89ZGWJ70 - Low Farm AD 33kV Tee,meshed,33.0,0.9404,0.9892,0.7302,False,0.222,1.251,5.07,4.9
+42551_423901_0_L1,line,102,Pole 91ZHWLB6 - Copley Farm Solar Gener'n 33kV Tee,radial,33.0,1.0,1.0,1.0,True,-0.004,0.078,20.73,20.6
+42551_423902_0_L1,line,73,Copley Farm Solar Gener'n 33kV Tee - Westborough 33kV 1H3,radial,33.0,1.0,1.0,1.0,True,0.0,0.008,5.01,5.0
+42600_43700_0_L1,line,35,Moat Farm Solar Farm 33kV Tee - Retford Road Solar Gener'n 33kV Tee,meshed,33.0,0.9358,0.9939,0.7318,False,-0.22,1.252,4.25,4.81
+42600_466400_0_L1,line,34,Moat Farm Solar Farm 33kV Tee - Pole 89ZGWM84,meshed,33.0,0.9358,0.9848,0.7356,False,0.221,1.253,3.32,4.81
+42830_428302_0_L1,line,115,Cotham Grange PV 132kV Tee - Cotham Grange PV 132kV 103,input,132.0,1.0,1.0,1.0,True,0.0,0.0,39.0,39.0
+42830_443404_0_L1,line,114,Cotham Grange PV 132kV Tee - Grantham North 132kV 303,backbone,132.0,1.0,1.0,1.0,True,-0.002,0.027,6.19,6.19
+42830_490315_0_L1,line,127,Staythorpe B 132kV 405 - Cotham Grange PV 132kV Tee,backbone,132.0,1.0,1.0,1.0,True,-0.0,0.02,39.56,39.54
+43121_43590_0_L1,line,88,Lodge Farm Solar Park 33kV Tee - Shelton Lodge Solar Gen 33kV Tee,radial,33.0,1.0,1.0,1.0,True,0.003,0.007,4.33,4.33
+43121_300301_0_L1,line,62,Pole 88ZXKA19 - Lodge Farm Solar Park 33kV Tee,radial,33.0,1.0,1.0,1.0,True,-0.004,0.03,11.15,11.1
+43121_305800_0_L1,line,87,Lodge Farm Solar Park 33kV Tee - Pole 88ZXKA38A,input,33.0,1.0,1.0,1.0,True,0.0,0.005,8.53,8.53
+43250_356284_0_L1,line,18,Cobb Farm Solar Generation 33kV Tee - Pole 89ZTXA41,meshed,33.0,0.5102,1.0,0.2016,False,1.128,6.852,6.05,11.37
+43250_475003_0_L1,line,52,Tuxford 33kV 1H3 - Cobb Farm Solar Generation 33kV Tee,meshed,33.0,0.5092,0.7473,0.2002,False,-1.132,6.859,9.5,6.5
+43322_47130_0_L1,line,50,Tiln Farm Solar Generation 33kV Tee - North Wheatley 33kV T1,radial,33.0,1.0,1.0,1.0,True,0.001,0.007,3.96,3.97
+43322_472802_0_L1,line,22,Hallcroft Road 33kV 3L3 - Tiln Farm Solar Generation 33kV Tee,radial,33.0,1.0,1.0,1.0,True,-0.003,0.015,7.38,7.35
+43322_495400_0_L1,line,51,Tiln Farm Solar Generation 33kV Tee - Tiln Solar Farm 33kV ABI,input,33.0,1.0,1.0,1.0,True,0.0,0.001,7.81,7.82
+43590_305801_0_L1,line,94,Shelton Lodge Solar Gen 33kV Tee - Pole 88ZXKA45A,input,33.0,1.0,1.0,1.0,True,0.0,0.002,3.42,3.42
+43590_305802_0_L1,line,95,Shelton Lodge Solar Gen 33kV Tee - Pole 88ZXKA47,radial,33.0,1.0,1.0,1.0,True,0.002,0.006,4.42,4.42
+43690_440200_0_L1,line,56,Pole 89ZGWGA9 - West End Farm Solar Gen 33kV Tee,radial,33.0,1.0,1.0,1.0,True,-0.004,0.013,4.07,4.09
+43690_495212_0_L1,line,59,West End Farm Solar Gen 33kV Tee - Pole 89ZGWGA62,radial,33.0,1.0,1.0,1.0,True,0.002,0.008,4.07,4.07
+43700_437001_0_L1,line,47,Retford Road Solar Gener'n 33kV Tee - Retford Road Solar Gen 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.002,3.84,3.84
+43700_466413_0_L1,line,48,Retford Road Solar Gener'n 33kV Tee - Checkerhouse 33kV #1L5,meshed,33.0,0.8844,0.9979,0.7361,False,-0.221,1.255,7.81,6.39
+44210_46890_0_L1,line,46,Ranskill 33kV Tee 2 - Daneshill 33kV Tee,meshed,33.0,1.0,1.0,0.9998,True,-0.033,0.293,3.31,3.12
+44210_442102_0_L1,line,45,Ranskill 33kV Tee 2 - Pole 89ZGWMA5,meshed,33.0,0.8912,0.0,0.6591,False,0.254,1.545,0.0,2.8
+44210_495213_0_L1,line,3,Pole 89ZGWM84 - Ranskill 33kV Tee 2,meshed,33.0,0.9583,0.9848,0.7359,True,-0.22,1.251,3.31,4.81
+44211_495204_0_L1,line,2,Pole 89ZGWJ84 - Ranskill 33kV Tee 1,meshed,33.0,0.9582,0.9836,0.7447,True,0.221,1.25,5.66,4.73
+44211_495205_0_L1,line,43,Ranskill 33kV Tee 1 - Pole 89ZGWMA6,meshed,33.0,0.8912,0.0,0.6591,False,-0.254,1.545,0.0,2.8
+44211_495208_0_L1,line,44,Ranskill 33kV Tee 1 - Pole 89ZGWJ92,meshed,33.0,1.0,1.0,0.9998,True,0.033,0.292,5.66,5.89
+44290_466404_0_L1,line,8,Checkerhouse 33kV #1L5 - Walkers Wood Solar Farm 33kV Tee,meshed,33.0,0.9986,0.9995,0.7885,True,0.219,1.183,22.59,23.81
+44290_472805_0_L1,line,54,Walkers Wood Solar Farm 33kV Tee - Hallcroft Road 33kV 2L3,meshed,33.0,0.9787,0.9913,0.7589,True,-0.219,1.189,9.01,7.52
+44300_301502_0_L1,line,101,Swinderby 33kV Tee - Pole 90ZHWLA2,meshed,33.0,1.0,1.0,0.8231,True,-0.187,0.943,5.31,5.01
+44300_306700_0_L1,line,100,Swinderby 33kV Tee - Pole 91ZHWLB5,radial,33.0,1.0,1.0,1.0,True,0.001,0.013,20.57,20.55
+44300_461503_0_L1,line,75,Fernwood 33kV #2H0 - Swinderby 33kV Tee,meshed,33.0,0.9972,0.9999,0.8596,True,0.179,0.889,19.36,19.95
+44301_420801_0_T1,trafo,36,Swinderby 33kV T1 - Swinderby 11kV 1T0,meshed,33.0,0.7365,0.9995,0.8107,False,0.187,0.937,3.46,3.78
+44301_474008_0_L1,line,69,Carlton-on-Trent 33kV 2L3 - Swinderby 33kV T1,meshed,33.0,0.9986,0.9993,0.8072,True,-0.195,0.943,3.46,3.8
+46150_432108_0_L1,line,80,Hawton 33kV #1L5 - Fernwood 33kV T2,meshed,33.0,1.0,1.0,1.0,True,0.005,0.02,1.48,1.47
+46150_441201_0_T2,trafo,13,Fernwood 33kV T2 - Fernwood 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.006,0.02,1.48,1.47
+46500_432113_0_L1,line,78,Hawton 33kV #1L5 - Newark Junction 33kV T2,meshed,33.0,1.0,1.0,1.0,True,-0.007,0.016,10.39,10.48
+46500_432200_0_T2,trafo,28,Newark Junction 33kV T2 - Newark Junction 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.0,0.006,10.46,10.46
+46501_432107_0_L1,line,79,Hawton 33kV #1L5 - Newark Junction 33kV T1,meshed,33.0,1.0,1.0,1.0,True,-0.007,0.016,10.53,10.63
+46501_432201_0_T1,trafo,27,Newark Junction 33kV T1 - Newark Junction 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.0,0.006,10.6,10.6
+46642_462400_0_T1,trafo,11,Checkerhouse 33kV T1 - Checkerhouse 11kV 3T0,radial,33.0,1.0,1.0,1.0,True,0.002,0.008,3.19,3.2
+46642_466414_0_L1,line,9,Checkerhouse 33kV #1L5 - Checkerhouse 33kV T1,radial,33.0,1.0,1.0,1.0,True,-0.003,0.008,3.19,3.2
+46650_301500_0_L1,line,85,Hawton Wind Farm 33kV Tee - Pole 90ZHWP42,meshed,33.0,1.0,1.0,1.0,True,-0.043,0.217,3.34,3.27
+46650_471203_0_L1,line,64,Bowbridge Gener'n STOR 33kV 3L3 - Hawton Wind Farm 33kV Tee,meshed,33.0,1.0,1.0,1.0,True,0.042,0.216,4.97,5.14
+46760_467601_0_L1,line,123,Hawton 132kV Tee 2 - Hawton 132kV 213,backbone,132.0,0.9976,0.973,0.652,True,-0.575,3.393,38.55,37.74
+46760_490421_0_L1,line,135,Staythorpe C 132kV 105 - Hawton 132kV Tee 2,backbone,132.0,1.0,0.9729,0.6509,True,0.575,3.394,36.8,36.04
+46761_467600_0_L1,line,121,Hawton 132kV Tee 1 - Hawton 132kV 113,backbone,132.0,0.9975,0.9729,0.6518,True,-0.577,3.395,38.59,37.78
+46761_490425_0_L1,line,130,Staythorpe C 132kV 105 - Hawton 132kV Tee 1,backbone,132.0,1.0,0.9729,0.6506,True,0.576,3.398,36.84,36.08
+46870_348703_0_L1,line,124,Staythorpe B 132kV 405 - Grantham South 132kV Tee 1,backbone,132.0,1.0,1.0,1.0,True,-0.01,0.021,10.06,10.09
+46870_442207_0_L1,line,117,Grantham South 132kV Tee 1 - Bourne 132kV 403,input,132.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+46870_468702_0_L1,line,116,Grantham South 132kV Tee 1 - Grantham South 132kV 103,backbone,132.0,1.0,1.0,1.0,True,-0.001,0.01,10.06,10.06
+46871_438505_0_L1,line,119,Grantham South 132kV Tee 2 - Bourne West 132kV Tee 2,backbone,132.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+46871_468705_0_L1,line,118,Grantham South 132kV Tee 2 - Grantham South 132kV 203,backbone,132.0,1.0,1.0,1.0,True,-0.0,0.009,9.36,9.36
+46871_490311_0_L1,line,125,Staythorpe B 132kV 405 - Grantham South 132kV Tee 2,backbone,132.0,1.0,1.0,1.0,True,-0.009,0.02,9.36,9.39
+46890_468901_0_L1,line,19,Daneshill 33kV Tee - Daneshill 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.0,0.34,0.34
+46890_495214_0_L1,line,20,Daneshill 33kV Tee - Pole 89ZGWM93,meshed,33.0,1.0,1.0,0.9998,True,-0.033,0.293,3.31,3.12
+47130_438400_0_T1,trafo,29,North Wheatley 33kV T1 - North Wheatley 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,0.001,0.008,3.94,3.94
+47301_465300_0_L1,line,29,Pole 89ZGWJ92 - Misterton 33kV Tee,meshed,33.0,1.0,1.0,0.9998,True,-0.042,0.295,5.63,5.88
+47301_495209_0_L1,line,31,Misterton 33kV Tee - Pole 89ZGWJA6,radial,33.0,1.0,1.0,1.0,True,0.001,0.009,3.46,3.46
+47301_495210_0_L1,line,32,Misterton 33kV Tee - Pole 89ZGWJ140,meshed,33.0,1.0,1.0,0.9998,True,0.033,0.291,2.65,2.7
+47391_439801_0_L1,line,24,Little Morton Solar Farm 33kV Tee - Ordsall Road 33kV 3L3,meshed,33.0,1.0,1.0,1.0,True,0.003,0.013,7.57,7.58
+47391_466405_0_L1,line,16,Checkerhouse 33kV #1L5 - Little Morton Solar Farm 33kV Tee,meshed,33.0,1.0,1.0,1.0,True,-0.003,0.016,11.79,11.77
+47402_314101_0_L1,line,70,Carlton-on-Trent 33kV Tee - Pole 89ZHWJ48,meshed,33.0,0.6945,0.7764,0.2814,False,-0.943,5.836,6.19,7.02
+47402_356243_0_L1,line,71,Carlton-on-Trent 33kV Tee - Pole 89ZHWJA3,meshed,33.0,1.0,1.0,1.0,True,0.043,0.217,3.12,3.18
+47402_432110_0_L1,line,82,Hawton 33kV #1L5 - Carlton-on-Trent 33kV Tee,meshed,33.0,0.616,0.8537,0.318,False,0.895,5.618,8.95,7.69
+300300_300301_0_L1,line,60,Pole 88ZXKA18 - Pole 88ZXKA19,meshed,33.0,1.0,1.0,1.0,True,0.019,0.113,4.41,4.58
+300300_462708_0_L1,line,92,Sibthorpe 33kV #3L5 - Pole 88ZXKA18,radial,33.0,1.0,1.0,1.0,True,-0.004,0.026,11.1,11.06
+300302_300303_0_L1,line,104,Pole 88ZXKA18 - Pole 88ZXKA19,meshed,33.0,1.0,1.0,1.0,True,-0.018,0.116,6.69,6.52
+301501_443001_0_L1,line,99,Pole 90ZHWLA2 - Pole 90ZHWLA7,meshed,33.0,1.0,1.0,0.8235,True,0.187,0.942,5.31,5.01
+306701_423900_0_L1,line,103,Pole 91ZHWLB5 - Pole 91ZHWLB6,radial,33.0,1.0,1.0,1.0,True,-0.002,0.015,20.62,20.6
+314100_474010_0_L1,line,68,Pole 89ZHWJ48 - Pole 89ZHWJ49,meshed,33.0,0.6945,0.7764,0.2813,False,0.942,5.836,6.19,7.02
+341513_495201_0_L1,line,37,Pole 89ZGWLA3 - Pole 89ZGWLA6,input,33.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+347100_428704_0_T2,trafo,34,Southwell 33kV 2H3 - Southwell 11kV 1T0,meshed,33.0,0.9994,1.0,1.0,True,0.039,0.215,3.31,3.25
+347101_428703_0_T1,trafo,33,Southwell 33kV 1H3 - Southwell 11kV 1T0,meshed,33.0,0.9993,1.0,1.0,True,-0.046,0.218,3.09,3.17
+348707_440005_0_L1,line,112,Checkerhouse 132kV 103 - Staythorpe B 132kV 405,backbone,132.0,1.0,0.978,0.5861,True,0.546,3.36,25.17,22.07
+348709_490429_0_L1 490309_490427_0_L1,line,131 134,Staythorpe C 132kV 105 - Staythorpe B 132kV 405,backbone,132.0,0.8969,0.9868,0.0192,False,-8.282,15.133,48.64,64.48
+348711_490431_0_L1,line,133,Staythorpe C 132kV 2005 A - Staythorpe B 132kV 705 A,backbone,132.0,0.2955,0.9885,0.0171,False,7.463,15.016,32.13,11.21
+420800_443004_0_T2,trafo,35,Swinderby 33kV 2L3 - Swinderby 11kV 1T0,meshed,33.0,0.8462,1.0,0.8266,False,0.181,0.93,5.25,4.97
+421400_469802_0_T1,trafo,0,Bevercotes 33kV 1L3 - Bevercotes 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,0.182,0.326,2.01,1.67
+421401_469810_0_T2,trafo,1,Bevercotes 33kV #2H0 - Bevercotes 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.183,0.328,1.9,2.25
+422300_422303_0_L1,line,65,Pole 88ZXKA47 - Bottesford 33kV 1L3,radial,33.0,1.0,1.0,1.0,True,0.002,0.006,4.42,4.42
+422304_436400_0_T1,trafo,3,Bottesford 33kV 1L3 - Bottesford 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,0.002,0.005,4.41,4.41
+422401_422402_0_L1,line,25,Low Farm AD 33kV Tee - Low Farm AD 33kV #1L5,input,33.0,1.0,1.0,1.0,True,-0.001,0.001,2.68,2.68
+422600_439802_0_T1,trafo,30,Ordsall Road 33kV 1H3 - Ordsall Road 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,0.001,0.009,3.9,3.83
+422601_439803_0_T2,trafo,31,Ordsall Road 33kV 3L3 - Ordsall Road 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.005,0.012,3.78,3.8
+423903_432600_0_T1,trafo,39,Westborough 33kV 1H3 - Westborough 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,0.001,0.008,4.99,4.99
+425500_425502_0_L1,line,72,Copley Farm Solar Gener'n 33kV Tee - Copley Farm Solar Gen 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.013,21.15,21.13
+425600_432104_0_T1 425601_432111_0_T2,trafo,22 23,Hawton 33kV #1L5 - Hawton 11kV 3T0,meshed,33.0,1.0,1.0,1.0,True,-0.01,0.032,15.25,15.3
+426000_426002_0_L1,line,33,Moat Farm Solar Farm 33kV Tee - Moat Farm Solar Farm 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.0,3.65,3.65
+426900_462705_0_L1,line,90,Sibthorpe 33kV #3L5 - Caythorpe 33kV 1H3,meshed,33.0,1.0,1.0,0.5692,True,0.535,0.795,5.16,4.31
+426901_462702_0_L1,line,91,Sibthorpe 33kV #3L5 - Caythorpe 33kV 2H3,meshed,33.0,1.0,1.0,0.4568,True,-0.537,0.795,3.75,4.62
+426902_466000_0_T1,trafo,7,Caythorpe 33kV 1H3 - Caythorpe 11kV 1T0,meshed,33.0,0.5795,1.0,0.5666,False,-0.542,0.806,5.16,4.29
+426903_466001_0_T2,trafo,8,Caythorpe 33kV 2H3 - Caythorpe 11kV 1T0,meshed,33.0,0.6805,1.0,0.5583,False,0.529,0.782,3.75,4.59
+428600_465305_0_T1,trafo,24,Misson 33kV 1L3 - Misson 11kV 3T0,meshed,33.0,1.0,1.0,0.9998,True,0.031,0.291,3.29,3.11
+428601_465307_0_T2,trafo,25,Misson 33kV 2L3 - Misson 11kV 3T0,meshed,33.0,1.0,1.0,0.9999,True,-0.034,0.292,2.64,2.7
+428700_428702_0_L1,line,97,Pole 90ZHWP42 - Southwell 33kV 2H3,meshed,33.0,1.0,1.0,1.0,True,-0.043,0.217,3.34,3.26
+428701_428705_0_L1,line,96,Pole 89ZHWJA3 - Southwell 33kV 1H3,meshed,33.0,1.0,1.0,1.0,True,-0.046,0.219,3.1,3.18
+429900_473002_0_T1,trafo,26,Misterton 33kV #1H0 - Misterton 11kV #1T0,radial,33.0,1.0,1.0,1.0,True,-0.001,0.006,3.44,3.45
+431200_431202_0_L1,line,86,Pole 88ZXKA38A - Lodge Farm Solar Park 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.004,8.54,8.53
+432102_471202_0_L1,line,77,Hawton 33kV #1L5 - Bowbridge Gener'n STOR 33kV 3L3,meshed,33.0,1.0,1.0,1.0,True,-0.042,0.216,16.37,16.41
+432103_462706_0_L1 432112_462703_0_L1,line,76 83,Hawton 33kV #1L5 - Sibthorpe 33kV #3L5,meshed,33.0,1.0,1.0,1.0,True,-0.051,0.09,19.09,18.99
+432105_461501_0_L1,line,81,Hawton 33kV #1L5 - Fernwood 33kV #2H0,meshed,33.0,1.0,0.9998,0.8515,True,-0.183,0.911,18.26,18.97
+432106_467602_0_G1,trafo,20,Hawton 132kV 113 - Hawton 33kV #1L5,backbone,132.0,0.8544,0.9729,0.6572,False,0.552,3.394,38.46,37.73
+432109_467603_0_G2,trafo,21,Hawton 132kV 213 - Hawton 33kV #1L5,backbone,132.0,0.8546,0.973,0.6573,False,0.552,3.391,38.42,37.69
+432500_432502_0_L1,line,17,Cobb Farm Solar Generation 33kV Tee - Cobb Farm Solar Generat'n 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.003,10.01,10.01
+434300_462707_0_T1,trafo,32,Sibthorpe 33kV #3L5 - Sibthorpe 11kV 3T0,radial,33.0,1.0,1.0,1.0,True,-0.002,0.008,2.99,3.0
+434600_472803_0_T1,trafo,18,Hallcroft Road 33kV 3L3 - Hallcroft Road 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.003,0.057,4.43,4.4
+434601_472806_0_T2,trafo,19,Hallcroft Road 33kV 2L3 - Hallcroft Road 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.012,0.067,4.5,4.57
+435900_435902_0_L1,line,93,Pole 88ZXKA45A - Shelton Lodge Solar Gen 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.001,3.42,3.42
+436900_436902_0_L1,line,58,West End Farm Solar Gen 33kV Tee - West End Farm Solar Gen 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.0,3.39,3.39
+438000_440204_0_T1,trafo,38,Woodbeck 33kV 1L3 - Woodbeck 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,-0.003,0.009,4.05,4.07
+438501_438505_0_L1,line,111,Bourne West 132kV Tee 2 - Bourne West 132kV 213,backbone,132.0,1.0,1.0,1.0,True,-0.0,0.0,0.0,0.0
+438503_473503_0_G2,trafo,4,Bourne West 132kV 213 - Bourne West 25kV #2T0,backbone,132.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+438505_442209_0_L1,line,110,Bourne West 132kV Tee 2 - Bourne 132kV 303,input,132.0,1.0,1.0,1.0,True,0.0,0.0,0.0,0.0
+439800_466411_0_L1,line,13,Checkerhouse 33kV #1L5 - Ordsall Road 33kV 1H3,meshed,33.0,1.0,1.0,1.0,True,0.001,0.01,3.83,3.84
+439804_495211_0_L1,line,41,Ordsall Road 33kV 3L3 - Pole 89ZGWGA9,radial,33.0,1.0,1.0,1.0,True,-0.0,0.008,4.09,4.09
+440004_490305_0_L1,line,113,Checkerhouse 132kV 203 - Staythorpe B 132kV 405,backbone,132.0,1.0,0.9785,0.5773,True,-0.568,3.397,25.26,22.0
+440006_466407_0_G2,trafo,10,Checkerhouse 132kV 203 - Checkerhouse 33kV #1L5,backbone,132.0,0.8543,0.9786,0.5775,False,0.566,3.395,25.27,22.0
+440007_466410_0_G1,trafo,9,Checkerhouse 132kV 103 - Checkerhouse 33kV #1L5,backbone,132.0,0.8513,0.978,0.5685,False,0.589,3.435,25.37,22.07
+440201_440203_0_L1,line,57,Pole 89ZGWGA62 - Woodbeck 33kV 1L3,radial,33.0,1.0,1.0,1.0,True,0.002,0.008,4.07,4.07
+441200_461504_0_T1,trafo,12,Fernwood 33kV T1 - Fernwood 11kV 1T0,meshed,33.0,1.0,1.0,1.0,True,-0.006,0.02,1.56,1.57
+441900_475002_0_T1,trafo,37,Tuxford 33kV 1H3 - Tuxford 11kV 1T0,radial,33.0,1.0,1.0,1.0,True,-0.007,0.036,6.94,7.0
+442100_495206_0_L1,line,42,Pole 89ZGWMA6 - Daneshill Road 33kV ACR,meshed,33.0,0.8912,0.0,0.6591,False,-0.254,1.545,0.0,2.8
+442101_495207_0_L1,line,4,Pole 89ZGWMA5 - Daneshill Road 33kV ACR,meshed,33.0,0.8912,0.0,0.6591,False,-0.254,1.545,0.0,2.8
+442300_468704_0_G2,trafo,17,Grantham South 132kV 203 - Grantham South 11kV 1T0,backbone,132.0,1.0,1.0,1.0,True,-0.005,0.014,9.34,9.36
+442301_468701_0_G1,trafo,16,Grantham South 132kV 103 - Grantham South 11kV 1T0,backbone,132.0,1.0,1.0,1.0,True,-0.006,0.016,10.03,10.06
+442900_442902_0_L1,line,53,Pole 89ZGWJ2A - Walkers Wood Solar Farm 33kV #2H0,input,33.0,1.0,1.0,1.0,True,0.0,0.006,20.52,20.51
+443000_443003_0_L1,line,98,Pole 90ZHWLA7 - Swinderby 33kV 2L3,meshed,33.0,1.0,1.0,0.8232,True,-0.187,0.942,5.31,5.0
+443405_463800_0_G3,trafo,14,Grantham North 132kV 303 - Grantham North 11kV 3T0,backbone,132.0,1.0,1.0,1.0,True,-0.002,0.026,6.18,6.19
+443406_490313_0_L1,line,129,Staythorpe B 132kV 405 - Grantham North 132kV 403,backbone,132.0,1.0,1.0,1.0,True,-0.003,0.027,6.08,6.09
+443407_463801_0_G4,trafo,15,Grantham North 132kV 403 - Grantham North 11kV 3T0,backbone,132.0,1.0,1.0,1.0,True,0.002,0.026,6.08,6.08
+443500_474002_0_T2 443501_474004_0_T1,trafo,5 6,Carlton-on-Trent 33kV 2L3 - Carlton-on-Trent 11kV 2T0,meshed,33.0,1.0,1.0,1.0,True,-0.004,0.021,7.17,7.19
+461502_461504_0_L1,line,74,Fernwood 33kV #2H0 - Fernwood 33kV T1,meshed,33.0,1.0,1.0,1.0,True,0.006,0.02,1.56,1.57
+465301_465306_0_L1,line,28,Pole 89ZGWJ140 - Misson 33kV 2L3,meshed,33.0,1.0,1.0,0.9998,True,0.033,0.291,2.65,2.7
+465304_465308_0_L1,line,27,Pole 89ZGWM93 - Misson 33kV 1L3,meshed,33.0,1.0,1.0,0.9998,True,0.028,0.29,3.29,3.12
+466406_469809_0_L1,line,14,Checkerhouse 33kV #1L5 - Bevercotes 33kV #2H0,meshed,33.0,1.0,1.0,1.0,True,0.183,0.329,1.9,2.25
+466409_469803_0_L1,line,11,Checkerhouse 33kV #1L5 - Bevercotes 33kV 1L3,meshed,33.0,0.1389,0.9996,0.0584,False,2.188,4.198,2.01,6.68
+466412_472804_0_L1,line,15,Checkerhouse 33kV #1L5 - Hallcroft Road 33kV 3L3,meshed,33.0,1.0,1.0,1.0,True,-0.005,0.062,8.1,8.06
+466500_466502_0_L1,line,84,Hawton Wind Farm 33kV Tee - Hawton Wind Farm 33kV #1L5,input,33.0,1.0,1.0,1.0,True,0.0,0.005,6.14,6.13
+469804_475001_0_L1,line,5,Bevercotes 33kV 3L3 - Tuxford 33kV 1H3,meshed,33.0,0.416,0.8,0.2281,False,1.138,6.812,9.1,9.94
+472807_472808_0_L1,line,21,Hallcroft Road 33kV 2L3 - Pole 89ZGWJ70,meshed,33.0,0.9406,0.9891,0.7301,False,-0.222,1.248,5.09,4.89
+473000_473001_0_L1,line,30,Pole 89ZGWJA6 - Misterton 33kV #1H0,radial,33.0,1.0,1.0,1.0,True,0.001,0.009,3.46,3.46
+473900_473902_0_L1,line,23,Little Morton Solar Farm 33kV Tee - Little Morton Solar Farm 33kV #2H0,input,33.0,1.0,1.0,1.0,True,0.0,0.002,9.85,9.85
+474003_474011_0_L1,line,7,Pole 89ZTXA41 - Carlton-on-Trent 33kV 2L3,meshed,33.0,0.507,1.0,0.2019,False,-1.128,6.844,6.0,11.35
+474007_474009_0_L1,line,67,Pole 89ZHWJ49 - Carlton-on-Trent 33kV 1L3,meshed,33.0,0.5797,0.7764,0.2874,False,0.927,5.828,6.14,7.02
+490200_490307_0_LK,line,126,Staythorpe B 132kV 405 - Newark BR 132kV Busbar,input,132.0,1.0,1.0,1.0,True,0.0,0.0,0.01,0.01
+495300_495302_0_L1,line,49,Tiln Solar Farm 33kV ABI - Tiln Farm Solar Generation 33kV #1L,input,33.0,1.0,1.0,1.0,True,0.0,0.001,7.82,7.82

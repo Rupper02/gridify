@@ -1,0 +1,405 @@
+{
+ "rules": {
+  "built": {
+   "rule1": {
+    "share_within": 0.9393835616438356,
+    "verdict": false,
+    "abs_gap_p50": 0.28409932670303917,
+    "abs_gap_p95": 2.666664885379494,
+    "abs_gap_max": 7.172228392815583
+   },
+   "rule2": {
+    "groups": 18,
+    "pass": 11,
+    "verdict": false
+   },
+   "rule3": {
+    "groups": 91,
+    "pass": 59,
+    "share": 0.6483516483516484,
+    "verdict": false
+   },
+   "rule4": {
+    "groups": 23,
+    "pass": 23,
+    "verdict": true,
+    "worst_p95_mw": 0.0844515323638916
+   }
+  },
+  "experiment": {
+   "rule1": {
+    "share_within": 0.9376712328767123,
+    "verdict": false,
+    "abs_gap_p50": 0.22196441120116006,
+    "abs_gap_p95": 2.774046556147742,
+    "abs_gap_max": 7.206270866007259
+   },
+   "rule2": {
+    "groups": 18,
+    "pass": 14,
+    "verdict": false
+   },
+   "rule3": {
+    "groups": 91,
+    "pass": 66,
+    "share": 0.7252747252747253,
+    "verdict": false
+   },
+   "rule4": {
+    "groups": 23,
+    "pass": 23,
+    "verdict": true,
+    "worst_p95_mw": 0.08376955986022949
+   }
+  }
+ },
+ "label_transitions": {
+  "input: carries NGED's own flow by construction -> input: carries NGED's own flow by construction": 16,
+  "agrees -> agrees": 103,
+  "differs -> differs": 27,
+  "not compared (not in NGED's file) -> not compared (not in NGED's file)": 8,
+  "differs -> agrees": 12,
+  "agrees -> differs": 2,
+  "not compared (railway input held at 0) -> not compared (railway input held at 0)": 4
+ },
+ "differs_to_agrees": [
+  "line 94 Great Hale 33kV #1H0 - Billingborough 33kV 2L3",
+  "line 28 Pole 91ZB9CA5 - Billingborough 33kV 2L3",
+  "line 102 Burton Pedwardine Slr Pk 1 33kV Tee - Great Hale 33kV #1H0",
+  "line 35 Grantham 33kV #1L5 - Easton 33kV Tee",
+  "line 37 Grantham 33kV GT1 - Grantham 33kV #1L5",
+  "line 38 Grantham 33kV GT2 - Grantham 33kV #1L5",
+  "line 123 Whitecross La Slr Pk 33kV Tee - Burton Pedwardine Slr Pk 1 33kV Tee",
+  "line 115 Sleaford 33kV #6L5 - Whitecross La Slr Pk 33kV Tee",
+  "line 15 Sleaford 132kV Tee 1 - Grantham 132kV 303",
+  "line 17 Sleaford 132kV Tee 2 - Grantham 132kV 403",
+  "line 9 Grantham 132kV 303 - Grantham 132kV #110",
+  "line 10 Grantham 132kV 403 - Grantham 132kV #210"
+ ],
+ "still_differs": [
+  {
+   "el": "line 63",
+   "name": "Horncastle 33kV 1L3 - Spilsby 33kV 6L5",
+   "offset_built": 1.04,
+   "offset_experiment": 0.58
+  },
+  {
+   "el": "line 77",
+   "name": "Skegness 33kV #1L5 - Pole 90ZB1E17",
+   "offset_built": 1.2,
+   "offset_experiment": 1.46
+  },
+  {
+   "el": "line 98",
+   "name": "Grange Fm Slr Kirkby on Bn 33kV Tee - Horncastle 33kV 1L3",
+   "offset_built": -1.15,
+   "offset_experiment": -0.68
+  },
+  {
+   "el": "line 89",
+   "name": "Cranwell 33kV 4L3 - Leadenham 33kV 2H3",
+   "offset_built": -2.26,
+   "offset_experiment": -1.11
+  },
+  {
+   "el": "trafo 0",
+   "name": "Alford 33kV 1L3 - Alford 11kV 1T0",
+   "offset_built": -0.22,
+   "offset_experiment": -0.2
+  },
+  {
+   "el": "trafo 30",
+   "name": "Sleaford 132kV 203 - Sleaford 33kV #6L5",
+   "offset_built": 2.46,
+   "offset_experiment": 1.29
+  },
+  {
+   "el": "trafo 29",
+   "name": "Sleaford 132kV 103 - Sleaford 33kV #6L5",
+   "offset_built": 2.46,
+   "offset_experiment": 1.29
+  },
+  {
+   "el": "line 76",
+   "name": "Skegness 33kV #1L5 - Manor Farm Irby PV 33kV Tee",
+   "offset_built": -2.26,
+   "offset_experiment": -2.06
+  },
+  {
+   "el": "trafo 41",
+   "name": "Warth Lane 33kV 3L3 - Warth Lane 11kV 1T0",
+   "offset_built": 0.08,
+   "offset_experiment": 0.08
+  },
+  {
+   "el": "line 36",
+   "name": "Grantham 33kV #1L5 - Mill Farm Battery Storage 33kV Tee",
+   "offset_built": -2.29,
+   "offset_experiment": -1.12
+  },
+  {
+   "el": "line 67",
+   "name": "Manor Farm Irby PV 33kV Tee - Spilsby 33kV 6L5",
+   "offset_built": 2.23,
+   "offset_experiment": 2.02
+  },
+  {
+   "el": "trafo 1",
+   "name": "Alford 33kV 2L3 - Alford 11kV 1T0",
+   "offset_built": 0.21,
+   "offset_experiment": 0.18
+  },
+  {
+   "el": "line 119",
+   "name": "Tattershall 33kV #8L5 - Woodhall Spa 33kV Tee",
+   "offset_built": 1.13,
+   "offset_experiment": 0.66
+  },
+  {
+   "el": "line 95",
+   "name": "Pole 90ZTAD31 - Grange Fm Slr Kirkby on Bn 33kV Tee",
+   "offset_built": 1.14,
+   "offset_experiment": 0.68
+  },
+  {
+   "el": "line 96",
+   "name": "Pole 90ZTAD30 - Pole 90ZTAD31",
+   "offset_built": -1.15,
+   "offset_experiment": -0.68
+  },
+  {
+   "el": "line 126",
+   "name": "Woodhall Spa 33kV Tee - Pole 90ZTAD30",
+   "offset_built": -1.15,
+   "offset_experiment": -0.68
+  },
+  {
+   "el": "line 40",
+   "name": "Mill Farm Battery Storage 33kV Tee - Leadenham 33kV 2H3",
+   "offset_built": 2.26,
+   "offset_experiment": 1.1
+  },
+  {
+   "el": "line 75",
+   "name": "Skegness 33kV #1L5 - Warth Lane 33kV Tee",
+   "offset_built": 0.22,
+   "offset_experiment": 0.22
+  },
+  {
+   "el": "line 110",
+   "name": "Sleaford 33kV #6L5 - Tattershall 33kV #8L5",
+   "offset_built": -2.19,
+   "offset_experiment": -1.93
+  },
+  {
+   "el": "trafo 12",
+   "name": "Grantham 132kV #110 - Grantham 33kV GT1",
+   "offset_built": 1.81,
+   "offset_experiment": 0.89
+  },
+  {
+   "el": "line 71",
+   "name": "Skegness 33kV #1L5 - Chapel St Leonards 33kV Tee",
+   "offset_built": -0.95,
+   "offset_experiment": -0.94
+  },
+  {
+   "el": "trafo 13",
+   "name": "Grantham 132kV #210 - Grantham 33kV GT2",
+   "offset_built": 1.76,
+   "offset_experiment": 0.86
+  },
+  {
+   "el": "line 100",
+   "name": "Nth Rauceby Switching Stn 33kV #2L5 - Cranwell 33kV 4L3",
+   "offset_built": 1.88,
+   "offset_experiment": 1.26
+  },
+  {
+   "el": "line 111",
+   "name": "Sleaford 33kV #6L5 - Nth Rauceby Switching Stn 33kV #2L5",
+   "offset_built": -1.89,
+   "offset_experiment": -1.27
+  },
+  {
+   "el": "line 58",
+   "name": "Chapel St Leonards 33kV Tee - Chapel St Leonards 33kV 1H3",
+   "offset_built": 1.12,
+   "offset_experiment": 1.12
+  },
+  {
+   "el": "line 88",
+   "name": "Pole 91ZF1F89 - Cranwell 33kV 4L3",
+   "offset_built": 0.56,
+   "offset_experiment": 0.18
+  },
+  {
+   "el": "line 116",
+   "name": "Sleaford 33kV #6L5 - Breech joint north of Manor Road",
+   "offset_built": 0.56,
+   "offset_experiment": 0.18
+  }
+ ],
+ "agrees_to_differs": [
+  {
+   "el": "line 107",
+   "name": "Breech joint south of Priory Way - RAF Cranwell High G Fac'ty 33kV Tee",
+   "offset_experiment": 0.18
+  },
+  {
+   "el": "line 109",
+   "name": "RAF Cranwell High G Fac'ty 33kV Tee - Pole 91ZF1F89",
+   "offset_experiment": -0.18
+  }
+ ],
+ "bsp_pair_offsets": {
+  "built": {
+   "Sleaford": {
+    "0.05": -7.545,
+    "0.5": -4.92,
+    "0.95": 8.27,
+    "mean": -3.09
+   },
+   "Skegness": {
+    "0.05": -0.497,
+    "0.5": 1.21,
+    "0.95": 2.772,
+    "mean": 1.234
+   },
+   "Grantham": {
+    "0.05": -7.268,
+    "0.5": 3.573,
+    "0.95": 5.684,
+    "mean": 2.005
+   }
+  },
+  "experiment": {
+   "Sleaford": {
+    "0.05": -4.201,
+    "0.5": -2.587,
+    "0.95": 5.093,
+    "mean": -1.534
+   },
+   "Skegness": {
+    "0.05": -0.162,
+    "0.5": 0.72,
+    "0.95": 2.089,
+    "mean": 0.848
+   },
+   "Grantham": {
+    "0.05": -4.932,
+    "0.5": 1.747,
+    "0.95": 2.968,
+    "mean": 0.765
+   }
+  }
+ },
+ "ties": {
+  "Sleaford to Skegness (via Tattershall, Woodhall Spa, Horncastle)": {
+   "line 110": [
+    -2.19,
+    -1.93,
+    "differs",
+    "differs"
+   ],
+   "line 114": [
+    -0.96,
+    -1.11,
+    "agrees",
+    "agrees"
+   ],
+   "line 119": [
+    1.13,
+    0.66,
+    "differs",
+    "differs"
+   ],
+   "line 121": [
+    0.97,
+    1.13,
+    "agrees",
+    "agrees"
+   ],
+   "line 126": [
+    -1.15,
+    -0.68,
+    "differs",
+    "differs"
+   ],
+   "line 96": [
+    -1.15,
+    -0.68,
+    "differs",
+    "differs"
+   ],
+   "line 95": [
+    1.14,
+    0.68,
+    "differs",
+    "differs"
+   ],
+   "line 98": [
+    -1.15,
+    -0.68,
+    "differs",
+    "differs"
+   ],
+   "line 63": [
+    1.04,
+    0.58,
+    "differs",
+    "differs"
+   ]
+  },
+  "Sleaford to Grantham (via North Rauceby, Cranwell, Leadenham, Mill Farm)": {
+   "line 111": [
+    -1.89,
+    -1.27,
+    "differs",
+    "differs"
+   ],
+   "line 100": [
+    1.88,
+    1.26,
+    "differs",
+    "differs"
+   ],
+   "line 89": [
+    -2.26,
+    -1.11,
+    "differs",
+    "differs"
+   ],
+   "line 40": [
+    2.26,
+    1.1,
+    "differs",
+    "differs"
+   ],
+   "line 36": [
+    -2.29,
+    -1.12,
+    "differs",
+    "differs"
+   ]
+  }
+ },
+ "sleaford_gts": {
+  "trafo 29": {
+   "label_b": "flow differs",
+   "label_x": "flow differs",
+   "offset_mw_b": 2.46,
+   "offset_mw_x": 1.29,
+   "peak_pct_b": 65.69,
+   "peak_pct_x": 72.25
+  },
+  "trafo 30": {
+   "label_b": "flow differs",
+   "label_x": "flow differs",
+   "offset_mw_b": 2.46,
+   "offset_mw_x": 1.29,
+   "peak_pct_b": 65.83,
+   "peak_pct_x": 72.36
+  }
+ }
+}

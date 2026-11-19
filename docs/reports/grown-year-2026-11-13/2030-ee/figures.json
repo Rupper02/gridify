@@ -1,0 +1,435 @@
+{
+ "year": 2030,
+ "pathway": "ee",
+ "variant": "",
+ "converged": 17568,
+ "half_hours": 17568,
+ "seconds": 1196.4,
+ "multipliers": {
+  "33": 1.26253,
+  "37": 1.28928,
+  "43": 1.1972099999999999,
+  "48": 1.32599,
+  "50": 1.36365,
+  "55": 1.2831399999999997,
+  "64": 1.35592,
+  "70": 1.24174,
+  "75": 1.25435,
+  "77": 1.04575,
+  "88": 1.2953899999999998,
+  "90": 1.35361,
+  "94": 1.26207,
+  "96": 1.11377,
+  "102": 1.01873,
+  "110": 1.58143,
+  "116": 1.24478,
+  "127": 1.04717,
+  "132": 1.34584,
+  "134": 1.2098,
+  "137": 1.29755
+ },
+ "planning_cases": {
+  "breaches": 0,
+  "worst_line": 92.8,
+  "worst_trafo": 97.3,
+  "gsp_export": 339.6,
+  "gsp_import": 178.7,
+  "list": []
+ },
+ "overloads": {
+  "grown_elements_over_100": 3,
+  "planning_breach_elements": 0,
+  "in_both": [],
+  "planning_only": [],
+  "grown_only": [
+   "trafo 33",
+   "trafo 34",
+   "trafo 43"
+  ]
+ },
+ "top": [
+  {
+   "kind": "trafo",
+   "id": 34,
+   "name": "Spilsby 33kV 6L5 - Spilsby 11kV 2T0",
+   "label": "reactive input unreliable",
+   "peak_pct": 125.5,
+   "peak_at": "2024-12-11 17:00:00",
+   "h80": 10.0,
+   "h90": 6.0,
+   "h100": 2.5,
+   "over_months": "12",
+   "over_hours": "12,16,17",
+   "plan_envelope_pct": 46.5,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 33,
+   "name": "Spilsby 33kV 6L5 - Spilsby 11kV 2T0",
+   "label": "reactive input unreliable",
+   "peak_pct": 122.0,
+   "peak_at": "2024-12-11 17:00:00",
+   "h80": 8.5,
+   "h90": 4.0,
+   "h100": 2.0,
+   "over_months": "12",
+   "over_hours": "12,16,17",
+   "plan_envelope_pct": 45.2,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 43,
+   "name": "Wrangle 33kV 2H3 - Wrangle 11kV #3T0",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 100.6,
+   "peak_at": "2024-01-25 23:00:00",
+   "h80": 1.0,
+   "h90": 1.0,
+   "h100": 0.5,
+   "over_months": "1",
+   "over_hours": "22",
+   "plan_envelope_pct": 36.1,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 42,
+   "name": "Woodhall Spa 33kV 2H3 - Woodhall Spa 11kV T2",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 96.3,
+   "peak_at": "2024-11-21 17:30:00",
+   "h80": 191.0,
+   "h90": 24.5,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 97.3,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 27,
+   "name": "Skegness 132kV 203 - Skegness 33kV GT2",
+   "label": "flow differs",
+   "peak_pct": 94.8,
+   "peak_at": "2024-01-19 18:00:00",
+   "h80": 103.0,
+   "h90": 4.5,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 74.7,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "line",
+   "id": 13,
+   "name": "Skegness 132kV 103 - Middlemarsh 132kV 103",
+   "label": "input: carries NGED's own flow by construction",
+   "peak_pct": 94.0,
+   "peak_at": "2024-03-01 12:00:00",
+   "h80": 903.0,
+   "h90": 174.5,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 92.8,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "line",
+   "id": 14,
+   "name": "Skegness 132kV 203 - Middlemarsh 132kV 203",
+   "label": "input: carries NGED's own flow by construction",
+   "peak_pct": 94.0,
+   "peak_at": "2024-03-01 12:00:00",
+   "h80": 913.0,
+   "h90": 192.5,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 92.8,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 14,
+   "name": "Horncastle 33kV 1L3 - Horncastle 11kV 1T0",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 91.9,
+   "peak_at": "2024-12-17 13:30:00",
+   "h80": 2.0,
+   "h90": 1.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 52.5,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 15,
+   "name": "Horncastle 33kV 1L3 - Horncastle 11kV 1T0",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 91.8,
+   "peak_at": "2024-12-17 13:30:00",
+   "h80": 2.0,
+   "h90": 1.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 52.5,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 0,
+   "name": "Alford 33kV 1L3 - Alford 11kV 1T0",
+   "label": "flow differs",
+   "peak_pct": 91.2,
+   "peak_at": "2024-11-20 17:00:00",
+   "h80": 38.5,
+   "h90": 1.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 56.2,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 26,
+   "name": "Skegness 132kV 103 - Skegness 33kV GT1",
+   "label": "flow differs",
+   "peak_pct": 90.0,
+   "peak_at": "2024-02-22 17:30:00",
+   "h80": 63.5,
+   "h90": 0.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 74.5,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "line",
+   "id": 63,
+   "name": "Horncastle 33kV 1L3 - Spilsby 33kV 6L5",
+   "label": "flow differs",
+   "peak_pct": 88.6,
+   "peak_at": "2024-12-17 16:30:00",
+   "h80": 28.0,
+   "h90": 0.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 59.2,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "line",
+   "id": 112,
+   "name": "Sleaford 33kV #6L5 - White Cross La Sleaford 33kV #1L5",
+   "label": "input: carries NGED's own flow by construction",
+   "peak_pct": 84.6,
+   "peak_at": "2024-05-08 14:30:00",
+   "h80": 228.5,
+   "h90": 0.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 83.8,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 18,
+   "name": "Leadenham 33kV 2H3 - Leadenham 11kV 2T0",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 84.3,
+   "peak_at": "2024-03-20 08:00:00",
+   "h80": 2.0,
+   "h90": 0.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 48.6,
+   "plan_breach_cases": ""
+  },
+  {
+   "kind": "trafo",
+   "id": 22,
+   "name": "New Beacon Road 33kV 1L3 - New Beacon Road 11kV 1T0",
+   "label": "flow agrees with NGED's model",
+   "peak_pct": 83.5,
+   "peak_at": "2024-01-15 18:00:00",
+   "h80": 14.0,
+   "h90": 0.0,
+   "h100": 0.0,
+   "over_months": "",
+   "over_hours": "",
+   "plan_envelope_pct": 64.9,
+   "plan_breach_cases": ""
+  }
+ ],
+ "voltage": {
+  "min_pu": 0.9383,
+  "min_at": [
+   "Horncastle 33kV 1L3",
+   "2024-12-11 17:00:00"
+  ],
+  "max_pu": 1.0416,
+  "hours_outside_by_bus": {
+   "73 Horncastle 33kV 1L3": 0.5
+  },
+  "planning_voltage_breach_buses": [],
+  "planning_only_buses": []
+ },
+ "firm_capacity": [
+  {
+   "substation": "Alford",
+   "firm_mva": 6.0,
+   "peak_mva": 8.94,
+   "at": "2024-11-20 17:00:00",
+   "hours_above_firm": 1247.5
+  },
+  {
+   "substation": "New Beacon Road",
+   "firm_mva": 14.0,
+   "peak_mva": 19.59,
+   "at": "2024-01-15 18:00:00",
+   "hours_above_firm": 1200.0
+  },
+  {
+   "substation": "Leadenham (T1)",
+   "firm_mva": 9.5,
+   "peak_mva": 9.97,
+   "at": "2024-03-20 08:00:00",
+   "hours_above_firm": 2.0
+  },
+  {
+   "substation": "Leadenham (T2)",
+   "firm_mva": 9.5,
+   "peak_mva": 9.97,
+   "at": "2024-03-20 08:00:00",
+   "hours_above_firm": 2.0
+  },
+  {
+   "substation": "Billingborough (T1)",
+   "firm_mva": 9.5,
+   "peak_mva": 7.17,
+   "at": "2024-02-08 18:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Billingborough (T2)",
+   "firm_mva": 14.0,
+   "peak_mva": 7.17,
+   "at": "2024-02-08 18:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Chapel St. Leonards",
+   "firm_mva": 9.5,
+   "peak_mva": 7.65,
+   "at": "2024-03-29 21:30:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Cranwell (RAF) (T1)",
+   "firm_mva": 18.0,
+   "peak_mva": 6.74,
+   "at": "2024-01-16 11:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Cranwell (RAF) (T2)",
+   "firm_mva": 23.0,
+   "peak_mva": 6.74,
+   "at": "2024-01-16 11:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Easton",
+   "firm_mva": 18.0,
+   "peak_mva": 5.16,
+   "at": "2024-02-04 19:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Great Hale",
+   "firm_mva": 14.0,
+   "peak_mva": 5.86,
+   "at": "2024-11-20 17:30:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Ingoldmells",
+   "firm_mva": 19.0,
+   "peak_mva": 13.18,
+   "at": "2024-03-31 22:30:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Market Overton (T2)",
+   "firm_mva": 14.0,
+   "peak_mva": 2.94,
+   "at": "2024-11-21 18:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Ruskington",
+   "firm_mva": 19.0,
+   "peak_mva": 10.83,
+   "at": "2024-01-09 17:30:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Skillington",
+   "firm_mva": 14.0,
+   "peak_mva": 4.19,
+   "at": "2024-01-16 17:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Sleaford 11",
+   "firm_mva": 23.0,
+   "peak_mva": 18.74,
+   "at": "2024-01-18 18:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Tattershall",
+   "firm_mva": 17.0,
+   "peak_mva": 14.77,
+   "at": "2024-11-20 18:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Trusthorpe",
+   "firm_mva": 19.0,
+   "peak_mva": 14.4,
+   "at": "2024-02-01 10:00:00",
+   "hours_above_firm": 0.0
+  },
+  {
+   "substation": "Warth Lane",
+   "firm_mva": 38.0,
+   "peak_mva": 25.42,
+   "at": "2024-11-21 17:00:00",
+   "hours_above_firm": 0.0
+  }
+ ],
+ "gsp": {
+  "export_max_mw": 243.1,
+  "export_max_at": "2024-08-23 14:30:00",
+  "import_max_mw": 172.9,
+  "import_max_at": "2024-11-28 18:00:00",
+  "hours_above_export_limit": 0.0,
+  "export_limit_mw": 527.0,
+  "ash_farm_peak_mw": 51.1,
+  "ash_farm_energy_gwh": 62.6
+ }
+}
