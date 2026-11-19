@@ -1,7 +1,7 @@
 # AGENTS.md — apps/api (`gridify_api`)
 
 FastAPI on :8000. Read the root `AGENTS.md` first (domain rules, design, testing stance); this file adds what is specific
-to the API. The API table is in the root `README.md`.
+to the API. The endpoint table is in `apps/api/README.md`.
 
 ## Layout
 
