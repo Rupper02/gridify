@@ -1,5 +1,9 @@
 # Handoff: Gridify Glass (planner redesign)
 
+> **Status.** This is the visual design reference for `apps/web` (layout, tokens, components). It was written for an
+> earlier scope: the Copilot chat, maintenance works, the connection queue and the merge gate it describes were removed
+> with the AI layer (commit `0c9967f`) and are not in the product. For current behaviour, read `apps/web/README.md`.
+
 ## Overview
 A redesign of the Gridify connection-queue planner (`apps/web` in `Rupper02/gridify`). It keeps the existing model (`main` = today's network, branches of optional projects, a power-flow-checked queue) and adds:
 

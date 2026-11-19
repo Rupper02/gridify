@@ -4,22 +4,16 @@
 
 ![The planner: Bicker Fen's network on the map, coloured by hours above rating in a grown 2035, with the plan years 2026–2035 along the bottom](docs/images/planner.jpg)
 
-**TL;DR**
-- **What:** a distribution-network planner on a real UK grid supply point (NGED's Bicker Fen, 139 busbars), built only from open data. Connect generation, storage or demand on a branch; every plan year 2026–2035 is solved with AC power flow in the two cases a DNO plans for; compare with `main` and merge.
-- **Runs on:** pandapower (physics), Dagster + DuckDB (data pipeline), FastAPI (API), React + TypeScript + MapLibre (planner).
-- **Beyond the plan years:** a whole metered year (NGED's half-hourly flows, 2024 and 2025) runs through the same engine, and can be grown to 2030 and 2035.
-- **Research alongside:** a pre-registered day-ahead demand forecast at a real substation; on its held-out year, **23% lower error** than the best model without weather ([`forecast/`](forecast/README.md)).
-- **Run it:** `pnpm install`, build the warehouse with one Dagster command, start the API and the planner ([Quickstart](#quickstart)). No API key needed.
-- **How it was built:** with Claude Code as a pair; [`AGENTS.md`](AGENTS.md) is the project brief the coding agents work from ([more](#how-this-was-built)).
-
 Gridify models one real Grid Supply Point, **Bicker Fen 132 kV, Lincolnshire**, operated by National Grid Electricity Distribution (NGED), built entirely from open data. `main` is the network **as it exists today**. You open a branch, connect generation, storage or demand at a busbar and choose the year it energises, and the engine solves every plan year (2026 to 2035) with AC power flow in the two planning cases a DNO studies. Every year reports each line's and transformer's loading, every busbar's voltage, the GSP's export, and every limit breached, with its element, figure and case. You compare the branch with its parent year by year and merge it, or throw it away.
 
-The physics is deterministic and reproducible (pandapower). There is no AI in the product today: this repository is the backbone the next layer (learned demand and generation profiles, analysis) will be built on. That layer is being researched alongside it, in [`forecast/`](forecast/README.md): a pre-registered experiment in day-ahead demand forecasting at a real primary substation, which on its held-out year cut the error by 23% against the best model without weather (see [The forecasting experiment](#the-forecasting-experiment)).
+Stack: pandapower (power flow), Dagster + DuckDB (data pipeline), FastAPI (API), React + TypeScript + MapLibre (planner).
 
 ---
 
 ## Contents
 
+- [Purpose](#purpose)
+- [Status](#status)
 - [What you can do](#what-you-can-do)
 - [The network and the data](#the-network-and-the-data)
 - [How a year is solved](#how-a-year-is-solved)
@@ -29,8 +23,40 @@ The physics is deterministic and reproducible (pandapower). There is no AI in th
 - [Refreshing the data](#refreshing-the-data)
 - [Tests](#tests)
 - [Sources and assumptions](#sources-and-assumptions)
-- [The forecasting experiment](#the-forecasting-experiment)
+- [Demand forecasting research](#demand-forecasting-research)
 - [Limitations](#limitations)
+
+---
+
+## Purpose
+
+Distribution networks in Great Britain are being asked to connect far more generation, storage and demand than they were
+built for, and each request raises the same planning question: **in which year, on which line or transformer, and in
+which operating condition does this connection push the network past a limit?** Answering it needs the network model, a
+demand forecast per substation, the connections already accepted, and a power flow for every year of the plan.
+
+Network operators do this in licensed desktop tools (PowerFactory, PSS/E) on their own models, one study at a time.
+Gridify does it on public data, end to end: the network is rebuilt from NGED's published data, every input and
+assumption is traceable to a source, the physics is deterministic, and alternative plans are kept as branches of today's
+network that can be compared year by year and merged, the way code is. The aim is a planning engine an engineer can
+audit line by line and that later work (learned demand and generation profiles, analysis on top of the results) can be
+built on.
+
+## Status
+
+| Area | State |
+|---|---|
+| Network build, AC power flow, plan years 2026–2035, branches, comparison, merge | Working; the core of the product |
+| Measured year: NGED's metered half-hourly flows for 2024 and 2025 run through the engine; grown to 2030 and 2035 | Working, read from saved run files; reports in `docs/reports/` |
+| A second grid supply point (Staythorpe) | Built and studied as a report; not loaded in the planner |
+| Day-ahead demand forecasting ([`forecast/`](forecast/README.md)) | Research, separate from the product; a held-out result exists |
+| Decisions recorded in `docs/reports/overnight-decisions-2026-11-13.md` | Applied in the code; awaiting final review |
+
+**No AI in the product.** An earlier version had a language-model layer (agents that explained results and proposed
+changes, a connection-queue optimiser, N-1 contingency screening, maintenance windows and a merge gate). It was removed
+in commit `0c9967f` to get to a clean, verifiable backbone; it remains in the history (the parent of `0c9967f`).
+Nothing in the current code calls a language model, and no physical figure is estimated by a model: feasibility comes from the power
+flow alone.
 
 ---
 
@@ -137,7 +163,7 @@ packages/optimizer   gridify_optimizer: the network build (nged.py), the physics
 apps/api        FastAPI on :8000: the grid, branches and their connections, runs as background jobs, the result cache, the comparison
 apps/web        Vite + React + TypeScript planner on :3000: the map, the readings, the timeline, the side panel
 forecast        standalone research: day-ahead demand forecasting at a primary substation (not imported by the app)
-docs/reports    the studies behind the engine's choices: the measured and grown years, firm capacity, a second GSP (Staythorpe)
+docs/reports    (index: docs/reports/README.md) the studies behind the engine's choices: the measured and grown years, firm capacity, a second GSP (Staythorpe)
 ```
 
 - The engine is the single source of truth for the physics; the API and the planner never duplicate it.
@@ -373,16 +399,16 @@ The registry is a list of not-yet-built projects to pull onto a branch; the engi
 
 ---
 
-## The forecasting experiment
+## Demand forecasting research
 
 [`forecast/`](forecast/README.md) asks how well tomorrow's demand can be forecast, half-hour by half-hour, at one real
 primary substation (Newmarket, UK Power Networks) from its own history, the calendar and the weather forecast as it was
 issued the morning before. It is kept apart from the app on purpose: it imports nothing from Gridify, and whether it ever
 supplies the profiles a plan year is solved on is decided after the results.
 
-It is run as an experiment, not a model-building exercise: the question, hypotheses, metrics, success criterion and the
+It is run as a controlled experiment: the question, hypotheses, metrics, success criterion and the
 development / test split were written down before any result; the code and its hashes were frozen before the single run
-on the held-out year (2025); every result was recomputed by a second session before it was read.
+on the held-out year (2025); every result was recomputed independently before it was read.
 
 | On 2025 (held out, run once) | NMAE |
 |---|---|
@@ -392,7 +418,7 @@ on the held-out year (2025); every result was recomputed by a second session bef
 | Chronos-2, zero-shot, with forecast temperature | 4.40% |
 | **GAM + LightGBM average, forecast temperature** | **4.20%** (23% below the best no-weather model; bootstrap 16.7% to 28.4%) |
 
-The same recipe carried over to a second, calendar-driven town (Bungay) gives only 6.35%: a miss, reported as one. On
+The same recipe carried over to a second, calendar-driven town (Bungay) keeps a margin of only 6.35%, below the 10% pass line. On
 16 other primaries in the development months, a version with extra weather inputs beats each site's best no-weather
 model at 15 of 16. The full method, lab notebook, results log and threats to validity are in the experiment's README.
 
@@ -408,23 +434,3 @@ model at 15 of 16. The full method, lab notebook, results log and threats to val
 - **The GSP limit's direction is an assumption.** NGED's dataset doesn't document its sign convention; we read "export" as distribution to transmission.
 - **One grid.** The network is NGED Bicker Fen, behind the `GridSource` seam; importing another grid is not built.
 - **The previous LTDS edition is reconstructed, not fetched.** NGED's New/Removed flags give it exactly, but Updated rows carry their current values in both editions.
-
----
-
-## How this was built
-
-Gridify was built over about six weeks (the first working version in one) by one person working with Claude Code as a pair, and the commit history says so: every commit carries a `Co-Authored-By: Claude` trailer. It would be odd to hide that from a company that lists "AI-assisted software development" as a skill it hires for, so here is how the division of labour actually worked.
-
-**What the human did.** Chose the problem and the data (one real GSP, open data only, NGED because it is the launch customer's network), set the rules the agent works under (`AGENTS.md`: `main` is only what exists today, the LLM never touches physics, honesty over fake precision), made every product decision (the pull-request framing, the registry of optional projects, "parameters are set by the flows, not the operator", recommend-then-override for energisation years), and reviewed the result in the browser after each slice. The pivots (restoration → data pipeline → connection-queue optimiser → PR workflow on a real network) were human calls, as was the decision to throw away a working manual-editing frontend.
-
-**What the agent did.** Wrote most of the code, the tests and the docs, in slices that the human directed and inspected. Then, asked to review the project as the hiring team would, it produced a critique of its own work and worked through the fixes one at a time.
-
-**What that review caught, because this is the part that matters.** A fresh clone 500'd on first load (two concurrent table creations on an empty database). The frontend was a Next.js shell redirecting to a 1,600-line template-dialect file that compiled JSX in the browser; it was rebuilt as a plain Vite + React + TypeScript app. The Dagster lineage was decorative (assets ignored their inputs) and the snapshot table was overwritten on every run. Voltage limits were 0.9–1.1 pu everywhere instead of the statutory ±6 % below 132 kV, which only became a sensible rule once the tap changers were modelled. The existing fleet was placed round-robin rather than at its real substations. PV ran at full output at the winter evening peak. The Python `.gitignore` template was silently keeping the planner's `src/lib` folder out of git. Tests took ten minutes because every one paid for an N-1 screen it was not testing.
-
-**What the agent got wrong along the way, and how it was caught.** pandapower 3 ignores transformer taps unless a changer type is declared, so the first tap-regulation loop moved taps that did nothing; a probe of the busbar voltages exposed it. The LTDS tap ranges (−12..+4) are HV-winding taps where a lower tap raises the LV voltage; the first implementation tapped the wrong winding and hit the stop. The first React port dropped the coalesced re-run after rapid adds because it read React state that had not flushed yet; a headless browser run that added four projects and found one caught it. In every case the fix came from measuring (a power-flow probe, a request log, a screenshot), not from re-reading the code, and each is now a test.
-
-**The brief and the vocabulary.** [`AGENTS.md`](AGENTS.md) (one at the root, one per package) is the brief every coding agent reads before it changes anything: the domain rules, the testing stance, the design rules and the commands. In the reports under `docs/reports/` and the forecasting lab notebook, "the owner" is the human author, and "the guide session" and "the reviewing session" are separate Claude Code sessions: one wrote a run's specification before it ran, the other recomputed every result independently before it was read. Those documents are dated working records and are kept as written.
-
-**Commit discipline.** The early commits are large because the project was built in large slices. From the review onward each change is its own commit with a message that states what was measured. That is the practice going forward.
-
-**Honesty about scope.** This is a planning toy on one GSP built from open data, not a product. The limitations above are real; the numbers are only as good as the LTDS tables and the assumptions written next to them.
