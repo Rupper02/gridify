@@ -31,8 +31,6 @@ directory_type = "project"
 
 [tool.dg.project]
 root_module = "grid_simulator"
-registry_modules = [
-    "grid_simulator.components.*",
-]
+code_location_name = "grid_simulator.definitions"  # the name `-m grid_simulator.definitions` registers it under
 
 

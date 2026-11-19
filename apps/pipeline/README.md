@@ -1,6 +1,11 @@
 # Gridify — data pipeline
 
-The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset graph that turns NGED's open data for the Bicker Fen GSP into a validated, **versioned** warehouse, which the API serves. For the whole system see the [root README](../../README.md); for the engine see [`packages/optimizer`](../../packages/optimizer/README.md).
+The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset graph that turns NGED's open data for the Bicker Fen GSP into a validated, **versioned** warehouse, which the API serves.
+
+The warehouse tables (buses, lines, transformers, loads, generators, the registry) are the grid-agnostic format the API
+reads, and the asset checks are the gate a network must pass before it is served: it references only what exists, it is
+one connected network, and its power flow converges. NGED is the one source wired in today; another operator's grid
+would be another asset group writing the same tables through the same checks (see the root README's roadmap). For the whole system see the [root README](../../README.md); for the engine see [`packages/optimizer`](../../packages/optimizer/README.md).
 
 ---
 
@@ -12,7 +17,7 @@ The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset 
  ltds_tables ──┬─► nged_model_canonical ──┬─► served_nged ──► DuckDB warehouse
   (bronze:     │   buses/lines/trafos/     │                 buses · lines · transformers · loads · regions ·
    the pinned  │   loads/fleet/regions     │                 generators · candidate_projects ·
-   snapshot)   ├─► nged_connection_queue ──┤                 ltds_changes · ltds_change_summary ·
+   snapshot)   ├─► nged_registry ──┤                 ltds_changes · ltds_change_summary ·
                │   the optional registry   │                 snapshots (append-only history)
                └─► ltds_edition_changes ───┘
                    previous vs current edition
@@ -27,14 +32,14 @@ The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset 
 |---|---|
 | `ltds_tables` | Loads the pinned snapshot: LTDS circuit, transformer (`t2a`), demand, node and generation tables, the Embedded Capacity Register (`ecr`) and the OSM substation coordinates. Records row counts and the **edition** (a content hash of all the inputs). |
 | `nged_model_canonical` | `gridify_optimizer.nged.nged_model(tables)`: today's network, geolocated. The bronze tables are **passed in**, so this is the real data path, not a decorative edge. |
-| `nged_connection_queue` | `nged_candidates(max_mw, tables)`: the optional projects, each mapped to a bus. |
+| `nged_registry` | `nged_candidates(max_mw, tables)`: the optional projects, each mapped to a bus. |
 | `ltds_edition_changes` | `editions.edition_changeset(tables)`: what changed between NGED's previous LTDS edition and this one (see below). |
 | `nged_model_cgmes` | The network as a CIM/CGMES 2.4.15 zip (EQ/TP/SSH/GL), written to `warehouse/exports/Gridify_<edition>_CGMES.zip`. Deterministic per edition. |
 | `served_nged` | Writes the model tables (`regions` is kept for the schema and is empty: the engine no longer derives demand groups; `loads.region_id` still ties each load to its LTDS Table 3 group), the registry and the change-set to DuckDB, and **appends** a snapshot row when the network changed. `snapshot_id` is a content hash of the network tables (buses, lines, transformers, loads, generators, regions), so `network@<snapshot_id>` names a version of what exists; each row carries the edition it was built from and the registry's size when it was first written. The registry is not part of the id: a not-yet-built project counts only on a branch (whose candidate set is in every result's cache key), and the registry's own history is the ECR editions below. |
 
 **One builder, one truth.** The pipeline and the optimizer's `build_base_net()` run the same `gridify_optimizer.nged` builder on the same bundled snapshot, so the warehouse the map reads and the network the engine solves can't drift apart.
 
-**What changed between editions.** NGED flags every LTDS row *New / Updated / Unchanged / Removed* against its previous publication. The change-set reconstructs the previous edition (drop the New rows, keep the Removed ones), builds both, and reports three levels of difference: the flagged rows themselves (e.g. a 6 MVA Great Hale transformer replaced by a 7.5 MVA one, the 18.6 MW Warth Lane demand row marked Removed, which the model keeps as `BICKER_FEN.removed_in_error` (`nged_points`)), the model delta (buses, circuits, transformers, demand MW) and the physics delta (today's power flow on each edition: worst loadings, voltage range, GSP export). Caveat: Updated rows carry their current values in both editions, because NGED doesn't publish the old ones. Served at `GET /editions/changes`.
+**What changed between editions.** NGED flags every LTDS row *New / Updated / Unchanged / Removed* against its previous publication. The change-set reconstructs the previous edition (drop the New rows, keep the Removed ones), builds both, and reports three levels of difference: the flagged rows themselves (e.g. a 6 MVA Great Hale transformer replaced by a 7.5 MVA one, the 18.6 MW Warth Lane demand row marked Removed, which the model keeps as `BICKER_FEN.removed_in_error` (`nged_points`)), the model delta (buses, circuits, transformers, demand MW) and the physics delta (today's power flow on each edition: worst loadings, voltage range, GSP export). Caveat: Updated rows carry their current values in both editions, because NGED doesn't publish the old ones. Stored in the warehouse (`ltds_changes`, `ltds_change_summary`); the API does not serve it.
 
 ### `registers` — the live sources (`src/grid_simulator/defs/registers.py`)
 
@@ -45,6 +50,7 @@ The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset 
  pin_nged_published                                            MANUAL: fetch LTDS Table 4 fault levels and the DFES projections into data/nged/{fault,dfes}.json
  nged_flows                                                    MANUAL: fetch NGED's 2024 half-hourly substation and branch loading for Bicker Fen into warehouse/nged-flows/ (git-ignored; src/grid_simulator/defs/flows.py)
  nged_flows_2025                                               MANUAL: the same for 2025 (NGED's "2025 Connected Export (ID 1124)"), rewritten to 2024's header layout, values unchanged, into warehouse/nged-flows/bicker-fen-2025/ (flows.py)
+ staythorpe_snapshot                                           MANUAL: a second supply point's LTDS tables, ECR, DFES rows, limits and half-hourly loading into the git-ignored warehouse/supply-points/staythorpe/ (supply_points.py); studied as a report, not served
  nged_dfes_detail                                              MANUAL: fetch NGED's DFES 2025 profiles, splits, scaling, power projections and supply-area volumes whole into warehouse/nged-flows/dfes-2025/ (git-ignored; flows.py)
 ```
 
@@ -53,7 +59,7 @@ licence and the attribution "Supported by NGED Open Data", and `fetched.json` (r
 sizes). The files are about 23 MB, so they are fetched, not committed. The DFES pin includes the demand rows the model
 keeps although the LTDS marks them Removed (`BICKER_FEN.removed_in_error` (`nged_points`): Warth Lane).
 
-The two external registers change on their own clock, so they are fetched on a schedule and stored as **append-only editions** in the warehouse (`ecr_editions` / `ecr_edition_rows`, `coords_editions` / `coords_edition_rows`): one row per fetch whose content differs from the last, with the fetch time, the source's own `last_modified` (CKAN), the resource id, the row count and a content hash as the edition id. The bundled snapshot is seeded as the first edition, so the first live fetch has a baseline. `ecr_changes` diffs the latest two editions site by site (added, withdrawn, connected, capacity or target date changed) and is served at `GET /registry/changes`.
+The two external registers change on their own clock, so they are fetched on a schedule and stored as **append-only editions** in the warehouse (`ecr_editions` / `ecr_edition_rows`, `coords_editions` / `coords_edition_rows`): one row per fetch whose content differs from the last, with the fetch time, the source's own `last_modified` (CKAN), the resource id, the row count and a content hash as the edition id. The bundled snapshot is seeded as the first edition, so the first live fetch has a baseline. `ecr_changes` diffs the latest two editions site by site (added, withdrawn, connected, capacity or target date changed) and stores it in the warehouse table `ecr_changes` (a summary is in the asset's metadata in the Dagster UI); the API does not serve it.
 
 Nothing here changes the model the engine runs on. That stays pinned to the bundled snapshot until someone runs `pin_ecr_edition` or `pin_osm_coords`, which write the latest edition into `packages/optimizer/src/gridify_optimizer/data/nged/` as a reviewable git diff. Then re-materialise `ltds_tables*` and commit.
 

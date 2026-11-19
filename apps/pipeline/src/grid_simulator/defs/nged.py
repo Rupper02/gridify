@@ -88,7 +88,7 @@ def nged_model_canonical(context: dg.AssetExecutionContext, ltds_tables: dict) -
 
 
 @dg.asset(group_name="ltds")
-def nged_connection_queue(context: dg.AssetExecutionContext, ltds_tables: dict) -> list:
+def nged_registry(context: dg.AssetExecutionContext, ltds_tables: dict) -> list:
     """The registry of projected projects: NGED's Embedded Capacity Register 'accepted to connect'
     sites (+ any LTDS Table 5 project the ECR doesn't list, + the GSP-embedded TEC project), each
     mapped to a bus. OPTIONAL: main stays the live network; projects are pulled onto branches."""
@@ -150,10 +150,10 @@ def power_flow_converges(nged_model_canonical: dict, ltds_tables: dict) -> dg.As
 
 @dg.asset_check(
     asset=nged_model_canonical,
-    additional_ins={"nged_connection_queue": dg.AssetIn("nged_connection_queue")},
+    additional_ins={"nged_registry": dg.AssetIn("nged_registry")},
     blocking=True,
 )
-def referential_integrity(nged_model_canonical: dict, nged_connection_queue: list) -> dg.AssetCheckResult:
+def referential_integrity(nged_model_canonical: dict, nged_registry: list) -> dg.AssetCheckResult:
     bus_ids = {b["bus_id"] for b in nged_model_canonical["buses"]}
     dangling = []
     for ln in nged_model_canonical["lines"]:
@@ -168,7 +168,7 @@ def referential_integrity(nged_model_canonical: dict, nged_connection_queue: lis
     for g in nged_model_canonical["generators"]:
         if g["bus_id"] not in bus_ids:
             dangling.append(("generator", g["request_id"]))
-    bad_cand = [c["request_id"] for c in nged_connection_queue
+    bad_cand = [c["request_id"] for c in nged_registry
                 if c["status"] == "auto_accept" and c["bus_id"] not in bus_ids]
     return dg.AssetCheckResult(
         passed=not dangling and not bad_cand,
@@ -227,7 +227,7 @@ def served_nged(
     context: dg.AssetExecutionContext,
     ltds_tables: dict,
     nged_model_canonical: dict,
-    nged_connection_queue: list,
+    nged_registry: list,
     ltds_edition_changes: dict,
 ) -> dg.MaterializeResult:
     """Write the model tables, the registry and the edition change-set to the warehouse, and append
@@ -252,7 +252,7 @@ def served_nged(
                             for r in m.get("regions", [])], columns=list(_REGION_COLS))
     gens = pd.DataFrame([{"request_id": g["request_id"], "bus_id": g["bus_id"], "rating_mw": g["rating_mw"],
                          "technology": g["technology"], "applicant": g["applicant"]} for g in m["generators"]])
-    cdf = pd.DataFrame([{k: c.get(k) for k in _CAND_COLS} for c in nged_connection_queue])
+    cdf = pd.DataFrame([{k: c.get(k) for k in _CAND_COLS} for c in nged_registry])
     edition = tables_hash(ltds_tables)
     cs = ltds_edition_changes
     changes = pd.DataFrame([{"ltds_edition": edition, **r} for r in cs["rows"]]) if cs["rows"] else pd.DataFrame(

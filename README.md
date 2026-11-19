@@ -63,8 +63,12 @@ built on.
 - **Learned demand and generation profiles.** Plan years solved on forecast half-hourly profiles per substation instead
   of two snapshot cases, building on the [demand forecasting research](#demand-forecasting-research).
 - **Security of supply.** N-1 contingency studies and planned outages, so a plan is judged with equipment out of service.
-- **More grids.** Further supply points (Staythorpe is built) and networks from other operators, through the `GridSource`
-  seam.
+- **AI-assisted grid import.** Any operator's network, not only NGED's. An agent reads what the operator publishes (its
+  long-term development statement, connection register, ratings and positions, in whatever layout it comes) and maps it
+  into the warehouse's common format as a new asset group in the pipeline. The pipeline's checks then decide whether
+  the result can be planned on: every reference resolves, the network is one connected piece, and its power flow
+  converges in both study cases. Where the data is incomplete, the import asks or stops; nothing is guessed. Staythorpe,
+  a second NGED supply point, is already built the same way by hand.
 
 ---
 

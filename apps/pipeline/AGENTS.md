@@ -6,10 +6,12 @@ Dagster. Read the root `AGENTS.md` first; this file adds what is specific to the
 ## What it owns
 
 - `defs/nged.py` (group `ltds`): `ltds_tables` (pinned snapshot, passed INTO the builder) → `nged_model_canonical` +
-  `nged_connection_queue` + `ltds_edition_changes` → 3 asset checks → `served_nged` → DuckDB warehouse
+  `nged_registry` + `ltds_edition_changes` → 3 asset checks → `served_nged` → DuckDB warehouse
   `apps/pipeline/warehouse/gridify.duckdb` with an append-only `snapshots` history.
 - `defs/registers.py` (group `registers`): scheduled fetches of the ECR (monthly) and OSM coords (quarterly) into
   append-only edition tables + `ecr_changes`; `pin_*` assets promote an edition into the bundled snapshot (manual).
+- `defs/flows.py` and `defs/supply_points.py` (group `registers`, manual): NGED's half-hourly flows and DFES detail into
+  the git-ignored `warehouse/nged-flows/`, and a second supply point's data (Staythorpe) into `warehouse/supply-points/`.
 - Warehouse writers carry a retry policy (DuckDB = one writer).
 
 ## Commands
