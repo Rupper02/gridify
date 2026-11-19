@@ -12,8 +12,6 @@
   --mute-2: #7d8da3;
   --accent: #7ce3ff;
   --accent-hi: #b5efff;
-  --p1: #5ee6a8;
-  --p2: #8fb4ff;
   --amber: #ffc36b;
   --amber-ink: #ffd99a;
   --red: #ff6b6b;
@@ -255,7 +253,7 @@ input { font-family: inherit; }
 .ycol .foot b { font-family: var(--mono); font-size: 11.5px; font-weight: 600; }
 .ycol .foot span { font-family: var(--mono); font-size: 9.5px; color: var(--mute-2); white-space: nowrap; }
 .ycol .solving { position: absolute; top: 4px; right: 5px; font-size: 9px; color: var(--mute-2); animation: gfBreath 1.6s ease-in-out infinite; }
-/* --years: the plan's years; --p1-at: Phase 1's last year as a column index + 0.5 (both set by Roadmap) */
+/* --years: the number of plan years (set by Timeline) */
 .slider { position: relative; margin-top: 4px; padding: 0 calc((100% - 27px) / (2 * var(--years, 10))); }
 .slider .track { position: absolute; left: calc((100% - 27px) / (2 * var(--years, 10))); right: calc((100% - 27px) / (2 * var(--years, 10))); top: 9px; height: 4px; border-radius: 999px; opacity: 0.35; background: linear-gradient(90deg, var(--mute) 0 calc(100% / (var(--years, 10) - 1) * 0.5), var(--p1) calc(100% / (var(--years, 10) - 1) * 0.5) calc(100% / (var(--years, 10) - 1) * var(--p1-at, 4.5)), var(--p2) calc(100% / (var(--years, 10) - 1) * var(--p1-at, 4.5)) 100%); }
 .slider .fill { position: absolute; left: calc((100% - 27px) / (2 * var(--years, 10))); top: 9px; height: 4px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 8px rgba(124, 227, 255, 0.6); pointer-events: none; }

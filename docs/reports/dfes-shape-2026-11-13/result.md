@@ -1,4 +1,4 @@
-# Work 8.2: the gate fails, so no shaped year is built
+# Shaping demand from NGED's DFES: the pre-registered gate fails, so no shaped year is built
 
 *13 November 2026. Run once, as `spec.md` fixed it; nothing was tuned after the result. Supported by NGED Open Data.*
 

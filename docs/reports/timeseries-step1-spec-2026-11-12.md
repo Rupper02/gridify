@@ -1,4 +1,4 @@
-# Step 1 specification: a measured year through the engine at Bicker Fen
+# Specification: a measured year through the engine at Bicker Fen
 
 *12 November 2026. Read-only scoping, nothing built. Scripts are throwaway, in the implementer's scratch directory;
 figures below come from running them on NGED's 2024 files and on the engine as committed.*

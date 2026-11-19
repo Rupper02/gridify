@@ -1,4 +1,4 @@
-# Work 6b: two registry projects on a branch, through 2030
+# Two registry projects on a branch, through a grown 2030
 
 *13 November 2026. Decided by the guide session overnight, for the owner to confirm. Supported by NGED Open Data.*
 

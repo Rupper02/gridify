@@ -4,9 +4,10 @@ The studies behind the engine's choices. Each is a dated record, kept as written
 results, and a report states what was run, what it found and what it cannot tell you. Where a report and the
 *Sources and assumptions* register ([`../sources-and-assumptions.md`](../sources-and-assumptions.md)) disagree, the register is current.
 
-Internal labels ("Step 1", "Work 4", "Work 8.2") are the order the studies were run in. "The owner" is the project's
-author; "the guide session" and "the reviewing session" are separate AI-assisted working sessions, one writing a study's
-specification before it ran, the other recomputing its results independently.
+Each study was specified before it ran and its results were recomputed independently before they were read. Inside
+the documents, labels such as "Step 1" or "Work 4" number the studies in the order they were run; "the owner" is the
+project's author, and "the guide session" and "the reviewing session" are the two AI-assisted reviews each study went
+through (one fixed the specification, the other recomputed the results).
 
 ## Foundations
 
@@ -38,6 +39,6 @@ specification before it ran, the other recomputing its results independently.
 | Document | What it is |
 |---|---|
 | [`grown-year-2026-11-13/design-year-view.md`](grown-year-2026-11-13/design-year-view.md), `scoping-*.md` | Design and scoping notes for the planner's year view and for connections in a year |
-| [`overnight-decisions-2026-11-13.md`](overnight-decisions-2026-11-13.md) | A log of modelling decisions taken during the measured-year work. They are applied in the code and the register; **they await the author's final review** |
+| [`decision-log-2026-11-13.md`](decision-log-2026-11-13.md) | The decision log of the measured-year work: each modelling decision with its reason. Applied in the code and the register; not yet reviewed as a set |
 
 Scripts in each folder regenerate its figures from the git-ignored flows (fetching them is in [`apps/pipeline/README.md`](../../apps/pipeline/README.md#refreshing-the-data)).

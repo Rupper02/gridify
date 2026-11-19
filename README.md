@@ -51,7 +51,7 @@ built on.
 | Measured year: NGED's metered half-hourly flows for 2024 and 2025 run through the engine; grown to 2030 and 2035 | Working, read from saved run files; reports in `docs/reports/` |
 | A second grid supply point (Staythorpe) | Built and studied as a report; not loaded in the planner |
 | Day-ahead demand forecasting ([`forecast/`](forecast/README.md)) | Research, separate from the product; a held-out result exists |
-| Decisions recorded in `docs/reports/overnight-decisions-2026-11-13.md` | Applied in the code; awaiting final review |
+| The measured-year work's modelling decisions ([decision log](docs/reports/decision-log-2026-11-13.md)) | Applied in the code; not yet reviewed as a set |
 
 ## Roadmap
 

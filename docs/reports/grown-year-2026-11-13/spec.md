@@ -1,4 +1,4 @@
-# Work 4 specification: a grown year
+# Specification: a grown year
 
 *13 November 2026. Decided by the guide session overnight, for the owner to confirm. Written before any run. A report,
 not a product feature: nothing in the API or planner changes.*

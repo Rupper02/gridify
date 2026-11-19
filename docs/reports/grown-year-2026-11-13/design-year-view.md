@@ -1,4 +1,4 @@
-# Design note: a year view in the planner (Work 5)
+# Design note: a year view in the planner
 
 *13 November 2026. Decided by the guide session overnight, for the owner to confirm. Written before the build.*
 

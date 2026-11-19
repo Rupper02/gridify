@@ -1,4 +1,4 @@
-# Scoping note (Work 6b): a branch's connections in a grown year
+# Scoping note: a branch's connections in a grown year
 
 *13 November 2026. Decided by the guide session overnight, for the owner to confirm. Written read-only, before the
 build. The guide accepted it with the decisions in "As decided" at the end; the build and its two examples are in

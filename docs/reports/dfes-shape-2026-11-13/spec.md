@@ -1,4 +1,4 @@
-# Work 8.2: building a year's shape from NGED's DFES pieces: specification, fixed before any result
+# Shaping a year's demand from NGED's DFES: specification, fixed before any result
 
 *13 November 2026. Decided by the guide session under the owner's delegation, for the owner to confirm. Local only.
 Supported by NGED Open Data.*

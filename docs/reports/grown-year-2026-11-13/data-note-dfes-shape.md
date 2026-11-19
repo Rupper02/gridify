@@ -1,4 +1,4 @@
-# Work 8.1: what NGED's DFES 2025 holds for the shape of demand
+# What NGED's DFES 2025 holds for the shape of demand
 
 *13 November 2026. Decided by the guide session overnight, for the owner to confirm. Read-only after the download.
 Supported by NGED Open Data.*

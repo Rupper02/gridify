@@ -1,8 +1,8 @@
-# Overnight decisions, 12–13 November 2026
+# Decision log: the measured-year work, 12–13 November 2026
 
-*Everything the guide session decided under the owner's delegation from the evening of 12 November, in order, for the
-owner to confirm or reverse. No new decisions here, and no recommendations beyond what the reports already say.
-Nothing is committed. Supported by NGED Open Data.*
+*The modelling decisions taken during the measured-year work, in the order they were taken, each with its reason, what
+it changed and where it is recorded. All of them are applied in the code and the Sources and assumptions register;
+they have not yet been reviewed as a set. Supported by NGED Open Data.*
 
 **How to read it.** Each line says what was decided, why, what it changed, and where it is recorded.
 - *Reports* means a document in `docs/reports/`, with no change to the engine's planning output.
