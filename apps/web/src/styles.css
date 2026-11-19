@@ -98,7 +98,6 @@ input { font-family: inherit; }
 .btn.hue { border-color: var(--hue-bd); background: var(--hue-bg); color: var(--hue); }
 .btn.hue:hover:not(:disabled) { background: var(--hue-bg); filter: brightness(1.12); }
 .btn.warn { height: 28px; padding: 0 11px; border-radius: 999px; font-size: 11.5px; border-color: rgba(255, 195, 107, 0.55); background: rgba(255, 195, 107, 0.16); color: var(--amber-ink); }
-.btn.warn.sq { border-radius: 9px; height: auto; min-height: 28px; padding: 5px 11px; max-width: 100%; white-space: normal; text-align: left; line-height: 1.3; } /* a long label wraps inside its box instead of touching the edge */
 .btn.danger { height: 38px; padding: 0 14px; border-radius: 12px; font-size: 12.5px; border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.08); color: var(--red-ink); }
 .btn.solid-hue { height: 38px; border-radius: 12px; font-size: 12.5px; justify-content: center; border: 1px solid rgba(255, 255, 255, 0.25); background: var(--hue); color: #08131c; }
 .btn.solid-hue:hover:not(:disabled) { background: var(--hue); filter: brightness(1.08); }
@@ -107,7 +106,6 @@ input { font-family: inherit; }
 .icon-btn.sm { width: 22px; height: 22px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); color: var(--mute); }
 .icon-btn:hover { background: rgba(255, 255, 255, 0.14); }
 
-.pill-opt.on { border-color: rgba(124, 227, 255, 0.6); background: rgba(124, 227, 255, 0.14); color: var(--ink); }
 
 /* segmented controls: pill tracks with a raised active segment */
 .seg { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(5, 10, 18, 0.35); border: 1px solid rgba(255, 255, 255, 0.1); }
@@ -213,7 +211,6 @@ input { font-family: inherit; }
 .sub-label span { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
 .line-tag { position: absolute; transform: translate(-50%, -50%); font-family: var(--mono); font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 999px; background: rgba(10, 16, 26, 0.85); border: 1px solid; white-space: nowrap; }
 
-.diff-banner .key { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 
 /* ---- detail cards ----------------------------------------------------------------------------- */
 .detail { position: absolute; overflow-y: auto; z-index: 12; padding: 14px; border-radius: 16px; display: flex; flex-direction: column; gap: 12px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 10px 28px rgba(2, 6, 14, 0.4); }
@@ -223,7 +220,6 @@ input { font-family: inherit; }
 .detail::-webkit-scrollbar-track { margin: 14px 0; }
 .detail { padding-bottom: 18px; background: linear-gradient(180deg, rgb(28, 40, 57), rgb(19, 28, 41)); } /* vertical, so the sticky head (flat, the top colour) joins the card without a seam */
 .detail .head .ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; }
-.detail .sticky-foot { position: sticky; bottom: -20px; margin: 0 -12px -12px; padding: 8px 12px 12px; background: #172233; border-radius: 0 0 12px 12px; } /* the form's submit stays in view while the options scroll */
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px; }
 .kv > :nth-child(odd) { color: var(--mute); }
 .kv > :nth-child(even) { text-align: right; }
@@ -236,7 +232,6 @@ input { font-family: inherit; }
 
 /* planned works: verdict detail, the Outages tab's year groups and rows, the form's sub-options */
 
-.wlines > .sub { color: var(--ink-2); }
 
 /* findings: a section per criticality, a group per year inside it, both collapsible */
 
@@ -302,9 +297,7 @@ input { font-family: inherit; }
 
 /* the chat */
 
-.mode-card .ic { grid-row: span 3; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; }
 
-.bubble-bot .txt.loading { color: var(--mute); animation: gfBreath 1.6s ease-in-out infinite; }
 
 /* review */
 .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
@@ -320,17 +313,13 @@ input { font-family: inherit; }
 .year-pick > button:disabled { opacity: 0.4; }
 .year-pick .flag { position: absolute; top: 3px; right: 4px; width: 5px; height: 5px; border-radius: 50%; background: var(--red); }
 
-.work-row.now { border-color: var(--hue-bd); }
 
 /* while a run solves, the panels step aside so its card sits dead centre on the map */
 .stage .left-col, .stage .side, .stage .dock, .stage .detail { transition: opacity 200ms; }
 .stage.solving .left-col, .stage.solving .side, .stage.solving .dock, .stage.solving .detail { opacity: 0; pointer-events: none; }
 
-.rail .done { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, rgba(124, 227, 255, 0.05), rgba(124, 227, 255, 0.28)); transition: width 400ms var(--ease); }
 
-.stage-row .dot { width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid; flex: none; color: #062030; }
 
-@keyframes gfPulse { 0% { transform: translateX(-40px); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateX(380px); opacity: 0; } }
 @keyframes gfBreath { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) {
@@ -343,7 +332,6 @@ input { font-family: inherit; }
 
 /* ---- demand side (Demand layer, region card, customer alerts) ---------------------------------- */
 
-.region-label:hover b, .region-label.on b { color: var(--accent); }
 
 .firm { display: flex; flex-direction: column; gap: 6px; }
 
@@ -372,48 +360,36 @@ input { font-family: inherit; }
 .btn.hue[data-gate="warnings"] { border-color: rgba(255, 195, 107, 0.5); background: rgba(255, 195, 107, 0.1); color: var(--amber-ink); }
 .btn.solid-hue[data-gate="warnings"] { background: var(--amber); }
 
-.frow-main:hover .ellipsis { text-decoration: underline; text-decoration-color: rgba(255, 255, 255, 0.35); }
 
 /* findings: a group per kind inside a criticality; a row is one finding across its plan years (the span and the worst
    year's figure on the right), opening to its per-year rows */
 
-.fyrow .yr { flex: none; font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--ink-2); }
 
-.filter-chips button.on { background: rgba(255, 255, 255, 0.12); color: var(--ink); border-color: rgba(255, 255, 255, 0.22); }
 
 /* ---- the Limits tab: a section per reading of the run, a binding element's row (name, kind, sparkline, then its
    figures and the projects it holds back), a deferred project's chain card, an N-1 cause or works row, and the
    findings ledger folded at the bottom ---- */
 
-.lrow .chips { grid-column: 2 / -1; }
-.chip.kind { background: rgba(255, 255, 255, 0.08); color: var(--mute); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; }
 
 /* Capacity: the reinforcement timeline, one group per plan year (a past year's head dims as the slider passes it) */
 
-.need-year-head.past { color: var(--mute-2); }
 
 /* the agents: the header pill, a reply's stage chips, flags, approvals, the note card, the evidence drawer */
 
-.note-card .body { font-size: 12px; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip.flag { background: rgba(255, 255, 255, 0.06); color: var(--mute); font-size: 10.5px; font-family: var(--mono); }
 /* the agents pill's popover: the last runs */
 .mute[data-live] { animation: gfBreath 1.6s ease-in-out infinite; }
 
-.study-item .msg { grid-column: 2 / -1; font-size: 11px; color: var(--mute); line-height: 1.4; text-wrap: pretty; }
 
 /* projects: the capsule, the screen, the import form, the assumptions under the result stamp */
 .capsule.project { --hue: #7ce3ff; --hue-bd: rgba(124, 227, 255, 0.4); --hue-bg: rgba(124, 227, 255, 0.1); --hue-chip: rgba(124, 227, 255, 0.18); }
 
-@media (max-width: 760px) { .modal-cols { grid-template-columns: minmax(0, 1fr); } }
 
-.proj-row.current { border-color: rgba(124, 227, 255, 0.45); }
 
 /* one collapsible section per source of assumption (the file's gaps open by default) */
 
 /* the element card's loading sparkline */
 
-.spark-box .k { font-size: 11px; color: var(--mute); }
 .spark { display: block; overflow: visible; }
 .spark-base { stroke: rgba(255, 255, 255, 0.2); }
 .spark-rating { stroke: var(--amber); stroke-opacity: 0.6; }
