@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field
 from gridify_optimizer import Control
 from gridify_optimizer.config import MAX_CONNECTION_MW, PLAN_END_YEAR, PLAN_START_YEAR
 
-_YEAR = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
+# a plan year: optional where a field may be left out (a registry project brings its own; a change may not touch it)
+_OPTIONAL_YEAR = Field(default=None, ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
 
 
 class ConnectionCreate(BaseModel):
@@ -19,7 +20,7 @@ class ConnectionCreate(BaseModel):
     rating_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
     import_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)  # charging or demand capacity; None = the rating
     control: Control | None = None  # how its connection offer runs it; None: unity power factor
-    year: int | None = _YEAR
+    year: int | None = _OPTIONAL_YEAR
 
 
 class ConnectionChange(BaseModel):
@@ -31,7 +32,7 @@ class ConnectionChange(BaseModel):
     rating_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
     import_mw: float | None = Field(default=None, ge=0, le=MAX_CONNECTION_MW)
     control: Control | None = None
-    year: int | None = _YEAR
+    year: int | None = _OPTIONAL_YEAR
 
 
 class BranchCreate(BaseModel):
@@ -52,9 +53,9 @@ class ProfileSet(BaseModel):
 class YearRunRequest(BaseModel):
     """A branch's year: a plan year and a pathway the catalogue holds a grown year for."""
 
-    year: int = _YEAR
+    year: int = Field(ge=PLAN_START_YEAR, le=PLAN_END_YEAR)
     pathway: str
 
 
 class RunRequest(BaseModel):
-    view_year: int | None = Field(default=None, ge=PLAN_START_YEAR, le=PLAN_END_YEAR)  # the year the planner is looking at: solved first, published first
+    view_year: int | None = _OPTIONAL_YEAR  # the year the planner is looking at: solved first, published first

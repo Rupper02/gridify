@@ -49,6 +49,15 @@ def test_a_connection_is_validated():
     assert client.post(f"/branches/{bid}/connections", json=connection(year=max(PLAN_YEARS) + 1)).status_code == 422
 
 
+def test_a_registry_project_is_placed_with_its_own_year():
+    """Regression: the request's year was required, so pulling a project from the registry (which sends only its id)
+    was refused with 422 and the planner's "+" did nothing."""
+    project = next(r for r in client.get("/registry").json() if r["bus_id"] is not None and r["year"] is not None)
+    bid = create_branch("Registry")["branch_id"]
+    placed = add_connection(bid, {"from_registry": project["request_id"]})
+    assert placed["request_id"] == project["request_id"] and placed["year"] == project["year"]
+
+
 def test_a_technology_is_stored_as_the_engine_reads_it():
     """Regression: " Solar " was stored as sent and ran as firm generation at winter peak."""
     bid = create_branch("Technology case")["branch_id"]
