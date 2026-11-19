@@ -15,7 +15,6 @@ import { indexModel, limiters } from "../lib/model";
 import { BRANCH_HUES, MAIN_HUE } from "../theme";
 import type {
   Assumption,
-  Boundary,
   Branch,
   Connection,
   ConnectionDraft,
@@ -58,7 +57,6 @@ export interface PlannerState {
   model: Model | null;
   bootError: string | null;
   forecasts: Forecasts | null;
-  boundary: Boundary | null;
   assumptions: Assumption[] | null;
   showAssumptions: boolean;
   registry: RegistryItem[] | null;
@@ -90,7 +88,7 @@ export interface PlannerState {
 }
 
 const INITIAL: PlannerState = {
-  model: null, bootError: null, forecasts: null, boundary: null, assumptions: null, showAssumptions: false, registry: null,
+  model: null, bootError: null, forecasts: null, assumptions: null, showAssumptions: false, registry: null,
   branches: [], activeBranch: "", connections: [], result: null, resultAt: "", run: { kind: "idle" }, diff: null, diffError: null,
   year: 0, layer: "flow", visible: [], sel: null, tab: "connections", sideOpen: true, menuOpen: false, toasts: [],
   runs: null, runId: "2035-ht", runSummary: null, runLoading: false, runMetric: "hours", runCompare: null, yearRun: { kind: "idle" },
@@ -261,7 +259,6 @@ export function usePlanner() {
       try {
         const [model, forecasts, branches] = await Promise.all([api.getModel(), api.getForecasts(), api.listBranches()]);
         patch({ model, forecasts, branches, year: forecasts.plan_years[0] });
-        void api.getBoundary().then((boundary) => patch({ boundary })).catch(() => {});
         await openBranch(MAIN_ID);
         return;
       } catch (e) {

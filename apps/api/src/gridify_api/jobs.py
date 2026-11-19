@@ -9,9 +9,8 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
-from .errors import NotFound
-
 from .config import log, now
+from .errors import NotFound
 
 
 class JobCancelled(Exception):
@@ -25,13 +24,13 @@ PRUNE_BATCH = 50
 class JobRunner:
     """Queue `fn(progress)` on one worker (pandapower is CPU-bound: one run at a time) and track it."""
 
-    def __init__(self, solver_lock: threading.RLock | None = None):
+    def __init__(self, solver_lock: threading.RLock):
         self._pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridify-job")
         self._jobs: dict[str, dict] = {}
         self._lock = threading.Lock()
         # pandapower is CPU-bound and its nets are not shared across threads: every power flow in the
         # process runs under this one lock
-        self.solver_lock = solver_lock or threading.RLock()
+        self.solver_lock = solver_lock
 
     def submit(self, fn: Callable[[], None]) -> None:
         """Run a fire-and-forget task on the worker (the warm-up). Each result it misses takes the solver lock on its
@@ -99,7 +98,8 @@ class JobRunner:
                 log.info("job %s (%s) %s in %.1f s", job_id, kind, rec["status"], rec["elapsed_ms"] / 1000)
 
         self._pool.submit(run)
-        return self._view(rec)
+        with self._lock:  # _view reads every job's status: never while another thread adds one
+            return self._view(rec)
 
     @contextmanager
     def _solver(self, rec: dict):
@@ -120,7 +120,7 @@ class JobRunner:
 
     def _view(self, rec: dict, with_result: bool = False, with_partial: bool = False, since: int | None = None) -> dict:
         """The job as the planner reads it. The partial result (every year solved so far, re-serialised
-        on every poll) travels only when asked for and newer than the version the poll last saw (`since`)). A queued
+        on every poll) travels only when asked for and newer than the version the poll last saw (`since`). A queued
         job says how many jobs hold the worker ahead of it (`stage: "queued behind N"`), so the planner can say why
         it waits rather than "queued" alone."""
         out = {k: v for k, v in rec.items() if k not in ("result", "partial", "cancel", "key")}

@@ -68,11 +68,6 @@ def has_table(con, name: str) -> bool:
     return bool(con.execute("SELECT 1 FROM information_schema.tables WHERE table_name = ?", [name]).fetchone())
 
 
-def _has_column(con, table: str, column: str) -> bool:
-    return bool(con.execute("SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?",
-                            [table, column]).fetchone())
-
-
 def _snapshot_id(con) -> str:
     if not has_table(con, "snapshots"):
         return "baseline"
@@ -165,15 +160,14 @@ class Warehouse:
 
     def baseline_model(self) -> dict:
         """The geolocated grid (buses, lines, transformers, loads, generators) for the map, read as one
-        committed version. A table or column an older warehouse lacks is checked for, never guessed from an error."""
+        committed version. A line's `length_km` is NULL where the LTDS gives none; `in_service` FALSE is an open point."""
         return self.read("baseline_model", self._model)
 
     @staticmethod
     def _model(con) -> dict:
         buses = rows(con, "SELECT bus_id, name, vn_kv, lon, lat FROM buses WHERE lon IS NOT NULL")
-        length = "l.length_km," if _has_column(con, "lines", "length_km") else "0.0 AS length_km,"  # older: no line lengths
-        lines = rows(con, f"""
-            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv, l.from_bus, l.to_bus, {length}
+        lines = rows(con, """
+            SELECT l.line_id, l.line_name, l.rating_a, l.voltage_kv, l.from_bus, l.to_bus, l.length_km, l.in_service,
                    f.lon AS from_lon, f.lat AS from_lat, t.lon AS to_lon, t.lat AS to_lat
             FROM lines l
             JOIN buses f ON l.from_bus = f.bus_id
@@ -189,9 +183,8 @@ class Warehouse:
             JOIN buses lv ON tr.lv_bus = lv.bus_id
             WHERE h.lon IS NOT NULL AND lv.lon IS NOT NULL
             """)
-        region = "ld.region_id," if _has_column(con, "loads", "region_id") else ""  # older: no demand regions
-        loads = rows(con, f"""
-            SELECT ld.bus_id, ld.p_mw, {region} b.lon, b.lat
+        loads = rows(con, """
+            SELECT ld.bus_id, ld.p_mw, ld.region_id, b.lon, b.lat
             FROM loads ld
             JOIN buses b ON ld.bus_id = b.bus_id
             WHERE b.lon IS NOT NULL
@@ -202,7 +195,7 @@ class Warehouse:
             SELECT g.request_id, g.bus_id, g.rating_mw, g.technology, g.applicant, b.lon, b.lat
             FROM generators g JOIN buses b ON g.bus_id = b.bus_id
             WHERE b.lon IS NOT NULL
-            """) if has_table(con, "generators") else []  # older: no existing-fleet table
+            """)
         return {"buses": buses, "lines": lines, "transformers": transformers, "loads": loads, "generators": generators}
 
     def registry_rows(self) -> list[dict]:

@@ -20,7 +20,6 @@ class BranchInputs(NamedTuple):
 
     branch: dict
     connections: list[Connection]
-    rows: list[dict]  # the stored connection rows (names and sources: what the payload adds)
     params: PlanParams
 
 
@@ -47,9 +46,8 @@ class PlanService:
     def inputs(self, branch_id: str) -> BranchInputs:
         with self.store.cursor() as con:
             branch = repository.require_branch(con, branch_id)
-            rows = repository.connection_rows(con, branch_id)
             conns = repository.connections(con, branch_id)
-        return BranchInputs(branch, conns, rows, plan_params(branch))
+        return BranchInputs(branch, conns, plan_params(branch))
 
     def run_key(self, b: BranchInputs) -> str:
         """The identity of a branch's result: the same for a re-run with the same inputs, different as soon as anything
@@ -70,22 +68,16 @@ class PlanService:
         )
 
     def payload(self, b: BranchInputs, result: PlanResult | None = None) -> dict:
-        """A branch's run as the planner renders it: every year, the connections with their positions, and the key."""
-        coords = self.grid.bus_coords()
-        conns = []
-        for r in b.rows:
-            lon, lat = coords.get(int(r["bus_id"]), (None, None))
-            conns.append({**repository.to_client(r), "lon": lon, "lat": lat})
-        out = {"branch_id": b.branch["branch_id"], "run_key": self.run_key(b), "snapshot_id": self.grid.baseline(),
-               "params": b.params.model_dump(), "connections": conns, "years": {}}
+        """A branch's run as the planner renders it: every year, the demand profile and the run's key."""
+        out = {"branch_id": b.branch["branch_id"], "run_key": self.run_key(b), "params": b.params.model_dump(), "years": {}}
         if result is not None:
             out["years"] = {k: v.model_dump() for k, v in result.years.items()}
         return out
 
-    def run(self, branch_id: str, *, progress=None, publish=None, view_year: int | None = None) -> dict:
-        """Run a branch: every plan year (the viewed year first). `publish(payload)` receives the partial payload as
-        each year lands, so the planner shows results while the rest are still solving."""
-        b = self.inputs(branch_id)
+    def run(self, b: BranchInputs, *, progress=None, publish=None, view_year: int | None = None) -> dict:
+        """Run a branch on the inputs read when the run was asked for (`inputs`), so a job computes exactly what its key
+        names: every plan year, the viewed year first. `publish(payload)` receives the partial payload as each year
+        lands, so the planner shows results while the rest are still solving."""
         out = self.payload(b)
 
         def on_year(yr) -> None:

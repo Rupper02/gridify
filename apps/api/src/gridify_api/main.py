@@ -27,15 +27,14 @@ from .warehouse import LOCK_MEMORY_S, WarehouseBusy, request_state
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup: open + migrate the scenarios DB once (so the planner's first, concurrent requests never race on DDL),
-    then warm the planner's first reads (the model, the boundary: a full power flow that also warms pandapower's numba
-    JIT) and queue main's run as a real job the planner's first run joins."""
+    then warm the planner's first read (the model) and queue main's run as a real job the planner's first run joins (its
+    first power flow also warms pandapower's numba JIT)."""
     scenarios.init()
 
     def _warm() -> None:
         try:
             if warehouse.exists():
                 grid.model()
-                grid.boundary()
         except Exception:  # warming is best-effort; a broken network surfaces on the first real call
             log.exception("warm-up failed")
 
@@ -43,7 +42,7 @@ async def _lifespan(_app: FastAPI):
     if warehouse.exists():
         try:
             b = plans.inputs(MAIN_ID)
-            jobs.start("run", lambda progress, publish: plans.run(MAIN_ID, progress=progress, publish=publish), key=plans.run_key(b))
+            jobs.start("run", lambda progress, publish: plans.run(b, progress=progress, publish=publish), key=plans.run_key(b))
         except Exception:
             log.exception("could not queue main's first run")
     yield

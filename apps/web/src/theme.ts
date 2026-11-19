@@ -59,8 +59,8 @@ export const isTech = (t: string | null | undefined): t is Tech => !!t && t in T
 export const techLabel = (t: string | null | undefined): string => (isTech(t) ? TECH[t].label : t ? t : "Unknown");
 
 // ---- demand profiles ----------------------------------------------------------------------------
-/** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's FORECASTS pathways and the
- * labels mirror config.FORECASTS[*].short (served on /forecasts): change both together. */
+/** The three demand profiles the picker offers, with their bar glyph. The ids are the engine's pathways
+ * (`gridify_optimizer.config.FORECASTS`): change both together. */
 export interface Profile {
   id: string;
   label: string;

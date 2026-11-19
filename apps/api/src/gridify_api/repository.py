@@ -53,14 +53,16 @@ def list_branches(con: Cursor) -> list[dict]:
 
 
 def open_branch(con: Cursor, parent: dict, name: str) -> dict:
-    """Open a branch off `parent`: its demand profile and connections come along (copy-on-create)."""
+    """Open a branch off `parent`: its demand profile and connections come along (copy-on-create), and it remembers
+    the parent's version, so a merge can tell whether the parent changed since."""
     bid = "br-" + uuid.uuid4().hex[:8]
-    con.execute(
-        f"INSERT INTO branches (branch_id, name, parent_id, {', '.join(PROFILE_COLS)}, status, created_at) "
-        f"VALUES (?, ?, ?, {', '.join('?' * len(PROFILE_COLS))}, 'open', ?)",
-        [bid, name, parent["branch_id"], *(parent[c] for c in PROFILE_COLS), now()],
-    )
-    _copy_connections(con, parent["branch_id"], bid)
+    with con.transaction():
+        con.execute(
+            f"INSERT INTO branches (branch_id, name, parent_id, {', '.join(PROFILE_COLS)}, status, created_at, version, parent_version) "
+            f"VALUES (?, ?, ?, {', '.join('?' * len(PROFILE_COLS))}, 'open', ?, 0, ?)",
+            [bid, name, parent["branch_id"], *(parent[c] for c in PROFILE_COLS), now(), parent["version"] or 0],
+        )
+        _copy_connections(con, parent["branch_id"], bid)
     return require_branch(con, bid)
 
 
@@ -74,11 +76,24 @@ def set_status(con: Cursor, branch_id: str, status: str, merged_at: str | None =
 
 
 def merge_into(con: Cursor, head: dict, into: dict) -> None:
-    """`into` adopts the head's demand profile and connections (replacing its own), and the head is marked merged."""
-    con.execute("DELETE FROM connections WHERE branch_id = ?", [into["branch_id"]])
-    _copy_connections(con, head["branch_id"], into["branch_id"])
-    set_profile(con, into["branch_id"], {c: head[c] for c in PROFILE_COLS})
-    set_status(con, head["branch_id"], "merged", now())
+    """`into` adopts the head's demand profile and connections (replacing its own), and the head is marked merged.
+    Refused (Conflict) when `into`'s connections changed after the head was opened: adopting the head's would silently
+    undo that change (another branch merged in meanwhile)."""
+    if (into["version"] or 0) != (head["parent_version"] or 0):
+        name = "main" if is_main(into) else f"'{into['name']}'"
+        raise Conflict(f"{name} has changed since this branch was opened (another branch was merged into it): "
+                       f"open a new branch from {name} and make these changes there")
+    with con.transaction():
+        con.execute("DELETE FROM connections WHERE branch_id = ?", [into["branch_id"]])
+        _copy_connections(con, head["branch_id"], into["branch_id"])
+        set_profile(con, into["branch_id"], {c: head[c] for c in PROFILE_COLS})
+        _bump_version(con, into["branch_id"])
+        set_status(con, head["branch_id"], "merged", now())
+
+
+def _bump_version(con: Cursor, branch_id: str) -> None:
+    """A branch's connections changed."""
+    con.execute("UPDATE branches SET version = COALESCE(version, 0) + 1 WHERE branch_id = ?", [branch_id])
 
 
 # --- connections on a branch -------------------------------------------------
@@ -108,7 +123,8 @@ def connections(con: Cursor, branch_id: str) -> list[Connection]:
 def validate(row: dict, bus_ids: set[int]) -> dict:
     """A connection the engine can simulate, or Invalid with what is missing. A demand or electrolyser connection
     exports nothing: it is judged on what it draws (`import_mw`), its rating 0."""
-    tech = (row.get("technology") or "").lower()
+    tech = (row.get("technology") or "").strip().lower()  # stored as the engine reads it (types.Connection)
+    row = {**row, "technology": tech or None}
     missing = []
     if row.get("bus_id") is None:
         missing.append("a bus")
@@ -145,6 +161,7 @@ def insert_connection(con: Cursor, branch_id: str, fields: dict, bus_ids: set[in
     row = {**row, "control_json": json.dumps(control) if control else None, "source": source, "created_at": now()}
     con.execute(f"INSERT INTO connections (branch_id, {', '.join(CONNECTION_COLS)}) VALUES (?, {', '.join('?' * len(CONNECTION_COLS))})",
                 [branch_id, *(row.get(c) for c in CONNECTION_COLS)])
+    _bump_version(con, branch_id)
     return to_client({c: row.get(c) for c in CONNECTION_COLS})
 
 
@@ -159,6 +176,7 @@ def update_connection(con: Cursor, branch_id: str, request_id: str, changes: dic
     cols = [c for c in CONNECTION_COLS if c not in ("request_id", "source", "created_at")]
     con.execute(f"UPDATE connections SET {', '.join(f'{c} = ?' for c in cols)} WHERE branch_id = ? AND request_id = ?",
                 [*(row.get(c) for c in cols), branch_id, request_id])
+    _bump_version(con, branch_id)
     return to_client({c: row.get(c) for c in CONNECTION_COLS})
 
 
@@ -166,3 +184,4 @@ def delete_connection(con: Cursor, branch_id: str, request_id: str) -> None:
     if not con.execute("SELECT 1 FROM connections WHERE branch_id = ? AND request_id = ?", [branch_id, request_id]).fetchone():
         raise NotFound(f"{request_id} is not on branch '{branch_id}'")
     con.execute("DELETE FROM connections WHERE branch_id = ? AND request_id = ?", [branch_id, request_id])
+    _bump_version(con, branch_id)

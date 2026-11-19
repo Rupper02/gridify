@@ -6,9 +6,10 @@ fingerprint, so branches never serve each other's results and a code change reti
 
 import hashlib
 import json
+import threading
 import time
 from collections.abc import Callable
-from contextlib import AbstractContextManager, contextmanager, nullcontext
+from contextlib import contextmanager
 from typing import TypeVar
 
 from gridify_optimizer import Connection, PlanParams
@@ -20,6 +21,7 @@ from .store import ScenarioStore
 T = TypeVar("T")
 
 MAX_YEAR_CACHE_ENTRIES = 2_000  # solved plan years (years.year_signature): an edit re-solves only what it touches
+_MISSING = object()
 MAX_RESULT_ENTRIES = 128  # results kept in process (the durable table keeps them all): the oldest go first
 
 
@@ -39,18 +41,18 @@ def connections_key(connections: list[Connection]) -> str:
 
 
 def params_key(params: PlanParams) -> tuple:
-    return (params.scenario, round(params.growth_2030, 3), round(params.growth_2035, 3))
+    return (params.scenario, round(params.growth_2030, 4), round(params.growth_2035, 4))  # as years.year_signature
 
 
 class ResultCache:
     """An in-process dict of results and of solved plan years, plus the durable table."""
 
-    def __init__(self, store: ScenarioStore, engine: str, solver_lock: AbstractContextManager | None = None):
+    def __init__(self, store: ScenarioStore, engine: str, solver_lock: threading.RLock):
         self._store = store
         self.engine = engine
         # every engine computation in the process takes this lock (re-entrant: a job already holds it), so a request
         # that misses the cache waits for the solver instead of solving alongside it
-        self._solver = solver_lock or nullcontext()
+        self._solver = solver_lock
         self.compute: dict = {}
         self._years: dict[tuple, dict] = {}
         store.on_reset(self.compute.clear)
@@ -101,11 +103,7 @@ class ResultCache:
 
     @contextmanager
     def _hold(self, wait: bool):
-        acquire = getattr(self._solver, "acquire", None)
-        if acquire is None:
-            yield
-            return
-        if not acquire(blocking=wait):
+        if not self._solver.acquire(blocking=wait):
             raise NotSolved("the engine is busy with a run: ask again when it finishes", retry=True)
         try:
             yield
@@ -113,8 +111,9 @@ class ResultCache:
             self._solver.release()
 
     def _lookup(self, key: str, parse: Callable[[str], T]) -> tuple[T | None, bool]:
-        if key in self.compute:
-            return self.compute[key], True
+        value = self.compute.get(key, _MISSING)  # one read: another thread may evict the key between two
+        if value is not _MISSING:
+            return value, True
         with self._store.cursor() as con:
             row = con.execute("SELECT result_json FROM result_cache WHERE cache_key = ?", [key]).fetchone()
         if row is None:

@@ -10,8 +10,7 @@ documents every endpoint and schema interactively at `/docs`.
 |---|---|---|
 | GET | `/health` | Liveness, and whether the warehouse exists |
 | GET | `/model` | The geolocated grid for the map, with its name and snapshot |
-| GET | `/boundary` | The GSP's export limit and today's export |
-| GET | `/forecasts` | The demand pathways, the plan years and the intake limits |
+| GET | `/forecasts` | The plan years and the largest connection a branch can place |
 | GET | `/assumptions` | What the model assumes (builder fallbacks and planning assumptions) |
 | GET | `/registry` | The not-yet-built projects NGED publishes |
 | GET, POST | `/branches` | List the branches; open one from another (`{name, from_branch}`) |
@@ -23,7 +22,7 @@ documents every endpoint and schema interactively at `/docs`.
 | POST | `/branches/{id}/simulate` | Run and wait (scripts, tests) |
 | GET | `/branches/{id}/result` | The result for what the branch holds now, never solving (409 `not_solved` until run) |
 | GET | `/branches/{id}/diff` | The branch against its parent, year by year |
-| POST | `/branches/{id}/merge`, `/discard` | Merge into the parent, or discard |
+| POST | `/branches/{id}/merge`, `/discard` | Merge into the parent (409 if the parent changed since the branch was opened), or discard |
 | GET | `/jobs/{id}` | A job's status, progress, partial result (`partial=true`) and result; `POST /jobs/{id}/cancel` stops it |
 | GET | `/runs` | The catalogue of measured and grown years: whether each run file exists, how to make it, its limits |
 | GET | `/runs/{id}` | A run's summary: each line and transformer's peak and hours above rating, busbars out of band, substations above firm capacity |

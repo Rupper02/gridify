@@ -1,19 +1,17 @@
 """The grid Gridify plans on: NGED Bicker Fen, read from the pipeline's warehouse so the lineage is real.
 
 `Grid` is the one place the API reads a network through: the `GridSource`, the model for the map, the bus ids a
-connection is checked against, the boundary card, the demand pathways, the registry of not-yet-built projects and
-the assumptions. Its read-through caches live here, per baseline, each computed once under its own lock."""
+connection is checked against, the registry of not-yet-built projects and the assumptions. The model is cached per
+baseline, computed once under a lock."""
 
 from __future__ import annotations
 
 import threading
 
 from gridify_optimizer import GridModel, ModelAssumption
-from gridify_optimizer.config import FORECASTS
 from gridify_optimizer.naming import name_model
-from gridify_optimizer.network import band_at, build_base_net
-from gridify_optimizer.nged import gsp_boundary
-from gridify_optimizer.sources import NgedSource, Pathway
+from gridify_optimizer.network import band_at
+from gridify_optimizer.sources import GridSource, NgedSource, Pathway
 
 from .warehouse import Warehouse
 
@@ -31,7 +29,7 @@ class WarehouseNgedSource:
         self._engine = NgedSource()
 
     def build_net(self):
-        return build_base_net()
+        return self._engine.build_net()
 
     def model(self) -> GridModel:
         """The warehouse's model, each bus with the band the engine judges it against and every element named by place."""
@@ -46,7 +44,7 @@ class WarehouseNgedSource:
         return self._warehouse.registry_rows()
 
     def boundary(self) -> dict | None:
-        return gsp_boundary()
+        return self._engine.boundary()
 
     def fingerprint(self) -> str:
         return self._warehouse.baseline_id()
@@ -67,12 +65,10 @@ class WarehouseNgedSource:
 class Grid:
     """The grid behind every branch (a `GridSource`), with per-baseline caches."""
 
-    def __init__(self, source):
+    def __init__(self, source: GridSource):
         self.source = source
         self._models: dict[str, GridModel] = {}
-        self._boundaries: dict[str, dict | None] = {}
-        # one computation per cache, however many requests ask at once (the boundary is a full power flow)
-        self._locks = {"model": threading.Lock(), "boundary": threading.Lock()}
+        self._lock = threading.Lock()  # one build of the model, however many requests ask at once
 
     @property
     def name(self) -> str:
@@ -87,23 +83,13 @@ class Grid:
 
     def model(self) -> GridModel:
         key = self.baseline()
-        with self._locks["model"]:
+        with self._lock:
             if key not in self._models:
                 self._models = {key: self.source.model()}
             return self._models[key]
 
-    def bus_coords(self) -> dict[int, tuple[float, float]]:
-        return {b.bus_id: (b.lon, b.lat) for b in self.model().buses}
-
     def bus_ids(self) -> set[int]:
         return {b.bus_id for b in self.model().buses}
-
-    def boundary(self) -> dict | None:
-        key = self.baseline()
-        with self._locks["boundary"]:
-            if key not in self._boundaries:
-                self._boundaries = {key: self.source.boundary()}
-            return self._boundaries[key]
 
     def registry(self) -> list[dict]:
         """The not-yet-built projects the registry publishes, shaped as connections (their requested year as the year),
@@ -115,22 +101,6 @@ class Grid:
              "complete": r.get("status") == "auto_accept", "review_reasons": r.get("review_reasons") or ""}
             for r in self.source.candidates()
         ]
-
-    def forecasts(self) -> dict[str, Pathway] | None:
-        return self.source.forecasts()
-
-    def pathways(self) -> list[dict]:
-        """The demand picker's pathways, each with its network-wide multiplier per year where the grid has its own."""
-        own = self.forecasts() or {}
-        out = []
-        for fid, f in FORECASTS.items():
-            if not f.get("selectable", True):
-                continue
-            pw = own.get(fid)
-            out.append({"id": fid, "label": f["label"], "short": f["short"], "description": f["description"],
-                        "source": pw.source if pw else f["source"],
-                        "curve": {str(y): m for y, m in sorted(pw.curve.items())} if pw else None})
-        return out
 
     def assumptions(self) -> list[dict]:
         return [a.model_dump() for a in self.source.assumptions()]

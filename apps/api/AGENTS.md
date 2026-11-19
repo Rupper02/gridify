@@ -8,9 +8,9 @@ to the API. The endpoint table is in `apps/api/README.md`.
 - `main.py` only assembles the app (the lifespan warm-up, error mapping, CORS); `deps.py` is the composition root: the one
   place instances are built.
 - `grid.py` (`Grid`, `WarehouseNgedSource`): the grid every branch is on. The model, the registry and the snapshot id come
-  from the pipeline's warehouse (the lineage is real); the network, the boundary, the pathways and the assumptions from the
+  from the pipeline's warehouse (the lineage is real); the network and the assumptions from the
   engine. Per-baseline caches live here, each computed once under its own lock.
-- `routers/model.py` (the read-only grid: `/model`, `/boundary`, `/forecasts`, `/assumptions`, `/registry`, `/health`) and
+- `routers/model.py` (the read-only grid: `/model`, `/forecasts`, `/assumptions`, `/registry`, `/health`) and
   `routers/branches.py` (branches, connections, the profile, runs and jobs, the diff, merge and discard).
 - `service.py` (`PlanService`: a branch's inputs, the run through the cache, the payload, the diff); `repository.py`
   (branches and connections SQL, `require_open`, validation of a connection); `store.py` (`ScenarioStore`, the schema and
@@ -25,9 +25,11 @@ to the API. The endpoint table is in `apps/api/README.md`.
   Everything a user does goes to the scenarios store: `apps/api/data/scenarios.duckdb` (`GRIDIFY_SCENARIOS_DB`), or
   Postgres with `GRIDIFY_SCENARIOS_URL=postgresql://…`. `store.Cursor` translates `?`→`%s` and `DOUBLE`→`DOUBLE
   PRECISION`, so write DuckDB-style SQL with `?` placeholders and `ON CONFLICT` upserts, never `INSERT OR REPLACE` or
-  `PRAGMA`. A schema change needs a migration in `store.migrate` (dialect-aware).
+  `PRAGMA`. A schema change needs a migration in `store.migrate` (dialect-aware). Several writes that must land together
+  go in `con.transaction()`.
 - **Main is read-only.** Every connection edit goes through `repository.require_open(..., allow_main=False)` (409 on
-  `main` or a branch that is not open); the demand profile stays editable on `main`.
+  `main` or a branch that is not open); the demand profile stays editable on `main`. Every connection change bumps the
+  branch's `version`; a branch records its parent's at opening, and a merge is refused (409) once they differ.
 - **Cache keys** include the demand profile, the connections (`cache.connections_key`: every field the physics reads, and
   the year), the grid's baseline (the warehouse snapshot id) and the engine fingerprint (`ResultCache.key`). Every engine
   result is read through `ResultCache.through` (in-process dict → durable `result_cache` table → compute); plan years are

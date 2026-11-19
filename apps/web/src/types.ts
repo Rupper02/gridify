@@ -26,7 +26,8 @@ export interface Line {
   from_lat: number;
   to_lon: number;
   to_lat: number;
-  length_km?: number;
+  /** Null where the LTDS gives no length. */
+  length_km?: number | null;
   /** False: an open point (in the model, carrying nothing). */
   in_service: boolean;
 }
@@ -71,30 +72,10 @@ export interface Model {
   generators: Generator[];
 }
 
-/** GET /boundary: the GSP's export limit to transmission and today's export. */
-export interface Boundary {
-  gsp_name: string;
-  export_limit_mw: number;
-  firm_export_mw?: number;
-  export_today_mw: number;
-  [k: string]: unknown;
-}
-
-export interface Pathway {
-  id: string;
-  label: string;
-  short: string;
-  description: string;
-  source: string;
-  curve: Record<string, number> | null;
-}
-/** GET /forecasts. */
+/** GET /forecasts: the plan's years and the largest connection a branch can place. */
 export interface Forecasts {
-  default: string;
-  forecasts: Pathway[];
   plan_years: number[];
   max_connection_mw: number;
-  import_only_techs: string[];
 }
 
 export interface Assumption {
@@ -213,9 +194,7 @@ export interface PlanParams {
 export interface PlanPayload {
   branch_id: string;
   run_key: string;
-  snapshot_id: string;
   params: PlanParams;
-  connections: (Connection & { lon: number | null; lat: number | null })[];
   years: Record<string, YearResult>;
 }
 

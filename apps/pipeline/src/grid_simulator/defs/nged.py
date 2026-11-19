@@ -29,6 +29,7 @@ from gridify_optimizer.nged_points import BICKER_FEN
 from gridify_optimizer.nged import (
     TABLE_NAMES,
     build_nged_net,
+    builder_assumptions,
     load_bundled_coords,
     load_bundled_tables,
     nged_candidates,
@@ -237,7 +238,11 @@ def served_nged(
     `candidates` count is the registry's size when that snapshot was first written."""
     m = nged_model_canonical
     buses = pd.DataFrame(m["buses"])[["bus_id", "name", "vn_kv", "lon", "lat"]]
-    lines = pd.DataFrame(m["lines"])[["line_id", "line_name", "rating_a", "voltage_kv", "from_bus", "to_bus"]]
+    lines = pd.DataFrame(m["lines"])[["line_id", "line_name", "rating_a", "voltage_kv", "from_bus", "to_bus",
+                                      "length_km", "in_service"]]
+    # LTDS "Circuit Length (km)"; where it is blank the engine solves on an assumed 1 km (`length_default`): served as NULL
+    no_length = {i for a in builder_assumptions(ltds_tables) if a.key == "length_default" for i in a.element_ids}
+    lines["length_km"] = lines["length_km"].astype("float64").where(~lines["line_id"].isin(no_length))
     trafos = pd.DataFrame(m["transformers"])[["trafo_id", "name", "sn_mva", "hv_bus", "lv_bus"]]
     loads = pd.DataFrame([{"bus_id": ld["bus_id"], "p_mw": ld["p_mw"], "region_id": ld.get("region_id")}
                           for ld in m["loads"]])

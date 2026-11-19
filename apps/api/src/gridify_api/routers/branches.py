@@ -105,7 +105,7 @@ def run_branch(branch_id: str, body: RunRequest | None = None) -> dict:
     b = plans.inputs(branch_id)
     if not cache.has(plans.run_key(b)):  # a cached plan finishes at once: it need not stop anything
         _stop_year_runs()
-    return jobs.start("run", lambda progress, publish: plans.run(branch_id, progress=progress, publish=publish, view_year=view_year),
+    return jobs.start("run", lambda progress, publish: plans.run(b, progress=progress, publish=publish, view_year=view_year),
                       key=plans.run_key(b))
 
 
@@ -113,7 +113,7 @@ def run_branch(branch_id: str, body: RunRequest | None = None) -> dict:
 def simulate_branch(branch_id: str) -> dict:
     """Run the branch and wait for it (scripts and tests; the planner uses the job)."""
     _stop_year_runs()
-    return plans.run(branch_id)
+    return plans.run(plans.inputs(branch_id))
 
 
 YEAR_STOPPED = ("stopped so a branch's plan years could solve first. Nothing of it was kept: run the year again once the "

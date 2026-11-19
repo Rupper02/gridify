@@ -2,7 +2,6 @@
 
 import type {
   Assumption,
-  Boundary,
   Branch,
   Connection,
   ConnectionDraft,
@@ -93,7 +92,6 @@ export interface RunHandlers {
 
 export const api = {
   getModel: () => get<Model>("/model"),
-  getBoundary: () => get<Boundary | null>("/boundary"),
   getForecasts: () => get<Forecasts>("/forecasts"),
   getAssumptions: () => get<Assumption[]>("/assumptions"),
   getRegistry: () => get<RegistryItem[]>("/registry"),

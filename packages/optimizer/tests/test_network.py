@@ -101,3 +101,14 @@ def test_readiness_rubric_is_monotonic_and_bounded():
     assert hi == 1.0  # every milestone secured, near-term -> full marks
     assert hi > lo
     assert 0.0 <= lo < 0.2
+
+
+def test_a_technology_name_is_read_whatever_its_case_or_spacing():
+    """Regression: "Solar" was not found in the per-case factors and ran as firm generation (full output at winter
+    peak) instead of nil."""
+    from gridify_optimizer import Connection
+    from gridify_optimizer.config import GENERATION_FACTORS
+
+    c = Connection(request_id="CR-1", bus_id=0, technology=" Solar ", rating_mw=1.0, year=2026)
+    assert c.technology == "solar"
+    assert c.technology in GENERATION_FACTORS["winter_peak"]

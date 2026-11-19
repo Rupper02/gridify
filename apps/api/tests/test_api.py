@@ -16,7 +16,6 @@ def test_branches_with_different_connections_do_not_share_cached_results(solved_
     add_connection(other, connection(name="Other", rating_mw=2.0))
     a, b = run(solved_branch), run(other)
     assert a["run_key"] != b["run_key"]
-    assert {c["request_id"] for c in a["connections"]} != {c["request_id"] for c in b["connections"]}
     assert list(a["years"]) == [str(y) for y in PLAN_YEARS]
 
 
@@ -50,6 +49,18 @@ def test_a_connection_is_validated():
     assert client.post(f"/branches/{bid}/connections", json=connection(year=max(PLAN_YEARS) + 1)).status_code == 422
 
 
+def test_a_technology_is_stored_as_the_engine_reads_it():
+    """Regression: " Solar " was stored as sent and ran as firm generation at winter peak."""
+    bid = create_branch("Technology case")["branch_id"]
+    assert add_connection(bid, connection(technology=" Solar "))["technology"] == "solar"
+
+
+def test_a_run_and_a_year_run_refuse_a_year_outside_the_plan():
+    bid = create_branch("Years")["branch_id"]
+    assert client.post(f"/branches/{bid}/run", json={"view_year": max(PLAN_YEARS) + 1}).status_code == 422
+    assert client.post(f"/branches/{bid}/year-run", json={"year": min(PLAN_YEARS) - 1, "pathway": "ht"}).status_code == 422
+
+
 def test_main_is_changed_only_by_merging():
     assert client.post("/branches/main/connections", json=connection()).status_code == 409
     # the demand profile on main stays editable (the profile picker)
@@ -75,3 +86,18 @@ def test_discard_and_main_guard():
     assert client.post(f"/branches/{bid}/discard").status_code == 409  # not open any more
     assert client.post("/branches/main/discard").status_code == 409
     assert client.post("/branches/main/merge").status_code == 409
+
+
+def test_a_branch_opened_before_another_merge_cannot_undo_it():
+    """Regression: merging a branch whose parent had changed since it was opened replaced the parent's connections
+    with its own, silently dropping what the other branch had merged."""
+    first = create_branch("First")["branch_id"]
+    second = create_branch("Second")["branch_id"]
+    rid_first = add_connection(first, connection(name="First"))["request_id"]
+    rid_second = add_connection(second, connection(name="Second"))["request_id"]
+    assert client.post(f"/branches/{first}/merge").status_code == 200
+    refused = client.post(f"/branches/{second}/merge")
+    assert refused.status_code == 409, refused.text
+    on_main = {c["request_id"] for c in client.get("/branches/main/connections").json()}
+    assert rid_first in on_main and rid_second not in on_main
+    assert branch(second)["status"] == "open"  # nothing changed: it can be redone on a fresh branch

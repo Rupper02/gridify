@@ -70,7 +70,7 @@ cd apps/web && pnpm typecheck && pnpm build       # the planner has no unit test
 ```
 
 - `uv run dg dev` (Dagster UI) also binds **port 3000**: don't run it alongside the web app.
-- Re-materialise after changing `nged.py` or bundled data, and restart the API: it caches results and the boundary in
+- Re-materialise after changing `nged.py` or bundled data, and restart the API: it caches results and the model in
   memory.
 
 Windows / Git Bash:

@@ -12,21 +12,17 @@ from pathlib import Path
 
 import duckdb
 
-from gridify_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035, PLAN_START_YEAR
+from gridify_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035
 
 from .config import MAIN_ID, now
 
-BRANCH_COLS = ["branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035", "status", "created_at", "merged_at"]
+# `version` counts the changes to a branch's connections; `parent_version` is its parent's version when it was opened
+BRANCH_COLS = ["branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035", "status", "created_at", "merged_at",
+               "version", "parent_version"]
 PROFILE_COLS = ["scenario", "growth_2030", "growth_2035"]  # a branch's demand profile
 CONNECTION_COLS = ["request_id", "name", "bus_id", "technology", "rating_mw", "import_mw", "control_json", "year", "source", "created_at"]
 
 _DOUBLE_RE = re.compile(r"\bDOUBLE\b(?! PRECISION)")  # DuckDB's DOUBLE is Postgres's DOUBLE PRECISION
-
-# what the store held before the backbone (the optimizer's queue, works, reinforcements, the ledger, the agents):
-# dropped once their branches' projects are carried into `connections`
-_RETIRED_TABLES = ("added_candidates", "branch_outages", "branch_reinforcements", "findings", "merges", "projects",
-                   "project_events", "project_state", "agent_runs", "agent_steps", "threads", "messages", "approvals",
-                   "agent_budgets", "run_notes", "reviews")
 
 
 def is_postgres_url(target: str | Path) -> bool:
@@ -43,17 +39,12 @@ class Cursor:
         self.dialect = dialect
 
     def _sql(self, sql: str) -> str:
-        if self.dialect == "postgres":
-            return _DOUBLE_RE.sub("DOUBLE PRECISION", sql.replace("?", "%s"))
+        if self.dialect == "postgres":  # a literal % (LIKE 'CR-%') must be doubled once %s placeholders are in play
+            return _DOUBLE_RE.sub("DOUBLE PRECISION", sql.replace("%", "%%").replace("?", "%s"))
         return sql
 
     def execute(self, sql: str, params=None):
         self._c.execute(self._sql(sql), params if params is not None else [])
-        return self
-
-    def executemany(self, sql: str, seq):
-        if seq:
-            self._c.executemany(self._sql(sql), seq)
         return self
 
     def fetchone(self):
@@ -62,24 +53,16 @@ class Cursor:
     def fetchall(self):
         return self._c.fetchall()
 
-    @property
-    def description(self):
-        return self._c.description
-
-    def tables(self) -> set[str]:
-        if self.dialect == "postgres":
-            self._c.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()")
-        else:
-            self._c.execute("SELECT table_name FROM information_schema.tables")
-        return {r[0] for r in self._c.fetchall()}
-
-    def columns(self, table: str) -> list[str]:
-        """Column names of a table (the migration helper)."""
-        if self.dialect == "postgres":
-            self._c.execute("SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position", [table])
-            return [r[0] for r in self._c.fetchall()]
-        self._c.execute(f"PRAGMA table_info('{table}')")
-        return [r[1] for r in self._c.fetchall()]
+    @contextmanager
+    def transaction(self):
+        """Several writes as one: all of them, or none (a failure part-way rolls back)."""
+        self._c.execute("BEGIN")
+        try:
+            yield self
+        except BaseException:
+            self._c.execute("ROLLBACK")
+            raise
+        self._c.execute("COMMIT")
 
     def close(self) -> None:
         self._c.close()
@@ -171,6 +154,8 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
+    for col in ("version", "parent_version"):
+        con.execute(f"ALTER TABLE branches ADD COLUMN IF NOT EXISTS {col} INTEGER DEFAULT 0")
     con.execute(
         """
         CREATE TABLE IF NOT EXISTS connections (
@@ -189,28 +174,7 @@ def migrate(con: Cursor) -> None:
         )
         """
     )
-    _carry_retired(con)
     ensure_main_branch(con)
-
-
-def _carry_retired(con: Cursor) -> None:
-    """A store from before the backbone: each branch's projects become its connections (energising in the year the
-    operator scheduled, else the one requested, else the first plan year), and the retired tables are dropped."""
-    tables = con.tables()
-    if "added_candidates" in tables:
-        cols = set(con.columns("added_candidates"))
-        year = "COALESCE(" + ", ".join([c for c in ("scheduled_year", "commissioning_year") if c in cols] + [str(PLAN_START_YEAR)]) + ")"
-        imp = "import_mw" if "import_mw" in cols else "NULL"
-        ctl = "control_json" if "control_json" in cols else "NULL"
-        con.execute(
-            f"INSERT INTO connections ({', '.join(['branch_id', *CONNECTION_COLS])}) "
-            f"SELECT branch_id, request_id, applicant, bus_id, technology, COALESCE(rating_mw, 0), {imp}, {ctl}, {year}, 'carried', ? "
-            f"FROM added_candidates WHERE bus_id IS NOT NULL",
-            [now()],
-        )
-    for t in _RETIRED_TABLES:
-        if t in tables:
-            con.execute(f"DROP TABLE {t}")
 
 
 def ensure_main_branch(con: Cursor) -> None:

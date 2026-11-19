@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 from typing import Literal
 
-from pydantic import Field, BaseModel, model_validator
+from pydantic import Field, BaseModel, field_validator, model_validator
 
 from .config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035
 
@@ -57,6 +57,13 @@ class Connection(BaseModel):
     import_mw: float | None = None  # charging or demand capacity (batteries, demand); None = same as the rating
     control: Control | None = None  # how its connection offer runs it; None: unity power factor
     year: int  # the plan year it energises in
+
+    @field_validator("technology")
+    @classmethod
+    def _technology(cls, v: str | None) -> str | None:
+        """Technologies are looked up by lower-case name (config.GENERATION_FACTORS): "Solar " is solar, never an
+        unknown technology that would run as firm generation."""
+        return (v.strip().lower() or None) if v else None
 
     def signature(self) -> tuple:
         """What a power flow with this connection in service depends on (`network.inject_connection`): the key the
@@ -151,7 +158,7 @@ class ModelLine(BaseModel):
     voltage_kv: float
     from_bus: int
     to_bus: int
-    length_km: float
+    length_km: float | None = None  # None: the LTDS gives no length
     from_lon: float
     from_lat: float
     to_lon: float

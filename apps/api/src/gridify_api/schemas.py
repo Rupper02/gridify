@@ -52,9 +52,9 @@ class ProfileSet(BaseModel):
 class YearRunRequest(BaseModel):
     """A branch's year: a plan year and a pathway the catalogue holds a grown year for."""
 
-    year: int
+    year: int = _YEAR
     pathway: str
 
 
 class RunRequest(BaseModel):
-    view_year: int | None = None  # the year the planner is looking at: solved first, published first
+    view_year: int | None = Field(default=None, ge=PLAN_START_YEAR, le=PLAN_END_YEAR)  # the year the planner is looking at: solved first, published first

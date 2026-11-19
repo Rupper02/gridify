@@ -1,10 +1,10 @@
-"""The read-only grid: the model for the map, the GSP boundary, the demand pathways, the assumptions and the registry
-of not-yet-built projects."""
+"""The read-only grid: the model for the map, the plan's years and intake limit, the assumptions and the registry of
+not-yet-built projects."""
 
 from fastapi import APIRouter
 
 from gridify_optimizer import PLAN_YEARS
-from gridify_optimizer.config import DEFAULT_SCENARIO, IMPORT_ONLY_TECHS, MAX_CONNECTION_MW
+from gridify_optimizer.config import MAX_CONNECTION_MW
 
 from ..deps import grid, scenarios, warehouse
 
@@ -23,18 +23,10 @@ def get_model() -> dict:
     return {"name": grid.name, "snapshot_id": grid.baseline(), **grid.model().model_dump()}
 
 
-@router.get("/boundary")
-def boundary() -> dict | None:
-    """The GSP boundary: the export limit to transmission, the region's export today, and the transmission-registered
-    projects behind the GSP."""
-    return grid.boundary()
-
-
 @router.get("/forecasts")
 def forecasts() -> dict:
-    """The demand pathways, the plan's years and the intake limits (single source of truth for the planner)."""
-    return {"default": DEFAULT_SCENARIO, "forecasts": grid.pathways(), "plan_years": list(PLAN_YEARS),
-            "max_connection_mw": MAX_CONNECTION_MW, "import_only_techs": list(IMPORT_ONLY_TECHS)}
+    """The plan's years and the largest connection a branch can place (the planner reads both from here)."""
+    return {"plan_years": list(PLAN_YEARS), "max_connection_mw": MAX_CONNECTION_MW}
 
 
 @router.get("/assumptions")
