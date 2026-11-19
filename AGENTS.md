@@ -15,7 +15,7 @@ branches to try changes on. The loop:
 
 The owner removed the AI layer (agents, the connection-queue optimizer, N-1, works windows, capacity studies, imports, the
 merge gate) on 2026-10-16 to get a clean backbone. What makes the product special comes next, deliberately and one step at
-a time; a learned demand and generation model is being explored in a separate project, and would plug in here as the
+a time; a learned demand and generation model is being explored in `forecast/` (a standalone experiment that imports nothing from the product), and would plug in here as the
 profiles a year is solved on. Don't re-add any of the removed features unless the owner asks.
 
 **We are building the MVP: stay lean.** Ship the smallest thing that makes the backbone real. Don't add tests,
@@ -40,6 +40,7 @@ Each package has its own `AGENTS.md`; the one closest to the file you edit adds 
 | `apps/pipeline` (`grid_simulator`) | Dagster: the pinned LTDS snapshot into the DuckDB warehouse, the ECR and OSM register fetches, pinning | `apps/pipeline/AGENTS.md` |
 | `apps/api` (`gridify_api`) | FastAPI on :8000: the grid, branches and their connections, runs as jobs, the result cache, the comparison | `apps/api/AGENTS.md` |
 | `apps/web` | The planner: Vite + React 19 + TypeScript, "Gridify Glass" | `apps/web/AGENTS.md` |
+| `forecast` | Standalone research: day-ahead demand forecasting at a primary substation; its own uv project, data git-ignored | `forecast/README.md` (sections 7 and 12 fix the method; never touch a spent or held-out test set) |
 
 Both Python apps consume `packages/optimizer` as an editable uv path dependency. Never duplicate network-building or
 physics logic in the pipeline, the API or the client; import it from the engine.
