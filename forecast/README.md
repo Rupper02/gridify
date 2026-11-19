@@ -25,6 +25,9 @@ filled in only from runs.
 - **Method.** Section 7: replay day by day with a strict data cut-off (no look-ahead), development and test periods split
   in advance, a frozen specification and code hashes (section 12) before the single test run, every result checked by a
   second session before it was read.
+- **Reading the notebook.** Sections 8 onwards are a dated record, kept as written. "The owner" is the human author; "the
+  guide session" and "the reviewing session" are separate Claude Code sessions that wrote run specifications before
+  runs and recomputed results independently afterwards.
 
 ## Code
 
