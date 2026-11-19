@@ -25,8 +25,8 @@ from gridify_optimizer.cim import write_cgmes_zip
 from gridify_optimizer.config import MAX_CONNECTION_MW
 from gridify_optimizer.editions import edition_changeset
 from gridify_optimizer.network import feasibility, voltage_limits
+from gridify_optimizer.nged_points import BICKER_FEN
 from gridify_optimizer.nged import (
-    NGED_CGMES_META,
     TABLE_NAMES,
     build_nged_net,
     load_bundled_coords,
@@ -202,7 +202,7 @@ def nged_model_cgmes(context: dg.AssetExecutionContext, ltds_tables: dict, nged_
     out_dir = DB_PATH.parent / "exports"
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"Gridify_{edition}_CGMES.zip"
-    sizes = write_cgmes_zip(path, net, nged_model_canonical, edition, meta=NGED_CGMES_META)
+    sizes = write_cgmes_zip(path, net, nged_model_canonical, edition, meta=BICKER_FEN.cgmes)
     return dg.MaterializeResult(metadata={"path": str(path), "ltds_edition": edition,
                                           **{k: v for k, v in sizes.items()}, "zip_bytes": path.stat().st_size})
 

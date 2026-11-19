@@ -47,7 +47,7 @@ _UNIT_KINDS = {"solar": "SolarGeneratingUnit", "wind": "WindGeneratingUnit", "ba
 
 class CgmesMeta(NamedTuple):
     """Who the model is from: the modelling authority URI and the regions the export names. Each
-    source carries its own (`nged.NGED_CGMES_META`); an imported grid gets Gridify's generic one."""
+    source carries its own (`SupplyPoint.cgmes` for an NGED supply point); an imported grid gets Gridify's generic one."""
 
     authority_uri: str = "http://gridify.example/network"
     region_name: str = "Imported network"

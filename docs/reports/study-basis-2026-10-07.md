@@ -60,6 +60,11 @@ This note exists so the engine's study basis is defensible to a DNO reader, and 
 
 ## 6. Observed flows (NGED half-hourly series, 2024, Bicker Fen)
 
+> **Note (2026-11-12):** the GSP node series quoted below does not reconcile with the four 132 kV circuits into Bicker
+> Fen in NGED's own branch file (median 52 MW more export), and the branch flows are NGED's load-flow output, not
+> measurements; read the table as a check of scale, not a match to observation
+> (`docs/reports/timeseries-step1-spec-2026-11-12.md`).
+
 NGED publishes derived half-hourly net flows per substation node and branch ("calculated using the substation loading and sensitivity factors ... PSS/E"). Against the engine's two cases:
 
 | Quantity | Observed 2024 | Engine, planning case |

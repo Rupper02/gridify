@@ -29,7 +29,8 @@ def model_from_net(net, xy: dict[int, tuple[float, float]], existing: list[dict]
                                voltage_kv=float(net.bus.at[f, "vn_kv"]), from_bus=f, to_bus=t,
                                length_km=round(float(net.line.at[i, "length_km"]), 3),
                                from_lon=xy[f][0], from_lat=xy[f][1], to_lon=xy[t][0], to_lat=xy[t][1],
-                               in_service=bool(net.line.at[i, "in_service"])))
+                               # a connector (out of service, joined by a closed switch) is joined, not an open point
+                               in_service=bool(net.line.at[i, "in_service"]) or bool(net.line.get("connector", {}).get(i, False))))
     transformers = []
     for i in net.trafo.index:
         hv, lv = int(net.trafo.at[i, "hv_bus"]), int(net.trafo.at[i, "lv_bus"])

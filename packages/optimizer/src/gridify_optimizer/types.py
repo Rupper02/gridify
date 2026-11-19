@@ -68,7 +68,7 @@ class Connection(BaseModel):
 class Reason(BaseModel):
     """One limit breached in a solve: the element, its figure, the limit and the study case."""
 
-    type: str  # "voltage" | "line" | "trafo" | "gsp" | "non_convergent"
+    type: str  # "voltage" | "line" | "trafo" | "gsp" (export) | "gsp_import" | "non_convergent" | "voltage_collapse"
     element_id: int | None = None
     value: float | None = None
     limit: float | None = None  # the limit breached (pu for voltage, % for thermal, MW for the GSP)
@@ -93,7 +93,7 @@ class YearResult(BaseModel):
     year: int
     growth: float  # the network-wide demand multiplier this year was solved at
     energised: list[str] = []  # connections in service this year
-    converged: bool = True  # False when a study case did not converge (the figures are then empty)
+    converged: bool = True  # False when a study case did not converge or converged to a voltage collapse (the figures are then empty)
     worst_line_loading_pct: float = 0.0
     worst_trafo_loading_pct: float = 0.0
     min_vm_pu: float = 0.0
@@ -206,3 +206,127 @@ class GridModel(BaseModel):
     generators: list[ModelGenerator]
     regions: list[dict] = []  # kept for the pipeline's warehouse table; the engine no longer fills it
     crs: Literal["wgs84", "synthetic"] = "wgs84"
+
+
+# ---- measured and grown years (runs.py): what the planner's year view reads --------------------------------------
+class RunInfo(BaseModel):
+    """A catalogued year run: whether its file exists, and how to make it when it does not."""
+
+    run_id: str
+    label: str
+    kind: Literal["measured", "grown"]
+    year: int
+    pathway: str | None = None
+    available: bool
+    make: str  # the command that makes the file
+    limits: str  # the run's limits, in plain words
+    base: bool = False  # a grown year a branch's year can be run on (and compared with)
+    before: str | None = None  # a branch's year: the catalogued run it is compared with
+    branch_id: str | None = None  # a branch's year: the branch it was run for
+
+
+class RunElement(BaseModel):
+    """One line or transformer over a run: peak loading and when, hours at or above 80/90 % and above 100 %, and how far
+    its flow is known to agree with the source's own model (the measured year's comparison)."""
+
+    kind: Literal["line", "trafo"]
+    element_id: int
+    peak_pct: float
+    peak_at: str
+    h80: float
+    h90: float
+    h100: float
+    label: str
+    offset_mw: float | None = None  # the measured year's typical offset against the source's model, when it differs
+    offset_pct: float | None = None
+    finding: bool = True  # False where this run's input is unreliable (its own source flows): shown, but not a finding
+    label_year: int | None = None  # the measured year the agreement label was judged on (None: not compared)
+
+
+class RunBus(BaseModel):
+    """A busbar outside its statutory band during a run: hours, and its extremes."""
+
+    bus_id: int
+    hours_outside: float
+    vmin_pu: float
+    vmax_pu: float
+    finding: bool = True
+
+
+class RunSubstation(BaseModel):
+    """A substation's transformers against its published firm capacity over a run."""
+
+    name: str
+    bus_id: int
+    firm_mva: float
+    peak_mva: float
+    peak_at: str
+    hours_above_firm: float
+
+
+class RunSummary(BaseModel):
+    """A run as the year view shows it: every line and transformer, the busbars out of band, the substations above firm
+    capacity, and the run's meta and limits."""
+
+    info: RunInfo
+    half_hours: int
+    solved: int
+    collapsed: int = 0  # of the half-hours not solved, those whose solution was a voltage collapse (the rest did not converge)
+    fingerprint: str  # the engine state the run file was made with
+    elements: list[RunElement]
+    buses: list[RunBus]
+    substations: list[RunSubstation]
+    check: str  # what the comparison with the source's own model found, in plain words
+
+
+class RunGrid(BaseModel):
+    """When one element is over in a run: hours per month (rows, January first) and hour of day (columns, 00:00 first)."""
+
+    run_id: str
+    kind: Literal["line", "trafo", "bus"]
+    element_id: int
+    hours: list[list[float]]
+
+
+class RunChange(BaseModel):
+    """One line or transformer whose year changes with a branch: peak and hours before and after."""
+
+    kind: Literal["line", "trafo"]
+    element_id: int
+    peak_before: float
+    peak_after: float
+    h90_before: float
+    h90_after: float
+    h100_before: float
+    h100_after: float
+
+
+class RunWorst(BaseModel):
+    """The energy above rating on the element a branch puts over for longest: a crude first indication of the export that
+    would have to be held back (MVA on one element, not MW at the project; one weather year)."""
+
+    kind: Literal["line", "trafo"]
+    element_id: int
+    hours_above: float
+    mvah_above: float
+    largest_mva_above: float
+
+
+class RunComparison(BaseModel):
+    """A branch's year against its "before" (the catalogued grown year of the same year and pathway)."""
+
+    run_id: str
+    before: str
+    year: int
+    in_service: list[str]
+    voltage_control_at_unity: list[str]
+    on_slack: list[str]  # connections at the slack bus: they move only the boundary exchange
+    storage: list[str]  # connections on the battery's placeholder rule
+    output_peak_mw: float
+    output_energy_gwh: float
+    changed: list[RunChange]
+    worst: RunWorst | None = None
+    buses: list[list] = []  # [bus_id, hours outside before, after], where they differ
+    substations: list[list] = []  # [name, hours above firm before, after], where they differ
+    export_peak_mw: list[float]  # boundary export peak, before and after
+    import_peak_mw: list[float]

@@ -23,6 +23,7 @@ const CLICK_LAYERS: [string, Sel["kind"]][] = [
 ];
 
 type Expr = unknown[];
+const ZOOMED_IN = 0.75; // zoom steps past the fitted view at which every hours badge shows, not only the long ones
 const zw = (add = 0): Expr => ["interpolate", ["linear"], ["zoom"], 8, ["+", ["*", ["get", "w"], 0.8], add], 11, ["+", ["get", "w"], add], 15, ["+", ["*", ["get", "w"], 1.8], add]];
 
 function addLayers(map: MLMap): void {
@@ -36,6 +37,8 @@ function addLayers(map: MLMap): void {
   L({ id: "line-flow", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": ["get", "flow"], "line-width": zw(1), "line-blur": 0.6, "line-dasharray": [0, 4, 3] } });
   L({ id: "line-hit", type: "line", source: "lines", filter: ["!=", ["get", "kind"], "tie"], paint: { "line-color": "#000", "line-opacity": 0, "line-width": 14 } });
   L({ id: "bus-ring", type: "circle", source: "buses", filter: ["==", ["get", "ring"], 1], paint: { "circle-radius": 12, "circle-color": "rgba(255,107,107,0.15)", "circle-stroke-color": C.red, "circle-stroke-width": 1.8 } });
+  // the year view: a substation above its firm capacity in the run, ringed in amber (its hours are in the panel)
+  L({ id: "bus-firm", type: "circle", source: "buses", filter: ["==", ["get", "firm"], 1], paint: { "circle-radius": 16, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": C.amber, "circle-stroke-width": 2, "circle-stroke-opacity": 0.9 } });
   L({ id: "bus-sel", type: "circle", source: "buses", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": 11, "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "bus", type: "circle", source: "buses", paint: { "circle-radius": ["get", "r"], "circle-color": ["get", "color"], "circle-stroke-color": C.night, "circle-stroke-width": 1 } });
   L({ id: "bus-hit", type: "circle", source: "buses", paint: { "circle-radius": 9, "circle-color": "#000", "circle-opacity": 0 } });
@@ -44,7 +47,7 @@ function addLayers(map: MLMap): void {
   L({ id: "existing-sel", type: "circle", source: "existing", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": ["+", ["get", "r"], 6], "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "existing", type: "circle", source: "existing", paint: { "circle-radius": ["get", "r"], "circle-color": C.existing, "circle-stroke-color": C.ink, "circle-stroke-width": 1.5, "circle-opacity": 0.95 } });
   L({ id: "trafo-glow", type: "circle", source: "trafos", filter: ["==", ["get", "over"], 1], paint: { "circle-radius": 22, "circle-color": C.red, "circle-opacity": 0.18, "circle-blur": 0.6 } });
-  L({ id: "trafo-ring", type: "circle", source: "trafos", filter: ["==", ["get", "ring"], 1], layout: { "circle-sort-key": ["get", "pct"] }, paint: { "circle-radius": 15, "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": ["get", "ringColor"], "circle-stroke-width": 2.4 } });
+  L({ id: "trafo-ring", type: "circle", source: "trafos", filter: ["==", ["get", "ring"], 1], layout: { "circle-sort-key": ["get", "pct"] }, paint: { "circle-radius": ["get", "rr"], "circle-color": "rgba(0,0,0,0)", "circle-stroke-color": ["get", "ringColor"], "circle-stroke-width": ["get", "rw"] } });
   L({ id: "trafo-sel", type: "circle", source: "trafos", filter: ["==", ["get", "sel"], 1], paint: { "circle-radius": 17, "circle-color": "rgba(124,227,255,0.12)", "circle-stroke-color": C.accent, "circle-stroke-width": 2 } });
   L({ id: "trafos", type: "symbol", source: "trafos", layout: { "icon-image": "trafo", "icon-allow-overlap": true, "icon-ignore-placement": true } });
 }
@@ -74,7 +77,8 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: Plan
       style: STYLE,
     });
     mapRef.current = map;
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), "top-left");
+    // the network, demand and generation are NGED's open data: its licence asks for this statement wherever the data is used
+    map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: "Supported by NGED Open Data" }), "top-left");
     map.touchZoomRotate.disableRotation();
     let raf = 0;
     map.on("load", () => {
@@ -188,7 +192,8 @@ export function MapView({ planner, geo, layout, reducedMotion }: { planner: Plan
   return (
     <>
       <div ref={elRef} className="map" aria-label="Network map" />
-      {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom} />}
+      {ready && <MapMarkers planner={planner} project={project} tick={tick} width={elRef.current?.clientWidth ?? 0} height={elRef.current?.clientHeight ?? 0} top={layout.headerBottom}
+        zoomedIn={(mapRef.current?.getZoom() ?? 0) >= (fitZoom.current ?? 8.6) + ZOOMED_IN} />}
     </>
   );
 }

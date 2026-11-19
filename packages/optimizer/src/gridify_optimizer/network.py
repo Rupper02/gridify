@@ -11,6 +11,7 @@ import pandas as pd
 from pandapower.auxiliary import LoadflowNotConverged
 
 from .config import (
+    COLLAPSE_VM_FLOOR_PU,
     GENERATION_FACTOR_DEFAULT,
     GENERATION_FACTORS,
     OLTC_DEADBAND_PU,
@@ -316,12 +317,13 @@ class CaseSpec(NamedTuple):
     rating_label: str  # what a line's loading is a percentage of, in this case
     load_column: str | None = None  # net.load column of per-load scaling (None = demand as grown)
     rating_column: str | None = None  # net.line column of rating multipliers (None = unchanged)
+    season: str = "winter"  # the season whose GSP import limit applies (a key of net["gsp_import_limit_mw"])
 
 
 CASE_SPECS: tuple[CaseSpec, ...] = (
     CaseSpec("winter_peak", "winter peak demand", "its rating"),
     CaseSpec("summer_min", "summer minimum demand", "its summer rating",
-             load_column="min_scale", rating_column="summer_ratio"),
+             load_column="min_scale", rating_column="summer_ratio", season="summer"),
 )
 _CASE_BY_NAME = {s.name: s for s in CASE_SPECS}
 _CASE_LABEL = {s.name: s.label for s in CASE_SPECS}
@@ -353,25 +355,31 @@ def _study_cases(net) -> list[StudyCase]:
     return cases
 
 
-def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Series | None,
-              regulate: bool = True) -> dict | None:
-    """Solve one study case in place and return its results, leaving the net's inputs as found.
-    None when the power flow does not converge."""
-    scaling0, imax0 = net.load["scaling"].copy(), net.line["max_i_ka"].copy()
-    p0, q0, gen_p0, gen_on0 = net.sgen["p_mw"].copy(), net.sgen["q_mvar"].copy(), net.gen["p_mw"].copy(), net.gen["in_service"].copy()
+# what a solve may change on the net: put back after every case and every snapshot
+_SOLVE_INPUTS = (("load", "scaling"), ("load", "p_mw"), ("load", "q_mvar"), ("line", "max_i_ka"),
+                 ("sgen", "scaling"), ("sgen", "p_mw"), ("sgen", "q_mvar"), ("gen", "p_mw"), ("gen", "in_service"))
+
+
+def _solve_with(net, apply, regulate: bool = True) -> dict | None:
+    """Set one solve's inputs with `apply(net)`, run the power flow with the tap changers settling, put the inputs back
+    and return the results. None when the power flow does not converge; `{"collapse": {"bus", "vm_pu"}}` alone when it
+    converges with an in-service busbar below `COLLAPSE_VM_FLOOR_PU` (a voltage collapse, no valid operating point).
+    Tap positions persist (as in `_solve`)."""
+    saved = {(t, c): net[t][c].copy() for t, c in _SOLVE_INPUTS}
     try:
-        if load_scale is not None:
-            net.load["scaling"] = load_scale.where(load_scale.notna(), scaling0)
-        if rating_ratio is not None:
-            net.line["max_i_ka"] = imax0 * rating_ratio.fillna(1.0)
-        merit_order(net, case)  # the case factors, and an imported grid's power stations by merit order (dispatch.py)
-        _follow_power_factor(net)
+        apply(net)
         ok = _solve(net, regulate=regulate)
     finally:
-        net.load["scaling"], net.line["max_i_ka"], net.sgen["p_mw"], net.sgen["q_mvar"] = scaling0, imax0, p0, q0
-        net.gen["p_mw"], net.gen["in_service"] = gen_p0, gen_on0
+        for (t, c), v in saved.items():
+            net[t][c] = v
     if not ok:
         return None
+    low = net.res_bus["vm_pu"].dropna()
+    low = low[low < COLLAPSE_VM_FLOOR_PU]
+    if len(low):  # converged, but on the low-voltage solution: no valid operating point (`collapse` and nothing else)
+        b = int(low.idxmin())
+        net.res_bus["vm_pu"] = np.nan  # the next solve starts flat, not from a non-physical point (`_runpp`'s warm start)
+        return {"collapse": {"bus": b, "vm_pu": float(low.min())}}
     p_ext = float(net.res_ext_grid["p_mw"].sum()) if len(net.res_ext_grid) else 0.0
     return {
         "vm": net.res_bus["vm_pu"].copy(),
@@ -379,6 +387,52 @@ def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Ser
         "trafo_pct": net.res_trafo["loading_percent"].copy(),
         "p_ext_mw": p_ext,
     }
+
+
+def _run_case(net, case: str, load_scale: pd.Series | None, rating_ratio: pd.Series | None,
+              regulate: bool = True) -> dict | None:
+    """Solve one study case in place and return its results, leaving the net's inputs as found.
+    None when the power flow does not converge."""
+    def apply(n) -> None:
+        if load_scale is not None:
+            n.load["scaling"] = load_scale.where(load_scale.notna(), n.load["scaling"])
+        if rating_ratio is not None:
+            n.line["max_i_ka"] = n.line["max_i_ka"] * rating_ratio.fillna(1.0)
+        merit_order(n, case)  # the case factors, and an imported grid's power stations by merit order (dispatch.py)
+        _follow_power_factor(n)
+    return _solve_with(net, apply, regulate=regulate)
+
+
+NO_SOLUTION = ("non_convergent", "voltage_collapse")  # the reasons a case has no operating point to report
+
+
+def solve_snapshot(net, load_p: pd.Series, load_q: pd.Series, sgen_p: pd.Series, sgen_q: pd.Series,
+                   rating_ratio: pd.Series | None = None, regulate: bool = True) -> dict | None:
+    """Solve one moment given as values, not as a study case: each load's and each generator's P and Q (Series keyed by
+    the net's own `load` and `sgen` ids; an id left out is 0; every scaling is 1), and optionally each line's rating as a
+    multiple of its `max_i_ka`. A net with voltage-controlled units (`net.gen`) is refused: a snapshot has no values for
+    them yet. Same power flow and tap settling as a study case, and the net's inputs are left as found.
+
+    Returns `_run_case`'s results plus each branch's active power at its from / HV end (`line_p_mw`, `trafo_p_mw`),
+    None when the power flow does not converge, or `{"collapse": ...}` alone for a voltage collapse (`_solve_with`). Loading is judged by the caller against the same limits as the cases
+    (`LINE_LOADING_MAX_PCT`, `TRAFO_LOADING_MAX_PCT`, `voltage_limits`)."""
+    if len(net.gen):
+        raise ValueError("solve_snapshot takes values for loads and PQ generators only; this net has voltage-controlled units (net.gen)")
+
+    def apply(n) -> None:
+        n.load["scaling"] = 1.0
+        n.sgen["scaling"] = 1.0
+        n.load["p_mw"] = load_p.reindex(n.load.index).fillna(0.0).astype(float)
+        n.load["q_mvar"] = load_q.reindex(n.load.index).fillna(0.0).astype(float)
+        n.sgen["p_mw"] = sgen_p.reindex(n.sgen.index).fillna(0.0).astype(float)
+        n.sgen["q_mvar"] = sgen_q.reindex(n.sgen.index).fillna(0.0).astype(float)
+        if rating_ratio is not None:
+            n.line["max_i_ka"] = n.line["max_i_ka"] * rating_ratio.reindex(n.line.index).fillna(1.0)
+    out = _solve_with(net, apply, regulate=regulate)
+    if out is not None and "collapse" not in out:
+        out["line_p_mw"] = net.res_line["p_from_mw"].copy()
+        out["trafo_p_mw"] = net.res_trafo["p_hv_mw"].copy()
+    return out
 
 
 def _voltage_breaches(net, case: str, vm, line_pct, trafo_pct) -> list[Reason]:
@@ -440,6 +494,26 @@ def _gsp_reason(net, export: float, case: str | None) -> Reason | None:
                           f"{_CASE_LABEL.get(case, 'peak export')}, above its {limit:.0f} MW export limit")
 
 
+def gsp_import_limit(net, case: str) -> float | None:
+    """The GSP's import limit from transmission (MW) in this case's season, all its supergrid transformers in service;
+    None when the grid gives none (no check)."""
+    lims = net.get("gsp_import_limit_mw") if hasattr(net, "get") else None
+    season = _CASE_BY_NAME[case].season
+    return float(lims[season]) if lims and lims.get(season) is not None else None
+
+
+def _gsp_import_reason(net, imported: float, case: str) -> Reason | None:
+    """The GSP boundary the other way: power drawn DOWN through the supergrid transformers in one study case, against the
+    import limit of that case's season (the intact limit: the loss of one transformer is not studied)."""
+    limit = gsp_import_limit(net, case)
+    if limit is None or imported <= limit:
+        return None
+    name = net.get("gsp_name") or "the GSP"
+    return Reason(type="gsp_import", value=round(imported, 1), limit=round(limit, 1), case=case,
+                  message=f"{name} would import {imported:.0f} MW from the transmission system at {_CASE_LABEL[case]}, "
+                          f"above its {limit:.0f} MW {_CASE_BY_NAME[case].season} import limit")
+
+
 def _by_case(groups: dict[str, tuple[pd.Series, pd.Series]]) -> dict[str, dict[str, list[int]]]:
     """Each study case's elements whose envelope figure it set: case -> {lines, trafos, buses} (ids with a figure).
     What lets a reading say "93% at summer minimum" instead of "93% (worst case)"."""
@@ -454,10 +528,11 @@ def _by_case(groups: dict[str, tuple[pd.Series, pd.Series]]) -> dict[str, dict[s
 
 def feasibility(net) -> tuple[bool, list[Reason], dict]:
     """Run power flow in every study case; check the statutory voltage band of every bus, line and transformer thermal
-    limits, and the GSP export boundary.
+    limits and the GSP's import in each case, then the GSP export boundary.
 
     Returns (ok, every breach, metrics). A case that does not converge stops the study with one `non_convergent`
-    reason and no metrics. Afterwards net.res_line/res_trafo loading and net.res_bus voltage hold the worst-case
+    reason and no metrics; a case that converges to a voltage collapse (`_solve_with`) likewise, with one
+    `voltage_collapse` reason naming the lowest busbar. Afterwards net.res_line/res_trafo loading and net.res_bus voltage hold the worst-case
     ENVELOPE across cases (highest loading; the voltage furthest from 1.0 pu); `metrics["envelope_case"]` says which
     case set each element's figure, `metrics["export_case"]` the export's.
     """
@@ -471,11 +546,21 @@ def feasibility(net) -> tuple[bool, list[Reason], dict]:
         if res is None:
             return False, [Reason(type="non_convergent", case=case,
                                   message=f"power flow did not converge at {_CASE_LABEL[case]}")], {}
+        if "collapse" in res:
+            c = res["collapse"]
+            return False, [Reason(type="voltage_collapse", case=case, element_id=c["bus"], value=round(c["vm_pu"], 4),
+                                  limit=COLLAPSE_VM_FLOOR_PU,
+                                  message=(f"no valid operating point at {_CASE_LABEL[case]}: the solver's solution is a voltage "
+                                           f"collapse ({net.bus.at[c['bus'], 'name']} at {c['vm_pu']:.2f} pu, below the "
+                                           f"{COLLAPSE_VM_FLOOR_PU} pu floor)"))], {}
         vm, line_pct, trafo_pct, p = res["vm"], res["line_pct"], res["trafo_pct"], res["p_ext_mw"]
         if -p > gsp_export:
             gsp_export, export_case = -p, case
         gsp_import = max(gsp_import, p)
         breaches += case_breaches(net, case, vm, line_pct, trafo_pct)
+        imp = _gsp_import_reason(net, p, case)
+        if imp is not None:
+            breaches.append(imp)
         if env_vm is None:
             env_vm, env_line, env_trafo = vm, line_pct, trafo_pct
             case_vm, case_line, case_trafo = (pd.Series(case, index=s.index, dtype=object) for s in (vm, line_pct, trafo_pct))
@@ -545,7 +630,8 @@ def overloaded_line_ids(net) -> list[int]:
 def line_loadings(net) -> dict[int, float]:
     """Per-line loading_percent from the last solve (for the map heat overlay)."""
     lp = net.res_line["loading_percent"]
-    return {int(i): round(float(v), 1) for i, v in lp.items() if v == v}  # a non-convergent solve leaves NaN: no figure, not null
+    on = net.line["in_service"].astype(bool)  # a line out of service (an open point, a connector) carries nothing: no figure
+    return {int(i): round(float(v), 1) for i, v in lp.items() if v == v and on.get(i, True)}  # a non-convergent solve leaves NaN: no figure, not null
 
 
 def trafo_loadings(net) -> dict[int, float]:

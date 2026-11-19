@@ -7,6 +7,7 @@ build their own.
 import threading
 
 from gridify_optimizer import engine_fingerprint
+from gridify_optimizer.runs import RunFiles
 
 from . import config
 from .cache import ResultCache
@@ -15,6 +16,7 @@ from .jobs import JobRunner
 from .service import PlanService
 from .store import ScenarioStore
 from .warehouse import Warehouse
+from .year_runs import YearRuns
 
 warehouse = Warehouse(config.WAREHOUSE)
 scenarios = ScenarioStore(config.SCENARIOS_URL or config.SCENARIOS)
@@ -25,3 +27,6 @@ cache = ResultCache(scenarios, engine_fingerprint(), solver_lock)
 grid = Grid(WarehouseNgedSource(warehouse))
 jobs = JobRunner(solver_lock)
 plans = PlanService(grid, scenarios, cache)
+# the year view's run files, under the grid's own catalogue and network
+run_files = RunFiles(config.RUNS_DIR, grid.source.run_catalogue(), grid.build_net)
+year_runs = YearRuns(plans, grid, cache, run_files)

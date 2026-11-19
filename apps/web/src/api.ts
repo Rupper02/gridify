@@ -12,6 +12,10 @@ import type {
   PlanDiff,
   PlanPayload,
   RegistryItem,
+  RunComparison,
+  RunGrid,
+  RunInfo,
+  RunSummary,
 } from "./types";
 
 // 127.0.0.1, not localhost: uvicorn listens on IPv4 only, and the browser tried ::1 first on every new connection
@@ -72,10 +76,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 const get = <T>(path: string) => call<T>("GET", path);
 const post = <T>(path: string, body: unknown = {}) => call<T>("POST", path, body);
 
+/** A run that ended without a result: cancelled by the planner, or stopped by the API (`message`: its reason). */
 export class RunCancelled extends Error {}
 
 const sleep = (ms: number) => new Promise((res) => window.setTimeout(res, ms));
 const POLL_MS = 600;
+const YEAR_POLL_MS = 3000; // a year takes minutes: a poll every few seconds is plenty
 
 export interface RunHandlers {
   onStart?: (jobId: string) => void;
@@ -91,6 +97,29 @@ export const api = {
   getForecasts: () => get<Forecasts>("/forecasts"),
   getAssumptions: () => get<Assumption[]>("/assumptions"),
   getRegistry: () => get<RegistryItem[]>("/registry"),
+
+  /** The measured and grown years: the catalogue, a run's summary, one element's month-by-hour grid (read-only). */
+  listRuns: () => get<RunInfo[]>("/runs"),
+  getRun: (runId: string) => get<RunSummary>(`/runs/${runId}`),
+  getRunGrid: (runId: string, kind: "line" | "trafo" | "bus", id: number) => get<RunGrid>(`/runs/${runId}/grid/${kind}/${id}`),
+  getRunCompare: (runId: string) => get<RunComparison>(`/runs/${runId}/compare`),
+
+  /** Run a branch's year (about 16 minutes) as a background job and follow it: progress, then the run it made. */
+  async runYear(bid: string, year: number, pathway: string, h: RunHandlers = {}): Promise<{ run_id: string; before: string }> {
+    let job = await post<Job>(`/branches/${bid}/year-run`, { year, pathway });
+    h.onStart?.(job.job_id);
+    while (job.status === "queued" || job.status === "running") {
+      await sleep(YEAR_POLL_MS);
+      if (h.wanted && !h.wanted()) throw new RunCancelled();
+      job = await get<Job>(`/jobs/${job.job_id}?with_result=false`);
+      h.onProgress?.(job.stage, job.fraction);
+    }
+    if (job.status === "cancelled") throw new RunCancelled(job.reason ?? "");
+    if (job.status === "failed") throw new Error(job.error ?? "the year run failed");
+    const done = await get<Job & { result: { run_id: string; before: string } | null }>(`/jobs/${job.job_id}`);
+    if (!done.result) throw new Error("the year run finished without a result");
+    return done.result;
+  },
 
   listBranches: () => get<{ branches: Branch[] }>("/branches").then((r) => r.branches),
   createBranch: (name: string, fromBranch: string) => post<Branch>("/branches", { name, from_branch: fromBranch }),

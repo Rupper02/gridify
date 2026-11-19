@@ -225,3 +225,7 @@ dist/
 
 # the API's scenarios store, DBOS database and imported project files: local state, never committed
 apps/api/data/
+
+# Stray local files: MLflow DB started from the repo root; old design download
+/data/
+*.zip

@@ -4,7 +4,7 @@
 import type { Feature, FeatureCollection, LineString, Point } from "geojson";
 
 import { C, loadColor, voltColor } from "../theme";
-import type { LoadingDelta, MapLayer, Model, Sel, YearDelta, YearResult } from "../types";
+import type { LoadingDelta, MapLayer, Model, RunElement, RunMetric, RunSummary, Sel, YearDelta, YearResult } from "../types";
 import { type FeatureKey, type LineTier, type LineTiers, lineFeature, shows, tierOf } from "./mapFeatures";
 import { midpoint } from "./placement";
 
@@ -28,6 +28,44 @@ export const diffColor = (d: MapDelta): string => (d.head > 100 ? C.red : d.delt
 /** A map tag's text: the change, and the loading it reaches when that is over 100%. */
 export const deltaTag = (d: MapDelta): string => `${d.delta > 0 ? "+" : ""}${Math.round(d.delta)}%${d.head > 100 ? ` · ${Math.round(d.head)}%` : ""}`;
 
+/** The year view on the map: each line's and transformer's figures in the run shown, and how they colour it. */
+export interface RunView {
+  metric: RunMetric;
+  lines: Map<number, RunElement>;
+  trafos: Map<number, RunElement>;
+  /** busbars outside their band in the run: hours */
+  buses: Map<number, number>;
+  /** substations above firm capacity in the run: their busbar -> hours */
+  firm: Map<number, number>;
+}
+export const runViewOf = (r: RunSummary, metric: RunMetric): RunView => ({
+  metric,
+  lines: new Map(r.elements.filter((e) => e.kind === "line").map((e) => [e.element_id, e])),
+  trafos: new Map(r.elements.filter((e) => e.kind === "trafo").map((e) => [e.element_id, e])),
+  buses: new Map(r.buses.filter((b) => b.finding).map((b) => [b.bus_id, b.hours_outside])),
+  firm: new Map(r.substations.map((x) => [x.bus_id, x.hours_above_firm])),
+});
+/** Hours above rating in a year, in steps the map draws as line weight (and transformer ring size): the one red, the
+ * duration read from the weight. */
+export const HOURS_STEPS: { upTo: number; label: string; extra: number }[] = [
+  { upTo: 10, label: "up to 10 h", extra: 1 },
+  { upTo: 100, label: "10 to 100 h", extra: 2.5 },
+  { upTo: 1000, label: "100 to 1,000 h", extra: 4.5 },
+  { upTo: Infinity, label: "over 1,000 h", extra: 7 },
+];
+/** The step an element's hours above rating fall in; -1 when it is never over. */
+export const hoursStep = (h: number): number => (h <= 0 ? -1 : HOURS_STEPS.findIndex((x) => h <= x.upTo));
+/** An element's colour and extra weight in the year view: by duration over rating (hours) or by its peak loading
+ * (peak). Not a finding (unreliable input): muted. */
+export function runStyle(e: RunElement | undefined, metric: RunMetric): { color: string | null; extra: number; over: boolean } {
+  if (!e) return { color: null, extra: 0, over: false };
+  if (!e.finding) return { color: C.mute2, extra: 0, over: false };
+  if (metric === "peak") return { color: loadColor(e.peak_pct), extra: 0, over: e.peak_pct > 100 };
+  const step = hoursStep(e.h100);
+  if (step >= 0) return { color: C.red, extra: HOURS_STEPS[step].extra, over: true };
+  return { color: e.h90 > 0 ? C.amber : null, extra: 0, over: false };
+}
+
 export interface GeoInputs {
   model: Model;
   yr: YearResult | null;
@@ -38,6 +76,8 @@ export interface GeoInputs {
   visible: readonly FeatureKey[];
   /** The grid's own line voltages in tiers: what is drawn heavy, medium and thin. */
   tiers: LineTiers;
+  /** The year view's run, when the map shows it (layer "hours"). */
+  run?: RunView | null;
 }
 
 export interface Geo {
@@ -72,22 +112,32 @@ const BUS_STYLE: Record<LineTier, { r: number; rVolt: number; c: string }> = {
 };
 
 export function buildGeo(g: GeoInputs): Geo {
-  const { model: m, yr, layer, sel, diff, tiers } = g;
+  const { model: m, layer, sel, diff, tiers } = g;
+  const run = layer === "hours" ? g.run ?? null : null;
+  const yr = run ? null : g.yr; // the year view draws the run, not the plan year
   const on = (k: FeatureKey) => shows(g.visible, k);
   const mLines = m.lines.filter((l) => on(lineFeature(l.voltage_kv, tiers)));
   const ll = yr?.line_loading ?? {};
-  const over = new Set(yr?.overloaded_line_ids ?? []);
+  const overIds = new Set(yr?.overloaded_line_ids ?? []);
   const vv = new Set(yr?.voltage_violation_bus_ids ?? []);
 
   const lines: Feature[] = mLines.map((l) => {
     const id = l.line_id;
     const base = LINE_STYLE[tierOf(l.voltage_kv, tiers)];
     const pct = ll[id] ?? null;
-    const isOver = over.has(id);
+    const isOver = overIds.has(id);
     const isTie = l.in_service === false;
     let color = base.c;
+    let extra = 0;
+    let over = isOver;
     if (layer === "loading" && pct != null) color = loadColor(pct);
     if (isOver) color = C.red;
+    if (run) {
+      const rs = runStyle(run.lines.get(id), run.metric);
+      color = rs.color ?? base.c;
+      extra = rs.extra;
+      over = rs.over;
+    }
     let op = layer === "voltage" ? 0.45 : 0.92;
     const dl = diff?.lines.get(id);
     if (diff) {
@@ -100,9 +150,9 @@ export function buildGeo(g: GeoInputs): Geo {
       geometry: { type: "LineString", coordinates: [[l.from_lon, l.from_lat], [l.to_lon, l.to_lat]] },
       properties: {
         id,
-        kind: isTie ? "tie" : isOver ? "over" : "solid",
+        kind: isTie ? "tie" : over ? "over" : "solid",
         color,
-        w: base.w + (isSel ? 1.6 : 0),
+        w: base.w + extra + (isSel ? 1.6 : 0),
         op,
         glow: C.red,
         flow: isOver ? "#ffd0d0" : "#bff2ff",
@@ -122,7 +172,8 @@ export function buildGeo(g: GeoInputs): Geo {
         id: b.bus_id,
         r: vMode ? style.rVolt : style.r,
         color: vMode ? voltColor(v, b.vmin_pu, b.vmax_pu) : style.c,
-        ring: vv.has(b.bus_id) && (vMode || !diff) ? 1 : 0,
+        ring: (run ? run.buses.has(b.bus_id) : vv.has(b.bus_id) && (vMode || !diff)) ? 1 : 0,
+        firm: run?.firm.has(b.bus_id) ? 1 : 0,
         sel: sel?.kind === "bus" && sel.id === b.bus_id ? 1 : 0,
       });
     });
@@ -136,6 +187,20 @@ export function buildGeo(g: GeoInputs): Geo {
   const trafos: Feature[] = (on("transformers") ? m.transformers : []).map((t) => {
     const pct = tl[t.trafo_id] ?? null;
     const dt = diff?.trafos.get(t.trafo_id);
+    if (run) {
+      const e = run.trafos.get(t.trafo_id);
+      const rs = runStyle(e, run.metric);
+      return pt(t.hv_lon, t.hv_lat, {
+        id: t.trafo_id,
+        sel: sel?.kind === "trafo" && sel.id === t.trafo_id ? 1 : 0,
+        pct: run.metric === "peak" ? e?.peak_pct ?? 0 : e?.h100 ?? 0,
+        ring: rs.color ? 1 : 0,
+        over: rs.over ? 1 : 0,
+        ringColor: rs.color ?? C.mute2,
+        rr: 15 + rs.extra * 1.6,
+        rw: 2.4 + rs.extra * 0.4,
+      });
+    }
     return pt(t.hv_lon, t.hv_lat, {
       id: t.trafo_id,
       sel: sel?.kind === "trafo" && sel.id === t.trafo_id ? 1 : 0,
@@ -143,6 +208,8 @@ export function buildGeo(g: GeoInputs): Geo {
       ring: diff ? (dt ? 1 : 0) : pct != null && (layer === "loading" || pct > 100) ? 1 : 0,
       over: pct != null && pct > 100 ? 1 : 0,
       ringColor: dt ? diffColor(dt) : loadColor(pct),
+      rr: 15,
+      rw: 2.4,
     });
   });
   // the existing connected fleet: teal circles sized by √MW

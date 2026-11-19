@@ -1,19 +1,21 @@
 // The side panel: the branch's connections (and the registry to pull from), what limits the plan (this year's
 // breaches, and every element that breaches with the year it starts), and the comparison with the parent branch.
 
-import { ArrowRight, CaretRight, GitMerge, ListBullets, MagnifyingGlass, Plus, Scales, Trash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRight, CalendarBlank, CaretRight, GitMerge, ListBullets, MagnifyingGlass, Plus, Scales, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 
 import type { Planner } from "../hooks/usePlanner";
 import { KIND_LABEL, busName, lineName, reasonSel, reasonText, trafoName } from "../lib/model";
 import { C, signed, techLabel } from "../theme";
 import type { Reason, Tab } from "../types";
+import { RunsTab } from "./RunsTab";
 import { DiffTile, TechTile } from "./ui";
 
 const TABS: { id: Tab; label: string; Icon: typeof ListBullets }[] = [
   { id: "connections", label: "Connections", Icon: ListBullets },
   { id: "limits", label: "Limits", Icon: WarningCircle },
   { id: "compare", label: "Compare", Icon: Scales },
+  { id: "runs", label: "Year runs", Icon: CalendarBlank },
 ];
 
 export function SidePanel({ planner }: { planner: Planner }) {
@@ -22,6 +24,7 @@ export function SidePanel({ planner }: { planner: Planner }) {
     connections: s.connections.length ? String(s.connections.length) : null,
     limits: derived.yr?.violations.length ? String(derived.yr.violations.length) : null,
     compare: null,
+    runs: null,
   };
   return (
     <aside className={`side${s.sideOpen ? "" : " closed"}`}>
@@ -41,6 +44,7 @@ export function SidePanel({ planner }: { planner: Planner }) {
           {s.tab === "connections" && <ConnectionsTab planner={planner} />}
           {s.tab === "limits" && <LimitsTab planner={planner} />}
           {s.tab === "compare" && !derived.onMain && <CompareTab planner={planner} />}
+          {s.tab === "runs" && <RunsTab planner={planner} />}
         </div>
       </div>
     </aside>
@@ -179,7 +183,9 @@ function LimitsTab({ planner }: { planner: Planner }) {
           summer minimum (minimum demand, summer ratings, everything exporting).
         </span>
       </div>
-      {!yr.converged && <div className="notice red">The power flow has no solution this year: the network cannot carry the plan as it stands.</div>}
+      {!yr.converged && <div className="notice red">{yr.violations[0]?.type === "voltage_collapse"
+        ? "No valid operating point this year: the solver's only solution is a voltage collapse, so no loading is shown. The network cannot carry the plan as it stands."
+        : "The power flow has no solution this year: the network cannot carry the plan as it stands."}</div>}
       {yr.converged && yr.violations.length === 0 && <div className="notice" style={{ background: "rgba(94,230,168,0.08)", border: "1px solid rgba(94,230,168,0.35)", color: C.greenInk }}>Every limit holds in {s.year}.</div>}
       {[...groups.entries()].map(([type, rs]) => (
         <div key={type} className="qgroup">

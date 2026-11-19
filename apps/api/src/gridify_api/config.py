@@ -10,6 +10,8 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 WAREHOUSE = Path(
     os.getenv("GRIDIFY_DB_PATH", str(REPO_ROOT / "apps" / "pipeline" / "warehouse" / "gridify.duckdb"))
 )
+# the measured and grown years' run files (the pipeline's git-ignored folder; gridify_optimizer.runs reads them)
+RUNS_DIR = Path(os.getenv("GRIDIFY_RUNS_DIR", str(REPO_ROOT / "apps" / "pipeline" / "warehouse" / "nged-flows")))
 SCENARIOS = Path(
     os.getenv("GRIDIFY_SCENARIOS_DB", str(Path(__file__).resolve().parents[2] / "data" / "scenarios.duckdb"))
 )

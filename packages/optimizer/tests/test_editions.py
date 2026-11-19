@@ -61,9 +61,9 @@ def test_changeset_is_consistent_with_ngeds_flags(tables, changeset):
     m = cs["model"]
     assert m["current"]["buses"] > 0 and m["previous"]["buses"] > 0
     assert m["delta"]["demand_mw"] == pytest.approx(m["current"]["demand_mw"] - m["previous"]["demand_mw"], abs=1e-6)
-    # a demand point NGED removed (Warth Lane, 18.61 MW) shows as a per-substation drop
+    # the demand row NGED marked Removed in error (Warth Lane, BICKER_FEN.removed_in_error) stays in both editions
     warth = [d for d in m["demand_changes"] if d["substation"].lower().startswith("warth")]
-    assert warth and warth[0]["delta_mw"] < 0
+    assert warth and warth[0]["previous_mw"] > 0 and warth[0]["current_mw"] > 0
     ph = cs["physics"]
     assert ph["current"]["feasible"] and ph["previous"]["feasible"]
     assert set(ph["delta"]) == {"worst_line_pct", "worst_trafo_pct", "min_vm_pu", "max_vm_pu", "gsp_export_mw"}

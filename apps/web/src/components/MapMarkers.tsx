@@ -6,7 +6,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Planner } from "../hooks/usePlanner";
 import { type MapDelta, deltaTag, diffColor } from "../lib/geo";
 import { type FeatureKey, lineFeature, shows } from "../lib/mapFeatures";
-import { trafoRatio, trafoSub } from "../lib/model";
+import { placeName, trafoRatio, trafoSub } from "../lib/model";
 import {
   type Box,
   MARKER_DX,
@@ -25,10 +25,14 @@ import {
 import { C, loadColor } from "../theme";
 import { TechIcon } from "./ui";
 
+const BADGE_ALWAYS_H = 100; // hours above rating at which a badge shows at the fitted view
+
 /** `top`: the header's bottom edge; nothing is drawn under the header. */
-export function MapMarkers({ planner, project, tick, width, height, top }: { planner: Planner; project: Projector; tick: number; width: number; height: number; top: number }) {
+/** `zoomedIn`: past the fitted view, where every hours badge has room. */
+export function MapMarkers({ planner, project, tick, width, height, top, zoomedIn = false }: { planner: Planner; project: Projector; tick: number; width: number; height: number; top: number; zoomedIn?: boolean }) {
   const { s, actions, derived } = planner;
-  const { ix, yr, diffMap, hue } = derived;
+  const { ix, diffMap, hue, runView } = derived;
+  const yr = runView ? null : derived.yr; // the year view shows the run's figures, not the plan year's
   void tick; // re-render on map moves
   if (!s.model || !ix) return null;
   const sel = s.sel;
@@ -85,10 +89,14 @@ export function MapMarkers({ planner, project, tick, width, height, top }: { pla
     if (boxes.some((o) => overlaps(box, o))) return null;
     boxes.push(box);
     const v = s.layer === "voltage" ? yr?.bus_vm?.[e.hv] : undefined;
+    // the year view: hours above firm capacity at this substation's busbars, when any
+    const firm = runView ? Math.max(0, ...[...runView.firm.entries()].filter(([b]) => placeName(ix.bus.get(b)?.name) === name).map(([, h]) => h)) : 0;
     return (
       <div key={`s${name}`} className="sub-label" style={{ left: x, top: y }}>
         <b>{name}</b>
-        <span>{v != null ? `${v.toFixed(3)} pu` : [...e.ratios].join(" · ")}</span>
+        <span style={firm ? { color: C.amber } : undefined}>
+          {firm ? `above firm ${Math.round(firm).toLocaleString()} h` : v != null ? `${v.toFixed(3)} pu` : [...e.ratios].join(" · ")}
+        </span>
       </div>
     );
   });
@@ -103,7 +111,22 @@ export function MapMarkers({ planner, project, tick, width, height, top }: { pla
       </span>,
     );
   };
-  if (diffMap) {
+  if (runView) {
+    // the year view: hours above rating as a badge. At the fitted view only the elements over for 100 hours or more
+    // (the rings show every one); zoomed in or selected, every element over for 10 hours or more. The panel has all.
+    const h = (n: number) => `${Math.round(n).toLocaleString()} h`;
+    const badge = (h100: number, kind: "line" | "trafo", id: number) =>
+      h100 >= 10 && (h100 >= BADGE_ALWAYS_H || zoomedIn || (sel?.kind === kind && sel.id === id));
+    runView.lines.forEach((e, id) => {
+      const l = ix.line.get(id);
+      if (e.finding && badge(e.h100, "line", id) && l && lineOn(id)) tag(`rl${id}`, project(...midpoint(l)), h(e.h100), C.red);
+    });
+    if (on("transformers"))
+      runView.trafos.forEach((e, id) => {
+        const t = ix.trafo.get(id);
+        if (e.finding && badge(e.h100, "trafo", id) && t) tag(`rt${id}`, project(t.hv_lon, t.hv_lat), `T ${h(e.h100)}`, C.red, TRAFO_TAG_DY);
+      });
+  } else if (diffMap) {
     diffMap.lines.forEach((d: MapDelta, id) => {
       const l = ix.line.get(id);
       if (l && lineOn(id)) tag(`d${id}`, project(...midpoint(l)), deltaTag(d), diffColor(d));

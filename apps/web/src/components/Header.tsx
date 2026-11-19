@@ -1,7 +1,7 @@
 // The header: the grid, the branch picker (switch, open a branch from the one in view), the demand profile, the map
 // layer, what the map shows, and Run.
 
-import { CaretDown, Eye, GitBranch, Lightning, Play, Plus, Pulse, Waveform } from "@phosphor-icons/react";
+import { CaretDown, Clock, Eye, GitBranch, Lightning, Play, Plus, Pulse, Waveform } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { MAIN_ID, type Planner, branchHue } from "../hooks/usePlanner";
@@ -14,6 +14,7 @@ const LAYERS: { id: MapLayer; label: string; Icon: typeof Pulse }[] = [
   { id: "flow", label: "Flow", Icon: Waveform },
   { id: "loading", label: "Loading", Icon: Pulse },
   { id: "voltage", label: "Voltage", Icon: Lightning },
+  { id: "hours", label: "Over rating", Icon: Clock },
 ];
 
 export function Header({ planner, wide }: { planner: Planner; wide: boolean }) {

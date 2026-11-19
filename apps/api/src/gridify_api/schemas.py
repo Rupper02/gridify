@@ -49,5 +49,12 @@ class ProfileSet(BaseModel):
     growth_2035: float | None = Field(default=None, gt=0)
 
 
+class YearRunRequest(BaseModel):
+    """A branch's year: a plan year and a pathway the catalogue holds a grown year for."""
+
+    year: int
+    pathway: str
+
+
 class RunRequest(BaseModel):
     view_year: int | None = None  # the year the planner is looking at: solved first, published first

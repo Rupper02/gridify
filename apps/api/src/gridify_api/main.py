@@ -20,7 +20,7 @@ from starlette.responses import JSONResponse
 from .config import MAIN_ID, log
 from .deps import grid, jobs, plans, scenarios, warehouse
 from .errors import DomainError, status_of
-from .routers import branches, model
+from .routers import branches, model, runs
 from .warehouse import LOCK_MEMORY_S, WarehouseBusy, request_state
 
 
@@ -88,5 +88,5 @@ async def _json_errors(request: Request, call_next):
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
                    expose_headers=["X-Warehouse-Snapshot", "X-Warehouse-Stale"])
 
-for _router in (model.router, branches.router):
+for _router in (model.router, branches.router, runs.router):
     app.include_router(_router)

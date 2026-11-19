@@ -49,7 +49,7 @@ class JobRunner:
         job_id = "job-" + uuid.uuid4().hex[:10]
         rec = {"job_id": job_id, "kind": kind, "key": key, "status": "queued", "stage": "queued", "fraction": 0.0,
                "created_at": now(), "started_at": None, "finished_at": None, "elapsed_ms": 0, "result": None, "partial": None,
-               "partial_version": 0, "error": None, "cancel": False}
+               "partial_version": 0, "error": None, "cancel": False, "reason": None}
         with self._lock:
             if key is not None:
                 same = next((r for r in self._jobs.values() if r["key"] == key and r["status"] in ("queued", "running") and not r["cancel"]), None)
@@ -134,16 +134,26 @@ class JobRunner:
             out["partial"] = rec["partial"]
         return out
 
-    def cancel(self, job_id: str) -> dict:
+    def cancel(self, job_id: str, reason: str | None = None) -> dict:
         """Ask a queued or running job to stop (it stops at its next progress report); 404 if unknown.
-        The years it already solved stay cached, so a re-run resumes cheaply."""
+        The years it already solved stay cached, so a re-run resumes cheaply. `reason` is shown with the job."""
         with self._lock:
             rec = self._jobs.get(job_id)
             if rec is None:
                 raise NotFound(f"job '{job_id}' not found")
             if rec["status"] in ("queued", "running"):
-                rec["cancel"] = True
+                rec["cancel"], rec["reason"] = True, reason
             return self._view(rec)
+
+    def stop_kind(self, kind: str, reason: str) -> list[str]:
+        """Stop every queued or running job of a kind, saying why: what a more urgent job asks before it starts."""
+        with self._lock:
+            ids = [r["job_id"] for r in self._jobs.values() if r["kind"] == kind and r["status"] in ("queued", "running") and not r["cancel"]]
+            for i in ids:
+                self._jobs[i]["cancel"], self._jobs[i]["reason"] = True, reason
+        for i in ids:
+            log.info("job %s (%s) stopped: %s", i, kind, reason)
+        return ids
 
     def get(self, job_id: str, with_result: bool = True, with_partial: bool = False, since: int | None = None) -> dict:
         """A job's status, stage, its partial result while running (if asked, and newer than `since`, the

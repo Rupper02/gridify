@@ -9576,6 +9576,538 @@
 "MW_total": 25.48635
 },
 {
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 0,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 18.86489
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2025,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 19.3257
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2026,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 19.59919
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2027,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 19.91549
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2028,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 20.37953
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2029,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 20.90206
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2030,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 21.54533
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2031,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 22.24811
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2032,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 23.2331
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2033,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 23.94292
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2034,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 24.71484
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2035,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 25.76228
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2036,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 27.1995
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2037,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 28.64758
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2038,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 30.03811
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2039,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 31.32312
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2040,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 32.68605
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2045,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 40.47778
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2050,
+"scenario": "Counterfactual",
+"season": "Winter",
+"MW_total": 47.28047
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 0,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 18.86489
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2025,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 19.90531
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2026,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 20.69871
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2027,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 21.65893
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2028,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 22.70157
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2029,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 23.91747
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2030,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 25.12194
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2031,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 27.45291
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2032,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 30.16429
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2033,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 32.83133
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2034,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 35.27887
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2035,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 37.74962
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2036,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 40.27297
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2037,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 42.51677
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2038,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 44.66166
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2039,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 46.82125
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2040,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 48.84171
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2045,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 55.804
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2050,
+"scenario": "Electric Engagement",
+"season": "Winter",
+"MW_total": 61.99276
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 0,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 18.86489
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2025,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 19.87663
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2026,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 20.55198
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2027,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 21.19384
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2028,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 21.97476
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2029,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 23.13249
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2030,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 24.72786
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2031,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 27.09565
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2032,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 29.82627
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2033,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 32.27229
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2034,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 34.83625
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2035,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 37.72561
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2036,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 40.64854
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2037,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 43.36915
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2038,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 45.9197
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2039,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 48.43657
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2040,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 50.64624
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2045,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 58.4791
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2050,
+"scenario": "Holistic Transition",
+"season": "Winter",
+"MW_total": 64.61064
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 0,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 18.86489
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2025,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 19.65972
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2026,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 20.268
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2027,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 20.93171
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2028,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 21.81777
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2029,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 22.77464
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2030,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 23.97918
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2031,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 25.89853
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2032,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 28.30253
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2033,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 30.59389
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2034,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 33.07611
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2035,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 35.68038
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2036,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 38.1379
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2037,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 40.57916
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2038,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 42.67601
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2039,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 44.73642
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2040,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 46.41098
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2045,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 51.90059
+},
+{
+"ESA": "WARTH LANE SKEGNESS 33 11kV S STN",
+"year": 2050,
+"scenario": "Hydrogen Evolution",
+"season": "Winter",
+"MW_total": 56.85949
+},
+{
 "ESA": "WOODHALL SPA 33 11kV S STN",
 "year": 0,
 "scenario": "Counterfactual",

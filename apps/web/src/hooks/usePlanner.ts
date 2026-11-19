@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 
 import { RunCancelled, api, failureText, notSolved } from "../api";
-import { type DiffMap, diffMapFor } from "../lib/geo";
+import { type DiffMap, diffMapFor, runViewOf } from "../lib/geo";
 import { type FeatureKey, lineTiers, loadVisible, onlyFeature, saveVisible, toggleFeature } from "../lib/mapFeatures";
 import { indexModel, limiters } from "../lib/model";
 import { BRANCH_HUES, MAIN_HUE } from "../theme";
@@ -25,9 +25,14 @@ import type {
   PlanDiff,
   PlanPayload,
   RegistryItem,
+  RunComparison,
+  RunInfo,
+  RunMetric,
+  RunSummary,
   Sel,
   Tab,
   YearResult,
+  YearRunState,
 } from "../types";
 
 export const MAIN_ID = "main";
@@ -73,12 +78,22 @@ export interface PlannerState {
   sideOpen: boolean;
   menuOpen: boolean;
   toasts: Toast[];
+  /** the year view (measured and grown years): the catalogue, the run shown, its summary and how it colours the map */
+  runs: RunInfo[] | null;
+  runId: string;
+  runSummary: RunSummary | null;
+  runLoading: boolean;
+  runMetric: RunMetric;
+  /** a branch's year: its comparison with its "before" when the run shown is one, and the job solving one */
+  runCompare: RunComparison | null;
+  yearRun: YearRunState;
 }
 
 const INITIAL: PlannerState = {
   model: null, bootError: null, forecasts: null, boundary: null, assumptions: null, showAssumptions: false, registry: null,
   branches: [], activeBranch: "", connections: [], result: null, resultAt: "", run: { kind: "idle" }, diff: null, diffError: null,
   year: 0, layer: "flow", visible: [], sel: null, tab: "connections", sideOpen: true, menuOpen: false, toasts: [],
+  runs: null, runId: "2035-ht", runSummary: null, runLoading: false, runMetric: "hours", runCompare: null, yearRun: { kind: "idle" },
 };
 
 const hhmm = () => new Date().toTimeString().slice(0, 5);
@@ -128,6 +143,7 @@ export function usePlanner() {
   // ---- the run ---------------------------------------------------------------------------------------------
   const runSeq = useRef(0);
   const jobRef = useRef<string | null>(null);
+  const yearJobRef = useRef<string | null>(null); // a branch's year: its own job, never superseded by an edit
   const debounce = useRef<number | undefined>(undefined);
 
   const loadDiff = useCallback(async (bid: string) => {
@@ -268,6 +284,34 @@ export function usePlanner() {
       await Promise.all([loadConnections(bid), refreshBranches()]);
       runSoon();
     };
+    /** The year view: the chosen run's summary (read-only; nothing solves). */
+    const setRun = async (runId: string) => {
+      if (ref.current.runs?.find((r) => r.run_id === runId)?.available === false) {
+        patch({ runId, runSummary: null, runLoading: false }); // no file yet: the tab says how to make one
+        return;
+      }
+      patch({ runId, runLoading: true, runCompare: null });
+      try {
+        const summary = await api.getRun(runId);
+        const cmp = summary.info.before ? await api.getRunCompare(runId) : null;
+        if (ref.current.runId === runId) patch({ runSummary: summary, runCompare: cmp, runLoading: false });
+      } catch (e) {
+        patch({ runLoading: false });
+        toast(failureText(e), "warn");
+      }
+    };
+    /** The year view: load the catalogue, then the chosen run (or the first that has a file). */
+    const openRuns = async () => {
+      try {
+        if (!ref.current.runs) patch({ runs: await api.listRuns() });
+        const st = ref.current;
+        if (st.runSummary?.info.run_id === st.runId) return; // the run on screen stays (a branch's year is not in the catalogue)
+        const pick =st.runs?.find((r) => r.run_id === st.runId && r.available) ?? st.runs?.find((r) => r.available);
+        if (pick && st.runSummary?.info.run_id !== pick.run_id) await setRun(pick.run_id);
+      } catch (e) {
+        toast(failureText(e), "warn");
+      }
+    };
     return {
       boot,
       run,
@@ -376,6 +420,36 @@ export function usePlanner() {
       },
       setLayer(layer: MapLayer) {
         patch({ layer });
+        if (layer === "hours") void openRuns();
+      },
+      openRuns,
+      setRun,
+      /** Run the active branch's year on a catalogued grown year (its "before"), then show it. One at a time. */
+      async runYear(base: string) {
+        const bid = ref.current.activeBranch;
+        const b = ref.current.runs?.find((r) => r.run_id === base);
+        if (!bid || !b?.pathway || ref.current.yearRun.kind === "running") return;
+        patch({ yearRun: { kind: "running", branchId: bid, base, stage: "queued", fraction: 0 } });
+        try {
+          const res = await api.runYear(bid, b.year, b.pathway, {
+            onStart: (id) => (yearJobRef.current = id),
+            onProgress: (stage, fraction) => patch({ yearRun: { kind: "running", branchId: bid, base, stage, fraction } }),
+          });
+          yearJobRef.current = null;
+          patch({ yearRun: { kind: "idle" } });
+          await setRun(res.run_id);
+        } catch (e) {
+          yearJobRef.current = null;
+          patch({ yearRun: e instanceof RunCancelled
+            ? (e.message ? { kind: "stopped", branchId: bid, reason: e.message } : { kind: "idle" })
+            : { kind: "failed", branchId: bid, error: failureText(e) } });
+        }
+      },
+      cancelYearRun() {
+        if (yearJobRef.current) void api.cancelJob(yearJobRef.current).catch(() => {});
+      },
+      setRunMetric(runMetric: RunMetric) {
+        patch({ runMetric });
       },
       setTab(tab: Tab) {
         patch({ tab, sideOpen: true });
@@ -408,6 +482,7 @@ export function usePlanner() {
   const compare = !onMain && s.tab === "compare" && !!s.diff;
   const diffMap: DiffMap | null = useMemo(() => (compare ? diffMapFor(s.diff?.years[String(s.year)] ?? null) : null), [compare, s.diff, s.year]);
   const limits = useMemo(() => limiters(s.result?.years ?? {}), [s.result]);
+  const runView = useMemo(() => (s.layer === "hours" && s.runSummary ? runViewOf(s.runSummary, s.runMetric) : null), [s.layer, s.runSummary, s.runMetric]);
   const derived = {
     ix,
     tiers,
@@ -418,6 +493,7 @@ export function usePlanner() {
     compare,
     diffMap,
     limits,
+    runView,
     hue: branchHue(s.branches, s.activeBranch),
     years: s.forecasts?.plan_years ?? [],
     running: s.run.kind === "running",

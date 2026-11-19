@@ -57,6 +57,12 @@ class WarehouseNgedSource:
     def forecasts(self) -> dict[str, Pathway] | None:
         return self._engine.forecasts()
 
+    def measured_year(self, folder, net, reactive: str = "published"):
+        return self._engine.measured_year(folder, net, reactive)
+
+    def run_catalogue(self):
+        return self._engine.run_catalogue()
+
 
 class Grid:
     """The grid behind every branch (a `GridSource`), with per-baseline caches."""

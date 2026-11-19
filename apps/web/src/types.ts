@@ -172,7 +172,7 @@ export type Case = "winter_peak" | "summer_min";
 
 /** One limit breached in a solve. */
 export interface Reason {
-  type: "voltage" | "line" | "trafo" | "gsp" | "non_convergent" | string;
+  type: "voltage" | "line" | "trafo" | "gsp" | "gsp_import" | "non_convergent" | "voltage_collapse" | string;
   element_id: number | null;
   value: number | null;
   limit: number | null;
@@ -225,6 +225,8 @@ export interface Job {
   stage: string;
   fraction: number;
   error: string | null;
+  /** why it was stopped, when the API stopped it */
+  reason: string | null;
   has_partial: boolean;
   partial_version: number;
   partial?: PlanPayload | null;
@@ -279,9 +281,123 @@ export interface PlanDiff {
   years: Record<string, YearDelta>;
 }
 
+// ---- measured and grown years (GET /runs): the year view ------------------------------------------------
+export interface RunInfo {
+  run_id: string;
+  label: string;
+  kind: "measured" | "grown";
+  year: number;
+  pathway: string | null;
+  available: boolean;
+  make: string;
+  limits: string;
+  /** a grown year a branch's year can be run on (and compared with) */
+  base: boolean;
+  /** a branch's year: the catalogued run it is compared with, and the branch it was run for */
+  before: string | null;
+  branch_id: string | null;
+}
+
+export interface RunElement {
+  kind: "line" | "trafo";
+  element_id: number;
+  peak_pct: number;
+  peak_at: string;
+  h80: number;
+  h90: number;
+  h100: number;
+  label: string;
+  offset_mw: number | null;
+  offset_pct: number | null;
+  finding: boolean;
+  label_year: number | null; // the measured year the agreement label was judged on
+}
+
+export interface RunBus {
+  bus_id: number;
+  hours_outside: number;
+  vmin_pu: number;
+  vmax_pu: number;
+  finding: boolean;
+}
+
+export interface RunSubstation {
+  name: string;
+  bus_id: number;
+  firm_mva: number;
+  peak_mva: number;
+  peak_at: string;
+  hours_above_firm: number;
+}
+
+export interface RunSummary {
+  info: RunInfo;
+  half_hours: number;
+  solved: number;
+  collapsed: number; // of the half-hours not solved, those whose solution was a voltage collapse
+  fingerprint: string;
+  elements: RunElement[];
+  buses: RunBus[];
+  substations: RunSubstation[];
+  check: string;
+}
+
+export interface RunGrid {
+  run_id: string;
+  kind: "line" | "trafo" | "bus";
+  element_id: number;
+  /** hours over, per month (rows, January first) and hour of day (columns, 00:00 first) */
+  hours: number[][];
+}
+
+/** One line or transformer whose year changes with a branch. */
+export interface RunChange {
+  kind: "line" | "trafo";
+  element_id: number;
+  peak_before: number;
+  peak_after: number;
+  h90_before: number;
+  h90_after: number;
+  h100_before: number;
+  h100_after: number;
+}
+
+/** A branch's year against its "before" (GET /runs/{id}/compare). */
+export interface RunComparison {
+  run_id: string;
+  before: string;
+  year: number;
+  in_service: string[];
+  voltage_control_at_unity: string[];
+  on_slack: string[];
+  storage: string[];
+  output_peak_mw: number;
+  output_energy_gwh: number;
+  changed: RunChange[];
+  /** the energy above rating on the element the branch puts over for longest: a crude first indication */
+  worst: { kind: "line" | "trafo"; element_id: number; hours_above: number; mvah_above: number; largest_mva_above: number } | null;
+  /** [bus_id, hours outside before, after] */
+  buses: [number, number, number][];
+  /** [substation, hours above firm before, after] */
+  substations: [string, number, number][];
+  export_peak_mw: [number, number];
+  import_peak_mw: [number, number];
+}
+
+/** A branch's year being solved: the job's progress in the driver's own terms. */
+export type YearRunState =
+  | { kind: "idle" }
+  | { kind: "running"; branchId: string; base: string; stage: string; fraction: number }
+  | { kind: "failed"; branchId: string; error: string }
+  /** the API stopped it, saying why (a plan run never waits behind a year) */
+  | { kind: "stopped"; branchId: string; reason: string };
+
+/** How the year view colours lines and transformers: hours above rating, or peak loading. */
+export type RunMetric = "hours" | "peak";
+
 // ---- the planner's view ------------------------------------------------------------------------------
-export type MapLayer = "flow" | "loading" | "voltage";
-export type Tab = "connections" | "limits" | "compare";
+export type MapLayer = "flow" | "loading" | "voltage" | "hours";
+export type Tab = "connections" | "limits" | "compare" | "runs";
 
 /** What is selected on the map or in a list. */
 export type Sel =

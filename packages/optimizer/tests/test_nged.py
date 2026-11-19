@@ -3,11 +3,14 @@
 import pytest
 
 from gridify_optimizer.config import MAX_CONNECTION_MW
-from gridify_optimizer.nged import GSP_PEAK_DEMAND_MW, _ctx, _substation, _bsp_aggregates, _bsp_base, _load, _num, build_nged_net, nged_candidates
+from gridify_optimizer.nged_points import BICKER_FEN
+from gridify_optimizer.nged import (_ctx, _substation, _bsp_aggregates, _bsp_base, _load, _num,
+                                    build_nged_net, nged_candidates)
 
 
 def _live(rows, col):
-    return [r for r in rows if str(r.get(col) or "").strip().lower() != "removed"]
+    """Rows not marked Removed, plus the demand rows the build keeps as Removed in error (the supply point's removed_in_error)."""
+    return [r for r in rows if str(r.get(col) or "").strip().lower() != "removed" or str(r.get("Node") or "").strip() in BICKER_FEN.removed_in_error]
 
 
 def _own_demand(rows):
@@ -41,7 +44,11 @@ def test_the_structure_the_ltds_leaves_open_is_recorded_not_filled():
     joined |= {frozenset((int(a), int(b))) for a, b in zip(net.trafo.hv_bus, net.trafo.lv_bus)}
     by_name = {str(net.bus.at[b, "name"]): int(b) for b in split["element_ids"]}
     assert frozenset((by_name["Boston 132kV 603"], by_name["Boston 132kV 503"])) not in joined  # nothing was invented between them
-    assert len(net.switch) == 0
+    # the only switches are published connectors (a row kept out of service, its two buses joined): none is invented
+    conn = net.line[net.line.connector]
+    assert {frozenset((int(a), int(b))) for a, b in zip(net.switch.bus, net.switch.element)} == \
+        {frozenset((int(a), int(b))) for a, b in zip(conn.from_bus, conn.to_bus)}
+    assert not conn.in_service.any() and net.switch.closed.all()
     # a substation whose bars are joined (Bicker Fen's one 132 kV bar, every 11 kV bar) is not flagged
     assert not any(n.startswith("Bicker Fen") for n in by_name)
     mesh = recs["mv_mesh_closed"]
@@ -66,7 +73,7 @@ def test_winter_peak_demand_is_nesos_gsp_peak_and_summer_minimum_is_ltds_own():
     step), and the summer minimum stays each row's maximum × its LTDS minimum-demand factor."""
     net = build_nged_net()
     load = net.load
-    assert float(load.p_mw.sum()) == pytest.approx(GSP_PEAK_DEMAND_MW, rel=1e-9)
+    assert float(load.p_mw.sum()) == pytest.approx(BICKER_FEN.peak_demand_mw, rel=1e-9)
     live = _live(_load("demand"), "Status")
     agg = _bsp_aggregates(live)
     gsp = float(load.loc[load["bsp_region_id"].isna(), "coincidence"].iloc[0])  # rows with no BSP group: the GSP step only

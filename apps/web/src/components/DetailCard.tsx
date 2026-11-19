@@ -10,6 +10,7 @@ import type { Layout } from "../lib/layout";
 import { busName, caseOf, lineMva, lineName, reasonText, trafoName, trafoRatio } from "../lib/model";
 import { C, TECH, caseLabel, isTech, loadColor, techLabel, voltColor } from "../theme";
 import type { Reason, Sel, Tech, YearResult } from "../types";
+import { RunDetail } from "./RunsTab";
 import { Sparkline, Stepper, TechIcon, TechTile } from "./ui";
 
 const TECHS = Object.keys(TECH) as Tech[];
@@ -183,6 +184,7 @@ export function DetailCard({ planner, layout }: { planner: Planner; layout: Layo
   return (
     <div className="detail glass" style={style}>
       {body}
+      {s.layer === "hours" && <RunDetail planner={planner} />}
     </div>
   );
 }

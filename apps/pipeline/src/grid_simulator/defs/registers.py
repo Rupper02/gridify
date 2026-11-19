@@ -29,13 +29,15 @@ import duckdb
 
 from grid_simulator.config import DB_PATH
 from gridify_optimizer.editions import diff_ecr_editions, ecr_site_key
+from gridify_optimizer.nged_points import BICKER_FEN
 from gridify_optimizer.nged import (
     BUNDLED_DATA_DIR,
     DFES_POWER_RESOURCE_ID,
     LTDS_FAULT_RESOURCE_ID,
-    LTDS_GSP_GROUP,
     dfes_esa,
+    dfes_search_term,
     load_bundled_coords,
+    live_demand_rows,
     load_bundled_tables,
     substation_names,
 )
@@ -44,7 +46,7 @@ from gridify_optimizer.nged import (
 UA = "gridify/0.2 (grid planning research)"
 CKAN = "https://connecteddata.nationalgrid.co.uk/api/3/action/"
 ECR_RESOURCE_ID = "82a4ae83-77a3-4e7b-9060-8072ed96de9d"
-ECR_GSP = "Bicker Fen 132Kv S Stn"
+ECR_GSP = BICKER_FEN.ecr_gsp
 # the columns the model needs; not the customer-name, address, postcode or MPAN/MSID columns
 # (`customer_site` is kept as published and can name a property)
 ECR_KEEP = [
@@ -56,7 +58,7 @@ ECR_KEEP = [
     "date_accepted", "target_energisation_date", "date_connected", "in_a_connection_queue(y/n)",
     "transmission_reinforcement_reference", "last_updated", "lat", "lon",
 ]
-OSM_BBOX = (52.6, -0.9, 53.45, 0.45)  # south, west, north, east: the Bicker Fen GSP region
+OSM_BBOX = BICKER_FEN.osm_bbox  # south, west, north, east: the supply point's region
 OVERPASS = ("https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter")
 _WRITER_RETRY = dg.RetryPolicy(max_retries=3, delay=5)
@@ -246,14 +248,14 @@ def pin_nged_published(context: dg.AssetExecutionContext) -> dg.MaterializeResul
     break currents and the switchgear ratings per node) and the DFES power projections for every primary in Table 3
     (`data/nged/dfes.json`: winter peak MW per supply area, scenario and year). Review the git diff, re-materialise
     `ltds_tables*`, commit."""
-    fault = _ckan("datastore_search", resource_id=LTDS_FAULT_RESOURCE_ID, limit=5000, filters=json.dumps({"GSP Group": LTDS_GSP_GROUP}))["records"]
+    fault = _ckan("datastore_search", resource_id=LTDS_FAULT_RESOURCE_ID, limit=5000, filters=json.dumps({"GSP Group": BICKER_FEN.ltds_group}))["records"]
     fault = [{k: v for k, v in r.items() if k not in ("_id", "rank")} for r in fault]
-    primaries = sorted({re.sub(r"\s*\([^)]*\)", "", str(d.get("Primary Substation") or "")).strip() for d in load_bundled_tables()["demand"]
-                        if d.get("Status") != "Removed"} - {"", "-"})
+    primaries = sorted({re.sub(r"\s*\([^)]*\)", "", str(d.get("Primary Substation") or "")).strip()
+                        for d in live_demand_rows(load_bundled_tables()["demand"])} - {"", "-"})
     rows: dict[tuple, dict] = {}
     matched: dict[str, str] = {}
     for name in primaries:
-        recs = _ckan("datastore_search", resource_id=DFES_POWER_RESOURCE_ID, limit=2000, q=name.split()[0])["records"]
+        recs = _ckan("datastore_search", resource_id=DFES_POWER_RESOURCE_ID, limit=2000, q=dfes_search_term(name))["records"]
         esa = dfes_esa(name, {r["ESA"] for r in recs})
         if esa is None:
             continue

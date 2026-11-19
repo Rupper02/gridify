@@ -39,8 +39,8 @@ export function App() {
   }, [actions]);
 
   const geo = useMemo(
-    () => (s.model ? buildGeo({ model: s.model, yr: derived.yr, layer: s.layer, sel: s.sel, diff: derived.diffMap, visible: s.visible, tiers: derived.tiers }) : null),
-    [s.model, derived.yr, s.layer, s.sel, derived.diffMap, s.visible, derived.tiers],
+    () => (s.model ? buildGeo({ model: s.model, yr: derived.yr, layer: s.layer, sel: s.sel, diff: derived.diffMap, visible: s.visible, tiers: derived.tiers, run: derived.runView }) : null),
+    [s.model, derived.yr, s.layer, s.sel, derived.diffMap, s.visible, derived.tiers, derived.runView],
   );
 
   return (

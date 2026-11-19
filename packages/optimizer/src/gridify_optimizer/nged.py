@@ -1,6 +1,8 @@
 """Build a real National Grid Electricity Distribution (NGED) network from open data.
 
-Region: the Bicker Fen 132 kV GSP (Lincolnshire). Sources, bundled under data/nged/:
+Region: one NGED Grid Supply Point at a time; what belongs to it (where its data is filed, its published peak and
+limits, its named exceptions) is its `nged_points.SupplyPoint` record, Bicker Fen's by default (the 132 kV GSP in
+Lincolnshire). Sources, bundled under data/nged/ for Bicker Fen:
   * LTDS tabular model (NGED Connected Data Portal, CKAN API) — circuits, transformers (Table 2a),
     demand (Table 3), nodes, existing generation (Table 5). Rows LTDS marks "Removed" are dropped:
     the base network is what exists TODAY.
@@ -38,6 +40,7 @@ from .config import (
     FORECASTS,
     GSP_INFEED_VM_PU,
     LTDS_FORECAST_FIRST_YEAR,
+    CONNECTOR_MAX_X_PCT,
     EHV_MIN_KV,
     OLTC_DEADBAND_PU,
     OLTC_SETPOINT_PU,
@@ -49,6 +52,7 @@ from .config import (
 from .geometry import h01 as _h01
 from .geometry import interpolate_positions
 from .gridmodel import model_from_net
+from .nged_points import BICKER_FEN, SupplyPoint
 from .types import ModelAssumption
 
 _DATA = Path(__file__).resolve().parent / "data" / "nged"
@@ -58,58 +62,12 @@ TABLE_NAMES = ("circuit", "t2a", "demand", "node", "gen", "ecr", "fault", "dfes"
 LtdsTables = dict[str, list[dict]]
 EDITION_CURRENT = "current"  # what exists today: every row NGED has not marked Removed
 EDITION_PREVIOUS = "previous"  # NGED's previous edition, reconstructed: every row not marked New
-GSP_CENTER = (-0.20, 52.88)  # Bicker Fen, Lincolnshire (lon, lat) — fallback spot for unplaceable buses
-# Bicker Fen's own demand at the time of the GB winter peak (17:00-18:00 on a winter weekday): NESO
-# "Regional Breakdown of 2024 FES: Demand (Active Power)" (NESO Data Portal, resource
-# 7bd643c0-6aad-41ac-aa59-92b68992d9a4), GSP BICF_1, DemandPk summed over its demand types for fiscal
-# year 2024/25 (the ~2024 baseline the growth anchors use): 150.491 MW (Electric Engagement), 150.249
-# (Hydrogen Evolution), 146.965 (Holistic Transition). Today's demand is the same whatever the
-# pathway, so we take the mean. The winter-peak power flow's demand sums to this today (_coincidence).
-GSP_PEAK_DEMAND_MW = 149.235
 # Fallback thermal rating (kA) by operating voltage when LTDS leaves a circuit's rating blank.
 _RATING_FALLBACK_KA = {132: 1.0, 66: 0.7, 33: 0.6, 20: 0.5, 11: 0.4}
-# --- the GSP boundary: what sits above/outside this distribution network ----------------------
-# Bicker Fen GSP is fed by two 400/132 kV supergrid transformers (SGTs). NGED's "Bicker Fen Td
-# Limits" (Connected Data Portal, dataset asset-limits-pre-event-transmission-distribution-limits,
-# resource 288e7abd-a45d-4592-b257-064d85d99d8b) gives each SGT an export limit of 263.5 MW in every
-# season, and an import limit of 160.1 MW (winter) / 110.8 MW (summer). The sign convention isn't
-# documented; we read "export" as distribution → transmission, as the name and this net-exporting
-# region suggest. We enforce the INTACT limit (both SGTs); the firm figure (one SGT out) is kept as context.
-GSP_BOUNDARY = {
-    "gsp_name": "Bicker Fen GSP",
-    "sgt_count": 2,
-    "export_limit_mw": 2 * 263.5,       # intact: both SGTs in service
-    "firm_export_mw": 263.5,            # one SGT out
-    "import_limit_mw": {"winter": 2 * 160.1, "summer": 2 * 110.8},
-    "source": "NGED Connected Data Portal — Bicker Fen Td Limits (resource 288e7abd-a45d-4592-b257-064d85d99d8b)",
-}
-# Transmission-registered projects at Bicker Fen (NESO TEC + Interconnector registers, Sep 2026).
-# `at` = where they connect. Ones not yet built that connect at the GSP's 132 kV ("gsp_132kv") would
-# flow up through our SGTs, so — like every project that doesn't exist today — they're OPTIONAL
-# registry projects (see tec_candidates), never pre-loaded. The 400 kV ones bypass this network
-# entirely but compete for the same transmission capacity out of Lincolnshire: context only.
-LTDS_GSP_GROUP = "Bicker Fen 132kV"  # the LTDS "GSP Group" of every row in the bundled tables
 # NGED Connected Data Portal resources the pipeline's `pin_nged_published` fetches into the bundled snapshot
 LTDS_FAULT_RESOURCE_ID = "3bd0243c-71dd-4cdd-9ca9-57e6eb79d61f"  # LTDS Table 4 Fault Level (system impedance, make/break currents and ratings per node)
 DFES_POWER_RESOURCE_ID = "7686c0a8-bde8-4a4b-8f26-50a3317882ee"  # DFES 2025 Power Projections: winter peak MW per Electricity Supply Area, scenario, year
 DFES_SOURCE = "NGED Distribution Future Energy Scenarios 2025, winter-peak power projections per Electricity Supply Area (Connected Data Portal)"
-TRANSMISSION_PROJECTS = [
-    {"name": "Viking Link (HVDC interconnector to Denmark)", "mw": 1500, "type": "Interconnector",
-     "status": "Built", "year": 2023, "at": "400kv", "source": "NESO Interconnector Register"},
-    {"name": "Triton Knoll offshore wind", "mw": 824, "type": "Offshore wind",
-     "status": "Built", "year": 2022, "at": "400kv", "source": "NESO TEC Register; tritonknoll.co.uk"},
-    {"name": "Bicker Fen 1 Solar", "mw": 57, "type": "Solar + storage",
-     "status": "Awaiting consents", "year": 2025, "at": "400kv", "source": "NESO TEC Register"},
-    {"name": "Bicker Fen 2 Solar", "mw": 57, "type": "Solar + storage",
-     "status": "Awaiting consents", "year": 2026, "at": "400kv", "source": "NESO TEC Register"},
-    {"name": "Heckington Fen Solar Park", "mw": 400, "type": "Solar + storage",
-     "status": "Scoping", "year": 2028, "at": "400kv", "source": "NESO TEC Register"},
-    {"name": "Bicker Fenn Energy Park", "mw": 600, "type": "Solar + storage",
-     "status": "Scoping", "year": 2029, "at": "400kv", "source": "NESO TEC Register"},
-    {"name": "Temple Oaks Renewable Energy Park", "mw": 240, "type": "Solar + storage",
-     "status": "Awaiting consents", "year": 2033, "at": "gsp_132kv", "source": "NESO TEC Register (embedded, site 'Bicker Fen GSP')"},
-]
-
 # LTDS Table 5 connection statuses treated as the EXISTING fleet (baked into the base network).
 # Everything not yet connected is an OPTIONAL project in the registry (see nged_candidates).
 _EXISTING_STATUSES = ("Connected", "Energised")
@@ -131,6 +89,13 @@ def _in_edition(status, edition: str) -> bool:
     if edition == EDITION_PREVIOUS:
         return st != "new"
     return st != "removed"
+
+
+
+
+def live_demand_rows(rows, edition: str = EDITION_CURRENT, point: SupplyPoint = BICKER_FEN) -> list[dict]:
+    """The LTDS Table 3 rows of an edition: its own Status rule, plus the supply point's rows Removed in error."""
+    return [r for r in rows if _in_edition(r.get("Status"), edition) or str(r.get("Node") or "").strip() in point.removed_in_error]
 
 
 def _num(v):
@@ -266,6 +231,8 @@ _ASSUMPTION_TEXT = {
     "firm_capacity_unpublished": "LTDS Table 3 gives no firm capacity for this substation: nothing is assumed in its place",
     "length_default": "LTDS gave no usable circuit length: 1 km assumed (impedance comes from %Z, so only the per-km split changes)",
     "summer_ratio_median": "LTDS left the summer rating blank: this network's median summer/winter ratio was used",
+    "intermediate_cool_ratio_median": "LTDS left the Intermediate Cool rating blank: this network's median ratio to winter was used",
+    "intermediate_warm_ratio_median": "LTDS left the Intermediate Warm rating blank: this network's median ratio to winter was used",
     "tap_step_assumed": f"LTDS gives the tap range but not the step: {OLTC_TAP_STEP_PERCENT:g}% per tap assumed, regulated towards {OLTC_SETPOINT_PU:g} pu (config.OLTC_*)",
     "no_oltc": "No tap range published: modelled as a fixed-tap transformer",
     "pf_default": f"LTDS left the power factor blank: {_PF_DEFAULT:g} lagging assumed (nged._pf)",
@@ -278,7 +245,18 @@ _ASSUMPTION_TEXT = {
                       "where generation is twice a primary's peak). Domestic rooftop PV is in no register (the ECR and LTDS Table 5 list "
                       "connections that applied to NGED) and is not modelled",
     "small_embedded_unmodelled": "Connected ECR sites under 1 MW that publish no export capacity or no technology are not modelled",
-    "mv_mesh_closed": "33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and shares its flows",
+    "removed_in_error": "LTDS Table 3 marks this demand row Removed, but NGED's other data shows the substation is live: kept "
+                        "(the supply point's `removed_in_error` gives the evidence)",
+    "unreachable_demand": "Demand on buses the GSP infeed cannot reach in the LTDS connectivity: removed with them, not rescaled "
+                          "onto the rest (the coincidence scaling was applied before)",
+    "unreachable_generation": "Generation on buses the GSP infeed cannot reach in the LTDS connectivity: removed with them",
+    "possible_bsp_aggregate": "Possible aggregate counted as demand, check: rows with no primary place more demand on a "
+                              "substation's own bars than half the primaries Table 3 files under its name (nothing is changed)",
+    "normally_open": "A circuit run open: the supply point's named normally-open point, inferred from NGED's half-hourly "
+                     "flows (the LTDS publishes connectivity, not the running arrangement)",
+    "connector": "An LTDS circuit row with zero resistance, negligible reactance and no rating: a connector between two named "
+                 "nodes (a closed bus-bus switch; the row is kept, out of service, so no element id moves)",
+    "mv_mesh_closed":"33 kV circuits that close a loop: LTDS publishes no normal-open points, so the 33 kV network runs as a closed mesh in parallel with the 132 kV and shares its flows",
 }
 
 
@@ -289,9 +267,28 @@ def _assume(net, key: str, element_kind: str, element_id: int) -> None:
     rec["element_ids"].append(int(element_id))
 
 
+# LTDS circuit rating columns besides Winter -> (the net.line ratio column, the assumption key for a blank)
+_SEASON_RATIOS = {
+    "summer_ratio": ("Summer", "summer_ratio_median"),
+    "intermediate_cool_ratio": ("Intermediate Cool", "intermediate_cool_ratio_median"),
+    "intermediate_warm_ratio": ("Intermediate Warm", "intermediate_warm_ratio_median"),
+}
+
+
+def _is_connector(c: dict) -> bool:
+    """A circuit row that is a connector between two named nodes: zero resistance, reactance at or below
+    CONNECTOR_MAX_X_PCT, no rating (NGED's "L0" rows). Rows at exactly zero impedance are not lines at all (`_is_line`)."""
+    r, x, w = _num(c["R1"]), _num(c["X1"]), _num(c["Winter"])
+    return r == 0 and x is not None and 0 < x <= CONNECTOR_MAX_X_PCT and not (w and w > 0)
+
+
 def _add_lines(net, circ, gb) -> None:
-    """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with a summer rating."""
-    summer_ratio: dict[int, float | None] = {}  # line idx -> LTDS summer / winter rating
+    """Real circuits (R1/X1 in % on a 100 MVA base + a rating) become lines, with their other seasons' ratings as ratios
+    of the winter one (`_SEASON_RATIOS`). A connector row (`_is_connector`) keeps its place in the line table, out of
+    service (`connector`), and a closed bus-bus switch joins its two buses: no figure is invented for it and no element id
+    moves (README register "A connector published as a circuit")."""
+    connector: dict[int, bool] = {}
+    ratios: dict[str, dict[int, float | None]] = {col: {} for col in _SEASON_RATIOS}  # column -> line idx -> season / winter
     for c in circ:
         if not _is_line(c):
             continue
@@ -316,17 +313,27 @@ def _add_lines(net, circ, gb) -> None:
             net, a, b, length_km=length, r_ohm_per_km=r / length, x_ohm_per_km=x / length,
             c_nf_per_km=c_nf, max_i_ka=imax, name=c.get("Circuit Code", ""),
         )
+        if _is_connector(c):
+            net.line.at[li, "in_service"] = False
+            pp.create_switch(net, a, b, et="b", closed=True, name=f"connector {c['Node 1']}-{c['Node 2']}")
+            connector[int(li)] = True
+            _assume(net, "connector", "line", int(li))
+            continue
         if rating_blank:
             _assume(net, "rating_fallback", "line", int(li))
         if c_nf == 0.0:
             _assume(net, "charging_blank", "line", int(li))
         if length != given_length:
             _assume(net, "length_default", "line", int(li))
-        w, s = _num(c["Winter"]), _num(c.get("Summer"))
-        summer_ratio[int(li)] = (s / w) if (w and s and w > 0) else None
-    # summer ratings run lower (warm ambient, no wind cooling). Where LTDS leaves a circuit's
-    # summer rating blank, use this network's own median summer/winter ratio rather than assume none.
-    net.line["summer_ratio"] = _ratio_column(net, summer_ratio, "summer_ratio_median")
+        w = _num(c["Winter"])
+        for col, (field, _) in _SEASON_RATIOS.items():
+            s = _num(c.get(field))
+            ratios[col][int(li)] = (s / w) if (w and s and w > 0) else None
+    # the warmer seasons' ratings run lower (warm ambient, less wind cooling). Where LTDS leaves one blank, use this
+    # network's own median ratio for that season rather than assume none.
+    for col, (_, key) in _SEASON_RATIOS.items():
+        net.line[col] = _ratio_column(net, ratios[col], key)
+    net.line["connector"] = [connector.get(int(i), False) for i in net.line.index]
 
 
 def _ratio_column(net, ratio: dict[int, float | None], key: str) -> list[float]:
@@ -359,7 +366,7 @@ def _add_transformers(net, t2a, gb) -> None:
             continue
         net.bus.at[hv, "vn_kv"], net.bus.at[lv, "vn_kv"] = hv_kv, lv_kv
         r1, x1 = _num(t["R1"]) or 0.0, _num(t["X1"]) or 1.0
-        vk = min(max(abs(x1) * sn / 100.0, 0.1), 25.0)
+        vk = min(max(math.hypot(r1, x1) * sn / 100.0, 0.1), 25.0)  # the impedance's magnitude, on the unit's rating
         # on-load tap changer on the HV winding (GB practice): LTDS gives the tap range (Min/Max Tap,
         # e.g. -12..+4: negative taps = fewer HV turns = a higher LV voltage), the step is an assumption
         # (OLTC_TAP_STEP_PERCENT). network._solve regulates the taps so each LV busbar sits near
@@ -378,6 +385,19 @@ def _add_transformers(net, t2a, gb) -> None:
         _assume(net, "tap_step_assumed" if has_oltc else "no_oltc", "trafo", int(ti))
 
 
+def _open_points(net, point: SupplyPoint, gb) -> None:
+    """The supply point's named normally-open circuits (`SupplyPoint.normally_open`), out of service: the LTDS publishes
+    connectivity, not the running arrangement, so each is an exception with its evidence. A name that is not a circuit of
+    this network stops the build."""
+    for (a, b), _why in point.normally_open.items():
+        x, y = gb(a), gb(b)
+        hit = net.line[((net.line.from_bus == x) & (net.line.to_bus == y)) | ((net.line.from_bus == y) & (net.line.to_bus == x))]
+        if len(hit) != 1:
+            raise ValueError(f"{point.gsp_name}: normally-open circuit {a}-{b} matches {len(hit)} lines, not one")
+        net.line.at[hit.index[0], "in_service"] = False
+        _assume(net, "normally_open", "line", int(hit.index[0]))
+
+
 def _demand_group(d: dict) -> str:
     """The demand group a Table 3 row describes: its primary substation, or its BSP group for a row
     at the BSP itself (Primary Substation "-")."""
@@ -392,6 +412,16 @@ def _is_bsp_row(d: dict) -> bool:
 def _bsp_base(bsp_group: str) -> str:
     """A BSP group's name without its transformer suffix: "Sleaford (GT1)" -> "Sleaford"."""
     return re.sub(r"\s*\(GT\d+\)\s*$", "", bsp_group or "").strip()
+
+
+def _aliased(d: dict, aliases: dict) -> dict:
+    """A Table 3 row with its BSP group renamed per the supply point's `bsp_aliases` (a group Table 3 files a BSP's own
+    rows under, though its primaries use another name), keeping any "(GTn)" suffix."""
+    g = str(d.get("BSP Group") or "")
+    base = _bsp_base(g)
+    if base not in aliases:
+        return d
+    return {**d, "BSP Group": g.replace(base, aliases[base], 1)}
 
 
 def _bsp_aggregates(dem) -> set[str]:
@@ -471,24 +501,48 @@ def _bsp_membership(dem, aggregates: set[str], parents: dict[str, dict]) -> dict
             for b, g in parents.items()}
 
 
-def _coincidence(dem, aggregates: set[str], member: dict[str, dict]) -> tuple[dict[str, float], float]:
+def _coincidence(dem, aggregates: set[str], member: dict[str, dict], gsp_peak_mw: float) -> tuple[dict[str, float], float]:
     """How much of each row's own maximum demand is on at the GSP's winter peak.
 
     Two published figures, no assumed factor: a BSP's own maximum (its rows in Table 3) over its
     primaries' maxima gives their coincidence at the BSP (`bsp_coincidence`, by BSP base name; 1 for
-    a row with no BSP group), and NESO's GSP peak (GSP_PEAK_DEMAND_MW) over the BSP-coincident total
-    gives the coincidence of everything at the GSP. Returns (per-BSP factor, GSP factor)."""
+    a row with no BSP group), and NESO's GSP peak (`gsp_peak_mw`, `SupplyPoint.require_peak`) over the BSP-coincident total
+    gives the coincidence of everything at the GSP. Returns (per-BSP factor, GSP factor).
+
+    A coincidence cannot exceed 1 (the maxima cannot sum to less than the peak they reach together): above it the build
+    stops with the figures (README register "A coincidence factor above 1 stops the build")."""
     bsp = {b: m["bsp_coincidence"] for b, m in member.items()}
+    for b, f in bsp.items():
+        if f > 1 + COINCIDENCE_TOLERANCE:
+            raise ValueError(f"BSP {b}: its published maximum is {f:.3f} times the sum of its primaries' maxima (a coincidence "
+                             f"above 1): its figure does not describe the primaries filed under it, or demand is missing")
     total = sum((_num(d["Current Year Max Demand"]) or 0.0) * bsp.get(_bsp_base(str(d.get("BSP Group") or "")), 1.0)
                 for d in dem if str(d.get("BSP Group") or "").strip() not in aggregates)
-    return bsp, (GSP_PEAK_DEMAND_MW / total if total > 0 else 1.0)
+    at_gsp = gsp_peak_mw / total if total > 0 else 1.0
+    if at_gsp > 1 + COINCIDENCE_TOLERANCE:
+        raise ValueError(f"supply-point peak {gsp_peak_mw:.3f} MW (SupplyPoint.peak_demand_mw) against {total:.2f} MW of its "
+                         f"rows' BSP-coincident maxima: a factor of {at_gsp:.3f}, above 1. The peak figure does not describe "
+                         f"this group, or demand is missing from its tables")
+    return bsp, at_gsp
+
+
+COINCIDENCE_TOLERANCE = 1e-6  # rounding only
 
 
 _ESA_SUFFIX = re.compile(r"\s*(33\s*)?11\s*KV\s*S\s*STN\s*$", re.I)  # "SLEAFORD 11kV S STN", "HORNCASTLE 33 11kV S STN"
 
 
 def _norm_name(s: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", (s or "").upper().replace("ST.", "ST"))
+    """A name compared on letters and digits only, with the word RD read as ROAD (the DFES abbreviates it)."""
+    s = re.sub(r"\bRD\b", "ROAD", (s or "").upper().replace("ST.", "ST"))
+    return re.sub(r"[^A-Z0-9]", "", s)
+
+
+def dfes_search_term(primary: str) -> str:
+    """What to search the DFES portal for to find a primary's supply area: its first alphanumeric token ("Carlton-on-Trent"
+    -> "Carlton"; the portal's search finds nothing for the hyphenated word)."""
+    tokens = re.findall(r"[A-Za-z0-9]+", primary or "")
+    return tokens[0] if tokens else ""
 
 
 def dfes_esa(primary: str, esas) -> str | None:
@@ -538,11 +592,11 @@ def _growth_curves(d: dict, esa: str | None, dfes: dict) -> dict[str, dict[int, 
     return curves
 
 
-def dfes_pathways(tables: LtdsTables | None = None) -> dict[str, dict[int, float]]:
+def dfes_pathways(tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> dict[str, dict[int, float]]:
     """The network-wide multiplier per plan year for every DFES pathway the loads carry: the load-weighted mean of the
     per-load curves (`network.per_load_growth`), so the planner's picker shows what the engine applies."""
     from .network import per_load_growth
-    net = _ctx(tables)["net"]
+    net = _ctx(tables, point=point)["net"]
     p = net.load["p_mw"].astype(float)
     out: dict[str, dict[int, float]] = {}
     for fid in FORECASTS:
@@ -552,10 +606,32 @@ def dfes_pathways(tables: LtdsTables | None = None) -> dict[str, dict[int, float
     return out
 
 
-def _add_loads(net, dem, gb, dfes_rows=()) -> None:
+def _screen_bsp_aggregates(net, dem, aggregates: set[str], on_bars: list[tuple[dict, int]]) -> None:
+    """A screen, not a rule: for each substation, the demand placed on its own bars from rows with no primary (Primary "-"),
+    against the primaries Table 3 files under that substation's name. More than half of it is the signature of a BSP
+    aggregate counted as demand (Hawton at Staythorpe): those loads are listed (`possible_bsp_aggregate`), nothing changes."""
+    prim: dict[str, float] = {}
+    for d in dem:
+        if not _is_bsp_row(d) and str(d.get("BSP Group") or "").strip() not in aggregates:
+            k = _bsp_base(str(d.get("BSP Group") or "")).lower()
+            prim[k] = prim.get(k, 0.0) + (_num(d.get("Current Year Max Demand")) or 0.0)
+    by_site: dict[str, list[tuple[dict, int]]] = {}
+    for d, i in on_bars:
+        by_site.setdefault(_substation(str(net.bus.at[int(net.load.at[i, "bus"]), "name"])).lower(), []).append((d, i))
+    for site, rows in by_site.items():
+        own = sum(_num(d.get("Current Year Max Demand")) or 0.0 for d, _ in {id(d): (d, i) for d, i in rows}.values())
+        if prim.get(site, 0.0) > 0 and own > 0.5 * prim[site]:
+            for _, i in rows:
+                _assume(net, "possible_bsp_aggregate", "load", i)
+            rec = net["assumptions"]["possible_bsp_aggregate"]
+            groups = sorted({str(d.get("BSP Group")) for d, _ in rows})
+            rec["message"] += f"; {site.title()}: {own:.1f} MW on its bars ({', '.join(groups)}) against its primaries' {prim[site]:.1f} MW"
+
+
+def _add_loads(net, dem, gb, point: SupplyPoint, dfes_rows=()) -> None:
     """LTDS Table 3 demand at the GSP's winter peak, with each load's summer-minimum scaling and the demand
     group it belongs to. LTDS Table 3 (NGED Connected Data Portal, LTDS
-    dataset for Bicker Fen) publishes, per row: the BSP group, the primary substation, the current
+    dataset, filtered to the supply point's group) publishes, per row: the BSP group, the primary substation, the current
     maximum demand (MW), its power factor and the "Firm Capacity of Substation". We read the firm
     capacity as MVA (the usual unit for a transformer group's firm rating; the table does not state
     it) and convert it to MW at the row's own power factor, so comparing it with demand in MW is the
@@ -570,9 +646,10 @@ def _add_loads(net, dem, gb, dfes_rows=()) -> None:
     aggregates = _bsp_aggregates(dem)
     region_id = _RegionIds()
     member = _bsp_membership(dem, aggregates, _bsp_groups(dem, aggregates, gb, region_id))
-    at_bsp, at_gsp = _coincidence(dem, aggregates, member)
+    at_bsp, at_gsp = _coincidence(dem, aggregates, member, point.require_peak())
     dfes = _dfes_index(dfes_rows)
     coincidence: dict[int, float] = {}
+    on_bars: list[tuple[dict, int]] = []  # a BSP-level row counted as demand, and its load: for the aggregate screen
     min_scale: dict[int, float | None] = {}
     growth_curves: dict[int, dict] = {}
     groups: dict[int, dict] = {}
@@ -609,8 +686,13 @@ def _add_loads(net, dem, gb, dfes_rows=()) -> None:
             coincidence[int(idx)] = k
             growth_curves[int(idx)] = curves
             groups[int(idx)] = group
+            if _is_bsp_row(d):
+                on_bars.append((d, int(idx)))
             if not esa:
                 _assume(net, "forecast_ltds_only", "load", int(idx))
+            if n in point.removed_in_error and str(d.get("Status") or "").strip().lower() == "removed":
+                _assume(net, "removed_in_error", "load", int(idx))
+    _screen_bsp_aggregates(net, dem, aggregates, on_bars)
     net.load["min_scale"] = [min_scale.get(int(i)) for i in net.load.index]
     net.load["growth_curves"] = pd.Series([growth_curves.get(int(i), {}) for i in net.load.index], index=net.load.index, dtype=object)
     net.load["coincidence"] = [coincidence.get(int(i)) for i in net.load.index]
@@ -619,7 +701,7 @@ def _add_loads(net, dem, gb, dfes_rows=()) -> None:
                                   index=net.load.index, dtype=object)
 
 
-def _add_existing_fleet(net, tables) -> list[dict]:
+def _add_existing_fleet(net, tables, point: SupplyPoint) -> list[dict]:
     """Existing/connected generation (LTDS Table 5, status Connected) IS the base network's fleet,
     sited at the substation NGED names for it (primary if given, else the bulk supply point) at
     its connection voltage, so local constraints are where they really are."""
@@ -636,9 +718,30 @@ def _add_existing_fleet(net, tables) -> list[dict]:
         primary = g.get("Primary Substation") if g.get("Primary Substation") not in (None, "-", "") else ""
         bsp = g.get("Bulk Supply Point") or ""
         kv = _num(g.get("Connection Voltage")) or 33.0
-        buses, placement = _site_buses(net, (primary, bsp), kv, deg0)
         fuel = (g.get("Fuel Type") or "").strip()
         tech = _FUEL_TECH.get(fuel.lower(), "other")
+        # the named sites behind a BSP-level total sit on their own buses; the rest of the total stays at the busbar
+        sites = [x for x in point.generation_sites if not primary and x["table5"] == (bsp.strip(), fuel)]
+        for j, x in enumerate(sites):
+            site_buses = [int(_bus_of(net, code)) for code in x["nodes"]]
+            site_tech = x.get("tech", tech)
+            imp = x.get("import_mw")
+            for k, bus in enumerate(site_buses):
+                share = x["mw"] / len(site_buses)
+                idx = pp.create_sgen(net, bus=bus, p_mw=share, q_mvar=0.0, name=f"EX-{n}.{j + 1}" + (f"-{k}" if k else ""), type=site_tech)
+                net.sgen.at[idx, "p_rated_mw"] = share
+                net.sgen.at[idx, "import_mw"] = share if imp is None else imp / len(site_buses)
+                net.sgen.at[idx, "fleet_id"] = f"EX-{3000 + n}.{j + 1}"
+            name = str(net.bus.at[site_buses[0], "name"])
+            site_fuel = x.get("fuel", fuel)  # the ECR site's own technology where it overrides Table 5's category
+            existing.append({"request_id": f"EX-{3000 + n}.{j + 1}", "bus_id": site_buses[0], "rating_mw": x["mw"],
+                             "technology": site_tech, "fuel": site_fuel, "status": "connected",
+                             "placement": f"{_substation(name)} (ECR site: {x['site']}; {x['evidence']})",
+                             "applicant": f"{site_fuel or 'Existing DER'} · {x['site']} (ECR)"})
+        r = float(r) - sum(x["mw"] for x in sites)
+        if r <= 1e-9:
+            continue
+        buses, placement = _site_buses(net, (primary, bsp), kv, deg0)
         share = float(r) / len(buses)
         for k, bus in enumerate(buses):
             idx = pp.create_sgen(net, bus=int(bus), p_mw=share, q_mvar=0.0, name=f"EX-{n}" + (f"-{k}" if k else ""), type=tech)
@@ -649,7 +752,7 @@ def _add_existing_fleet(net, tables) -> list[dict]:
         site = primary or bsp
         existing.append({"request_id": f"EX-{3000 + n}", "bus_id": int(bus), "rating_mw": r,
                          "technology": tech, "fuel": fuel, "status": "connected", "placement": placement,
-                         "applicant": f"{fuel or 'Existing DER'} · {_substation(site) or 'Bicker Fen'}"})
+                         "applicant": f"{fuel or 'Existing DER'} · {_substation(site) or point.place}"})
     return existing
 
 
@@ -665,7 +768,28 @@ def _small_tech(row: dict) -> str | None:
     return next((v for k, v in _SMALL_TECH.items() if k in t), "other")
 
 
-def _add_small_embedded(net, tables, first_id: int) -> list[dict]:
+def _bus_of(net, code: str) -> int:
+    """The engine bus an LTDS node code was merged into (net["node_bus"], set by _build)."""
+    return int(net["node_bus"][code])
+
+
+def _add_ecr_additions(net, first_id: int, point: SupplyPoint) -> list[dict]:
+    """Connected ECR sites this LTDS edition predates (the supply point's `ecr_additions`), at the bus their rule gives."""
+    out = []
+    for k, x in enumerate(point.ecr_additions):
+        bus = _bus_of(net, x["node"])
+        fid = f"EX-{first_id + k}"
+        idx = pp.create_sgen(net, bus=bus, p_mw=x["mw"], q_mvar=0.0, name=fid, type=x["tech"])
+        net.sgen.at[idx, "p_rated_mw"] = x["mw"]
+        net.sgen.at[idx, "import_mw"] = x["mw"]
+        net.sgen.at[idx, "fleet_id"] = fid
+        out.append({"request_id": fid, "bus_id": bus, "rating_mw": x["mw"], "technology": x["tech"], "fuel": x["fuel"],
+                    "status": "connected", "placement": f"{_substation(str(net.bus.at[bus, 'name']))} (ECR site: {x['site']}; {x['evidence']})",
+                    "applicant": f"{x['fuel']} · {x['site']} (ECR)"})
+    return out
+
+
+def _add_small_embedded(net, tables, first_id: int, point: SupplyPoint) -> list[dict]:
     """The ECR's connected sites under 1 MW, which LTDS Table 5 (1 MW and up) leaves out: aggregated per primary and
     technology, each aggregate shared across that primary's busbars at its connection voltage (0.4 kV sites at 11 kV,
     the model's lowest level). A site with no export capacity or no technology is recorded, not modelled."""
@@ -697,28 +821,40 @@ def _add_small_embedded(net, tables, first_id: int) -> list[dict]:
             _assume(net, "small_embedded", "sgen", int(idx))
         out.append({"request_id": fid, "bus_id": int(buses[0]), "rating_mw": total, "technology": tech,
                     "fuel": f"{len(mws)} sites under 1 MW", "status": "connected", "placement": placement,
-                    "applicant": f"{len(mws)} {tech} site{'s' if len(mws) > 1 else ''} under 1 MW · {_substation(primary) or 'Bicker Fen'}"})
+                    "applicant": f"{len(mws)} {tech} site{'s' if len(mws) > 1 else ''} under 1 MW · {_substation(primary) or point.place}"})
     return out
 
 
-def _add_gsp_infeed(net) -> int:
-    """The external grid at the best-connected 132 kV busbar (the GSP transmission infeed), the
-    transmission boundary carried on the net, and the buses the GSP can't reach dropped.
-    Returns the slack bus id."""
-    deg = _bus_degree(net)
-    hv = net.bus[net.bus.vn_kv >= 132].index.tolist() or [net.bus.vn_kv.idxmax()]
-    slack = max(hv, key=lambda b: deg.get(b, 0))
+def _add_gsp_infeed(net, boundary: dict, infeed_node: str) -> int:
+    """The external grid (the GSP transmission infeed) on the busbar of the supply point's published infeed site
+    (`SupplyPoint.infeed_node`), the transmission boundary carried on the net, and the buses the GSP can't reach removed:
+    whatever demand or generation sat on them is recorded (builder assumptions `unreachable_demand`,
+    `unreachable_generation`), never dropped unseen. Returns the slack bus id."""
+    if not infeed_node or infeed_node not in net["node_bus"]:
+        raise ValueError(f"{boundary.get('gsp_name')}: the infeed node {infeed_node!r} is not a node of this network "
+                         f"(SupplyPoint.infeed_node names the published infeed site's busbar)")
+    slack = int(net["node_bus"][infeed_node])
     pp.create_ext_grid(net, slack, vm_pu=GSP_INFEED_VM_PU, name="GSP infeed")
     # the transmission boundary, carried on the net so feasibility() can enforce it grid-agnostically
-    net["gsp_name"] = GSP_BOUNDARY["gsp_name"]
-    net["gsp_export_limit_mw"] = GSP_BOUNDARY["export_limit_mw"]
-    net["gsp_sgt_mw"] = GSP_BOUNDARY["firm_export_mw"]  # one SGT's export limit (for "add an SGT")
+    net["gsp_name"] = boundary["gsp_name"]
+    net["gsp_export_limit_mw"] = boundary["export_limit_mw"]
+    net["gsp_sgt_mw"] = boundary["firm_export_mw"]  # one SGT's export limit (for "add an SGT")
+    net["gsp_import_limit_mw"] = dict(boundary["import_limit_mw"])  # per season, both SGTs: checked per study case
 
-    # drop any buses the GSP can't reach (isolated remnants of the switch reduction)
+    # remove the buses the GSP can't reach, recording what they carried
     import pandapower.topology as top
     from pandapower.toolbox import drop_buses
     unsupplied = [int(b) for b in top.unsupplied_buses(net) if b != slack]
     if unsupplied:
+        for key, tab, kind in (("unreachable_demand", net.load, "load"), ("unreachable_generation", net.sgen, "sgen")):
+            gone = tab[tab.bus.isin(unsupplied)]
+            if not len(gone):
+                continue
+            for i in gone.index:
+                _assume(net, key, kind, int(i))
+            items = "; ".join(f"{gone.at[i, 'name']} {float(gone.at[i, 'p_mw']):.2f} MW at {net.bus.at[int(gone.at[i, 'bus']), 'name']}"
+                              for i in gone.index)
+            net["assumptions"][key]["message"] += f": {items} (total {float(gone.p_mw.sum()):.2f} MW)"
         drop_buses(net, unsupplied)
     return slack
 
@@ -747,7 +883,7 @@ def _assume_structure(net) -> None:
     lines_by_pair: dict[frozenset, list[int]] = {}
     for i in net.line.index:
         a, b = int(net.line.at[i, "from_bus"]), int(net.line.at[i, "to_bus"])
-        if bool(net.line.at[i, "in_service"]) and floor < kv.loc[a] < EHV_MIN_KV:
+        if (bool(net.line.at[i, "in_service"]) or bool(net.line.at[i, "connector"])) and floor < kv.loc[a] < EHV_MIN_KV:
             g.add_edge(a, b)
             lines_by_pair.setdefault(frozenset((a, b)), []).append(int(i))
     bridges = {frozenset(e) for e in nx.bridges(g)} if g.number_of_edges() else set()
@@ -757,7 +893,7 @@ def _assume_structure(net) -> None:
                 _assume(net, "mv_mesh_closed", "line", i)
 
 
-def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
+def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT, point: SupplyPoint = BICKER_FEN):
     """Construct the pandapower net + bookkeeping (node->bus map, names). Returns a dict.
 
     LTDS flags every row against NGED's previous edition: New / Updated / Unchanged / Removed.
@@ -767,30 +903,36 @@ def _build(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
     edition keeps the Removed rows and drops the New ones instead (Updated rows carry their
     current values either way: NGED doesn't publish the old ones).
 
-    Each step below adds one kind of element to the net, in dependency order."""
+    Each step below adds one kind of element to the net, in dependency order. Everything that belongs to one supply
+    point (its published peak and limits, its named exceptions) comes from `point`."""
+    if tables is None and point is not BICKER_FEN:
+        raise ValueError(f"no bundled tables for {point.gsp_name}: pass its own")
     tables = tables if tables is not None else load_bundled_tables()
     circ = [r for r in tables.get("circuit", []) if _in_edition(r.get("Circuit Status"), edition)]
     t2a = [r for r in tables.get("t2a", []) if _in_edition(r.get("Status"), edition)]
-    dem = [r for r in tables.get("demand", []) if _in_edition(r.get("Status"), edition)]
+    dem = [_aliased(d, point.bsp_aliases) for d in live_demand_rows(tables.get("demand", []), edition, point)]
     nodes = tables.get("node", [])  # names only (unreferenced codes simply go unused)
     name_by_code = {n["Code"]: n.get("Name", n["Code"]) for n in nodes}
 
     uf, groups, node_v = _merge_nodes(circ, t2a, dem)
-    net = pp.create_empty_network(name="NGED Bicker Fen 132kV (LTDS)")
+    net = pp.create_empty_network(name=point.net_name)
     net["assumptions"] = {}  # what the builder had to assume, per element (_assume)
     busid, bus_code = _add_buses(net, groups, node_v, name_by_code)
     gb = lambda n: busid[uf.find(n)]
+    net["node_bus"] = {code: int(bus) for code, bus in busid.items()}  # LTDS node code -> engine bus (nged._bus_of)
 
     _add_lines(net, circ, gb)
+    _open_points(net, point, gb)
     _add_transformers(net, t2a, gb)
-    _add_loads(net, dem, gb, tables.get("dfes", []))
-    existing = _add_existing_fleet(net, tables)
-    existing += _add_small_embedded(net, tables, 4000)  # ids after Table 5's (EX-3000...)
-    slack = _add_gsp_infeed(net)
+    _add_loads(net, dem, gb, point, tables.get("dfes", []))
+    existing = _add_existing_fleet(net, tables, point)
+    existing += _add_small_embedded(net, tables, 4000, point)  # ids after Table 5's (EX-3000...)
+    existing += _add_ecr_additions(net, 5000, point)
+    slack = _add_gsp_infeed(net, point.boundary, point.infeed_node)
     _assume_structure(net)  # after the unreachable buses are dropped
 
     return {"net": net, "busid": busid, "bus_code": bus_code, "uf": uf, "slack": slack,
-            "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables}
+            "name_by_code": name_by_code, "existing": existing, "edition": edition, "tables": tables, "point": point}
 
 
 @lru_cache(maxsize=1)
@@ -808,22 +950,22 @@ def tables_hash(tables: LtdsTables) -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
 
-def _ctx(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
-    """The built network + bookkeeping for `tables` (bundled snapshot when None), memoised."""
-    if tables is None and edition == EDITION_CURRENT:
+def _ctx(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT, point: SupplyPoint = BICKER_FEN) -> dict:
+    """The built network + bookkeeping for `tables` (Bicker Fen's bundled snapshot when None) and supply point, memoised."""
+    if tables is None and edition == EDITION_CURRENT and point is BICKER_FEN:
         return _built_bundled()
-    key = f"{tables_hash(tables) if tables is not None else 'bundled'}:{edition}"
+    key = f"{point.key}:{tables_hash(tables) if tables is not None else 'bundled'}:{edition}"
     if key not in _BUILT:
         if len(_BUILT) >= 6:
             _BUILT.pop(next(iter(_BUILT)))
-        _BUILT[key] = _build(tables, edition)
+        _BUILT[key] = _build(tables, edition, point)
     return _BUILT[key]
 
 
-def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT):
+def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT, point: SupplyPoint = BICKER_FEN):
     """A fresh, solvable copy of the NGED network (deep-copied so callers can mutate freely)."""
     import copy
-    return copy.deepcopy(_ctx(tables, edition)["net"])
+    return copy.deepcopy(_ctx(tables, edition, point)["net"])
 
 
 # the planning assumptions this network is judged under (the README's register, as records the planner lists
@@ -838,32 +980,28 @@ PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="transmission_context", message="The 400 kV network and wider transmission boundaries are context only; the GSP export limit is the only transmission constraint"),
 )
 
-# how the CIM export names this model: its authority and regions (cim.CgmesMeta)
-NGED_CGMES_META = CgmesMeta(authority_uri="http://gridify.example/nged-bickerfen", region_name="Great Britain", region_key="GB",
-                            subregion_name="NGED East Midlands licence area", subregion_key="NGED")
-
-
-def builder_assumptions(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> list[ModelAssumption]:
+def builder_assumptions(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT,
+                        point: SupplyPoint = BICKER_FEN) -> list[ModelAssumption]:
     """What the builder had to assume for this edition, one record per kind with the elements it touched."""
-    recs = _ctx(tables, edition)["net"]["assumptions"]
+    recs = _ctx(tables, edition, point)["net"]["assumptions"]
     return [ModelAssumption(**r, count=len(r["element_ids"]) or None) for r in recs.values()]
 
 
-def substation_names(tables: LtdsTables | None = None) -> list[str]:
+def substation_names(tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> list[str]:
     """The distinct substation names in the built network (what the OSM geocoder matches against)."""
-    net = _ctx(tables)["net"]
+    net = _ctx(tables, point=point)["net"]
     return sorted({_substation(net.bus.at[b, "name"]) for b in net.bus.index})
 
 
-def gsp_boundary(tables: LtdsTables | None = None) -> dict:
+def gsp_boundary(tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> dict:
     """The GSP boundary for the API/UI: export/import limits, the region's export today, and the
     transmission-registered projects behind it (with which ones this study injects)."""
     from .network import feasibility
-    net = build_nged_net(tables)
+    net = build_nged_net(tables, point=point)
     _, _, m = feasibility(net)  # today: existing fleet, today's demand, both study cases
-    reg = {c["applicant"].split(" · ")[-1]: c["request_id"] for c in tec_candidates(float("inf"), tables)}
-    return {**GSP_BOUNDARY, "export_today_mw": m.get("gsp_export_mw", 0.0),
-            "transmission_projects": [{**p, "registry_id": reg.get(p["name"])} for p in TRANSMISSION_PROJECTS]}
+    reg = {c["applicant"].split(" · ")[-1]: c["request_id"] for c in tec_candidates(float("inf"), tables, point)}
+    return {**point.boundary, "export_today_mw": m.get("gsp_export_mw", 0.0),
+            "transmission_projects": [{**p, "registry_id": reg.get(p["name"])} for p in point.transmission_projects]}
 
 
 def _substation(name: str) -> str:
@@ -893,14 +1031,15 @@ def _coords_index(tables: LtdsTables | None) -> dict[str, tuple[float, float]]:
     return out
 
 
-def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None) -> dict[int, tuple[float, float]]:
+def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None,
+                center: tuple[float, float] = BICKER_FEN.center) -> dict[int, tuple[float, float]]:
     """(lon, lat) per bus.
 
     Substations found in `coords.csv` sit at their real position (buses of one substation are
     jittered a few hundred metres apart). Every other bus — mostly line tee-points like
     "Pole 90ZB1E17" — is placed at the average of its connected neighbours, iterated to a fixed
     point, so it sits on the route between real substations. A bus with no placed neighbour falls
-    back to a deterministic spot near the GSP so the map still renders.
+    back to a deterministic spot near the GSP (`center`) so the map still renders.
     """
     real = coords if coords is not None else _coords_index(None)
     jit = lambda b: ((_h01(str(b) + "jx") - 0.5) * 0.006, (_h01(str(b) + "jy") - 0.5) * 0.004)
@@ -910,17 +1049,17 @@ def _bus_coords(net, coords: dict[str, tuple[float, float]] | None = None) -> di
         if hit:
             dx, dy = jit(int(b))
             fixed[int(b)] = (hit[0] + dx, hit[1] + dy)
-    return interpolate_positions(net, fixed, GSP_CENTER)  # the rest between their neighbours (geometry.py)
+    return interpolate_positions(net, fixed, center)  # the rest between their neighbours (geometry.py)
 
 
-def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT) -> dict:
+def nged_model(tables: LtdsTables | None = None, edition: str = EDITION_CURRENT, point: SupplyPoint = BICKER_FEN) -> dict:
     """Geolocated canonical model (buses/lines/transformers/loads) with bus_id = pandapower index.
 
     Matches build_nged_net() exactly, so the map and the engine share one network.
     """
-    ctx = _ctx(tables, edition)
+    ctx = _ctx(tables, edition, point)
     net = ctx["net"]
-    xy = _bus_coords(net, _coords_index(tables))
+    xy = _bus_coords(net, _coords_index(tables), point.center)
     return model_from_net(net, xy, ctx["existing"], "wgs84").model_dump()  # shaped like every source's (gridmodel.py)
 
 
@@ -947,14 +1086,14 @@ def commission_year(readiness: float, tech: str | None, rating: float | None, se
     return max(PLAN_START_YEAR + 1, min(PLAN_END_YEAR, year))
 
 
-def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
+def nged_candidates(max_mw: float, tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> list[dict]:
     """A connection queue from LTDS Table 5 (generation), mapped to real buses.
 
     Real fuel types, export capacities and connection statuses; bus matched by substation name.
     Projects over `max_mw` or without a rating are flagged needs_review (the intake path). A site whose substation
     matches no bus is placed on a 33 kV+ bus in turn (no bundled site needs it).
     """
-    ctx = _ctx(tables)
+    ctx = _ctx(tables, point=point)
     net = ctx["net"]
     # town-token -> a representative bus (prefer the lower-voltage/connection buses)
     town_bus: dict[str, int] = {}
@@ -987,7 +1126,7 @@ def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dic
             reasons.append("rating is out of range")
         valid = not reasons
         out.append({
-            "request_id": f"NG-{3000 + n}", "applicant": f"{fuel or 'DER'} · {site or 'Bicker Fen'}",
+            "request_id": f"NG-{3000 + n}", "applicant": f"{fuel or 'DER'} · {site or point.place}",
             "bus_id": int(bus), "technology": tech, "rating_mw": rating,
             "readiness_score": round(readiness, 2),
             "readiness_rationale": f"LTDS Table 5 connection status: {g.get('Connection Status') or 'unknown'}.",
@@ -1001,15 +1140,15 @@ def nged_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dic
 
     # The real connection queue: every site NGED's Embedded Capacity Register lists as ACCEPTED TO
     # CONNECT at this GSP. (LTDS Table 6 only gives aggregate interest per substation, so it isn't used.)
-    ecr = ecr_candidates(max_mw, tables)
+    ecr = ecr_candidates(max_mw, tables, point)
     # an LTDS Table 5 project the ECR also lists (same export MW + technology) is the same site — keep
     # the ECR record (it has a location and a target date), drop the Table 5 duplicate
     ecr_keys = {(round(c["rating_mw"], 1), c["technology"]) for c in ecr}
     out = [c for c in out if (round(c["rating_mw"] or 0, 1), c["technology"]) not in ecr_keys]
-    return out + ecr + tec_candidates(max_mw, tables)
+    return out + ecr + tec_candidates(max_mw, tables, point)
 
 
-def tec_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
+def tec_candidates(max_mw: float, tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> list[dict]:
     """Transmission-registered projects that would connect AT THE GSP's 132 kV busbar (so their
     export flows up through our supergrid transformers) and aren't built yet — optional registry
     projects like any other. Readiness from the rubric: a TEC position is a signed connection
@@ -1017,9 +1156,9 @@ def tec_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict
     import hashlib
     from .readiness import score_from_checklist
 
-    slack = int(_ctx(tables)["slack"])
+    slack = int(_ctx(tables, point=point)["slack"])
     out = []
-    for p in TRANSMISSION_PROJECTS:
+    for p in point.transmission_projects:
         if p["at"] != "gsp_132kv" or p["status"] == "Built":
             continue
         planning = "submitted" if "consent" in p["status"].lower() else "none"
@@ -1082,7 +1221,7 @@ def _year(date_str) -> int | None:
         return None
 
 
-def ecr_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict]:
+def ecr_candidates(max_mw: float, tables: LtdsTables | None = None, point: SupplyPoint = BICKER_FEN) -> list[dict]:
     """Registry projects from the ECR's 'Accepted to connect' sites at this GSP.
 
     Export capacity = the accepted change to maximum export capacity (a solar+storage hybrid may
@@ -1094,9 +1233,9 @@ def ecr_candidates(max_mw: float, tables: LtdsTables | None = None) -> list[dict
     """
     from .readiness import score_from_checklist
 
-    ctx = _ctx(tables)
+    ctx = _ctx(tables, point=point)
     net = ctx["net"]
-    xy = _bus_coords(net, _coords_index(tables))
+    xy = _bus_coords(net, _coords_index(tables), point.center)
     deg: dict[int, int] = {}
     for _, ln in net.line.iterrows():
         deg[int(ln.from_bus)] = deg.get(int(ln.from_bus), 0) + 1

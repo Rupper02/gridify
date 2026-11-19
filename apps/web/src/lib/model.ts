@@ -66,10 +66,12 @@ export function reasonText(r: Reason, ix: ModelIndex | null): { title: string; f
     return { title: ix ? busName(ix, r.element_id) : `Bus ${r.element_id}`, figure: `${v.toFixed(3)} pu (${v > (r.limit ?? 1) ? "above" : "below"} ${r.limit?.toFixed(2)})`, when };
   }
   if (r.type === "gsp") return { title: "GSP export to transmission", figure: `${Math.round(r.value ?? 0)} MW of ${Math.round(r.limit ?? 0)} MW`, when };
+  if (r.type === "gsp_import") return { title: "GSP import from transmission", figure: `${Math.round(r.value ?? 0)} MW of ${Math.round(r.limit ?? 0)} MW`, when };
+  if (r.type === "voltage_collapse") return { title: ix ? busName(ix, r.element_id) : `Bus ${r.element_id}`, figure: `voltage collapse: ${(r.value ?? 0).toFixed(2)} pu, below the ${r.limit} pu floor`, when };
   return { title: "Power flow", figure: r.message, when };
 }
 
-export const KIND_LABEL: Record<string, string> = { line: "Line overloads", trafo: "Transformer overloads", voltage: "Voltage outside its band", gsp: "GSP export limit", non_convergent: "No solution" };
+export const KIND_LABEL: Record<string, string> = { line: "Line overloads", trafo: "Transformer overloads", voltage: "Voltage outside its band", gsp: "GSP export limit", gsp_import: "GSP import limit", non_convergent: "No solution", voltage_collapse: "No valid operating point" };
 
 /** Each element ever breached across the plan, with the first year it breaches and its worst figure: "what limits
  * the plan, and from when". */

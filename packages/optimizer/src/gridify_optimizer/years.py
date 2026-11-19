@@ -14,7 +14,7 @@ import json
 from collections.abc import Callable, Iterable, MutableMapping
 
 from .config import PLAN_END_YEAR, PLAN_START_YEAR, PLAN_YEARS  # noqa: F401  (PLAN_YEARS re-exported)
-from .network import build_base_net, demand_multiplier, feasibility, plan_net, snapshot
+from .network import NO_SOLUTION, build_base_net, demand_multiplier, feasibility, plan_net, snapshot
 from .types import Connection, PlanParams, PlanResult, YearResult
 
 NetFactory = Callable[[], object]
@@ -39,7 +39,7 @@ def evaluate_year(year: int, connections: list[Connection], params: PlanParams, 
     energised = in_service(connections, year)
     net = plan_net(net_factory, params, year, energised)
     _, breaches, m = feasibility(net)
-    converged = not (breaches and breaches[0].type == "non_convergent")
+    converged = not (breaches and breaches[0].type in NO_SOLUTION)
     return YearResult(
         year=year,
         growth=float(net["demand_growth"]),

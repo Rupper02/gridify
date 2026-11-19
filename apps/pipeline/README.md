@@ -34,7 +34,7 @@ The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset 
 
 **One builder, one truth.** The pipeline and the optimizer's `build_base_net()` run the same `gridify_optimizer.nged` builder on the same bundled snapshot, so the warehouse the map reads and the network the engine solves can't drift apart.
 
-**What changed between editions.** NGED flags every LTDS row *New / Updated / Unchanged / Removed* against its previous publication. The change-set reconstructs the previous edition (drop the New rows, keep the Removed ones), builds both, and reports three levels of difference: the flagged rows themselves (e.g. a 6 MVA Great Hale transformer replaced by a 7.5 MVA one, the 18.6 MW Warth Lane demand point removed), the model delta (buses, circuits, transformers, demand MW) and the physics delta (today's power flow on each edition: worst loadings, voltage range, GSP export). Caveat: Updated rows carry their current values in both editions, because NGED doesn't publish the old ones. Served at `GET /editions/changes`.
+**What changed between editions.** NGED flags every LTDS row *New / Updated / Unchanged / Removed* against its previous publication. The change-set reconstructs the previous edition (drop the New rows, keep the Removed ones), builds both, and reports three levels of difference: the flagged rows themselves (e.g. a 6 MVA Great Hale transformer replaced by a 7.5 MVA one, the 18.6 MW Warth Lane demand row marked Removed, which the model keeps as `BICKER_FEN.removed_in_error` (`nged_points`)), the model delta (buses, circuits, transformers, demand MW) and the physics delta (today's power flow on each edition: worst loadings, voltage range, GSP export). Caveat: Updated rows carry their current values in both editions, because NGED doesn't publish the old ones. Served at `GET /editions/changes`.
 
 ### `registers` — the live sources (`src/grid_simulator/defs/registers.py`)
 
@@ -43,7 +43,15 @@ The **`apps/pipeline`** slice of Gridify: a [Dagster](https://dagster.io) asset 
  osm_substations_fetch ──► coords_editions                    job osm_refresh · schedule quarterly
  pin_ecr_edition · pin_osm_coords                              MANUAL: promote an edition into the pinned snapshot
  pin_nged_published                                            MANUAL: fetch LTDS Table 4 fault levels and the DFES projections into data/nged/{fault,dfes}.json
+ nged_flows                                                    MANUAL: fetch NGED's 2024 half-hourly substation and branch loading for Bicker Fen into warehouse/nged-flows/ (git-ignored; src/grid_simulator/defs/flows.py)
+ nged_flows_2025                                               MANUAL: the same for 2025 (NGED's "2025 Connected Export (ID 1124)"), rewritten to 2024's header layout, values unchanged, into warehouse/nged-flows/bicker-fen-2025/ (flows.py)
+ nged_dfes_detail                                              MANUAL: fetch NGED's DFES 2025 profiles, splits, scaling, power projections and supply-area volumes whole into warehouse/nged-flows/dfes-2025/ (git-ignored; flows.py)
 ```
+
+`nged_flows` writes the files the engine's measured year reads (`gridify_optimizer.timeseries`), a `NOTICE.txt` with the
+licence and the attribution "Supported by NGED Open Data", and `fetched.json` (resource ids, URLs, last-modified dates,
+sizes). The files are about 23 MB, so they are fetched, not committed. The DFES pin includes the demand rows the model
+keeps although the LTDS marks them Removed (`BICKER_FEN.removed_in_error` (`nged_points`): Warth Lane).
 
 The two external registers change on their own clock, so they are fetched on a schedule and stored as **append-only editions** in the warehouse (`ecr_editions` / `ecr_edition_rows`, `coords_editions` / `coords_edition_rows`): one row per fetch whose content differs from the last, with the fetch time, the source's own `last_modified` (CKAN), the resource id, the row count and a content hash as the edition id. The bundled snapshot is seeded as the first edition, so the first live fetch has a baseline. `ecr_changes` diffs the latest two editions site by site (added, withdrawn, connected, capacity or target date changed) and is served at `GET /registry/changes`.
 
