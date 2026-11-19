@@ -1,5 +1,5 @@
 """Shared config for the Gridify engine: the physics, the study cases, the plan years and demand growth.
-Every constant here is listed in the README's *Sources and assumptions* register."""
+Every constant here is listed in docs/sources-and-assumptions.md."""
 
 # --- feasibility constraints ---
 # Statutory voltage bands (GB ESQCR 2002 reg. 27): ±10 % at 132 kV and above, ±6 % above 1 kV and
@@ -11,7 +11,7 @@ VOLTAGE_BANDS = ((132.0, 0.90, 1.10), (1.0, 0.94, 1.06))
 # Tap changers regulate their LV busbar to this voltage. A PLANNING ASSUMPTION: LTDS does not publish
 # AVC target voltages, and GB DNOs set them above nominal so feeder ends stay in band at peak. 1.02 pu
 # is the lowest value at which today's network (LTDS + NESO's GSP peak) meets the statutory band at
-# winter peak (1.00 leaves Horncastle 33 kV at 0.932 pu); it is chosen, not sourced (README, Sources and assumptions).
+# winter peak (1.00 leaves Horncastle 33 kV at 0.932 pu); it is chosen, not sourced (docs/sources-and-assumptions.md).
 OLTC_SETPOINT_PU = 1.02
 OLTC_DEADBAND_PU = 0.01  # no tap movement while the LV busbar is within setpoint ± this (AVC relay deadband)
 OLTC_MAX_PASSES = 3  # power-flow passes per solve to settle the taps (they persist on the net, so trials usually need one)
@@ -21,7 +21,7 @@ OLTC_TAP_STEP_PERCENT = 1.25  # LTDS gives the tap RANGE but not the step; a typ
 # or better (V = E / sqrt(2(1 + sin phi)) = 0.56 pu). Not a statutory limit (README register, Work 18)
 COLLAPSE_VM_FLOOR_PU = 0.5
 # The GSP infeed's voltage on the built-in grid (the slack): LTDS does not publish it; the supergrid side is held at the
-# same level the tap changers regulate to. A planning assumption (README, Sources and assumptions).
+# same level the tap changers regulate to. A planning assumption (docs/sources-and-assumptions.md).
 GSP_INFEED_VM_PU = 1.02
 LINE_LOADING_MAX_PCT = 100.0
 TRAFO_LOADING_MAX_PCT = 100.0

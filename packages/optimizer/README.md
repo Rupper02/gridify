@@ -27,7 +27,7 @@ d = diff_plans(base, head)                             # what the connection cha
 | `nged_runs.py` | NGED Bicker Fen's `RunCatalogue`: the run files and how each is made, the grown years a branch's year can be run on (`bases`), the measured flows' folder, a run whose file carries no screen flags and the run whose flags stand for it (`screen_from`), the reference run for agreement (2025 screened), each run's limits in plain words |
 | `timeseries.py` | The measured year: `run_year(folder, out, reactive=)` solves every half-hour in time order with `solve_snapshot` and saves one `.npz`. `scale=` grows each metered primary (a grown year); `connections=` with `plan_year=` adds a branch's connections in service by that year (`years.in_service`), each on its technology's 2024 per-unit shape (`YEAR_DISPATCH`, the shapes from `GridSource.measured_year`; README register: "Year shape"). `growth_scale(folder, year, pathway)` gives a grown year's multipliers (the engine's per-load growth over each metered cluster) |
 | `types.py` | The pydantic contract: `Connection`, `Control`, `PlanParams`, `YearResult`, `PlanResult`, `Reason`, `GridModel` |
-| `config.py` | Every tunable, each listed in the root README's *Sources and assumptions* register |
+| `config.py` | Every tunable, each listed in the *Sources and assumptions* register (`docs/sources-and-assumptions.md`) |
 | `gridmodel.py`, `geometry.py`, `naming.py` | The geolocated model for the map, bus positions, and what elements are called |
 | `editions.py`, `cim.py`, `readiness.py` | For the pipeline: LTDS / ECR edition change-sets, the CIM/CGMES export, the registry's readiness rubric |
 

@@ -25,7 +25,9 @@ The built-in NGED grid is the reference grid, not the product's identity. Anythi
 GSP limits, the pinned snapshot) lives behind the `GridSource` seam; code outside it must work for any grid.
 
 Deep docs (they are the spec, so keep them current):
-- `README.md`: the system, data sources, how a year is solved, API table, the *Sources and assumptions* register, limitations
+- `README.md`: purpose, status, roadmap, the system, data sources, how a year is solved, limitations
+- `docs/sources-and-assumptions.md`: the register of every source and assumption, and the comparison with NGED's flows
+- `apps/api/README.md`: the endpoint table
 - `packages/optimizer/README.md`: the engine
 - `apps/pipeline/README.md`: the Dagster asset graph and checks
 - `apps/web/README.md`: the planner (Vite + React + TypeScript)
@@ -95,7 +97,7 @@ Windows / Git Bash:
 2. **Physics is deterministic.** Feasibility comes from AC power flow only (pandapower, `network.feasibility`), the same
    inputs always giving the same result. Nothing in the product guesses a physical figure.
 3. **Parameters are set by the data, not the operator.** No physics knobs in the UI; tunables live in `config.py`, each in
-   the README's register. The operator chooses what to connect, where and when, and the demand pathway.
+   the register (`docs/sources-and-assumptions.md`). The operator chooses what to connect, where and when, and the demand pathway.
 4. **Two study cases.** The two planning conditions the SQSS sets at the interface with a distribution network (forecast
    group demand, forecast minimum demand), which are also the two headroom studies every DNO's Network Development Plan
    publishes (peak against capacity; all generation at minimum demand). `winter_peak`: grown demand, winter ratings, PV and
@@ -114,7 +116,7 @@ Windows / Git Bash:
    the GSP limit's sign convention is assumed, the tap step (1.25%), the tap-changer target (1.02 pu) and the per-case
    dispatch factors (including demand projects at 50% of `import_mw` at summer minimum) are planning assumptions, a year is
    two snapshot cases, not a time series. Don't tune constants for nicer-looking output. Every source and assumption is in
-   the root README's *Sources and assumptions* register: a new or changed constant updates it in the same change.
+   the *Sources and assumptions* register (`docs/sources-and-assumptions.md`): a new or changed constant updates it in the same change.
 
 ## Code style and design
 

@@ -968,7 +968,7 @@ def build_nged_net(tables: LtdsTables | None = None, edition: str = EDITION_CURR
     return copy.deepcopy(_ctx(tables, edition, point)["net"])
 
 
-# the planning assumptions this network is judged under (the README's register, as records the planner lists
+# the planning assumptions this network is judged under (docs/sources-and-assumptions.md, as records the planner lists
 # alongside the builder's own)
 PLANNING_ASSUMPTIONS: tuple[ModelAssumption, ...] = (
     ModelAssumption(key="tap_target", message=f"Tap changers step {OLTC_TAP_STEP_PERCENT:g}% and regulate towards {OLTC_SETPOINT_PU:g} pu with a {OLTC_DEADBAND_PU:g} pu deadband: LTDS gives the range, not the step or the target (config.OLTC_*)"),

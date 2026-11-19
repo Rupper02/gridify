@@ -77,6 +77,28 @@ uv run dagster asset materialize -m grid_simulator.definitions --select 'osm_sub
 
 Keep the quotes around `'ltds_tables*'`: it selects the root asset and everything downstream. Don't select `pin_*` unless you mean to replace the pinned snapshot.
 
+## Refreshing the data
+
+The bundled data is a **pinned snapshot**. The live registers are fetched by scheduled Dagster assets (`registers` group: the ECR monthly, OpenStreetMap quarterly), stored as append-only editions in the warehouse and diffed edition-to-edition. Adopting a new edition into the model is a deliberate step:
+
+```bash
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ecr_register_fetch,ecr_editions,ecr_changes'   # fetch + diff
+uv run dagster asset materialize -m grid_simulator.definitions --select 'pin_ecr_edition'                               # promote it into data/nged/ecr.json
+uv run dagster asset materialize -m grid_simulator.definitions --select 'ltds_tables*'                                  # rebuild the model from it
+```
+
+Review the git diff of the bundled file, then commit. `osm_substations_fetch` / `coords_editions` / `pin_osm_coords` do the same for substation positions.
+
+NGED's half-hourly flows for the measured year (about 23 MB) are fetched, not bundled. Fetch them into the git-ignored
+`apps/pipeline/warehouse/nged-flows/`, then run the year:
+
+```bash
+uv run dagster asset materialize -m grid_simulator.definitions --select nged_flows        # 2024; nged_flows_2025 for 2025 (bicker-fen-2025)
+cd ../../packages/optimizer && uv run python -m gridify_optimizer.timeseries ../../apps/pipeline/warehouse/nged-flows/bicker-fen-2024 <out.npz> screened
+```
+
+The LTDS tables (`circuit`, `t2a`, `demand`, `node`, `gen`) were pulled from the Connected Data Portal's `datastore_search` API. The GSP limits and transmission projects are recorded, with their resource ids, in `nged.py` (`BICKER_FEN.boundary`, `BICKER_FEN.transmission_projects`).
+
 ## Notes
 
 - **WARN vs ERROR is deliberate.** ERROR means the model is wrong (it won't solve, or it references things that don't exist): both checks are `blocking`, so `served_nged` is skipped and the API keeps reading the previous warehouse. WARN flags a concern without blocking, including a limit breach in today's grid, which is a real finding to serve, not a broken model. A check blocks only when it runs in the same run, as `'ltds_tables*'` does.

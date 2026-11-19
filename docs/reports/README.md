@@ -1,8 +1,8 @@
 # Reports
 
 The studies behind the engine's choices. Each is a dated record, kept as written: a specification is fixed before its
-results, and a report states what was run, what it found and what it cannot tell you. Where a report and the root
-README's *Sources and assumptions* register disagree, the register is current.
+results, and a report states what was run, what it found and what it cannot tell you. Where a report and the
+*Sources and assumptions* register ([`../sources-and-assumptions.md`](../sources-and-assumptions.md)) disagree, the register is current.
 
 Internal labels ("Step 1", "Work 4", "Work 8.2") are the order the studies were run in. "The owner" is the project's
 author; "the guide session" and "the reviewing session" are separate AI-assisted working sessions, one writing a study's
@@ -40,5 +40,4 @@ specification before it ran, the other recomputing its results independently.
 | [`grown-year-2026-11-13/design-year-view.md`](grown-year-2026-11-13/design-year-view.md), `scoping-*.md` | Design and scoping notes for the planner's year view and for connections in a year |
 | [`overnight-decisions-2026-11-13.md`](overnight-decisions-2026-11-13.md) | A log of modelling decisions taken during the measured-year work. They are applied in the code and the register; **they await the author's final review** |
 
-Scripts in each folder regenerate its figures from the git-ignored flows (fetching them is in the root README,
-*Refreshing the data*).
+Scripts in each folder regenerate its figures from the git-ignored flows (fetching them is in [`apps/pipeline/README.md`](../../apps/pipeline/README.md#refreshing-the-data)).
