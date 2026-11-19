@@ -14,7 +14,7 @@ import duckdb
 
 from gridify_optimizer.config import DEFAULT_SCENARIO, GROWTH_2030, GROWTH_2035
 
-from .config import MAIN_ID, now
+from ..config import MAIN_ID, now
 
 # `version` counts the changes to a branch's connections; `parent_version` is its parent's version when it was opened
 BRANCH_COLS = ["branch_id", "name", "parent_id", "scenario", "growth_2030", "growth_2035", "status", "created_at", "merged_at",

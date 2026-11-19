@@ -10,23 +10,27 @@ from gridify_optimizer import engine_fingerprint
 from gridify_optimizer.runs import RunFiles
 
 from . import config
-from .cache import ResultCache
+from .branches import BranchService
+from .compute.cache import ResultCache
+from .compute.jobs import JobRunner
+from .compute.plans import PlanService
+from .compute.year_runs import RunViews, YearRuns
 from .grid import Grid, WarehouseNgedSource
-from .jobs import JobRunner
-from .service import PlanService
-from .store import ScenarioStore
-from .warehouse import Warehouse
-from .year_runs import YearRuns
+from .storage.scenarios import ScenarioStore
+from .storage.warehouse import Warehouse
 
 warehouse = Warehouse(config.WAREHOUSE)
 scenarios = ScenarioStore(config.SCENARIOS_URL or config.SCENARIOS)
 # one power flow at a time in this process: jobs and every cache miss share the lock
 solver_lock = threading.RLock()
 # the engine fingerprint is a hash of the engine's source: a code change invalidates every cached result
-cache = ResultCache(scenarios, engine_fingerprint(), solver_lock)
+engine = engine_fingerprint()
+cache = ResultCache(scenarios, engine, solver_lock)
 grid = Grid(WarehouseNgedSource(warehouse))
 jobs = JobRunner(solver_lock)
-plans = PlanService(grid, scenarios, cache)
+plans = PlanService(grid, scenarios, cache, jobs)
+branches = BranchService(scenarios, grid)
 # the year view's run files, under the grid's own catalogue and network
 run_files = RunFiles(config.RUNS_DIR, grid.source.run_catalogue(), grid.build_net)
-year_runs = YearRuns(plans, grid, cache, run_files)
+run_views = RunViews(run_files, engine)
+year_runs = YearRuns(plans, grid, cache, run_files, jobs)

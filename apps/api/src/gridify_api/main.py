@@ -4,8 +4,9 @@ Serves the grid Gridify plans on (NGED Bicker Fen, read-only from the pipeline's
 branches through the plan years. Everything a user does is stored in a separate scenarios DB, so the pipeline
 baseline is never mutated.
 
-This module only assembles the app: the work lives in `routers/` (HTTP), `service` (engine runs), `repository` +
-`store` (scenarios DB), `grid` + `warehouse` (the read-only grid), `cache` and `jobs`; `deps` wires them together.
+This module only assembles the app: `routers/` is the HTTP, `branches` the branch rules, `grid` the read-only grid,
+`storage/` every SQL (the scenarios store and the warehouse), `compute/` everything that solves (plan runs, year runs,
+the result cache, the job worker); `deps` wires them together.
 """
 
 import math
@@ -20,8 +21,8 @@ from starlette.responses import JSONResponse
 from .config import MAIN_ID, log
 from .deps import grid, jobs, plans, scenarios, warehouse
 from .errors import DomainError, status_of
-from .routers import branches, model, runs
-from .warehouse import LOCK_MEMORY_S, WarehouseBusy, request_state
+from .routers import branches, jobs as jobs_router, model, runs
+from .storage.warehouse import LOCK_MEMORY_S, WarehouseBusy, request_state
 
 
 @asynccontextmanager
@@ -41,8 +42,7 @@ async def _lifespan(_app: FastAPI):
     jobs.submit(_warm)
     if warehouse.exists():
         try:
-            b = plans.inputs(MAIN_ID)
-            jobs.start("run", lambda progress, publish: plans.run(b, progress=progress, publish=publish), key=plans.run_key(b))
+            plans.start_run(MAIN_ID)
         except Exception:
             log.exception("could not queue main's first run")
     yield
@@ -87,5 +87,5 @@ async def _json_errors(request: Request, call_next):
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
                    expose_headers=["X-Warehouse-Snapshot", "X-Warehouse-Stale"])
 
-for _router in (model.router, branches.router, runs.router):
+for _router in (model.router, branches.router, jobs_router.router, runs.router):
     app.include_router(_router)

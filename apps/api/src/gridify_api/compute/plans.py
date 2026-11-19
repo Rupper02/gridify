@@ -1,18 +1,23 @@
-"""Run the engine for a branch: read its inputs, simulate the plan years through the cache, shape the result for the
-map, and compare a branch with its parent."""
+"""Run the engine for a branch: read its inputs, start or join its run on the job worker, simulate the plan years
+through the cache, shape the result for the map, and compare a branch with its parent."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import NamedTuple
 
 from gridify_optimizer import Connection, PlanDiff, PlanParams, PlanResult, diff_plans, simulate
 from gridify_optimizer.config import FORECASTS
 
-from . import repository
+from ..errors import Conflict, Invalid, NotSolved
+from ..grid import Grid
+from ..storage import repository
+from ..storage.scenarios import ScenarioStore
 from .cache import ResultCache, connections_key
-from .errors import Invalid, NotSolved
-from .grid import Grid
-from .store import ScenarioStore
+from .jobs import JobRunner
+
+YEAR_STOPPED = ("stopped so a branch's plan years could solve first. Nothing of it was kept: run the year again once the "
+                "branch holds what you want to study")
 
 
 class BranchInputs(NamedTuple):
@@ -38,10 +43,31 @@ def plan_params(branch: dict) -> PlanParams:
 class PlanService:
     """The engine behind the API's run and diff endpoints, with its collaborators handed in."""
 
-    def __init__(self, grid: Grid, store: ScenarioStore, cache: ResultCache):
+    def __init__(self, grid: Grid, store: ScenarioStore, cache: ResultCache, jobs: JobRunner):
         self.grid = grid
         self.store = store
         self.cache = cache
+        self.jobs = jobs
+
+    def start_run(self, branch_id: str, view_year: int | None = None) -> dict:
+        """Start a branch's run on the job worker: every plan year, `view_year` first. A run of the same inputs already
+        queued or running is joined; a cached one finishes at once. A plan run never waits behind a branch's year."""
+        b = self.inputs(branch_id)
+        key = self.run_key(b)
+        if not self.cache.has(key):  # a cached plan finishes at once: it need not stop anything
+            self.stop_year_runs()
+        return self.jobs.start("run", lambda progress, publish: self.run(b, progress=progress, publish=publish, view_year=view_year),
+                               key=key)
+
+    def simulate(self, branch_id: str) -> dict:
+        """Run a branch and wait for it (scripts and tests; the planner uses `start_run`)."""
+        self.stop_year_runs()
+        return self.run(self.inputs(branch_id))
+
+    def stop_year_runs(self) -> None:
+        """A branch's year (up to twenty minutes on the one worker) stops at its next progress report, a few seconds,
+        and leaves no file (`year_runs`: whole or not at all)."""
+        self.jobs.stop_kind("year", YEAR_STOPPED)
 
     def inputs(self, branch_id: str) -> BranchInputs:
         with self.store.cursor() as con:
@@ -74,7 +100,8 @@ class PlanService:
             out["years"] = {k: v.model_dump() for k, v in result.years.items()}
         return out
 
-    def run(self, b: BranchInputs, *, progress=None, publish=None, view_year: int | None = None) -> dict:
+    def run(self, b: BranchInputs, *, progress: Callable[[str, float], None] | None = None,
+            publish: Callable[[dict], None] | None = None, view_year: int | None = None) -> dict:
         """Run a branch on the inputs read when the run was asked for (`inputs`), so a job computes exactly what its key
         names: every plan year, the viewed year first. `publish(payload)` receives the partial payload as each year
         lands, so the planner shows results while the rest are still solving."""
@@ -92,6 +119,14 @@ class PlanService:
         """A branch's result for what it holds now, without solving: `NotSolved` until it has run."""
         b = self.inputs(branch_id)
         return self.payload(b, self.result(b, solve=False))
+
+    def compare_with_parent(self, branch_id: str) -> dict:
+        """The branch against its parent, year by year, on the branch's demand profile."""
+        with self.store.cursor() as con:
+            head = repository.require_branch(con, branch_id)
+        if repository.is_main(head):
+            raise Conflict("main has no parent to compare with")
+        return {"base": head["parent_id"], **self.diff(branch_id, head["parent_id"]).model_dump()}
 
     def diff(self, head_id: str, base_id: str) -> PlanDiff:
         """The branch against its base, year by year. The branch must have run for what it holds now; the base's side

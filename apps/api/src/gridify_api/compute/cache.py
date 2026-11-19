@@ -14,9 +14,9 @@ from typing import TypeVar
 
 from gridify_optimizer import Connection, PlanParams
 
-from .config import log, now
-from .errors import NotSolved
-from .store import ScenarioStore
+from ..config import log, now
+from ..errors import NotSolved
+from ..storage.scenarios import ScenarioStore
 
 T = TypeVar("T")
 

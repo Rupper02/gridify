@@ -21,7 +21,7 @@ from typing import Any
 
 import duckdb
 
-from .config import log
+from ..config import log
 
 # how long a read waits for the pipeline's writer (it holds the file about a second per run) before it falls back, and
 # how long after seeing the lock later reads try once and fall back at once instead of each waiting again

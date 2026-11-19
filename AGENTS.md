@@ -141,7 +141,7 @@ change engine output (compare a run before and after, or run the engine suite).
 
 ### Conventions across packages
 
-- **Change the output shape in one pass:** `types.py` → the API (`service.py`) → `apps/web/src/types.ts` + `src/api.ts` →
+- **Change the output shape in one pass:** `types.py` → the API (`compute/plans.py`) → `apps/web/src/types.ts` + `src/api.ts` →
   the component that renders it.
 - Delete dead code rather than keeping it "not wired". Update the READMEs in the same change when behaviour, endpoints or
   commands change.

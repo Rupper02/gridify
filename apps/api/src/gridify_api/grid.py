@@ -13,7 +13,7 @@ from gridify_optimizer.naming import name_model
 from gridify_optimizer.network import band_at
 from gridify_optimizer.sources import GridSource, NgedSource, Pathway
 
-from .warehouse import Warehouse
+from .storage.warehouse import Warehouse
 
 
 class WarehouseNgedSource:
@@ -93,7 +93,8 @@ class Grid:
 
     def registry(self) -> list[dict]:
         """The not-yet-built projects the registry publishes, shaped as connections (their requested year as the year),
-        with the facts they come with."""
+        with the facts they come with. The fields read are the engine's candidate format (`GridSource.candidates`), the
+        same for any grid."""
         return [
             {"request_id": r["request_id"], "name": r.get("applicant") or r["request_id"], "bus_id": r.get("bus_id"),
              "technology": r.get("technology"), "rating_mw": r.get("rating_mw"), "import_mw": r.get("import_mw"),

@@ -1,6 +1,6 @@
 """The scenarios store's SQL adapter, without a database: what Postgres is sent for the DuckDB-style SQL we write."""
 
-from gridify_api.store import Cursor
+from gridify_api.storage.scenarios import Cursor
 
 
 def test_postgres_gets_percent_signs_escaped_and_placeholders_converted():

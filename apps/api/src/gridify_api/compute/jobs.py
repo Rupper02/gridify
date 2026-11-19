@@ -9,8 +9,8 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
-from .config import log, now
-from .errors import NotFound
+from ..config import log, now
+from ..errors import NotFound
 
 
 class JobCancelled(Exception):
